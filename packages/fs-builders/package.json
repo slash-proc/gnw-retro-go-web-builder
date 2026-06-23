@@ -1,0 +1,15 @@
+{
+  "name": "@gnw/fs-builders",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./vendor/*": "./vendor/*"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

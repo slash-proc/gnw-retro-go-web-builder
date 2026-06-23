@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GNW Web Builder — test harness</title>
+    <!-- Resolve the patch engine's bare import of the in-house assembler. -->
+    <script type="importmap">
+      { "imports": { "@gnw/thumb-asm": "/packages/thumb-asm/dist/index.js" } }
+    </script>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0 auto; max-width: 760px; padding: 1.5rem; line-height: 1.4; }
+      h1 { font-size: 1.25rem; }
+      fieldset { border: 1px solid #8884; border-radius: 8px; margin: 0 0 1rem; }
+      legend { font-weight: 600; padding: 0 .4rem; }
+      label { display: inline-block; min-width: 9rem; }
+      .row { margin: .35rem 0; }
+      button { padding: .4rem .8rem; border-radius: 6px; cursor: pointer; }
+      pre { background: #8881; padding: .75rem; border-radius: 8px; overflow-x: auto;
+            min-height: 2rem; white-space: pre-wrap; word-break: break-word; }
+      .banner { font-size: .8rem; opacity: .7; margin-bottom: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>GNW Web Builder — test harness</h1>
+    <p class="banner">
+      Throwaway UI for poking the backend endpoints. Single page, updates in
+      place. This gets reimagined/tossed once the backend mechanics settle.
+    </p>
+
+    <fieldset>
+      <legend>Health</legend>
+      <div class="row"><button data-action="health">GET /api/health</button></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>SWD probe (browser-side WebUSB — talks to your probe)</legend>
+      <p class="banner" style="margin:.25rem 0">
+        Reads basic STM32H7B0 device info over WebUSB. Autodetects across
+        <strong>ST-Link v2</strong> and <strong>Raspberry Pi debugprobe/picoprobe</strong>
+        (CMSIS-DAP v2) — pick whichever you have in the browser dialog. Chrome/Edge
+        only; the page must be on http://localhost. Runs entirely client-side —
+        the Node backend cannot reach USB.
+      </p>
+      <div class="row">
+        <button data-action="swd-query">Connect probe &amp; query device</button>
+        <button data-action="gnw-info">gnwmanager info</button>
+      </div>
+      <div class="row">
+        <strong>Device info</strong>
+        <pre id="swd-out">— not queried —</pre>
+      </div>
+      <p class="banner" style="margin:.25rem 0">
+        <strong>gnwmanager info</strong> boots the on-device RAM flash util over
+        SWD and reads back what it detects (external-flash size, block size, lock
+        state) — the L2 milestone. Needs a real Game &amp; Watch target attached.
+      </p>
+      <div class="row">
+        <strong>Probe log</strong>
+        <pre id="swd-log" style="font-size:.75rem"></pre>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Flash / Dump (boots the stub, then programs/reads flash)</legend>
+      <p class="banner" style="margin:.25rem 0">
+        Writes a binary to or reads a region from internal/external flash via the
+        gnwmanager protocol. Numbers are decimal by default — <code>0x…</code> for
+        hex, and <code>k</code>/<code>m</code> suffixes work (e.g. <code>64k</code>).
+        Ext offset must be a multiple of 4096; int of 8192. Flashing erases first
+        and the device verifies every chunk. Needs a real target attached.
+      </p>
+      <div class="row">
+        <label for="fd-location">location</label>
+        <select id="fd-location">
+          <option value="ext">ext (0x90000000)</option>
+          <option value="bank1">bank1 (0x08000000)</option>
+          <option value="bank2">bank2 (0x08100000)</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="fd-offset">offset</label>
+        <input id="fd-offset" type="text" value="0" size="14" />
+      </div>
+      <div class="row">
+        <label for="fd-file">binary to flash</label>
+        <input id="fd-file" type="file" />
+        <button data-action="flash">Flash file</button>
+      </div>
+      <div class="row">
+        <label for="fd-compress">LZMA compress</label>
+        <input id="fd-compress" type="checkbox" checked />
+        <span class="banner">faster transfer; device decompresses (auto-skips if it doesn't help)</span>
+      </div>
+      <div class="row">
+        <label for="fd-verify">verify writes</label>
+        <input id="fd-verify" type="checkbox" checked />
+        <span class="banner">read back each buffer to catch probe corruption (slower)</span>
+      </div>
+      <div class="row">
+        <progress id="fd-progress" value="0" max="1" style="width: 100%; height: 1rem"></progress>
+        <span id="fd-pct" style="font-size: .8rem"></span>
+      </div>
+      <div class="row">
+        <label for="fd-size">dump size (bytes)</label>
+        <input id="fd-size" type="text" value="" placeholder="blank = whole region" size="20" />
+        <button data-action="dump">Dump &amp; download</button>
+      </div>
+      <div class="row">
+        <strong>Result</strong>
+        <pre id="fd-out">— idle —</pre>
+      </div>
+      <div class="row">
+        <strong>Log</strong>
+        <pre id="fd-log" style="font-size:.75rem"></pre>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Patch (modify stock firmware → retro-go-style build)</legend>
+      <p class="banner" style="margin:.25rem 0">
+        Supply your <strong>stock OFW backups</strong> (internal + external flash
+        dumps). The device (Mario/Zelda) is auto-detected and the dumps are
+        validated as genuine stock backups by hash before any options appear.
+      </p>
+      <div class="row">
+        <label for="patch-int">intflash backup</label>
+        <input id="patch-int" type="file" />
+      </div>
+      <div class="row">
+        <label for="patch-ext">extflash backup</label>
+        <input id="patch-ext" type="file" />
+        <button data-action="patch-detect">Detect &amp; validate</button>
+      </div>
+      <div class="row">
+        <strong>Detection</strong>
+        <pre id="patch-detect-out">— supply both backups —</pre>
+      </div>
+      <div class="row" id="patch-options-row" style="display:none">
+        <strong>Patch options</strong>
+        <div id="patch-options"></div>
+        <div style="margin-top:.5rem">
+          <button data-action="patch-run">Patch &amp; flash</button>
+        </div>
+        <div class="row" style="margin-top:.5rem">
+          <progress id="patch-progress" value="0" max="1" style="width: 100%; height: 1rem"></progress>
+          <span id="patch-pct" style="font-size: .8rem"></span>
+        </div>
+      </div>
+      <div class="row">
+        <strong>Result</strong>
+        <pre id="patch-out">— idle —</pre>
+      </div>
+      <div class="row">
+        <strong>Log</strong>
+        <pre id="patch-log" style="font-size:.75rem"></pre>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>resolveBuild (pure, works)</legend>
+      <div class="row">
+        <label for="target">target</label>
+        <select id="target"><option>mario</option><option>zelda</option></select>
+      </div>
+      <div class="row">
+        <label for="intflashBank">intflashBank</label>
+        <select id="intflashBank"><option>1</option><option>2</option></select>
+      </div>
+      <div class="row">
+        <label for="extflashSizeMb">extflashSizeMb</label>
+        <input id="extflashSizeMb" type="number" value="16" min="1" />
+      </div>
+      <div class="row">
+        <label for="sdCard">sdCard</label>
+        <input id="sdCard" type="checkbox" checked />
+      </div>
+      <div class="row"><button data-action="resolve">POST /api/resolve-build</button></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Manifest (stubs — expect 501)</legend>
+      <div class="row">
+        <button data-action="variants">GET /api/variants</button>
+        <button data-action="manifest">GET /api/manifest</button>
+        <button data-action="flash">POST /api/flash</button>
+      </div>
+    </fieldset>
+
+    <h2 style="font-size: 1rem">Response</h2>
+    <pre id="out">— nothing yet —</pre>
+
+    <!-- dapjs as a UMD global (window.DAPjs); classic script runs before the deferred module. -->
+    <script src="./vendor/dapjs/dap.umd.js"></script>
+    <!-- LZMA-JS (patched 16 KiB dict) as window.LZMA, for compressed flashing. -->
+    <script src="./vendor/lzma/lzma_worker.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

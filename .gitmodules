@@ -1,0 +1,3 @@
+[submodule "frontend/vendor/webstlink"]
+	path = frontend/vendor/webstlink
+	url = https://github.com/devanlai/webstlink.git

@@ -1,0 +1,9 @@
+{
+  "name": "@gnw/frontend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Throwaway single-page test UI for the backend endpoints. Will be tossed out.",
+  "scripts": {
+    "dev": "echo 'Frontend is static — served by the backend at http://localhost:3000'"
+  }
+}

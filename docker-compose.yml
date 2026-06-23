@@ -1,0 +1,55 @@
+# Local dev. `docker compose up` builds the image and serves the real app
+# (Vite + Svelte) on http://localhost:3000. Vite proxies /dev, /packages, /api to
+# the Express backend (internal :3001) so the legacy test harness still works at
+# /dev. Source is bind-mounted; node_modules and built dist stay inside the
+# container via anonymous volumes so nothing lands on the host.
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      # Keep installed deps + image-built package output inside the container.
+      - /app/node_modules
+      - /app/apps/web/node_modules
+      - /app/packages/swd-transport/dist
+      - /app/packages/thumb-asm/dist
+      - /app/packages/gnw-patch/dist
+      - /app/packages/gnw-flasher/dist
+      - /app/packages/fs-builders/dist
+      - /app/packages/builder-core/dist
+    # Three processes: tsc -b --watch keeps package dist fresh (Vite + Express
+    # consume it); the Express backend (legacy /dev, /packages, /api) on :3001;
+    # the Vite dev server (the real app, HMR) on :3000 in the foreground.
+    # PROXY_TLS tells Vite its HMR websocket is reached through the https nginx proxy
+    # (wss on :443) instead of ws on :3000 — otherwise HMR mixed-content-fails on the
+    # https origin. Direct http://localhost:3000 still serves; only its live-reload needs
+    # a manual refresh while this is set.
+    environment:
+      - PROXY_TLS=1
+    command: >
+      sh -c "npx tsc -b packages/builder-core packages/fs-builders packages/gnw-flasher packages/gnw-patch packages/swd-transport packages/thumb-asm --watch --preserveWatchOutput &
+             PORT=3001 npm run dev --workspace backend &
+             npm run dev --workspace @gnw/web"
+
+  # Dev-only HTTPS reverse proxy → secure context for WebUSB from LAN clients.
+  # Browse https://gnw-builder.local (or the host's LAN IP); accept the self-signed cert once.
+  proxy:
+    image: nginx:alpine
+    depends_on:
+      - dev
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/nginx/entrypoint.sh:/entrypoint.sh:ro
+      - nginx-certs:/etc/nginx/certs
+    # Our entrypoint generates the self-signed cert (once, into the volume) then exec's nginx.
+    entrypoint: ["sh", "/entrypoint.sh"]
+
+volumes:
+  nginx-certs:

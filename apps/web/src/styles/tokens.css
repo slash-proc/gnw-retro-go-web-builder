@@ -1,0 +1,102 @@
+/* Game & Watch design tokens. Base = neutral shades of white/black (NOT warm/
+   brown). Gold is a metallic accent (header lip, the device face-plate, the
+   logo). Buttons: red primary (A/B), silver-with-model-colored-outline secondary
+   (the gray function buttons). Legends are black; the logo is black-on-silver-on-
+   gold. The model color (Mario scarlet / Zelda green) is the structural accent. */
+:root {
+  --bg: #f4f4f4;
+  --surface: #ffffff;
+  --surface-sunk: #e8e8e8;
+  --ink: #1b1b1b;
+  --ink-soft: #5c5c5c;
+  --hairline: #d8d8d8;
+
+  --gold: #c9a23c;
+  --gold-deep: #a8842a;
+  --grad-gold: linear-gradient(180deg, #d9bc5e 0%, #c09a32 100%);
+
+  --silver: #c9c9cd;
+  --silver-edge: #9a9aa0;
+
+  --action-red: #c8372b;
+  --action-red-deep: #9e2a20;
+  --danger: #8a241b;
+  --caution: #b8860b;
+
+  --mario-red: #ce3526;
+  --zelda-green: #3e9e4e;
+  --neutral-edge: #9a9a9e;
+
+  --model-accent: var(--neutral-edge);
+
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "Commit Mono", "SF Mono", Menlo, monospace;
+  --fs-micro: 0.75rem;
+  --fs-caption: 0.875rem;
+  --fs-body: 1rem;
+  --fs-lg: 1.25rem;
+  --fs-display: 1.5rem;
+  --fs-display-lg: 2rem;
+
+  --r-control: 2px;
+  --r-card: 6px;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.12);
+
+  --maxw: 1200px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161616;
+    --surface: #212121;
+    --surface-sunk: #101010;
+    --ink: #ececec;
+    --ink-soft: #9b9b9b;
+    --hairline: #323232;
+    --gold: #d2ac44;
+    --gold-deep: #b7912e;
+    --grad-gold: linear-gradient(180deg, #d6b856 0%, #b7912e 100%);
+    --silver: #9a9aa0;
+    --silver-edge: #6b6b71;
+    --action-red: #d2473b;
+    --action-red-deep: #a8332a;
+    --danger: #c25247;
+    --caution: #d8a82a;
+    --mario-red: #e2493d;
+    --zelda-green: #4fb163;
+    --neutral-edge: #565656;
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #161616;
+  --surface: #212121;
+  --surface-sunk: #101010;
+  --ink: #ececec;
+  --ink-soft: #9b9b9b;
+  --hairline: #323232;
+  --gold: #d2ac44;
+  --gold-deep: #b7912e;
+  --grad-gold: linear-gradient(180deg, #d6b856 0%, #b7912e 100%);
+  --silver: #9a9aa0;
+  --silver-edge: #6b6b71;
+  --action-red: #d2473b;
+  --action-red-deep: #a8332a;
+  --danger: #c25247;
+  --caution: #d8a82a;
+  --mario-red: #e2493d;
+  --zelda-green: #4fb163;
+  --neutral-edge: #565656;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+[data-model="mario"] {
+  --model-accent: var(--mario-red);
+}
+[data-model="zelda"] {
+  --model-accent: var(--zelda-green);
+}

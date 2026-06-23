@@ -1,0 +1,4 @@
+# Optional: `wrangler deploy` from this folder (the dashboard paste works too).
+name = "gnw-artifacts"
+main = "worker.js"
+compatibility_date = "2024-11-01"

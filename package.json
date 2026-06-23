@@ -1,0 +1,23 @@
+{
+  "name": "gnw-web-builder",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Client-side firmware builder & flasher for game-and-watch-retro-go-sd",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "npm run dev --workspace backend",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

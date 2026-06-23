@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/swd-transport" },
+    { "path": "./packages/thumb-asm" },
+    { "path": "./packages/gnw-patch" },
+    { "path": "./packages/gnw-flasher" },
+    { "path": "./packages/fs-builders" },
+    { "path": "./packages/builder-core" },
+    { "path": "./backend" }
+  ]
+}

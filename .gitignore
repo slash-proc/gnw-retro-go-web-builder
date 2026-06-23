@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Env / editor
+.env
+.env.local
+.DS_Store
+.idea/
+.vscode/
+
+# References + device backups + scratch are local working-copy material, NOT tracked.
+# We actively develop retro-go under references/ on our own branch, so it is a plain
+# working clone (not a pinned submodule). Pinned SHAs at un-tracking time are recorded
+# in docs/DEVELOPMENT.md for reproducibility.
+references/
+backup/
+lzmatest/
+
+# Locally-built retro-go firmware blobs (rebuildable from references/, see DEVELOPMENT.md)
+blobs/
+
+# Patch oracle output: reference patched images + liblzma vectors are derived
+# from copyrighted stock firmware — local validation artifacts, never committed.
+packages/gnw-patch/test/ref/
+
+# Visual preview screenshots (dev tooling)
+apps/web/preview-*.png
+
+# Generated fs-builders validation artifacts (images, oracle outputs)
+packages/fs-builders/test/ref/
+packages/fs-builders/test/ref-staging/
+packages/fs-builders/test/ref-romlzma/

@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "composite": false
+  },
+  "include": ["src"]
+}

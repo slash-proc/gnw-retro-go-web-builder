@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+# tsc -b writes these next to each tsconfig; dist/ is excluded above, so a stale
+# buildinfo in the image makes tsc skip emitting (empty dist → unresolved types).
+**/*.tsbuildinfo
+.git
+references
+*.log
+.env*

@@ -1,0 +1,71 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+:focus-visible {
+  outline: 2px solid var(--model-accent);
+  outline-offset: 2px;
+}
+
+/* Shared utilities used across views. */
+.muted {
+  color: var(--ink-soft);
+}
+.err {
+  color: var(--danger);
+  font-size: var(--fs-caption);
+}
+.note {
+  color: var(--caution);
+  font-size: var(--fs-caption);
+}
+.log {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--ink-soft);
+  background: var(--surface-sunk);
+  padding: 0.6rem 0.75rem;
+  border-radius: 2px;
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.stack > * + * {
+  margin-top: 1rem;
+}
+.row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
