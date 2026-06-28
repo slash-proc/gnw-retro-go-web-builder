@@ -80,6 +80,32 @@ class RomSelectionStore {
   /** Explicit user choices by game key; a key absent here follows the default (installed). */
   private overrides = new SvelteMap<string, boolean>();
 
+  /** The set of Homebrew titles (by their HOMEBREW_TITLES key) selected for install.
+   *  Initializes with "celeste" (default) plus anything currently on the device. */
+  readonly selectedHomebrew = new SvelteMap<string, boolean>();
+
+  // Initialize selectedHomebrew when device connects/scans
+  initHomebrew(deviceHomebrewNames: string[], allHomebrewKeys: string[]) {
+    if (this.selectedHomebrew.size > 0) return; // already init
+    for (const key of allHomebrewKeys) {
+      if (key === "celeste") this.selectedHomebrew.set(key, true);
+      else this.selectedHomebrew.set(key, false);
+    }
+    // We will sync with device later if needed, or rely on caller to set
+  }
+
+  isHomebrewSelected(key: string): boolean {
+    return this.selectedHomebrew.get(key) === true;
+  }
+
+  toggleHomebrew(key: string): void {
+    this.selectedHomebrew.set(key, !this.selectedHomebrew.get(key));
+  }
+
+  get selectedHomebrewKeys(): Set<string> {
+    return new Set([...this.selectedHomebrew.entries()].filter(([, v]) => v).map(([k]) => k));
+  }
+
   /** Folder ROMs ∪ device-installed games (excludes `bios/` assets — not games). */
   readonly games: Game[] = $derived.by(() => {
     const byKey = new Map<string, Game>();

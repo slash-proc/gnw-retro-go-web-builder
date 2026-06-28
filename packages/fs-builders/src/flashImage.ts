@@ -28,6 +28,10 @@ export interface FlashImageOpts {
   compressGbSpeed?: boolean;
   /** If true (default), all cores are included in FrogFS. If false, only cores matching active systems are included. */
   installAllCores?: boolean;
+  /** Homebrew selection (keys). */
+  selectedHomebrew?: Set<string>;
+  /** Supported homebrew definitions to resolve deviceFiles to keys. */
+  homebrewTitles?: { key: string; deviceFiles: string[] }[];
 }
 
 export interface FlashImageInputs {
@@ -115,7 +119,24 @@ export function planFlashImage(inputs: FlashImageInputs): FlashAssemblyPlan {
       if (dest === "bios/msx" || dest.startsWith("bios/msx/")) tree.delete(dest);
   }
 
-  // 2.5) Filter cores if installAllCores is false
+  // 2.5) Filter unselected default homebrew (e.g. celeste.bin from the firmware bundle).
+  // On-device homebrew that was selected is already in `tree` via `userRoms` (readGameData).
+  // But the bundle ALWAYS contains default homebrew like celeste.bin. We must prune them
+  // if the user explicitly unselected them.
+  if (opts?.selectedHomebrew) {
+    for (const dest of [...tree.keys()]) {
+      if (!dest.startsWith("roms/homebrew/")) continue;
+      const file = dest.slice("roms/homebrew/".length);
+      // We only care about known titles. Unrecognized homebrew is left alone.
+      // (Actually, the bundle only provides known ones, but just in case).
+      const hb = opts.homebrewTitles?.find((t) => t.deviceFiles.includes(file));
+      if (hb && !opts.selectedHomebrew.has(hb.key)) {
+        tree.delete(dest);
+      }
+    }
+  }
+
+  // 2.6) Filter cores if installAllCores is false
   if (opts?.installAllCores === false) {
     for (const [path, data] of [...coreTree]) {
       if (path !== CORES && path.startsWith(CORES)) {

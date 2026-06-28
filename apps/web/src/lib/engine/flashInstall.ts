@@ -136,12 +136,12 @@ export interface FrogfsImage {
 export async function buildFrogfsImage(
   bundle: FirmwareBundle,
   userRoms: Map<string, Uint8Array>,
-  opts?: { installAllCores?: boolean }
+  opts?: { installAllCores?: boolean; selectedHomebrew?: Set<string>; homebrewTitles?: { key: string; deviceFiles: string[] }[] }
 ): Promise<FrogfsImage> {
   // RAW (uncompressed) ROMs for execute-in-place — no per-ROM .lzma sidecars (no on-device
   // decompress → no heap OOM). lzmaRaw is unused in raw mode but the planner still wants it.
   const lzmaRaw = await loadLiblzma();
-  const plan = planFlashImage({ defaultContent: bundle.sdContent, userRoms, lzmaRaw, compress: false, opts: { installAllCores: opts?.installAllCores } });
+  const plan = planFlashImage({ defaultContent: bundle.sdContent, userRoms, lzmaRaw, compress: false, opts });
   return { frogfs: buildFrogfsFromPlan(plan), plan };
 }
 

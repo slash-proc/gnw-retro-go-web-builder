@@ -80,7 +80,16 @@
   // --- Homebrew (shown as TITLES, not removable game files; always preserved on install) ------
   const deviceHomebrew = $derived(device.installedGames.filter((g) => g.system === "homebrew"));
   const homebrewTitles = $derived(homebrewStatus(deviceHomebrew.map((g) => g.name)));
-  const unknownHomebrew = $derived(deviceHomebrew.filter((g) => !HOMEBREW_DEVICE_FILES.has(g.name)));
+  const unknownHomebrew = $derived(
+    deviceHomebrew.filter((g) => !HOMEBREW_TITLES.some((h) => h.deviceFiles.includes(g.name))),
+  );
+
+  $effect(() => {
+    romSelection.initHomebrew(
+      deviceHomebrew.map((g) => g.name),
+      HOMEBREW_TITLES.map((h) => h.key)
+    );
+  });
 
   // --- Select-games table state -----------------------------------------------------------
   let consoleFilter = $state<string>("all");
@@ -127,7 +136,11 @@
       const versions = await listVersions();
       if (versions.length === 0) throw new Error("No firmware versions are published yet.");
       const bundle = await fetchBundle(versions[0].tag);
-      const { frogfs } = await buildFrogfsImage(bundle, romSelection.selectedFolderRoms(), { installAllCores });
+      const { frogfs } = await buildFrogfsImage(bundle, romSelection.selectedFolderRoms(), { 
+        installAllCores,
+        selectedHomebrew: romSelection.selectedHomebrewKeys,
+        homebrewTitles: HOMEBREW_TITLES
+      });
       if (token !== buildToken) return;
       builtFrogfs = frogfs;
       newFrogfsLen = frogfs.length;
@@ -217,6 +230,8 @@
     // deferred module — see engine/homebrew.ts.)
     const deviceHomebrew = device.installedGames.filter((g) => g.system === "homebrew");
     for (const g of deviceHomebrew) {
+      const hb = HOMEBREW_TITLES.find((t) => t.deviceFiles.includes(g.name));
+      if (hb && !romSelection.selectedHomebrewKeys.has(hb.key)) continue;
       userRoms.set(`${g.system}/${g.name}`, await readGameData(read, frogfsOffset, g));
     }
     // Reuse the cached preview only when nothing had to be re-read from the device and it's current.
@@ -226,7 +241,11 @@
       const versions = await listVersions();
       if (versions.length === 0) throw new Error("No firmware versions are published yet.");
       const bundle = await fetchBundle(versions[0].tag);
-      frogfs = (await buildFrogfsImage(bundle, userRoms, { installAllCores })).frogfs;
+      frogfs = (await buildFrogfsImage(bundle, userRoms, { 
+        installAllCores,
+        selectedHomebrew: romSelection.selectedHomebrewKeys,
+        homebrewTitles: HOMEBREW_TITLES
+      })).frogfs;
     }
     dbg("[install] frogfs built:", frogfs.length, "bytes → flashing @", hex(frogfsOffset));
     await flashFrogfsRegion(
@@ -334,7 +353,7 @@
                     <span class="gname">{hb.label}</span>
                     <span style="flex-grow: 1;"></span>
                     {#if isCeleste}
-                      <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'on device' : 'ready to install'}</span>
+                      <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'installed' : 'ready to install'}</span>
                     {:else}
                       <span class="gchip muted">not supported yet</span>
                     {/if}
