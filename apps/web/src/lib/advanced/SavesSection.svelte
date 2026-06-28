@@ -26,6 +26,22 @@
   let selectedSlot = $state<SaveSlot | null>(null);
   let screenshotDataUrl = $state<string | null>(null);
   let downloading = $state<string | null>(null);
+  
+  let consoleFilter = $state<string>("all");
+
+  const systems = $derived.by(() => {
+    const map = new Map<string, number>();
+    for (const gs of saves) {
+      map.set(gs.console, (map.get(gs.console) || 0) + 1);
+    }
+    return Array.from(map.entries())
+      .map(([system, count]) => ({ system, count }))
+      .sort((a, b) => a.system.localeCompare(b.system));
+  });
+
+  const visibleSaves = $derived(
+    saves.filter(gs => consoleFilter === "all" || gs.console === consoleFilter)
+  );
 
   async function loadSaves() {
     if (loading || loaded) return;
@@ -203,7 +219,7 @@
 
 <div class="saves-section">
   {#if loading}
-    <p class="muted">Reading LittleFS partition over SWD ({Math.round(progress * 100)}%)...</p>
+    <p class="muted">Reading LittleFS partition over SWD ({Math.round(progress * 100)}%)....</p>
   {:else if error}
     <p class="error">{error}</p>
   {:else if saves.length === 0}
@@ -211,16 +227,32 @@
   {:else}
     <div class="split">
       <div class="left-pane">
-        <div class="rows">
-          {#each saves as gs}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <label class="row" class:active={selectedGame === gs} onclick={() => selectGame(gs)}>
-              <span class="gchip console-chip">{gs.console}</span>
-              <span class="gname">{gs.game}</span>
-              <span class="gsize mono">{gs.slots.length} files</span>
-            </label>
-          {/each}
+        <div class="seltable">
+          <div class="consoles">
+            <button class="console" class:active={consoleFilter === "all"} onclick={() => (consoleFilter = "all")}>
+              All ({saves.length})
+            </button>
+            {#each systems as s}
+              <button class="console" class:active={consoleFilter === s.system} onclick={() => (consoleFilter = s.system)}>
+                {s.system} ({s.count})
+              </button>
+            {/each}
+          </div>
+
+          <div class="rows">
+            {#each visibleSaves as gs}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <label class="row" class:active={selectedGame === gs} onclick={() => selectGame(gs)}>
+                <span class="gchip console-chip">{gs.console}</span>
+                <span class="gname">{gs.game}</span>
+                <span class="gsize mono">{gs.slots.length} files</span>
+              </label>
+            {/each}
+            {#if visibleSaves.length === 0}
+              <p class="muted" style="padding: 1rem;">No games match this filter.</p>
+            {/if}
+          </div>
         </div>
       </div>
       
@@ -298,6 +330,33 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+  
+  .seltable {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .consoles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+  .console {
+    font: inherit;
+    font-size: var(--fs-micro);
+    color: var(--ink-soft);
+    background: var(--surface-sunk);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    cursor: pointer;
+  }
+  .console.active {
+    background: var(--surface);
+    color: var(--ink);
+    border-color: var(--model-accent);
+    font-weight: 600;
   }
   
   .rows {
