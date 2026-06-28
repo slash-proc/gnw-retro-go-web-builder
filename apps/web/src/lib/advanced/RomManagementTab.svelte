@@ -137,6 +137,7 @@
       for (const [fname, data] of Object.entries(res.files || {}) as [string, Uint8Array][]) {
         extractedAssets.set(`homebrew/${fname}`, data);
       }
+      extractedAssets = new Map(extractedAssets);
       romSelection.toggleHomebrew(hb.key, true);
     } catch (err: any) {
       extractError = err.message;
