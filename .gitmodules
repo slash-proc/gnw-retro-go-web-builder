@@ -1,3 +1,11 @@
 [submodule "frontend/vendor/webstlink"]
 	path = frontend/vendor/webstlink
 	url = https://github.com/devanlai/webstlink.git
+[submodule "external/zelda3"]
+	path = external/zelda3
+	url = https://github.com/sylverb/zelda3.git
+	branch = filesystem
+[submodule "external/smw"]
+	path = external/smw
+	url = https://github.com/sylverb/smw.git
+	branch = filesystem

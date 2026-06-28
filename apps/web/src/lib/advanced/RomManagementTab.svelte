@@ -10,7 +10,7 @@
   import { romSelection, type Game } from "../romSelection.svelte.js";
   import { buildFrogfsImage, flashFrogfsRegion, BudgetError } from "../engine/flashInstall.js";
   import { readGameData } from "../engine/frogfsDevice.js";
-  import { homebrewStatus, HOMEBREW_DEVICE_FILES } from "../engine/homebrew.js";
+  import { homebrewStatus, HOMEBREW_DEVICE_FILES, HOMEBREW_TITLES } from "../engine/homebrew.js";
   import { dumpRegion } from "../engine/flasher.js";
   import { dbg, dbgLog } from "../debug.js";
   import { listVersions, fetchBundle } from "../artifacts.js";
@@ -106,7 +106,7 @@
   let newFrogfsLen = $state<number | null>(null);
   let building = $state(false);
   let buildErr = $state<string | null>(null);
-  let installAllCores = $state(true);
+  const installAllCores = true;
   let builtFor = $state<string | null>(null);
   let buildToken = 0;
 
@@ -319,49 +319,52 @@
             · <strong>−{romSelection.removals.length}</strong> remove ({MiB(romSelection.removalsBytes)} MiB)
           </p>
 
-          {#if deviceHomebrew.length}
-            <div class="homebrew">
-              <h4 class="hbhead">
-                Homebrew on device <span class="hbnote">— kept as-is on install (not removable here)</span>
-              </h4>
-              {#each homebrewTitles as h (h.title.key)}
-                <div class="hbrow">
-                  <span class="gname">{h.title.label}</span>
-                  {#if h.complete}
-                    <span class="gchip ok">complete</span>
-                  {:else}
-                    <span class="gchip warn"
-                      >incomplete — reinstall ({h.present}/{h.title.deviceFiles.length} files)</span
-                    >
-                  {/if}
-                </div>
-              {/each}
-              {#each unknownHomebrew as g (g.name)}
-                <div class="hbrow">
-                  <span class="gname mono">{g.name}</span>
-                  <span class="gchip muted">unrecognized</span>
-                </div>
-              {/each}
+          <details class="homebrew-dropdown">
+            <summary class="hbhead">Homebrew &amp; Ports</summary>
+            <div class="homebrew-content">
+              <p class="desc" style="margin-bottom: 0.5rem; margin-top: 0.5rem;">
+                Homebrew titles require special assets to be generated before they can be installed.
+              </p>
+              <div class="rows">
+                {#each HOMEBREW_TITLES as hb}
+                  {@const isCeleste = hb.key === "celeste"}
+                  {@const onDevice = deviceHomebrew.some((g) => hb.deviceFiles.includes(g.name))}
+                  <label class="row" style={!isCeleste ? "opacity: 0.5; cursor: not-allowed;" : "cursor: pointer;"}>
+                    <input type="checkbox" checked={onDevice || isCeleste} disabled={!isCeleste} />
+                    <span class="gname">{hb.label}</span>
+                    <span style="flex-grow: 1;"></span>
+                    {#if isCeleste}
+                      <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'on device' : 'ready to install'}</span>
+                    {:else}
+                      <span class="gchip muted">not supported yet</span>
+                    {/if}
+                  </label>
+                {/each}
+                {#each unknownHomebrew as g (g.name)}
+                  <div class="row">
+                    <span class="gname mono">{g.name}</span>
+                    <span style="flex-grow: 1;"></span>
+                    <span class="gchip muted">unrecognized (on device)</span>
+                  </div>
+                {/each}
+              </div>
             </div>
-          {/if}
+          </details>
 
           {#if canInstallRoms}
-            <InstallGeometry
-              partitions={device.partitions}
-              extSize={device.extFlashBytes}
-              {frogfsOffset}
-              {newFrogfsLen}
-              {changedFromOffset}
-              title="Extflash layout (existing vs. changes)"
-            />
-            {#if building}<p class="note">Calculating layout…</p>{/if}
-            {#if buildErr}<p class="err">{buildErr}</p>{/if}
+            <div style="margin-top: 2.5rem; margin-bottom: 0;">
+              <InstallGeometry
+                partitions={device.partitions}
+                extSize={device.extFlashBytes}
+                {frogfsOffset}
+                {newFrogfsLen}
+                {changedFromOffset}
+                title="Extflash layout (existing vs. changes)"
+              />
+              {#if building}<p class="note" style="margin-top: 0.5rem;">Calculating layout…</p>{/if}
+              {#if buildErr}<p class="err" style="margin-top: 0.5rem;">{buildErr}</p>{/if}
+            </div>
           {/if}
-
-          <label class="row" style="margin-top: 1rem; cursor: pointer;">
-            <input type="checkbox" bind:checked={installAllCores} />
-            <span>Install all cores (uncheck to only install cores needed for selected ROMs)</span>
-          </label>
 
           <div class="navrow">
             <button class="action primary" onclick={() => advance("select-games", "extras")}>
@@ -373,7 +376,7 @@
     </AccordionSection>
   </div>
 
-  <!-- 2. Library Extras — per-game cover art, saves, cheats. -->
+  <!-- 3. Library Extras — per-game cover art, saves, cheats. -->
   <div class="group">
     <h3 class="subhead">Library Extras</h3>
     <AccordionSection id="extras" title="Cover art, saves &amp; cheats" open={openSet.has("extras")} {onToggle}>
@@ -663,6 +666,16 @@
     font-weight: 600;
     color: var(--ink);
   }
+  .homebrew-dropdown {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hairline);
+  }
+  .homebrew-dropdown summary {
+    cursor: pointer;
+    user-select: none;
+    outline: none;
+  }
   .hbnote {
     font-weight: 400;
     color: var(--ink-soft);
@@ -673,11 +686,13 @@
   .hbrow {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: var(--fs-caption);
+    gap: 1rem;
+    padding: 0.25rem 0;
   }
-  .hbrow .gname {
-    flex: 1;
+  .hbrow:not(:last-child) {
+    margin: 0;
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
   }
   .delta {
     margin: 0;
