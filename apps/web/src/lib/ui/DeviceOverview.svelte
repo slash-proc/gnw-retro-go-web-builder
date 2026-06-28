@@ -33,6 +33,8 @@
             : "Connected",
   );
 
+  const frogfsPresent = $derived(device.partitions.some((p) => p.fs === "frogfs"));
+
   const retroGoStatus = $derived(
     device.scanning
       ? "Scanning…"
@@ -40,7 +42,9 @@
         ? "—"
         : isRetroGo
           ? device.deviceClass!.label.replace(/^Retro-Go\s*/, "") // version only (e.g. "SD v1.3.1")
-          : "Not installed/Broken",
+          : frogfsPresent
+            ? "Patch missing"
+            : "Not installed/Broken",
   );
   const ofw = $derived(device.deviceClass?.ofw ?? null);
   const ofwText = $derived(
