@@ -142,7 +142,7 @@
       
       const bundle = await fetchBundle(targetVersion);
 
-      const userRoms = new Map<string, Uint8Array>(scan?.userRoms ?? []);
+      const userRoms = new Map<string, Uint8Array>();
       const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
       
       let frogfsState;
