@@ -102,7 +102,7 @@
       ? { label: "installed", cls: "installed" }
       : g.inFolder
         ? { label: "new", cls: "new" }
-        : { label: "on device only", cls: "ondevice" };
+        : { label: "on device", cls: "ondevice" };
 
   // --- Lazy preview: build the RAW FrogFS from the SELECTION to learn its size + reuse for flash.
   // Built when Select-games or Install-ROMs is open + the device is base-installed; rebuilt when the
@@ -480,15 +480,15 @@
                     <span class="gname">{hb.label}</span>
                     <span class="gsize mono">{hbSize > 0 ? size(hbSize) : '—'}</span>
                     {#if isReady}
-                      <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'installed' : 'ready to install'}</span>
+                      <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'installed' : 'ready'}</span>
                     {:else if hasSourceRom}
                       {#if isExtracting}
-                        <span class="gchip muted">Extracting assets...</span>
+                        <span class="gchip muted">extracting...</span>
                       {:else}
-                        <span class="gchip muted">ready to convert</span>
+                        <span class="gchip muted">convert</span>
                       {/if}
                     {:else}
-                      <span class="gchip muted">missing {hb.sourceRoms[0]}</span>
+                      <span class="gchip muted">missing rom</span>
                     {/if}
                   </label>
                   {#if extractError && extracting === null && !isReady}
@@ -783,6 +783,9 @@
   .gsize {
     color: var(--ink-soft);
     font-size: var(--fs-micro);
+    width: 4.5rem;
+    text-align: right;
+    flex-shrink: 0;
   }
   .gchip {
     font-size: var(--fs-micro);
@@ -790,6 +793,10 @@
     border-radius: 999px;
     padding: 0.05rem 0.45rem;
     white-space: nowrap;
+    width: 7rem;
+    text-align: center;
+    flex-shrink: 0;
+    display: inline-block;
   }
   .gchip.installed {
     color: #fff;
