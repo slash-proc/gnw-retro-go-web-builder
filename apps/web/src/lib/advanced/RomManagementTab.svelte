@@ -224,17 +224,22 @@
   let installErr = $state<string | null>(null);
   let installed = $state(false);
   let flashLog = $state<string[]>([]); // surfaced so a stall is visible (last line = where it's stuck)
+  
+  const hbAdditions = $derived(
+    [...romSelection.selectedHomebrewKeys].filter(k => {
+      const hb = HOMEBREW_TITLES.find(t => t.key === k);
+      return hb && !hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f));
+    }).length
+  );
+  
+  const hbRemovals = $derived(
+    HOMEBREW_TITLES.filter(hb => hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f)) && !romSelection.selectedHomebrewKeys.has(hb.key)).length + romSelection.deletedUnknownHomebrew.size
+  );
 
   const summaryItems = $derived.by<ChangeItem[]>(() => {
     const sel = romSelection.selectedKeys.size;
     const hbSel = romSelection.selectedHomebrewKeys.size;
     const sz = newFrogfsLen !== null ? `${MiB(newFrogfsLen)} MiB (raw)` : building ? "calculating…" : "—";
-    
-    const hbAdditions = [...romSelection.selectedHomebrewKeys].filter(k => {
-      const hb = HOMEBREW_TITLES.find(t => t.key === k);
-      return hb && !hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f));
-    }).length;
-    const hbRemovals = HOMEBREW_TITLES.filter(hb => hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f)) && !romSelection.selectedHomebrewKeys.has(hb.key)).length + romSelection.deletedUnknownHomebrew.size;
     
     let hbDetail = "No changes";
     if (hbAdditions > 0 || hbRemovals > 0) {
@@ -243,9 +248,10 @@
     
     let netChangeStr = "";
     if (newFrogfsLen !== null && currentFrogfsLen !== null) {
-      const diff = newFrogfsLen - currentFrogfsLen;
-      const sign = diff > 0 ? "+" : diff < 0 ? "−" : "";
-      netChangeStr = ` (${sign}${MiB(Math.abs(diff))} MiB net change)`;
+      const net = newFrogfsLen - currentFrogfsLen;
+      if (net > 0) netChangeStr = ` (+${MiB(net)} MiB net)`;
+      else if (net < 0) netChangeStr = ` (${MiB(net)} MiB net)`;
+      else netChangeStr = " (no net size change)";
     }
 
     return [
@@ -373,20 +379,26 @@
           <!-- Console filter (single-select, incl. All). -->
           <div class="consoles">
             <button class="console" class:active={consoleFilter === "all"} onclick={() => (consoleFilter = "all")}>
-              All ({romSelection.games.length})
+              All ({romSelection.games.length + HOMEBREW_TITLES.length + unknownHomebrew.length})
             </button>
             {#each romSelection.systems as s (s.system)}
               <button class="console" class:active={consoleFilter === s.system} onclick={() => (consoleFilter = s.system)}>
                 {s.label} ({s.count})
               </button>
             {/each}
+            <button class="console" class:active={consoleFilter === "homebrew"} onclick={() => (consoleFilter = "homebrew")}>
+              Homebrew ({HOMEBREW_TITLES.length + unknownHomebrew.length})
+            </button>
           </div>
 
           <div class="selctrls">
             <label class="missing"><input type="checkbox" bind:checked={showMissing} /> Show missing only</label>
-            {#if consoleFilter !== "all"}
+            {#if consoleFilter !== "all" && consoleFilter !== "homebrew"}
               <button class="link" onclick={() => romSelection.setSystem(consoleFilter, true)}>select all</button>
               <button class="link" onclick={() => romSelection.setSystem(consoleFilter, false)}>clear</button>
+            {/if}
+            {#if consoleFilter === "all" || consoleFilter === "homebrew"}
+               <!-- Homebrew special actions could go here if needed -->
             {/if}
             <button class="link" onclick={() => romSelection.selectAllMissing()}>Add all missing</button>
           </div>
@@ -401,73 +413,68 @@
                 <span class="gchip {chip.cls}">{chip.label}</span>
               </label>
             {/each}
-            {#if visibleGames.length === 0}<p class="note">No games match this filter.</p>{/if}
+
+            {#if consoleFilter === "all" || consoleFilter === "homebrew"}
+              {#each HOMEBREW_TITLES as hb}
+                {@const isCeleste = hb.key === "celeste"}
+                {@const onDevice = hb.deviceFiles.every((f) => deviceHomebrew.some((g) => g.name === f))}
+                {@const isSelected = romSelection.isHomebrewSelected(hb.key)}
+                {@const hasSourceRom = hb.sourceRoms.length > 0 && [...(roms.scan?.userRoms.keys() ?? [])].some(k => k.endsWith(hb.sourceRoms[0]))}
+                {@const isExtracting = extracting === hb.key}
+                {@const hasExtracted = hb.deviceFiles.some((f) => extractedAssets.has(`homebrew/${f}`))}
+                {@const isReady = isCeleste || hasExtracted || onDevice}
+                <div style="display: flex; flex-direction: column;">
+                  <label class="row" style={(!isReady && !hasSourceRom) || isExtracting ? "opacity: 0.5; cursor: not-allowed;" : "cursor: pointer;"}>
+                    <input type="checkbox" checked={isSelected} disabled={(!isReady && !hasSourceRom) || isExtracting} onchange={(e) => {
+                      e.preventDefault();
+                      const checked = e.currentTarget.checked;
+                      if (checked && !isReady && hasSourceRom) {
+                        e.currentTarget.checked = false; // Keep it unchecked until conversion finishes
+                        convertAssets(hb);
+                      } else {
+                        romSelection.toggleHomebrew(hb.key, checked);
+                      }
+                    }} />
+                    <span class="gname">{hb.label}</span>
+                    <span style="flex-grow: 1;"></span>
+                    {#if isReady}
+                      <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'installed' : 'ready to install'}</span>
+                    {:else if hasSourceRom}
+                      {#if isExtracting}
+                        <span class="gchip muted">Extracting assets...</span>
+                      {:else}
+                        <span class="gchip muted">ready to convert</span>
+                      {/if}
+                    {:else}
+                      <span class="gchip muted">missing {hb.sourceRoms[0]}</span>
+                    {/if}
+                  </label>
+                  {#if extractError && extracting === null && !isReady}
+                    <p class="error" style="margin: 0; padding: 0 0 0.5rem 1.5rem; font-size: 0.8rem;">Error: {extractError}</p>
+                  {/if}
+                </div>
+              {/each}
+              {#each unknownHomebrew as g (g.name)}
+                <div class="row">
+                  <span class="gname mono">{g.name}</span>
+                  <span style="flex-grow: 1;"></span>
+                  <button class="gchip muted" style="cursor: pointer; border: none; background: transparent;" onclick={(e) => {
+                    e.preventDefault();
+                    romSelection.removeUnknownHomebrew(g.name);
+                  }}>remove</button>
+                </div>
+              {/each}
+            {/if}
+
+            {#if visibleGames.length === 0 && (consoleFilter !== "all" && consoleFilter !== "homebrew")}
+              <p class="note">No games match this filter.</p>
+            {/if}
           </div>
 
           <p class="delta">
-            <strong>+{romSelection.additions.length}</strong> add ({MiB(romSelection.additionsBytes)} MiB)
-            · <strong>−{romSelection.removals.length}</strong> remove ({MiB(romSelection.removalsBytes)} MiB)
+            <strong>+{romSelection.additions.length + hbAdditions}</strong> add ({MiB(romSelection.additionsBytes)} MiB)
+            · <strong>−{romSelection.removals.length + hbRemovals}</strong> remove ({MiB(romSelection.removalsBytes)} MiB)
           </p>
-
-          <details class="homebrew-dropdown">
-            <summary class="hbhead">Homebrew &amp; Ports</summary>
-            <div class="homebrew-content">
-              <p class="desc" style="margin-bottom: 0.5rem; margin-top: 0.5rem;">
-                Homebrew titles require special assets to be generated before they can be installed.
-              </p>
-              <div class="rows">
-                {#each HOMEBREW_TITLES as hb}
-                  {@const isCeleste = hb.key === "celeste"}
-                  {@const onDevice = hb.deviceFiles.every((f) => deviceHomebrew.some((g) => g.name === f))}
-                  {@const isSelected = romSelection.isHomebrewSelected(hb.key)}
-                  {@const hasSourceRom = hb.sourceRoms.length > 0 && [...(roms.scan?.userRoms.keys() ?? [])].some(k => k.endsWith(hb.sourceRoms[0]))}
-                  {@const isExtracting = extracting === hb.key}
-                  {@const hasExtracted = hb.deviceFiles.some((f) => extractedAssets.has(`homebrew/${f}`))}
-                  {@const isReady = isCeleste || hasExtracted || onDevice}
-                  <div style="display: flex; flex-direction: column;">
-                    <label class="row" style={(!isReady && !hasSourceRom) || isExtracting ? "opacity: 0.5; cursor: not-allowed;" : "cursor: pointer;"}>
-                      <input type="checkbox" checked={isSelected} disabled={(!isReady && !hasSourceRom) || isExtracting} onchange={(e) => {
-                        e.preventDefault();
-                        const checked = e.currentTarget.checked;
-                        if (checked && !isReady && hasSourceRom) {
-                          e.currentTarget.checked = false; // Keep it unchecked until conversion finishes
-                          convertAssets(hb);
-                        } else {
-                          romSelection.toggleHomebrew(hb.key, checked);
-                        }
-                      }} />
-                      <span class="gname">{hb.label}</span>
-                      <span style="flex-grow: 1;"></span>
-                      {#if isReady}
-                        <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'installed' : 'ready to install'}</span>
-                      {:else if hasSourceRom}
-                        {#if isExtracting}
-                          <span class="gchip muted">Extracting assets...</span>
-                        {:else}
-                          <span class="gchip muted">ready to convert</span>
-                        {/if}
-                      {:else}
-                        <span class="gchip muted">missing {hb.sourceRoms[0]}</span>
-                      {/if}
-                    </label>
-                    {#if extractError && extracting === null && !isReady}
-                      <p class="error" style="margin: 0; padding: 0 0 0.5rem 1.5rem; font-size: 0.8rem;">Error: {extractError}</p>
-                    {/if}
-                  </div>
-                {/each}
-                {#each unknownHomebrew as g (g.name)}
-                  <div class="row">
-                    <span class="gname mono">{g.name}</span>
-                    <span style="flex-grow: 1;"></span>
-                    <button class="gchip muted" style="cursor: pointer; border: none; background: transparent;" onclick={(e) => {
-                      e.preventDefault();
-                      romSelection.removeUnknownHomebrew(g.name);
-                    }}>remove</button>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          </details>
 
           {#if canInstallRoms}
             <div style="margin-top: 2.5rem; margin-bottom: 0;">
