@@ -1,16 +1,9 @@
 /**
  * Host-side internal-flash bank recognition over SWD.
  *
- * Ports chainloader's host-side recognition (scripts/common/envprobe.py): read each
- * bank's vector table, validate it as an app, and map the reset vector to identify
- * the contents (Retro-Go / Mario|Zelda OFW, stock vs patched). Plus the Retro-Go
- * version scan from src/chainloader/storage/partition.c (find "Retro-Go SD v").
- *
- * Adds the "true data size" the owner asked for: bulk-read each bank and find the last
- * non-0xFF byte. Internal flash is a direct AHB read (not OSPI), so reading the whole
- * bank is fast and exact — no stride guessing, no missed islands. If this ever exceeds
- * the time budget on hardware, bound the tail with a coarse backward 64K→16K probe and
- * bulk-read only the bounded window.
+ * Scans internal-flash banks using a fast probe-based approach over WebUSB.
+ * Phase 1: Quick Probes (Vector table for OFW identification)
+ * Phase 2 & 3: Island Discovery & Sizing (4K probes in 32K strides, then circumfix)
  */
 
 /** Reads `len` bytes of internal flash at absolute `addr` (e.g. 0x08000000). */
@@ -18,7 +11,6 @@ export type IntReadFn = (addr: number, len: number) => Promise<Uint8Array>;
 
 export const INT_BANK_BASES = [0x08000000, 0x08100000] as const;
 const BANK_SIZE = 256 << 10; // gnw-flasher INT_BANK_SIZE convention
-const RETROGO_BASE = 0x0800a000; // Retro-Go launcher payload (bank 1)
 // OFW initial SP (== gnwmanager's mario/zelda_int_sig as a little-endian u32) identifies
 // the device model; stock-vs-patched then comes from the OFW image's last byte.
 const OFW_SP: Record<string, number> = { Mario: 0x20011330, Zelda: 0x2001b620 };
@@ -30,8 +22,7 @@ export interface IntflashBank {
   base: number;
   /** True used size in bytes (last non-0xFF + 1); 0 when erased. */
   dataSize: number;
-  /** Recognized contents, e.g. "Chainloader + Retro-Go", "Mario OFW (patched)",
-   *  "Zelda OFW (stock)", "Retro-Go", "unknown app", "empty". */
+  /** Recognized contents, e.g. "Mario OFW (patched)", "Zelda OFW (stock)", "Retro-Go", "unknown app", "empty". */
   type: string;
   /** Retro-Go version token ("v1.2.3…") if the signature is present. */
   retroGoVersion?: string;
@@ -55,12 +46,9 @@ function ofwModel(sp: number): string | null {
   return null;
 }
 
-// True-data-size scan: read backward in STRIDE windows; a window that's all-0xFF is
-// "empty". Firmware is contiguous from the base, so the first (highest) window with data
-// pins the extent. Stop after MAX_EMPTY_RUN empties in a row (64K) — we accept there's
-// nothing beyond. Bounded reads only; never the whole bank.
-const STRIDE = 16 << 10; // 16K finest granularity
-const MAX_EMPTY_RUN = 4; // 4 empty strides (64K) in a row → nothing beyond
+const STRIDE = 32 << 10;     // 32K strides
+const PROBE_SIZE = 4 << 10;  // 4K probes
+const MAX_EMPTY_RUN = 4;     // Stop after 4 empty strides (128K gap)
 
 /** Index of the last non-0xFF byte in `win`, or -1 if all erased. */
 function lastNonFF(win: Uint8Array): number {
@@ -79,37 +67,63 @@ function retroGoInfo(buf: Uint8Array): { present: boolean; version?: string } {
   return { present, version: m ? m[1] : undefined };
 }
 
-/** Step 1 — cheap backward stride scan for the true data extent (last used byte + 1).
- *  Reads 16K windows from the top; stops after MAX_EMPTY_RUN empties. Bounded. */
-async function bankDataSize(read: IntReadFn, base: number): Promise<number> {
+async function getBankDataSize(read: IntReadFn, base: number, maxTop: number): Promise<number> {
   let emptyRun = 0;
-  for (let top = BANK_SIZE; top > 0; top -= STRIDE) {
-    const lo = Math.max(0, top - STRIDE);
+  let roughTop = 0;
+
+  // 1. Quick Island Discovery (32K strides)
+  for (let top = maxTop; top > 0; top -= STRIDE) {
+    const probeLo = Math.max(0, top - PROBE_SIZE);
     let win: Uint8Array;
     try {
-      win = await read(base + lo, top - lo);
+      win = await read(base + probeLo, Math.min(PROBE_SIZE, top));
     } catch {
-      break; // unreadable (locked / past end) — treat as nothing beyond
+      break; 
     }
-    const last = lastNonFF(win);
-    if (last < 0) {
+    
+    if (lastNonFF(win) < 0) {
       if (++emptyRun >= MAX_EMPTY_RUN) break;
     } else {
-      return lo + last + 1;
+      roughTop = top;
+      break;
     }
   }
-  return 0;
+
+  if (roughTop === 0) return 0;
+
+  // 2. Circumfix-scan to find the exact border (16K then 8K steps)
+  // We know data exists at `roughTop`. The previous 32K stride's probe was empty,
+  // so the true end is somewhere between roughTop and (roughTop + 32K - 4K).
+  let searchBase = roughTop;
+  const searchCeil = Math.min(maxTop, roughTop + STRIDE - PROBE_SIZE);
+  
+  for (let step = 16 << 10; step >= 8 << 10; step >>>= 1) {
+     if (searchBase + step > searchCeil) continue;
+     
+     const probeLo = searchBase + step - PROBE_SIZE;
+     let win: Uint8Array;
+     try {
+       win = await read(base + probeLo, PROBE_SIZE);
+     } catch { 
+       break; 
+     }
+     
+     if (lastNonFF(win) >= 0) {
+       // Data found, boundary is higher up
+       searchBase += step;
+     }
+  }
+  
+  return searchBase;
 }
 
 function classify(
-  index: 1 | 2,
   sp: number,
   pc: number,
-  retrogoValid: boolean,
   hasRetroGo: boolean,
   ofwLastByte?: number,
 ): string {
-  if (!appValid(sp, pc)) return "unknown";
+  if (!appValid(sp, pc)) return "unknown data";
   const model = ofwModel(sp);
   if (model) {
     // gnwmanager scan_geometry heuristic: the last byte of the 128 KiB OFW image is 0xFF
@@ -117,43 +131,38 @@ function classify(
     const patched = ofwLastByte !== undefined && ofwLastByte !== 0xff;
     return `${model} OFW (${patched ? "patched" : "stock"})`;
   }
-  // Chainloader (bank 1) has a separate Retro-Go payload at RETROGO_BASE; a direct
-  // Retro-Go install (either bank) just carries the "Retro-Go" marker in its data.
-  if (index === 1 && retrogoValid) return "Chainloader + Retro-Go";
   if (hasRetroGo) return "Retro-Go";
   return "unknown app";
 }
 
 /** Scan both internal-flash banks. `read` reads absolute internal flash over SWD.
- *  Step 1: stride-scan the extent. Step 2: pull ONLY the used region and classify +
- *  version-scan it (so the version is reliable without reading erased space). */
+ *  Phase 1: Quick Probes (Vector table for OFW identification)
+ *  Phase 2 & 3: Island Discovery & Sizing (4K probes in 32K strides, then circumfix)
+ *  Phase 4: Deep Search for Retro-Go if not found yet.
+ */
 export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]> {
   const banks: IntflashBank[] = [];
+
   for (let i = 0; i < INT_BANK_BASES.length; i++) {
     const base = INT_BANK_BASES[i];
     const index = (i + 1) as 1 | 2;
 
-    const size = await bankDataSize(read, base);
-    if (size === 0) {
-      banks.push({ index, base, dataSize: 0, type: "empty" });
-      continue;
-    }
-    let data: Uint8Array;
+    let maxTop = BANK_SIZE;
+    let head: Uint8Array;
     try {
-      // pull the used region; round the length up to a 4-byte boundary (the transport
-      // rejects non-word-aligned reads), clamped to the bank.
-      const len = Math.min((size + 3) & ~3, BANK_SIZE);
-      data = await read(base, len);
+      head = await read(base, 8);
     } catch (e) {
-      banks.push({ index, base, dataSize: size, type: `unreadable (${e instanceof Error ? e.message : e})` });
+      banks.push({ index, base, dataSize: 0, type: `unreadable (${e instanceof Error ? e.message : e})` });
       continue;
     }
-    const sp = u32(data, 0);
-    const pc = u32(data, 4);
+    const sp = u32(head, 0);
+    const pc = u32(head, 4);
 
-    // OFW stock-vs-patched: the last byte of the 128 KiB image (gnwmanager method).
     let ofwLast: number | undefined;
-    if (ofwModel(sp) !== null) {
+    const model = ofwModel(sp);
+
+    if (model !== null) {
+      maxTop = OFW_IMAGE_SIZE;
       try {
         const w = await read(base + OFW_IMAGE_SIZE - 4, 4); // 4-aligned; flag byte = index 3
         ofwLast = w[3];
@@ -162,22 +171,39 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
       }
     }
 
-    let retrogoValid = false;
-    if (index === 1) {
-      const off = RETROGO_BASE - base;
-      retrogoValid = off + 8 <= data.length && appValid(u32(data, off), u32(data, off + 4));
+    const size = await getBankDataSize(read, base, maxTop);
+    if (size === 0) {
+      banks.push({ index, base, dataSize: 0, type: "empty" });
+      continue;
     }
-    const rg = retroGoInfo(data);
-    const om = ofwModel(sp);
-    const ofw = om
-      ? { model: om.toLowerCase() as "mario" | "zelda", patched: ofwLast !== undefined && ofwLast !== 0xff }
+
+    let retroGoVersion: string | undefined;
+    let hasRetroGo = false;
+
+    // Orchestration optimization: If this bank is already confirmed to be Mario/Zelda OFW,
+    // we absolutely do not need to download its payload to do a deep search for Retro-Go strings.
+    if (model === null) {
+      try {
+        const len = Math.min((size + 3) & ~3, maxTop);
+        const data = await read(base, len);
+        const rg = retroGoInfo(data);
+        hasRetroGo = rg.present;
+        retroGoVersion = rg.version;
+      } catch (e) {
+        // Just fail the Retro-Go search, keep the size.
+      }
+    }
+
+    const ofw = model
+      ? { model: model.toLowerCase() as "mario" | "zelda", patched: ofwLast !== undefined && ofwLast !== 0xff }
       : undefined;
+
     banks.push({
       index,
       base,
       dataSize: size,
-      type: classify(index, sp, pc, retrogoValid, rg.present, ofwLast),
-      retroGoVersion: rg.version,
+      type: classify(sp, pc, hasRetroGo, ofwLast),
+      retroGoVersion,
       ofw,
     });
   }
