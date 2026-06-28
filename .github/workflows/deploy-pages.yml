@@ -38,7 +38,7 @@ jobs:
         run: npm ci
 
       - name: Build internal packages
-        run: npx tsc -b packages/builder-core packages/fs-builders packages/gnw-flasher packages/gnw-patch packages/swd-transport packages/thumb-asm
+        run: node packages/gnw-restool/scripts/buildZip.mjs && npx tsc -b packages/builder-core packages/fs-builders packages/gnw-flasher packages/gnw-patch packages/swd-transport packages/thumb-asm packages/gnw-restool
 
       - name: Build Web App
         run: npm run build --workspace @gnw/web
