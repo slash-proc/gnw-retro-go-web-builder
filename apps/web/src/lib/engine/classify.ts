@@ -34,15 +34,11 @@ export function classifyDevice(
   if (info?.locked)
     return { kind: "locked", label: "Locked — unlock to read", ofw: null, hasGames: false, hasSaves: false, installBanks: [] };
 
-  // Official firmware (model + stock/patched) detected by the bank scan, if any.
-  const ofw = banks.map((b) => b.ofw).find(Boolean) ?? null;
-
-  const stock = info?.detectedStockFirmware;
   const bank1 = banks.find((b) => b.index === 1);
-  const isPristineStock = (stock === "MARIO" || stock === "ZELDA") || (bank1?.ofw && !bank1.ofw.patched);
+  const isPristineStock = bank1?.ofw && !bank1.ofw.patched;
 
   if (isPristineStock) {
-    const model = ((stock && stock !== "UNKNOWN") ? stock.toLowerCase() : bank1!.ofw!.model) as "mario" | "zelda";
+    const model = bank1.ofw!.model;
     return {
       kind: "stock",
       model,
@@ -58,6 +54,9 @@ export function classifyDevice(
   const littlefs = parts.some((p) => p.fs === "littlefs");
   const version = banks.map((b) => b.retroGoVersion).find(Boolean);
   const hasApp = banks.some((b) => !["empty", "unknown", "unreadable"].includes(b.type));
+
+  // Official firmware (model + stock/patched) detected by the bank scan, if any.
+  const ofw = banks.map((b) => b.ofw).find(Boolean) ?? null;
 
   // The version string is "Retro-Go SD v…", so finding it ⇒ retro-go-sd (even before
   // games/saves content is written). FrogFS implies SD too.
