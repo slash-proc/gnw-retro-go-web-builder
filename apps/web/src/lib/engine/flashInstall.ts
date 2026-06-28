@@ -76,6 +76,7 @@ export async function buildFlashInstall(inp: FlashInstallInputs): Promise<FlashI
     defaultContent: inp.bundle.sdContent,
     userRoms: inp.userRoms,
     lzmaRaw,
+    compress: false,
   });
   const frogfs = buildFrogfsFromPlan(plan, {
     previousOrder: inp.frogfsState?.order,
