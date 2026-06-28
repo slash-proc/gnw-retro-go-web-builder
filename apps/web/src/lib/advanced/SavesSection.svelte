@@ -131,6 +131,26 @@
     }
   }
 
+  async function downloadRawImageAsPng(file: LittlefsTreeNode) {
+    if (downloading) return;
+    downloading = file.path;
+    try {
+      let dataUrl = screenshotDataUrl;
+      if (!dataUrl || selectedSlot?.rawFile?.path !== file.path) {
+        const data = await readLfsFile(file.path);
+        dataUrl = renderRgb565(data);
+      }
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = file.name.replace(/\.raw$/, ".png");
+      a.click();
+    } catch (e) {
+      alert("Failed to download image: " + e);
+    } finally {
+      downloading = null;
+    }
+  }
+
   function renderRgb565(raw: Uint8Array): string {
     const width = 320;
     const height = 240;
@@ -245,7 +265,7 @@
               <button 
                 class="btn secondary-action" 
                 disabled={downloading === selectedSlot.rawFile.path}
-                onclick={() => downloadFile(selectedSlot!.rawFile!)}>
+                onclick={() => downloadRawImageAsPng(selectedSlot!.rawFile!)}>
                 <span class="icon">🖼️</span> Download Image
               </button>
             {/if}
