@@ -9,6 +9,7 @@
   import FlashSection from "./FlashSection.svelte";
   import OfficialFirmwareSection from "./OfficialFirmwareSection.svelte";
   import FileBrowserSection from "./FileBrowserSection.svelte";
+  import SavesSection from "./SavesSection.svelte";
 
   // Tab: Device / Retro-Go Management. Three groups, top → bottom:
   //   1. Official Firmware — Backup → Patch-for-Dualboot (accordion).
@@ -72,13 +73,7 @@
         open={openSet.has("saves")}
         {onToggle}
       >
-        <div class="section" style="padding: 1rem;">
-          <p class="desc">
-            Back up game saves and save-states off the device — also the basis of the future
-            reinstall migration workflow (so a reinstall isn&rsquo;t destructive).
-          </p>
-          <button class="action" disabled>Back up saves<span class="soon">coming soon</span></button>
-        </div>
+        <SavesSection />
       </AccordionSection>
       <AccordionSection
         id="lfs"

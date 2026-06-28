@@ -4,8 +4,8 @@
   import type { GeoSegment } from "../engine/classify.js";
   import { extflashSegments } from "../engine/classify.js";
   import type { FrogfsFile, LittlefsTreeNode } from "@gnw/fs-builders";
-  import { readLittleFsDir, readLittleFsTree } from "@gnw/fs-builders";
   import { dumpRegion } from "../engine/flasher.js";
+  import { ensureLfsTree } from "../engine/lfsBrowser.js";
   import { kb } from "../util.js";
 
   let selectedFs = $state<string | null>(null);
@@ -76,54 +76,15 @@
   let lfsProgress = $state(0);
   let lfsTree = $state<TreeNode | null>(null);
   let lfsError = $state<string | null>(null);
-
+  
   async function loadLittleFs() {
-    if (device.installedLfsTree) {
-      lfsTree = device.installedLfsTree as TreeNode;
-      return;
-    }
+    if (lfsTree && device.installedLfsTree) return;
     if (lfsLoading) return;
-    const p = device.partitions.find((p) => p.fs === "littlefs");
-    if (!p || !device.flasher) {
-      lfsError = "LittleFS partition not found.";
-      return;
-    }
-
+    
     lfsLoading = true;
     lfsError = null;
     try {
-      const blockSize = p.meta?.blockSize ?? device.info?.minEraseSizeBytes ?? 4096;
-      const blockCount = p.meta?.blockCount ?? Math.floor(p.size / blockSize);
-      
-      const blockCache = new Map<number, Uint8Array>();
-      let blocksFetched = 0;
-      
-      const tree = await readLittleFsTree(blockSize, blockCount, async (block) => {
-        if (blockCache.has(block)) return blockCache.get(block)!;
-        
-        const addr = 0x90000000 + p.offset + p.size - ((block + 1) * blockSize);
-        const data = await device.transport!.readMemory(addr, blockSize);
-        blockCache.set(block, data);
-        
-        blocksFetched++;
-        lfsProgress = Math.min(0.99, blocksFetched / 20); // Arbitrary scale for UI feedback
-        return data;
-      });
-      lfsProgress = 1;
-      
-      function sortTree(n: LittlefsTreeNode) {
-        if (n.children) {
-          n.children.sort((a, b) => {
-            if (a.isDirectory && !b.isDirectory) return -1;
-            if (!a.isDirectory && b.isDirectory) return 1;
-            return a.name.localeCompare(b.name);
-          });
-          for (const c of n.children) sortTree(c);
-        }
-      }
-      sortTree(tree);
-      device.installedLfsTree = tree;
-      lfsTree = tree as TreeNode;
+      lfsTree = await ensureLfsTree((p) => { lfsProgress = p; }) as TreeNode;
     } catch (e) {
       lfsError = String(e);
     } finally {

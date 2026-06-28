@@ -15,6 +15,7 @@ export {
   listDirFromImage,
   readLittleFsTree,
   readLittleFsDir,
+  readLittleFsFileLazy,
   type LittlefsModuleOpts,
   type LittlefsDirEntry,
   type LittlefsTreeNode,

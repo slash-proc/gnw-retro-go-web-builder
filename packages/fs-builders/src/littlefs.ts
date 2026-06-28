@@ -368,3 +368,66 @@ export async function readLittleFsDir(
   M._lfs_w_unmount();
   return children;
 }
+
+export async function readLittleFsFileLazy(
+  blockSize: number,
+  blockCount: number,
+  path: string,
+  fetchBlock: (block: number) => Promise<Uint8Array>,
+  opts?: LittlefsModuleOpts,
+): Promise<Uint8Array> {
+  const M = await getModule(opts);
+
+  check(M._lfs_w_init(blockSize, blockCount));
+
+  const fetchedBlocks = new Set<number>();
+
+  while (true) {
+    const err = M._lfs_w_mount_retry();
+    if (err < 0) {
+      const missing = M._lfs_w_missing_block();
+      if (missing >= 0) {
+        if (fetchedBlocks.has(missing)) throw new LittleFsError(`Infinite loop detected on mount block ${missing}`);
+        fetchedBlocks.add(missing);
+        if (missing >= blockCount) throw new LittleFsError(`Requested block ${missing} out of bounds (${blockCount})`);
+        
+        const data = await fetchBlock(missing);
+        if (data.length !== blockSize) throw new LittleFsError("Fetched block size mismatch.");
+        const iptr = M._lfs_w_image() + (missing * blockSize);
+        M.HEAPU8.set(data, iptr);
+        M._lfs_w_mark_loaded(missing);
+        continue;
+      }
+      check(err);
+    }
+    break;
+  }
+
+  let len = 0;
+  while (true) {
+    const err = withCStr(M, path, (p) => M._lfs_w_read(p));
+    if (err < 0) {
+      const missing = M._lfs_w_missing_block();
+      if (missing >= 0) {
+        if (fetchedBlocks.has(missing)) throw new LittleFsError(`Infinite loop detected in read on block ${missing}`);
+        fetchedBlocks.add(missing);
+        if (missing >= blockCount) throw new LittleFsError(`Requested block ${missing} out of bounds (${blockCount})`);
+        
+        const data = await fetchBlock(missing);
+        if (data.length !== blockSize) throw new LittleFsError("Fetched block size mismatch.");
+        const iptr = M._lfs_w_image() + (missing * blockSize);
+        M.HEAPU8.set(data, iptr);
+        M._lfs_w_mark_loaded(missing);
+        continue;
+      }
+      check(err);
+    }
+    len = err;
+    break;
+  }
+
+  const dptr = M._lfs_w_filedata();
+  const out = new Uint8Array(M.HEAPU8.slice(dptr, dptr + len));
+  M._lfs_w_unmount();
+  return out;
+}

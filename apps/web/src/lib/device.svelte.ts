@@ -59,6 +59,8 @@ class DeviceStore {
   installedGames = $state<InstalledGame[]>([]);
   /** Full LittleFS tree (cached for snappy file browser/save mgmt). Null until read. */
   installedLfsTree = $state<LittlefsTreeNode | null>(null);
+  /** Block cache for fast lazy LFS access */
+  lfsBlockCache = new Map<number, Uint8Array>();
 
   /** The model that should tint the UI (null = unknown/neutral). */
   get accent(): Exclude<Model, "unknown"> | null {
