@@ -146,7 +146,8 @@
       const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
       
       let frogfsState;
-      if (device.firmware === "retro-go") {
+      const isRetroGo = device.deviceClass?.kind === "retrogo-sd" || device.deviceClass?.kind === "retrogo-old";
+      if (isRetroGo) {
         try {
           frogfsState = await readFrogfsState(read, defaultFrogfsOffset, extBytes - defaultFrogfsOffset);
           console.log("Read frogfsState:", frogfsState);

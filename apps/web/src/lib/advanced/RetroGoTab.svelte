@@ -27,7 +27,7 @@
   } = $props();
 
   // File-manager device-FS items need a modded (retro-go) device to be meaningful.
-  const gated = $derived(device.firmware !== "retro-go");
+  const gated = $derived(device.deviceClass?.kind !== "retrogo-sd" && device.deviceClass?.kind !== "retrogo-old");
 
   // Install target: flash (default) or SD — both ALWAYS selectable (someone installing the SD
   // build is hunting for that button; SD detection can't cover every mod). Remembered per visit.
