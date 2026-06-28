@@ -128,6 +128,20 @@
     }
   });
 
+  let wasScanning = $state(device.scanning);
+  $effect(() => {
+    if (wasScanning && !device.scanning) {
+      // A scan just finished. If we were previously in an error state (e.g., waiting
+      // for a scan to populate partitions), retry. Don't reset if already loaded.
+      if (error) {
+        loaded = false;
+        error = null;
+        loadSaves();
+      }
+    }
+    wasScanning = device.scanning;
+  });
+
   async function downloadFile(file: LittlefsTreeNode) {
     if (downloading) return;
     downloading = file.path;
