@@ -38,12 +38,15 @@ export function classifyDevice(
   const ofw = banks.map((b) => b.ofw).find(Boolean) ?? null;
 
   const stock = info?.detectedStockFirmware;
-  if (stock === "MARIO" || stock === "ZELDA") {
-    const model = stock.toLowerCase() as "mario" | "zelda";
+  const bank1 = banks.find((b) => b.index === 1);
+  const isPristineStock = (stock === "MARIO" || stock === "ZELDA") || (bank1?.ofw && !bank1.ofw.patched);
+
+  if (isPristineStock) {
+    const model = ((stock && stock !== "UNKNOWN") ? stock.toLowerCase() : bank1!.ofw!.model) as "mario" | "zelda";
     return {
       kind: "stock",
       model,
-      ofw: ofw ?? { model, patched: false },
+      ofw: { model, patched: false },
       label: `Stock ${model === "mario" ? "Mario" : "Zelda"} firmware`,
       hasGames: false,
       hasSaves: false,

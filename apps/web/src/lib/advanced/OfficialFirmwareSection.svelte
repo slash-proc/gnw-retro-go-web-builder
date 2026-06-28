@@ -164,8 +164,10 @@
         }
         await flasher.unlock(); // NOTE: flasher.unlock() is notImplemented — surfaces a clear error for now.
       }
-      const extSize = device.info?.externalFlashSizeBytes ?? 0;
-      if (!extSize) throw new Error("External flash size is unknown — reconnect and try again.");
+      let extSize = device.extFlashBytes;
+      if (device.model === "mario") extSize = 1048576; // 1 MB
+      else if (device.model === "zelda") extSize = 4194304; // 4 MB
+
       const dumps = await dumpBackup(flasher, extSize, (d, t, label) => {
         backupDone = d;
         backupTotal = t;
