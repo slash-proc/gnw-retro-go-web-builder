@@ -793,7 +793,7 @@
     border-radius: 999px;
     padding: 0.05rem 0.45rem;
     white-space: nowrap;
-    width: 7rem;
+    width: 5rem;
     text-align: center;
     flex-shrink: 0;
     display: inline-block;
