@@ -13,6 +13,8 @@
   import { homebrewStatus, HOMEBREW_DEVICE_FILES, HOMEBREW_TITLES } from "../engine/homebrew.js";
   import { dumpRegion } from "../engine/flasher.js";
   import { dbg, dbgLog } from "../debug.js";
+  import { extractHomebrewAssets } from "@gnw/gnw-restool";
+  import restoolsZipUrl from "@gnw/gnw-restool/dist/restools.zip?url";
   import { listVersions, fetchBundle } from "../artifacts.js";
   import AccordionSection from "./AccordionSection.svelte";
   import ConfirmModal from "../ui/ConfirmModal.svelte";
@@ -81,15 +83,10 @@
   const deviceHomebrew = $derived(device.installedGames.filter((g) => g.system === "homebrew"));
   const homebrewTitles = $derived(homebrewStatus(deviceHomebrew.map((g) => g.name)));
   const unknownHomebrew = $derived(
-    deviceHomebrew.filter((g) => !HOMEBREW_TITLES.some((h) => h.deviceFiles.includes(g.name))),
+    deviceHomebrew.filter((g) => !HOMEBREW_TITLES.some((h) => h.deviceFiles.includes(g.name)) && !romSelection.deletedUnknownHomebrew.has(g.name)),
   );
 
-  $effect(() => {
-    romSelection.initHomebrew(
-      deviceHomebrew.map((g) => g.name),
-      HOMEBREW_TITLES.map((h) => h.key)
-    );
-  });
+
 
   // --- Select-games table state -----------------------------------------------------------
   let consoleFilter = $state<string>("all");
@@ -119,7 +116,36 @@
   let builtFor = $state<string | null>(null);
   let buildToken = 0;
 
-  const selSig = $derived([...romSelection.selectedKeys].sort().join("|"));
+  // Pyodide Extraction State
+  let extracting = $state<string | null>(null);
+  let extractError = $state<string | null>(null);
+  let extractedAssets = $state(new Map<string, Uint8Array>());
+
+  async function convertAssets(hb: typeof HOMEBREW_TITLES[0]) {
+    const romPath = [...(roms.scan?.userRoms.keys() ?? [])].find(k => k.endsWith(hb.sourceRoms[0]));
+    if (!romPath) return;
+    const romData = roms.scan!.userRoms.get(romPath)!;
+    
+    extracting = hb.key;
+    extractError = null;
+    try {
+      const res = await Promise.race([
+        extractHomebrewAssets(hb.key as any, romData, restoolsZipUrl),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Extraction timed out after 60s")), 60000))
+      ]);
+      if (!res.success) throw new Error(res.error);
+      for (const [fname, data] of Object.entries(res.files || {}) as [string, Uint8Array][]) {
+        extractedAssets.set(`homebrew/${fname}`, data);
+      }
+      romSelection.toggleHomebrew(hb.key, true);
+    } catch (err: any) {
+      extractError = err.message;
+    } finally {
+      extracting = null;
+    }
+  }
+
+  const selSig = $derived([...romSelection.selectedKeys, ...romSelection.selectedHomebrewKeys, ...extractedAssets.keys()].sort().join("|"));
   const previewWanted = $derived(openSet.has("select-games") || openSet.has("install-roms"));
 
   $effect(() => {
@@ -136,7 +162,9 @@
       const versions = await listVersions();
       if (versions.length === 0) throw new Error("No firmware versions are published yet.");
       const bundle = await fetchBundle(versions[0].tag);
-      const { frogfs } = await buildFrogfsImage(bundle, romSelection.selectedFolderRoms(), { 
+      const combinedRoms = romSelection.selectedFolderRoms();
+      for (const [k, v] of extractedAssets.entries()) combinedRoms.set(k, v);
+      const { frogfs } = await buildFrogfsImage(bundle, combinedRoms, { 
         installAllCores,
         selectedHomebrew: romSelection.selectedHomebrewKeys,
         homebrewTitles: HOMEBREW_TITLES
@@ -158,14 +186,28 @@
   // Where the FrogFS rewrite starts (for the geometry's highlighted "changed" region):
   //  • no existing FrogFS → whole new image is "changed"
   //  • additions only → appended at the current FrogFS end
-  //  • any removal → from the earliest removed game's data offset (forces a tail rewrite).
+  //  • any removal → from the earliest removed game's offset (forces a tail rewrite).
+  // The FrogFS packer preserves the block order of retained on-device games; the delta is strictly
+  // at the end (new games appended) or mid-flash (a game was dropped, shifting everything after it).
   const changedFromOffset = $derived.by<number | null>(() => {
     if (newFrogfsLen === null) return null;
     if (currentFrogfsLen === null) return frogfsOffset;
-    if (romSelection.removals.length === 0) return frogfsOffset + currentFrogfsLen;
+    if (romSelection.removals.length === 0 && romSelection.deletedUnknownHomebrew.size === 0 && HOMEBREW_TITLES.every(hb => !hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f)) || romSelection.selectedHomebrewKeys.has(hb.key))) return frogfsOffset + currentFrogfsLen;
     let min = Infinity;
     for (const g of romSelection.removals) {
       const dev = device.installedGames.find((x) => x.system === g.system && x.name === g.name);
+      if (dev && dev.dataOffs < min) min = dev.dataOffs;
+    }
+    for (const hb of HOMEBREW_TITLES) {
+      if (!romSelection.selectedHomebrewKeys.has(hb.key)) {
+        for (const f of hb.deviceFiles) {
+          const dev = deviceHomebrew.find(g => g.name === f);
+          if (dev && dev.dataOffs < min) min = dev.dataOffs;
+        }
+      }
+    }
+    for (const name of romSelection.deletedUnknownHomebrew) {
+      const dev = deviceHomebrew.find(g => g.name === name);
       if (dev && dev.dataOffs < min) min = dev.dataOffs;
     }
     return min === Infinity ? frogfsOffset + currentFrogfsLen : frogfsOffset + min;
@@ -184,15 +226,41 @@
 
   const summaryItems = $derived.by<ChangeItem[]>(() => {
     const sel = romSelection.selectedKeys.size;
+    const hbSel = romSelection.selectedHomebrewKeys.size;
     const sz = newFrogfsLen !== null ? `${MiB(newFrogfsLen)} MiB (raw)` : building ? "calculating…" : "—";
+    
+    const hbAdditions = [...romSelection.selectedHomebrewKeys].filter(k => {
+      const hb = HOMEBREW_TITLES.find(t => t.key === k);
+      return hb && !hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f));
+    }).length;
+    const hbRemovals = HOMEBREW_TITLES.filter(hb => hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f)) && !romSelection.selectedHomebrewKeys.has(hb.key)).length + romSelection.deletedUnknownHomebrew.size;
+    
+    let hbDetail = "No changes";
+    if (hbAdditions > 0 || hbRemovals > 0) {
+      hbDetail = `+${hbAdditions} add · −${hbRemovals} remove`;
+    }
+    
+    let netChangeStr = "";
+    if (newFrogfsLen !== null && currentFrogfsLen !== null) {
+      const diff = newFrogfsLen - currentFrogfsLen;
+      const sign = diff > 0 ? "+" : diff < 0 ? "−" : "";
+      netChangeStr = ` (${sign}${MiB(Math.abs(diff))} MiB net change)`;
+    }
+
     return [
       {
-        label: "Games (FrogFS)",
-        status: `${sel} selected · ${sz}`,
+        label: "Total ROMs & Ports (FrogFS)",
+        status: `${sel + hbSel} items · ${sz}`,
         kind: fitsGap ? "info" : "warn",
         detail: fitsGap
-          ? `+${romSelection.additions.length} (${MiB(romSelection.additionsBytes)} MiB) · −${romSelection.removals.length} (${MiB(romSelection.removalsBytes)} MiB)`
+          ? `+${romSelection.additions.length + hbAdditions} items added · −${romSelection.removals.length + hbRemovals} items removed${netChangeStr}`
           : "Won't fit the FrogFS gap — deselect some games.",
+      },
+      {
+        label: "Homebrew & Ports",
+        status: `${hbSel} selected`,
+        kind: hbSel > 0 ? "info" : "muted",
+        detail: hbDetail,
       },
       { label: "Cover art", status: "None — cover scan not built yet", kind: "muted" },
       { label: "Saves", status: "Preserved — LittleFS untouched", kind: "ok" },
@@ -230,6 +298,7 @@
     // deferred module — see engine/homebrew.ts.)
     const deviceHomebrew = device.installedGames.filter((g) => g.system === "homebrew");
     for (const g of deviceHomebrew) {
+      if (romSelection.deletedUnknownHomebrew.has(g.name)) continue;
       const hb = HOMEBREW_TITLES.find((t) => t.deviceFiles.includes(g.name));
       if (hb && !romSelection.selectedHomebrewKeys.has(hb.key)) continue;
       userRoms.set(`${g.system}/${g.name}`, await readGameData(read, frogfsOffset, g));
@@ -241,6 +310,7 @@
       const versions = await listVersions();
       if (versions.length === 0) throw new Error("No firmware versions are published yet.");
       const bundle = await fetchBundle(versions[0].tag);
+      for (const [k, v] of extractedAssets.entries()) userRoms.set(k, v);
       frogfs = (await buildFrogfsImage(bundle, userRoms, { 
         installAllCores,
         selectedHomebrew: romSelection.selectedHomebrewKeys,
@@ -347,23 +417,51 @@
               <div class="rows">
                 {#each HOMEBREW_TITLES as hb}
                   {@const isCeleste = hb.key === "celeste"}
-                  {@const onDevice = deviceHomebrew.some((g) => hb.deviceFiles.includes(g.name))}
-                  <label class="row" style={!isCeleste ? "opacity: 0.5; cursor: not-allowed;" : "cursor: pointer;"}>
-                    <input type="checkbox" checked={onDevice || isCeleste} disabled={!isCeleste} />
-                    <span class="gname">{hb.label}</span>
-                    <span style="flex-grow: 1;"></span>
-                    {#if isCeleste}
-                      <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'installed' : 'ready to install'}</span>
-                    {:else}
-                      <span class="gchip muted">not supported yet</span>
+                  {@const onDevice = hb.deviceFiles.every((f) => deviceHomebrew.some((g) => g.name === f))}
+                  {@const isSelected = romSelection.isHomebrewSelected(hb.key)}
+                  {@const hasSourceRom = hb.sourceRoms.length > 0 && [...(roms.scan?.userRoms.keys() ?? [])].some(k => k.endsWith(hb.sourceRoms[0]))}
+                  {@const isExtracting = extracting === hb.key}
+                  {@const hasExtracted = hb.deviceFiles.some((f) => extractedAssets.has(`homebrew/${f}`))}
+                  {@const isReady = isCeleste || hasExtracted || onDevice}
+                  <div style="display: flex; flex-direction: column;">
+                    <label class="row" style={(!isReady && !hasSourceRom) || isExtracting ? "opacity: 0.5; cursor: not-allowed;" : "cursor: pointer;"}>
+                      <input type="checkbox" checked={isSelected} disabled={(!isReady && !hasSourceRom) || isExtracting} onchange={(e) => {
+                        e.preventDefault();
+                        const checked = e.currentTarget.checked;
+                        if (checked && !isReady && hasSourceRom) {
+                          e.currentTarget.checked = false; // Keep it unchecked until conversion finishes
+                          convertAssets(hb);
+                        } else {
+                          romSelection.toggleHomebrew(hb.key, checked);
+                        }
+                      }} />
+                      <span class="gname">{hb.label}</span>
+                      <span style="flex-grow: 1;"></span>
+                      {#if isReady}
+                        <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'installed' : 'ready to install'}</span>
+                      {:else if hasSourceRom}
+                        {#if isExtracting}
+                          <span class="gchip muted">Extracting assets...</span>
+                        {:else}
+                          <span class="gchip muted">ready to convert</span>
+                        {/if}
+                      {:else}
+                        <span class="gchip muted">missing {hb.sourceRoms[0]}</span>
+                      {/if}
+                    </label>
+                    {#if extractError && extracting === null && !isReady}
+                      <p class="error" style="margin: 0; padding: 0 0 0.5rem 1.5rem; font-size: 0.8rem;">Error: {extractError}</p>
                     {/if}
-                  </label>
+                  </div>
                 {/each}
                 {#each unknownHomebrew as g (g.name)}
                   <div class="row">
                     <span class="gname mono">{g.name}</span>
                     <span style="flex-grow: 1;"></span>
-                    <span class="gchip muted">unrecognized (on device)</span>
+                    <button class="gchip muted" style="cursor: pointer; border: none; background: transparent;" onclick={(e) => {
+                      e.preventDefault();
+                      romSelection.removeUnknownHomebrew(g.name);
+                    }}>remove</button>
                   </div>
                 {/each}
               </div>

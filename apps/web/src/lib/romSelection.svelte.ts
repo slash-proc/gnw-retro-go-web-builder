@@ -8,11 +8,12 @@
  * they persist across re-scans (stale keys for absent games are simply ignored), and a
  * key with no override follows the installed default — which stays reactive to rescans.
  */
-import { SvelteMap } from "svelte/reactivity";
+import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { shouldSkipRomsFile, isDsStore } from "@gnw/fs-builders";
 import { roms } from "./roms.svelte.js";
 import { device } from "./device.svelte.js";
 import { consoleLabel } from "./engine/consoles.js";
+import { HOMEBREW_TITLES } from "./engine/homebrew.js";
 
 // Non-ROM files that sneak into roms/<system>/ folders. We can't skip these by the retro-go
 // extension rule: `.md` is the Mega Drive ROM extension, so a README.md collides — skip it by
@@ -80,30 +81,40 @@ class RomSelectionStore {
   /** Explicit user choices by game key; a key absent here follows the default (installed). */
   private overrides = new SvelteMap<string, boolean>();
 
-  /** The set of Homebrew titles (by their HOMEBREW_TITLES key) selected for install.
-   *  Initializes with "celeste" (default) plus anything currently on the device. */
-  readonly selectedHomebrew = new SvelteMap<string, boolean>();
+  /** Per-key user toggles for Homebrew titles. If no override exists, the title is selected if it is on the device (or if it's 'celeste'). */
+  private homebrewOverrides = new SvelteMap<string, boolean>();
 
-  // Initialize selectedHomebrew when device connects/scans
-  initHomebrew(deviceHomebrewNames: string[], allHomebrewKeys: string[]) {
-    if (this.selectedHomebrew.size > 0) return; // already init
-    for (const key of allHomebrewKeys) {
-      if (key === "celeste") this.selectedHomebrew.set(key, true);
-      else this.selectedHomebrew.set(key, false);
-    }
-    // We will sync with device later if needed, or rely on caller to set
-  }
+  /** Set of unrecognized homebrew filenames the user chose to remove. */
+  readonly deletedUnknownHomebrew = new SvelteSet<string>();
 
   isHomebrewSelected(key: string): boolean {
-    return this.selectedHomebrew.get(key) === true;
+    const o = this.homebrewOverrides.get(key);
+    if (o !== undefined) return o;
+
+    const hb = HOMEBREW_TITLES.find((t) => t.key === key);
+    if (!hb) return false;
+    const deviceHomebrew = device.installedGames.filter((g) => g.system === "homebrew").map((g) => g.name);
+    return hb.deviceFiles.every((f) => deviceHomebrew.includes(f));
   }
 
-  toggleHomebrew(key: string): void {
-    this.selectedHomebrew.set(key, !this.selectedHomebrew.get(key));
+  toggleHomebrew(key: string, force?: boolean): void {
+    if (force !== undefined) {
+      this.homebrewOverrides.set(key, force);
+    } else {
+      this.homebrewOverrides.set(key, !this.isHomebrewSelected(key));
+    }
+  }
+
+  removeUnknownHomebrew(filename: string): void {
+    this.deletedUnknownHomebrew.add(filename);
   }
 
   get selectedHomebrewKeys(): Set<string> {
-    return new Set([...this.selectedHomebrew.entries()].filter(([, v]) => v).map(([k]) => k));
+    const keys = new Set<string>();
+    for (const hb of HOMEBREW_TITLES) {
+      if (this.isHomebrewSelected(hb.key)) keys.add(hb.key);
+    }
+    return keys;
   }
 
   /** Folder ROMs ∪ device-installed games (excludes `bios/` assets — not games). */

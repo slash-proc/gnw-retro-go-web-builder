@@ -15,6 +15,7 @@
     "@gnw/gnw-patch": "*",
     "@gnw/fs-builders": "*",
     "@gnw/builder-core": "*",
+    "@gnw/gnw-restool": "*",
     "dapjs": "^2.3.0"
   },
   "devDependencies": {

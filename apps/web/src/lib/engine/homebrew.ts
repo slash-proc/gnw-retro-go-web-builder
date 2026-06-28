@@ -25,19 +25,18 @@ export interface HomebrewTitle {
 export const HOMEBREW_TITLES: HomebrewTitle[] = [
   // Self-contained — no user ROM needed.
   { key: "celeste", label: "Celeste", sourceRoms: [], deviceFiles: ["celeste.bin"] },
-  // zelda3.sfc → zelda3.ro + Zelda 3.bin (owner-provided mapping).
+  // zelda3.sfc → zelda3_assets.dat + zelda3.ro + Zelda 3.bin
   {
     key: "zelda3",
     label: "Zelda 3 (A Link to the Past)",
     sourceRoms: ["zelda3.sfc"],
-    deviceFiles: ["zelda3.ro", "Zelda 3.bin"],
+    deviceFiles: ["zelda3_assets.dat", "zelda3.ro", "Zelda 3.bin"],
   },
-  // TODO(owner): confirm Super Mario World's source ROM + generated device files.
   {
     key: "smw",
     label: "Super Mario World",
-    sourceRoms: [],
-    deviceFiles: ["Super Mario World.bin"],
+    sourceRoms: ["smw.sfc"],
+    deviceFiles: ["smw_assets.dat", "Super Mario World.bin"],
   },
 ];
 
