@@ -236,6 +236,47 @@
     HOMEBREW_TITLES.filter(hb => hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f)) && !romSelection.selectedHomebrewKeys.has(hb.key)).length + romSelection.deletedUnknownHomebrew.size
   );
 
+  function getHomebrewSize(hbKey: string): number {
+    const hb = HOMEBREW_TITLES.find(h => h.key === hbKey);
+    if (!hb) return 0;
+    let total = 0;
+    for (const f of hb.deviceFiles) {
+      if (extractedAssets.has(`homebrew/${f}`)) {
+        total += extractedAssets.get(`homebrew/${f}`)!.length;
+      } else {
+        const g = deviceHomebrew.find(x => x.name === f);
+        if (g) total += g.size;
+      }
+    }
+    return total;
+  }
+
+  const hbAdditionsBytes = $derived.by(() => {
+    let bytes = 0;
+    for (const k of romSelection.selectedHomebrewKeys) {
+      const hb = HOMEBREW_TITLES.find(t => t.key === k);
+      if (hb && !hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f))) {
+        bytes += getHomebrewSize(k);
+      }
+    }
+    return bytes;
+  });
+
+  const hbRemovalsBytes = $derived.by(() => {
+    let bytes = 0;
+    for (const hb of HOMEBREW_TITLES) {
+      if (hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f)) && !romSelection.selectedHomebrewKeys.has(hb.key)) {
+        bytes += getHomebrewSize(hb.key);
+      }
+    }
+    for (const g of deviceHomebrew) {
+      if (romSelection.deletedUnknownHomebrew.has(g.name)) {
+        bytes += g.size;
+      }
+    }
+    return bytes;
+  });
+
   const summaryItems = $derived.by<ChangeItem[]>(() => {
     const sel = romSelection.selectedKeys.size;
     const hbSel = romSelection.selectedHomebrewKeys.size;
@@ -423,6 +464,7 @@
                 {@const isExtracting = extracting === hb.key}
                 {@const hasExtracted = hb.deviceFiles.some((f) => extractedAssets.has(`homebrew/${f}`))}
                 {@const isReady = isCeleste || hasExtracted || onDevice}
+                {@const hbSize = getHomebrewSize(hb.key)}
                 <div style="display: flex; flex-direction: column;">
                   <label class="row" style={(!isReady && !hasSourceRom) || isExtracting ? "opacity: 0.5; cursor: not-allowed;" : "cursor: pointer;"}>
                     <input type="checkbox" checked={isSelected} disabled={(!isReady && !hasSourceRom) || isExtracting} onchange={(e) => {
@@ -436,7 +478,7 @@
                       }
                     }} />
                     <span class="gname">{hb.label}</span>
-                    <span style="flex-grow: 1;"></span>
+                    <span class="gsize mono">{hbSize > 0 ? size(hbSize) : '—'}</span>
                     {#if isReady}
                       <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'installed' : 'ready to install'}</span>
                     {:else if hasSourceRom}
@@ -457,7 +499,7 @@
               {#each unknownHomebrew as g (g.name)}
                 <div class="row">
                   <span class="gname mono">{g.name}</span>
-                  <span style="flex-grow: 1;"></span>
+                  <span class="gsize mono">{size(g.size)}</span>
                   <button class="gchip muted" style="cursor: pointer; border: none; background: transparent;" onclick={(e) => {
                     e.preventDefault();
                     romSelection.removeUnknownHomebrew(g.name);
@@ -472,8 +514,8 @@
           </div>
 
           <p class="delta">
-            <strong>+{romSelection.additions.length + hbAdditions}</strong> add ({MiB(romSelection.additionsBytes)} MiB)
-            · <strong>−{romSelection.removals.length + hbRemovals}</strong> remove ({MiB(romSelection.removalsBytes)} MiB)
+            <strong>+{romSelection.additions.length + hbAdditions}</strong> add ({MiB(romSelection.additionsBytes + hbAdditionsBytes)} MiB)
+            · <strong>−{romSelection.removals.length + hbRemovals}</strong> remove ({MiB(romSelection.removalsBytes + hbRemovalsBytes)} MiB)
           </p>
 
           {#if canInstallRoms}
