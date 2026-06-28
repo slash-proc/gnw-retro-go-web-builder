@@ -69,6 +69,32 @@ function matchesFilters(dev: USBDevice, filters: USBDeviceFilter[]): boolean {
   );
 }
 
+async function withTimeoutAndRetry<T>(
+  action: () => Promise<T>,
+  timeoutMs: number,
+  retries: number,
+  delayMs: number,
+  onRetry?: () => Promise<void>
+): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const p = action();
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Adapter connection timed out")), timeoutMs)
+      );
+      return await Promise.race([p, timeout]);
+    } catch (e) {
+      lastError = e;
+      if (i < retries) {
+        if (onRetry) await onRetry().catch(() => {});
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function connectProbe(opts: { forcePicker?: boolean } = {}): Promise<ProbeHandle> {
   if (typeof navigator === "undefined" || !navigator.usb) {
     throw new Error("WebUSB unavailable — use Chrome, Edge, or Opera.");
@@ -85,10 +111,27 @@ export async function connectProbe(opts: { forcePicker?: boolean } = {}): Promis
     dev = known.length === 1 ? known[0] : await navigator.usb.requestDevice({ filters });
   }
 
+  const resetDevice = async () => {
+    // A hardware WebUSB reset requires the device to be open
+    if (!dev.opened) await dev.open();
+    await dev.reset();
+  };
+
   if (dev.vendorId === ST_LINK_VENDOR_ID) {
     const logger = new libstlink.Logger(1, null);
-    const stlink = new WebStlink(logger);
-    await stlink.attach(dev, logger);
+    let stlink!: InstanceType<typeof WebStlink>;
+
+    await withTimeoutAndRetry(
+      async () => {
+        stlink = new WebStlink(logger);
+        await stlink.attach(dev, logger);
+      },
+      1000,
+      2,
+      1000,
+      resetDevice
+    );
+
     const ll = stlink._stlink;
     // attach() inits at the 1.8 MHz default — override to our shared SWD clock.
     await ll.set_swd_freq(SWD_CLOCK_HZ);
@@ -100,10 +143,20 @@ export async function connectProbe(opts: { forcePicker?: boolean } = {}): Promis
     };
   }
 
-  const cortexM = new CortexM(new WebUSB(dev));
-  // @ts-expect-error dapjs exposes clockFrequency on the instance.
-  cortexM.clockFrequency = SWD_CLOCK_HZ;
-  await cortexM.connect();
+  let cortexM!: CortexM;
+  await withTimeoutAndRetry(
+    async () => {
+      cortexM = new CortexM(new WebUSB(dev));
+      // @ts-expect-error dapjs exposes clockFrequency on the instance.
+      cortexM.clockFrequency = SWD_CLOCK_HZ;
+      await cortexM.connect();
+    },
+    1000,
+    2,
+    1000,
+    resetDevice
+  );
+
   return {
     transport: new DapjsTransport(cortexM as never),
     probeName: dev.productName || "CMSIS-DAP",
