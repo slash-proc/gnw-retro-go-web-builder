@@ -497,7 +497,7 @@
   <!-- 3. Library Extras — per-game cover art, saves, cheats. -->
   <div class="group">
     <h3 class="subhead">Library Extras</h3>
-    <AccordionSection id="extras" title="Cover art, saves &amp; cheats" open={openSet.has("extras")} {onToggle}>
+    <AccordionSection id="extras" title="Cover art &amp; cheats" open={openSet.has("extras")} {onToggle}>
       <div class="sections">
         <div class="section">
           <h4 class="head">Cover art</h4>
@@ -507,22 +507,18 @@
           </p>
           <button class="action" disabled>Manage cover art<span class="soon">coming soon</span></button>
         </div>
-        <div class="section">
-          <h4 class="head">Saves</h4>
-          <p class="desc">
-            Back up game saves and save-states off the device — also the basis of the future
-            reinstall migration workflow (so a reinstall isn&rsquo;t destructive).
-          </p>
-          <button class="action" disabled>Back up saves<span class="soon">coming soon</span></button>
-        </div>
-        <div class="section">
-          <h4 class="head">Cheats</h4>
-          <p class="desc">
-            Cross-reference a cheats spreadsheet, fuzzy-matched to the games you have, and write the
-            matching cheat files.
-          </p>
-          <button class="action" disabled>Manage cheats<span class="soon">coming soon</span></button>
-        </div>
+        
+        <details class="homebrew-dropdown" style="margin-top: 1rem;">
+          <summary class="hbhead">Cheat Codes</summary>
+          <div class="homebrew-content">
+            <p class="desc" style="margin-bottom: 0.5rem; margin-top: 0.5rem;">
+              Select cheat codes to generate `.cht` files for your installed games.
+            </p>
+            <div class="rows">
+              <p class="note">Cheat integration coming soon.</p>
+            </div>
+          </div>
+        </details>
       </div>
       <div class="navrow">
         <button class="link" onclick={() => advance("extras", "install-roms")}>

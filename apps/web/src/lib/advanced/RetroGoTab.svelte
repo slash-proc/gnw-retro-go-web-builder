@@ -67,6 +67,20 @@
 
     <div class="sections" class:disabled={gated} aria-disabled={gated}>
       <AccordionSection
+        id="saves"
+        title="Saves"
+        open={openSet.has("saves")}
+        {onToggle}
+      >
+        <div class="section" style="padding: 1rem;">
+          <p class="desc">
+            Back up game saves and save-states off the device — also the basis of the future
+            reinstall migration workflow (so a reinstall isn&rsquo;t destructive).
+          </p>
+          <button class="action" disabled>Back up saves<span class="soon">coming soon</span></button>
+        </div>
+      </AccordionSection>
+      <AccordionSection
         id="lfs"
         title="File Browser"
         open={openSet.has("lfs")}
