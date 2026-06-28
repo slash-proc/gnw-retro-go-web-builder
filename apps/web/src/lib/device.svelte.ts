@@ -203,7 +203,7 @@ class DeviceStore {
       this.firmware = "stock-ofw";
     } else {
       this.model = "unknown";
-      this.firmware = info.locked ? "unknown" : "retro-go";
+      this.firmware = "unknown";
     }
   }
 

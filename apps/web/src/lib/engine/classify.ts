@@ -62,7 +62,7 @@ export function classifyDevice(
     return {
       kind: "retrogo-sd",
       label: version ? `Retro-Go ${version}` : "Retro-Go (SD)",
-      ofw,
+      ofw: ofw ? { ...ofw, patched: true } : null,
       retroGoVersion: version,
       hasGames: frogfs,
       hasSaves: littlefs,
@@ -73,7 +73,7 @@ export function classifyDevice(
     return {
       kind: "retrogo-old",
       label: "Retro-Go (older)",
-      ofw,
+      ofw: ofw ? { ...ofw, patched: true } : null,
       retroGoVersion: undefined,
       hasGames: false,
       hasSaves: littlefs,

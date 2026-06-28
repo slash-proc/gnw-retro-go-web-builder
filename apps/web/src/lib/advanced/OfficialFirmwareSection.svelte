@@ -31,7 +31,13 @@
   // "Back up now" is meaningless here. But patching from an EXISTING backup is still valid — that's
   // how you install a *different* official firmware (e.g. Mario↔Zelda) onto a patched device. So we
   // only suppress the fresh-dump path, not the folder-pick / select-backup / patch flow.
-  const alreadyPatched = $derived(device.firmware === "retro-go");
+  const alreadyPatched = $derived(
+    device.deviceClass 
+      ? device.deviceClass.ofw 
+        ? device.deviceClass.ofw.patched 
+        : device.deviceClass.kind !== "locked" 
+      : false
+  );
 
   let dir = $state<BackupDir | null>(null);
   let pendingDir = $state<BackupDir | null>(null); // a remembered folder awaiting a permission re-grant
