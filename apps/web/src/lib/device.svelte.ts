@@ -300,7 +300,7 @@ class DeviceStore {
       if (!utilAlive) {
         // If the util isn't running, see if Retro-Go is
         const retroGo = await isRetroGoRunning(this.transport);
-        if (retroGo && this.firmware !== "retro-go") {
+        if (retroGo && this.firmware === "unknown") {
           this.firmware = "retro-go";
         }
       }
