@@ -91,7 +91,7 @@ export async function scanExtflashPartitions(
     if (!parts.some((q) => q.offset === p.offset && q.size === p.size)) parts.push(p);
   };
 
-  const strides = [1 << 20, 512 << 10, 256 << 10, 128 << 10, 64 << 10];
+  const strides = [1 << 20, 512 << 10, 256 << 10, 128 << 10];
   // Probe-point count (after geometric skip) for progress.
   const total = Math.floor(flashSize / strides[strides.length - 1]) + strides.length;
   let done = 0;
@@ -127,7 +127,12 @@ export async function scanExtflashPartitions(
       if (isLfs) continue;
 
       // Coverage skip: inside an already-found partition.
-      if (parts.some((p) => addr >= p.offset && addr < p.offset + p.size)) continue;
+      // We skip if we are inside a known partition's bounds, EXCEPT on the 1MB sweep,
+      // where we want to unconditionally probe for ghost partitions. We still skip 
+      // if addr exactly equals a known partition's offset to avoid duplicates.
+      const isInside = parts.some((p) => addr >= p.offset && addr < p.offset + p.size);
+      const isExact = parts.some((p) => addr === p.offset);
+      if (isExact || (isInside && stride < (1 << 20))) continue;
 
       const sec = await readCached(addr, 512);
       if (!sec) continue;
