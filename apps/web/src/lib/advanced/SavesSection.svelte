@@ -21,6 +21,8 @@
 
   let saves = $state<GameSaves[]>([]);
   let loaded = $state(false);
+  
+  let selectedGame = $state<GameSaves | null>(null);
   let selectedSlot = $state<SaveSlot | null>(null);
   let screenshotDataUrl = $state<string | null>(null);
   let downloading = $state<string | null>(null);
@@ -90,6 +92,12 @@
         return a.game.localeCompare(b.game);
       });
       saves = result;
+      
+      // Auto-select first game with a screenshot, or just first game
+      if (saves.length > 0) {
+        const gameWithScreenshot = saves.find(gs => gs.slots.some(s => s.rawFile)) || saves[0];
+        selectGame(gameWithScreenshot);
+      }
     } catch (e) {
       error = String(e);
     } finally {
@@ -104,8 +112,7 @@
     }
   });
 
-  async function downloadFile(file: LittlefsTreeNode, ev: Event) {
-    ev.stopPropagation();
+  async function downloadFile(file: LittlefsTreeNode) {
     if (downloading) return;
     downloading = file.path;
     try {
@@ -133,10 +140,8 @@
     const ctx = canvas.getContext("2d")!;
     const imgData = ctx.createImageData(width, height);
     
-    // STM32/Retro-Go often stores RGB565 in little endian or byteswapped
     let o = 0;
     for (let i = 0; i < width * height; i++) {
-      // Assuming little endian, if colors are wrong this might be big endian
       const p = raw[i * 2] | (raw[i * 2 + 1] << 8);
       const r = ((p >> 11) & 0x1f) * 255 / 31;
       const g = ((p >> 5) & 0x3f) * 255 / 63;
@@ -150,8 +155,14 @@
     return canvas.toDataURL("image/png");
   }
 
+  function selectGame(gs: GameSaves) {
+    selectedGame = gs;
+    const slot0 = gs.slots.find(s => s.slot === "0") || gs.slots.find(s => s.rawFile) || gs.slots[0];
+    if (slot0) selectSlot(slot0);
+  }
+
   async function selectSlot(slot: SaveSlot) {
-    if (selectedSlot === slot) return;
+    if (selectedSlot === slot && screenshotDataUrl) return;
     selectedSlot = slot;
     screenshotDataUrl = null;
     
@@ -170,7 +181,7 @@
   }
 </script>
 
-<div class="saves-section" class:has-selection={selectedSlot !== null}>
+<div class="saves-section">
   {#if loading}
     <p class="muted">Reading LittleFS partition over SWD ({Math.round(progress * 100)}%)...</p>
   {:else if error}
@@ -180,51 +191,34 @@
   {:else}
     <div class="split">
       <div class="left-pane">
-        <div class="table-scroll">
-          <table class="grid">
-            <thead>
-              <tr>
-                <th>Game</th>
-                <th>Saves</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each saves as gs}
-                <tr>
-                  <td>
-                    <span class="chip">{gs.console}</span>
-                    <strong class="game-name">{gs.game}</strong>
-                  </td>
-                  <td>
-                    <div class="slots">
-                      {#each gs.slots as slot}
-                        <!-- svelte-ignore a11y_click_events_have_key_events -->
-                        <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <div 
-                          class="slot-row" 
-                          class:active={selectedSlot === slot}
-                          onclick={() => selectSlot(slot)}>
-                          <span class="slot-name">{slot.slot === "sram" ? "SRAM" : `Slot ${slot.slot}`}</span>
-                          <span class="indicators">
-                            {#if slot.rawFile}<span class="icon" title="Has Screenshot">🖼️</span>{/if}
-                            {#if slot.savFile}<span class="icon" title="Has Save Data">💾</span>{/if}
-                          </span>
-                        </div>
-                      {/each}
-                    </div>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+        <div class="rows">
+          {#each saves as gs}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <label class="row" class:active={selectedGame === gs} onclick={() => selectGame(gs)}>
+              <span class="gchip console-chip">{gs.console}</span>
+              <span class="gname">{gs.game}</span>
+              <span class="gsize mono">{gs.slots.length} files</span>
+            </label>
+          {/each}
         </div>
       </div>
       
-      {#if selectedSlot}
+      {#if selectedGame && selectedSlot}
         <div class="right-pane">
-          <h4 class="preview-title">
-            Preview: {selectedSlot.slot === "sram" ? "SRAM" : `Slot ${selectedSlot.slot}`}
-          </h4>
+          <div class="preview-header">
+            <h4 class="preview-title">{selectedGame.game}</h4>
+            <div class="slot-tabs">
+              {#each selectedGame.slots as slot}
+                <button 
+                  class="slot-tab" 
+                  class:active={selectedSlot === slot}
+                  onclick={() => selectSlot(slot)}>
+                  {slot.slot === "sram" ? "SRAM" : `Slot ${slot.slot}`}
+                </button>
+              {/each}
+            </div>
+          </div>
           
           <div class="preview-image">
             {#if downloading === selectedSlot.rawFile?.path}
@@ -241,18 +235,18 @@
           <div class="actions">
             {#if selectedSlot.savFile}
               <button 
-                class="action" 
+                class="btn primary-action" 
                 disabled={downloading === selectedSlot.savFile.path}
-                onclick={(e) => downloadFile(selectedSlot!.savFile!, e)}>
-                Download Save
+                onclick={() => downloadFile(selectedSlot!.savFile!)}>
+                <span class="icon">💾</span> Download Save
               </button>
             {/if}
             {#if selectedSlot.rawFile}
               <button 
-                class="action secondary" 
+                class="btn secondary-action" 
                 disabled={downloading === selectedSlot.rawFile.path}
-                onclick={(e) => downloadFile(selectedSlot!.rawFile!, e)}>
-                Download Raw Image
+                onclick={() => downloadFile(selectedSlot!.rawFile!)}>
+                <span class="icon">🖼️</span> Download Image
               </button>
             {/if}
           </div>
@@ -264,102 +258,122 @@
 
 <style>
   .saves-section {
-    background: var(--surface);
-    border-radius: var(--r-card);
-    transition: all 0.3s ease;
+    padding: 0;
   }
   .split {
     display: flex;
-    gap: 1.5rem;
-    align-items: flex-start;
+    gap: 1rem;
+    align-items: stretch;
   }
   .left-pane {
     flex: 1;
     min-width: 0;
   }
   .right-pane {
-    width: 340px;
+    width: 320px;
     background: var(--surface-sunk);
     border: 1px solid var(--surface-sunk);
-    border-radius: var(--r-card);
-    padding: 1rem;
-    position: sticky;
-    top: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  
-  .table-scroll {
-    max-height: 600px;
-    overflow-y: auto;
-  }
-  .grid {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9em;
-  }
-  .grid th, .grid td {
+    border-radius: var(--r-control);
     padding: 0.75rem;
-    border-bottom: 1px solid var(--surface-sunk);
-    text-align: left;
-    vertical-align: top;
-  }
-  .grid th {
-    position: sticky;
-    top: 0;
-    background: var(--surface);
-    z-index: 1;
-  }
-  
-  .chip {
-    background: var(--surface-sunk);
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    font-family: var(--mono);
-    font-size: 0.8em;
-    text-transform: uppercase;
-    margin-right: 0.5rem;
-    display: inline-block;
-  }
-  .game-name {
-    display: inline-block;
-  }
-  
-  .slots {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.75rem;
   }
-  .slot-row {
+  
+  .rows {
+    display: flex;
+    flex-direction: column;
+    max-height: 24rem;
+    overflow-y: auto;
+    border: 1px solid var(--surface-sunk);
+    border-radius: var(--r-control);
+    background: var(--surface);
+  }
+  .row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
+    gap: 0.55rem;
+    padding: 0.4rem 0.5rem;
+    font-size: var(--fs-caption);
+    border-bottom: 1px solid var(--surface-sunk);
     cursor: pointer;
-    border: 1px solid transparent;
   }
-  .slot-row:hover {
+  .row:hover {
     background: var(--surface-sunk);
   }
-  .slot-row.active {
+  .row.active {
     background: var(--surface-sunk);
-    border-color: var(--model-accent, var(--brand-blue));
+    border-left: 3px solid var(--model-accent, var(--brand-blue));
   }
-  .slot-name {
-    font-weight: 500;
-  }
-  .indicators .icon {
-    font-size: 1.1em;
-    margin-left: 0.2rem;
-    opacity: 0.8;
+  .row:last-child {
+    border-bottom: none;
   }
   
+  .gname {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .gsize {
+    color: var(--ink-soft);
+    font-size: var(--fs-micro);
+  }
+  .gchip {
+    font-size: var(--fs-micro);
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 0.05rem 0.45rem;
+    white-space: nowrap;
+  }
+  .console-chip {
+    background: var(--surface-sunk);
+    color: var(--ink-soft);
+    border: 1px solid var(--hairline);
+    text-transform: uppercase;
+  }
+  
+  .preview-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
   .preview-title {
     margin: 0;
-    font-size: 1.1em;
+    font-size: var(--fs-body);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
+  .slot-tabs {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+  }
+  .slot-tab {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    color: var(--ink-soft);
+    border-radius: var(--r-control);
+    padding: 0.2rem 0.5rem;
+    font-size: var(--fs-micro);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .slot-tab:hover {
+    background: var(--surface-sunk);
+    color: var(--ink);
+  }
+  .slot-tab.active {
+    background: var(--model-accent, var(--brand-blue));
+    color: #fff;
+    border-color: var(--model-accent, var(--brand-blue));
+    font-weight: 600;
+  }
+  
   .preview-image {
     width: 100%;
     aspect-ratio: 4/3;
@@ -391,16 +405,37 @@
     flex-direction: column;
     gap: 0.5rem;
   }
-  .action {
-    width: 100%;
+  .btn {
+    display: flex;
+    align-items: center;
     justify-content: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1rem;
+    border-radius: var(--r-control);
+    font-family: inherit;
+    font-size: var(--fs-caption);
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
   }
-  .action.secondary {
-    background: transparent;
-    border: 1px solid var(--ink-soft);
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .primary-action {
+    background: var(--surface);
+    border-color: var(--hairline);
     color: var(--ink);
   }
-  .action.secondary:hover {
-    background: var(--surface);
+  .primary-action:hover:not(:disabled) {
+    border-color: var(--ink-soft);
+  }
+  .secondary-action {
+    background: transparent;
+    border-color: transparent;
+    color: var(--ink-soft);
+  }
+  .secondary-action:hover:not(:disabled) {
+    color: var(--ink);
   }
 </style>
