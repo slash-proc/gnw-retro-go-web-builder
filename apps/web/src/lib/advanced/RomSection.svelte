@@ -14,6 +14,7 @@
   import { readFrogfsState } from "../engine/fsscan.js";
   import { dbg as dbgLog } from "../debug.js";
   import { readGameData } from "../engine/frogfsDevice.js";
+  import { HOMEBREW_TITLES } from "../engine/homebrew.js";
   import { planFlashLayout } from "@gnw/fs-builders";
   import { locateSuperblock, readSuperblock, SUPERBLOCK_SIZE } from "@gnw/gnw-patch";
   import AccordionSection, { type ChipKind } from "./AccordionSection.svelte";
@@ -163,6 +164,16 @@
         }
       }
 
+      // Build selectedHomebrew: Celeste is always included. For others, check if their
+      // device files are present in the userRoms map (which includes migrated on-device games).
+      const selectedHomebrew = new Set(["celeste"]);
+      for (const hb of HOMEBREW_TITLES) {
+        if (hb.key === "celeste") continue;
+        // If the user's rom folder (or migrated device state) has ANY of the title's device files, keep it.
+        const hasFiles = hb.deviceFiles.some((f) => userRoms.has(`homebrew/${f}`));
+        if (hasFiles) selectedHomebrew.add(hb.key);
+      }
+
       install = await buildFlashInstall({
         bundle,
         bank,
@@ -172,6 +183,10 @@
         reservedOffset: frogfsOffset,
         frogfsState,
         littlefsLength: littlefsOverride,
+        opts: {
+          selectedHomebrew,
+          homebrewTitles: HOMEBREW_TITLES,
+        },
       });
     } catch (e) {
       err = e instanceof BudgetError ? e.message : e instanceof Error ? e.message : String(e);

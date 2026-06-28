@@ -43,15 +43,20 @@ export interface FlashInstallInputs {
   reservedOffset?: number;
   /** Existing FrogFS state from the device to preserve file data ordering/alignment. */
   frogfsState?: { order: string[]; dataStart: number };
-  /** Expert: explicit LittleFS partition size in bytes (default: auto, 8 MiB floor). */
+  /** Explicit LittleFS size request (bytes). undefined = auto (remaining space). */
   littlefsLength?: number;
-  /** Debug: use this intflash blob instead of the bundle's CI blob for `bank` (e.g. a
-   *  locally-built firmware). The FrogFS/LittleFS content still comes from the bundle. */
+  /** Explicit override of the intflash payload (e.g. custom fw). undefined = use bundle. */
   blobOverride?: Uint8Array;
   /** Debug: patch the layout superblock into the intflash blob (default true). Set false
    *  to flash a blob whose geometry is already baked in — isolates "is the superblock the
    *  problem, or the LittleFS image?". */
   patchSuperblockEnabled?: boolean;
+  /** Options passed down to planFlashImage for filtering (e.g. unselected homebrew). */
+  opts?: {
+    selectedHomebrew?: Set<string>;
+    homebrewTitles?: { key: string; deviceFiles: string[] }[];
+    installAllCores?: boolean;
+  };
 }
 
 export interface FlashInstall {
@@ -77,6 +82,7 @@ export async function buildFlashInstall(inp: FlashInstallInputs): Promise<FlashI
     userRoms: inp.userRoms,
     lzmaRaw,
     compress: false,
+    opts: inp.opts,
   });
   const frogfs = buildFrogfsFromPlan(plan, {
     previousOrder: inp.frogfsState?.order,
