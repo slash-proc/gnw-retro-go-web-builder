@@ -4,7 +4,7 @@
   import type { GeoSegment } from "../engine/classify.js";
   import { extflashSegments } from "../engine/classify.js";
   import type { FrogfsFile, LittlefsTreeNode } from "@gnw/fs-builders";
-  import { readLittleFsDir } from "@gnw/fs-builders";
+  import { readLittleFsDir, readLittleFsTree } from "@gnw/fs-builders";
   import { dumpRegion } from "../engine/flasher.js";
   import { kb } from "../util.js";
 
@@ -68,37 +68,6 @@
       } else {
         next.add(node.path);
         openDirs = next;
-        
-        if (selectedFs === "littlefs" && !node.children) {
-          const p = device.partitions.find((p) => p.fs === "littlefs");
-          if (p && device.flasher) {
-            const blockSize = p.meta?.blockSize ?? device.info?.minEraseSizeBytes ?? 4096;
-            const blockCount = p.meta?.blockCount ?? Math.floor(p.size / blockSize);
-            
-            try {
-              node.loading = true;
-              const children = await readLittleFsDir(blockSize, blockCount, node.path, async (block) => {
-                const addr = 0x90000000 + p.offset + p.size - ((block + 1) * blockSize);
-                return await device.transport!.readMemory(addr, blockSize);
-              });
-              node.children = children.map(n => ({
-                name: n.name,
-                path: n.path,
-                isDirectory: n.isDirectory,
-                size: n.size
-              }));
-              node.children.sort((a, b) => {
-                if (a.isDirectory && !b.isDirectory) return -1;
-                if (!a.isDirectory && b.isDirectory) return 1;
-                return a.name.localeCompare(b.name);
-              });
-            } catch(e) {
-              console.error("Failed to load dir", e);
-            } finally {
-              node.loading = false;
-            }
-          }
-        }
       }
     }
   }
@@ -109,7 +78,11 @@
   let lfsError = $state<string | null>(null);
 
   async function loadLittleFs() {
-    if (lfsTree || lfsLoading) return;
+    if (device.installedLfsTree) {
+      lfsTree = device.installedLfsTree as TreeNode;
+      return;
+    }
+    if (lfsLoading) return;
     const p = device.partitions.find((p) => p.fs === "littlefs");
     if (!p || !device.flasher) {
       lfsError = "LittleFS partition not found.";
@@ -122,29 +95,35 @@
       const blockSize = p.meta?.blockSize ?? device.info?.minEraseSizeBytes ?? 4096;
       const blockCount = p.meta?.blockCount ?? Math.floor(p.size / blockSize);
       
-      const children = await readLittleFsDir(blockSize, blockCount, "/", async (block) => {
+      const blockCache = new Map<number, Uint8Array>();
+      let blocksFetched = 0;
+      
+      const tree = await readLittleFsTree(blockSize, blockCount, async (block) => {
+        if (blockCache.has(block)) return blockCache.get(block)!;
+        
         const addr = 0x90000000 + p.offset + p.size - ((block + 1) * blockSize);
-        lfsProgress = block / blockCount; // just show some progress roughly based on block index
         const data = await device.transport!.readMemory(addr, blockSize);
+        blockCache.set(block, data);
+        
+        blocksFetched++;
+        lfsProgress = Math.min(0.99, blocksFetched / 20); // Arbitrary scale for UI feedback
         return data;
       });
       lfsProgress = 1;
       
-      lfsTree = {
-        name: "/",
-        path: "/",
-        isDirectory: true,
-        children: children.map(n => ({
-          name: n.name,
-          path: n.path,
-          isDirectory: n.isDirectory,
-          size: n.size
-        })).sort((a, b) => {
-          if (a.isDirectory && !b.isDirectory) return -1;
-          if (!a.isDirectory && b.isDirectory) return 1;
-          return a.name.localeCompare(b.name);
-        })
-      };
+      function sortTree(n: LittlefsTreeNode) {
+        if (n.children) {
+          n.children.sort((a, b) => {
+            if (a.isDirectory && !b.isDirectory) return -1;
+            if (!a.isDirectory && b.isDirectory) return 1;
+            return a.name.localeCompare(b.name);
+          });
+          for (const c of n.children) sortTree(c);
+        }
+      }
+      sortTree(tree);
+      device.installedLfsTree = tree;
+      lfsTree = tree as TreeNode;
     } catch (e) {
       lfsError = String(e);
     } finally {

@@ -1,6 +1,7 @@
 // The global device-state object (UX §3.2). Written only by the connection
 // layer; read everywhere. Drives the structural model accent.
 import type { GnwFlasher, DeviceInfo } from "@gnw/gnw-flasher";
+import type { LittlefsTreeNode } from "@gnw/fs-builders";
 import { connectProbe, serialTransport, type ProbeHandle, type SerialTransport } from "./engine/transport.js";
 import { bootStub, readInfo, dumpRegion, attachFlasher, isStubAlive, pingTarget } from "./engine/flasher.js";
 import { scanExtflashPartitions, type ExtPartition } from "./engine/fsscan.js";
@@ -56,6 +57,8 @@ class DeviceStore {
   /** Games currently installed in the device's FrogFS (read during runScan). */
   installedFrogfs = $state<InstalledFrogfs | null>(null);
   installedGames = $state<InstalledGame[]>([]);
+  /** Full LittleFS tree (cached for snappy file browser/save mgmt). Null until read. */
+  installedLfsTree = $state<LittlefsTreeNode | null>(null);
 
   /** The model that should tint the UI (null = unknown/neutral). */
   get accent(): Exclude<Model, "unknown"> | null {
