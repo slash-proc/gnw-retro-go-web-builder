@@ -182,8 +182,31 @@
   }
 
   function renderRgb565(raw: Uint8Array): string {
-    const width = 320;
-    const height = 240;
+    const pixels = Math.floor(raw.length / 2);
+    let width = 320;
+    let height = 240;
+    
+    // Match known Retro-Go framebuffer exact dimensions
+    if (pixels === 320 * 240) { width = 320; height = 240; }
+    else if (pixels === 256 * 240) { width = 256; height = 240; } // NES
+    else if (pixels === 256 * 224) { width = 256; height = 224; } // SNES/PCE
+    else if (pixels === 256 * 192) { width = 256; height = 192; } // SMS/Coleco
+    else if (pixels === 240 * 160) { width = 240; height = 160; } // GBA
+    else if (pixels === 160 * 144) { width = 160; height = 144; } // GB/GBC/GG
+    else {
+      // Fallback best effort guess if slightly off
+      for (const w of [320, 256, 240, 160]) {
+        if (pixels % w === 0) {
+          const h = pixels / w;
+          if (h >= 120 && h <= 240) {
+            width = w;
+            height = h;
+            break;
+          }
+        }
+      }
+    }
+
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -191,17 +214,50 @@
     const imgData = ctx.createImageData(width, height);
     
     let o = 0;
-    for (let i = 0; i < width * height; i++) {
-      const p = raw[i * 2] | (raw[i * 2 + 1] << 8);
-      const r = ((p >> 11) & 0x1f) * 255 / 31;
-      const g = ((p >> 5) & 0x3f) * 255 / 63;
-      const b = (p & 0x1f) * 255 / 31;
-      imgData.data[o++] = r;
-      imgData.data[o++] = g;
-      imgData.data[o++] = b;
-      imgData.data[o++] = 255;
+    let minX = width, maxX = 0, minY = height, maxY = 0;
+    
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        const p = raw[i * 2] | (raw[i * 2 + 1] << 8);
+        const r = ((p >> 11) & 0x1f) * 255 / 31;
+        const g = ((p >> 5) & 0x3f) * 255 / 63;
+        const b = (p & 0x1f) * 255 / 31;
+        
+        if (p !== 0) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+        
+        imgData.data[o++] = r;
+        imgData.data[o++] = g;
+        imgData.data[o++] = b;
+        imgData.data[o++] = 255;
+      }
     }
-    ctx.putImageData(imgData, 0, 0);
+    
+    // If the image is completely blank, fallback to full size
+    if (minX > maxX || minY > maxY) {
+      minX = 0; maxX = width - 1;
+      minY = 0; maxY = height - 1;
+    }
+    
+    const cropWidth = maxX - minX + 1;
+    const cropHeight = maxY - minY + 1;
+    
+    // Create an intermediate canvas to hold the full uncropped image
+    const fullCanvas = document.createElement("canvas");
+    fullCanvas.width = width;
+    fullCanvas.height = height;
+    fullCanvas.getContext("2d")!.putImageData(imgData, 0, 0);
+    
+    // Size the final canvas to the cropped bounding box
+    canvas.width = cropWidth;
+    canvas.height = cropHeight;
+    ctx.drawImage(fullCanvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+    
     return canvas.toDataURL("image/png");
   }
 
@@ -336,7 +392,6 @@
     min-width: 0;
   }
   .right-pane {
-    width: 320px;
     background: var(--surface-sunk);
     border: 1px solid var(--surface-sunk);
     border-radius: var(--r-control);
@@ -344,6 +399,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    width: max-content;
   }
   
   .seltable {
@@ -468,8 +524,8 @@
   }
   
   .preview-image {
-    width: 100%;
-    aspect-ratio: 4/3;
+    width: 320px;
+    height: 240px;
     background: #000;
     border-radius: 4px;
     overflow: hidden;
@@ -479,9 +535,8 @@
     border: 1px solid var(--ink-soft);
   }
   .preview-image img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
+    max-width: 100%;
+    max-height: 100%;
     image-rendering: pixelated;
   }
   .loading-box {

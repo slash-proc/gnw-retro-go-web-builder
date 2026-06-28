@@ -96,11 +96,12 @@ export function shouldSkipRomsFile(path: string): boolean {
 export function isMdRom(path: string): boolean {
   if (destTop(path) !== "roms") return false;
   const parts = relParts(path);
-  return (
-    parts.length > 1 &&
-    parts[0].toLowerCase() === "md" &&
-    basename(path) !== ".DS_Store"
-  );
+  if (parts.length <= 1 || parts[0].toLowerCase() !== "md") return false;
+  const name = basename(path);
+  if (name === ".DS_Store") return false;
+  const ext = suffixLower(name);
+  if (ext === ".ggcodes" || ext === ".mcf" || ext === ".pceplus") return false;
+  return true;
 }
 
 export function isDsStore(path: string): boolean {

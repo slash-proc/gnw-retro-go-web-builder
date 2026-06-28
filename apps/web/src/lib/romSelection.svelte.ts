@@ -208,7 +208,7 @@ class RomSelectionStore {
       // Always include bios assets; include selected games. Homebrew folder sources (e.g.
       // zelda3.sfc) are NOT packed raw — they need restool (deferred) — and on-device homebrew is
       // preserved separately by the install (readGameData).
-      if (system === "bios" || sel.has(path)) out.set(path, data);
+      if (system === "bios" || system === "cheats" || system === "covers" || sel.has(path)) out.set(path, data);
     }
     return out;
   }

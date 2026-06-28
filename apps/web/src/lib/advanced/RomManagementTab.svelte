@@ -20,6 +20,9 @@
   import ConfirmModal from "../ui/ConfirmModal.svelte";
   import InstallGeometry from "../ui/InstallGeometry.svelte";
   import ChangeSummary, { type ChangeItem } from "../ui/ChangeSummary.svelte";
+  import CheatsSection from "./CheatsSection.svelte";
+
+  let configuredCheats = $state<Record<string, string[]>>({});
 
   const EXTBASE = 0x90000000;
   const hex = (n: number): string => "0x" + (n >>> 0).toString(16);
@@ -146,7 +149,12 @@
     }
   }
 
-  const selSig = $derived([...romSelection.selectedKeys, ...romSelection.selectedHomebrewKeys, ...extractedAssets.keys()].sort().join("|"));
+  const selSig = $derived([
+    ...romSelection.selectedKeys, 
+    ...romSelection.selectedHomebrewKeys, 
+    ...extractedAssets.keys(),
+    ...Object.entries(configuredCheats).map(([k, v]) => `${k}:${v.join(",")}`)
+  ].sort().join("|"));
   const previewWanted = $derived(openSet.has("select-games") || openSet.has("install-roms"));
 
   $effect(() => {
@@ -154,6 +162,23 @@
     if (builtFrogfs && builtFor === selSig) return; // cache hit
     void buildPreview(selSig);
   });
+
+  function injectCheats(map: Map<string, Uint8Array>) {
+    for (const [key, cheats] of Object.entries(configuredCheats)) {
+      if (cheats.length === 0) continue;
+      const [system, ...nameParts] = key.split("/");
+      const name = nameParts.join("/");
+      const cheatExts: Record<string, string> = {
+        nes: "ggcodes", gb: "ggcodes", gbc: "ggcodes", 
+        snes: "ggcodes", md: "ggcodes", gen: "ggcodes", gg: "ggcodes",
+        pce: "pceplus", msx: "mcf"
+      };
+      const ext = cheatExts[system] || "ggcodes";
+      const noExtName = name.replace(/\.[^/.]+$/, "");
+      const cheatContent = cheats.join("\n") + "\n";
+      map.set(`cheats/${system}/${noExtName}.${ext}`, new TextEncoder().encode(cheatContent));
+    }
+  }
 
   async function buildPreview(sig: string): Promise<void> {
     const token = ++buildToken;
@@ -165,6 +190,7 @@
       const bundle = await fetchBundle(versions[0].tag);
       const combinedRoms = romSelection.selectedFolderRoms();
       for (const [k, v] of extractedAssets.entries()) combinedRoms.set(k, v);
+      injectCheats(combinedRoms);
       const { frogfs } = await buildFrogfsImage(bundle, combinedRoms, { 
         installAllCores,
         selectedHomebrew: romSelection.selectedHomebrewKeys,
@@ -295,6 +321,8 @@
       else netChangeStr = " (no net size change)";
     }
 
+    const numCheatGames = Object.values(configuredCheats).filter(c => c.length > 0).length;
+
     return [
       {
         label: "Total ROMs & Ports (FrogFS)",
@@ -312,7 +340,11 @@
       },
       { label: "Cover art", status: "None — cover scan not built yet", kind: "muted" },
       { label: "Saves", status: "Preserved — LittleFS untouched", kind: "ok" },
-      { label: "Cheats", status: "Not modified — cheats UI not built yet", kind: "muted" },
+      { 
+        label: "Cheats", 
+        status: numCheatGames > 0 ? `${numCheatGames} games configured` : "None configured", 
+        kind: numCheatGames > 0 ? "info" : "muted" 
+      },
       { label: "Compression", status: "Uncompressed (raw, XiP)", kind: "info" },
     ];
   });
@@ -359,6 +391,7 @@
       if (versions.length === 0) throw new Error("No firmware versions are published yet.");
       const bundle = await fetchBundle(versions[0].tag);
       for (const [k, v] of extractedAssets.entries()) userRoms.set(k, v);
+      injectCheats(userRoms);
       frogfs = (await buildFrogfsImage(bundle, userRoms, { 
         installAllCores,
         selectedHomebrew: romSelection.selectedHomebrewKeys,
@@ -557,17 +590,13 @@
           <button class="action" disabled>Manage cover art<span class="soon">coming soon</span></button>
         </div>
         
-        <details class="homebrew-dropdown" style="margin-top: 1rem;">
-          <summary class="hbhead">Cheat Codes</summary>
-          <div class="homebrew-content">
-            <p class="desc" style="margin-bottom: 0.5rem; margin-top: 0.5rem;">
-              Select cheat codes to generate `.cht` files for your installed games.
-            </p>
-            <div class="rows">
-              <p class="note">Cheat integration coming soon.</p>
-            </div>
-          </div>
-        </details>
+        <div class="section" style="margin-top: 1rem;">
+          <h4 class="head">Cheat Codes</h4>
+          <p class="desc" style="margin-bottom: 0.5rem; margin-top: 0.5rem;">
+            Select cheat codes to generate `.ggcodes` files for your installed games.
+          </p>
+          <CheatsSection bind:configuredCheats games={romSelection.games.filter(g => romSelection.isSelected(g.key))} />
+        </div>
       </div>
       <div class="navrow">
         <button class="link" onclick={() => advance("extras", "install-roms")}>
@@ -840,11 +869,6 @@
     margin-top: 1rem;
     padding-top: 1rem;
     border-top: 1px solid var(--hairline);
-  }
-  .homebrew-dropdown summary {
-    cursor: pointer;
-    user-select: none;
-    outline: none;
   }
   .hbnote {
     font-weight: 400;

@@ -197,16 +197,19 @@ export class FrogFsImage {
 
     const dataStart = bin;
     const files = entries.filter((e) => e.type === "file");
-    if (opts?.previousOrder) {
-      files.sort((a, b) => {
-        const idxA = opts.previousOrder!.indexOf(a.dest);
-        const idxB = opts.previousOrder!.indexOf(b.dest);
+    files.sort((a, b) => {
+      if (opts?.previousOrder) {
+        const idxA = opts.previousOrder.indexOf(a.dest);
+        const idxB = opts.previousOrder.indexOf(b.dest);
         if (idxA !== -1 && idxB !== -1) return idxA - idxB;
         if (idxA !== -1) return -1;
         if (idxB !== -1) return 1;
-        return a.dest < b.dest ? -1 : a.dest > b.dest ? 1 : 0;
-      });
-    }
+      }
+      const keyA = a.dest.replace(/^(?:roms|cheats|saves|covers)\//, "").replace(/\.[^.]+$/, "");
+      const keyB = b.dest.replace(/^(?:roms|cheats|saves|covers)\//, "").replace(/\.[^.]+$/, "");
+      if (keyA !== keyB) return keyA < keyB ? -1 : 1;
+      return a.dest < b.dest ? -1 : a.dest > b.dest ? 1 : 0;
+    });
 
     for (const ent of files) {
       ent.dataOffs = bin;

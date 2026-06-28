@@ -102,6 +102,21 @@ export async function fetchBundle(tag: string): Promise<FirmwareBundle> {
   const b2 = files.get(b2file);
   if (!b1 || !b2) throw new Error("bundle missing a bank blob");
 
+  const search = new TextEncoder().encode("/cheats\0");
+  const replace = new TextEncoder().encode("/roms\0\0\0");
+  for (const b of [b1, b2]) {
+    for (let i = 0; i < b.length - search.length; i++) {
+      let match = true;
+      for (let j = 0; j < search.length; j++) {
+        if (b[i + j] !== search[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) b.set(replace, i);
+    }
+  }
+
   const sdContent = new Map<string, Uint8Array>();
   for (const [path, bytes] of files) {
     if (path.startsWith(SD_PREFIX)) sdContent.set(path.slice(SD_PREFIX.length), bytes);

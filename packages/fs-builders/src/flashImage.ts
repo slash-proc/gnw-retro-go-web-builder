@@ -82,7 +82,12 @@ const CORES = "cores/";
 const defaultDest = (key: string): string =>
   key.startsWith(ROMS + "bios/") ? BIOS + key.slice((ROMS + "bios/").length) : key;
 
-const userDest = (rel: string): string => (rel.split("/")[0] === "bios" ? rel : ROMS + rel);
+export function userDest(rel: string): string {
+  if (rel.startsWith("covers/")) return rel;
+  if (rel.startsWith("bios/")) return rel;
+  if (rel.startsWith("cheats/")) return "roms/" + rel.slice(7);
+  return `roms/${rel}`;
+}
 
 function systemUnderRoms(dest: string): string | null {
   if (!dest.startsWith(ROMS)) return null;
@@ -102,10 +107,15 @@ export function planFlashImage(inputs: FlashImageInputs): FlashAssemblyPlan {
   const tree = new Map<string, Uint8Array>();
   const coreTree = new Map<string, Uint8Array>();
   for (const [key, data] of defaultContent) {
-    if (key.startsWith(CORES)) coreTree.set(key, data);
-    else tree.set(defaultDest(key), data);
+    if (key.startsWith(CORES)) {
+      coreTree.set(key, new Uint8Array(data));
+    } else {
+      tree.set(defaultDest(key), data);
+    }
   }
-  for (const [rel, data] of userRoms) tree.set(userDest(rel), data);
+  for (const [rel, data] of userRoms) {
+    tree.set(userDest(rel), data);
+  }
 
   // 2) Active /roms systems → omit bios/msx when no MSX games present.
   const systems = new Set<string>();

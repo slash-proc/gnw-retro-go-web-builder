@@ -6,4 +6,4 @@ export function download(name: string, data: Uint8Array): void {
   URL.revokeObjectURL(url);
 }
 
-export const kb = (n: number): number => Math.round(n / 1024);
+export const kb = (n: number): number | string => (n > 0 && n < 512) ? "<1" : Math.round(n / 1024);
