@@ -36,7 +36,6 @@ Handles system-level operations. It is split into three functional accordion gro
 2. **Retro-Go:**
    - **Install Retro-Go:** Flash the Retro-Go core system (offers "Flash" vs "SD" install modes).
    - **File Browser:** Browse the device's filesystems (LittleFS and FrogFS). Currently read-only.
-   - **Screenshots:** Deferred feature to extract screenshots from the device.
 3. **Flash Management:**
    - **Dump flash:** Read arbitrary regions of the flash chip to a local `.bin` file.
    - **Flash image:** Write an arbitrary `.bin` file to internal or external flash.
@@ -47,7 +46,9 @@ Handles user content (games).
 - Displays games by console, highlighting which are installed vs new.
 - Compiles the selected games into a FrogFS (and optionally LittleFS) image structure.
 - Flashes the new ROM structure to the device's external flash.
-- **Cheats / Covers / Saves / Homebrew:** Placeholder/deferred features intended for this tab. Homebrew extraction (via `restool` for `smw`/`zelda3` using Pyodide) is completely un-implemented.
+- **Homebrew Ports:** Homebrew extraction (Super Mario World, Zelda 3) is implemented natively in the browser via a WASM port of `restool`. Homebrew games are seamlessly integrated into the primary ROM list and can be generated and managed directly alongside standard emulated games.
+- **Saves & Screenshots:** Implemented using a fast, lazy-loading LittleFS browser (`SavesSection.svelte`). Allows viewing available save slots and downloading both the save file `.sav` and automatically decodes and displays the accompanying raw RGB565 screenshots (`.raw`) as standard PNGs.
+- **Cheats / Covers:** Placeholder/deferred features intended for this tab.
 
 ## 3. Expert Corner
 Accessible only via the `#expert` hash. Contains deeply hidden, dangerous, or uncommonly used functionality.

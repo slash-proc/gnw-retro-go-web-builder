@@ -16,11 +16,11 @@ This document is the definitive source of truth for the current state of the Gam
 ### Not Properly Implemented Yet (TODO)
 - [ ] **ROM Management: Version Independence:** When adding ROMs, the tool currently repacks the FrogFS using `bios`, `fonts`, and `lang` files from the *latest GitHub bundle*. Because the device's `cores` (living in LittleFS) are left untouched during a ROM flash, this can create a severe version mismatch. **Fix:** We must extract the `bios/fonts/lang` system files directly from the device's existing FrogFS (just like we do for missing ROMs) to guarantee the newly packed FrogFS perfectly matches the untouched LittleFS cores.
 - [ ] **ROM Management: Idempotency & Block Shifting:** Adding new ROMs currently re-alphabetizes the FrogFS payload, shifting the byte addresses of all subsequent games. This invalidates the 256KB block hashes and breaks differential flash skipping. **Fix:** When repacking the FrogFS, we must parse the device's existing FrogFS offsets and pack the files back in that exact order (lowest to highest address). This guarantees an append-only strategy where new ROMs are tacked onto the end, preserving all existing 256KB block boundaries.
-- [ ] **Screenshots:** Missing implementation in the Device / Retro-Go Management tab.
+- [x] **Screenshots:** The Device / Retro-Go Management tab now properly decodes and displays RGB565 screenshots natively in the browser.
 - [ ] **Cover Art:** Missing support for attaching cover art to ROMs in the UI/FrogFS generation.
-- [ ] **Saves Management:** Missing implementation for backing up / restoring saves in the ROM Management tab.
+- [x] **Saves Management:** Implemented a fast, lazy-loading LittleFS browser (`lfsBrowser.ts`) to view saves and screenshots without dumping the entire partition. Saves and raw screenshots can be downloaded directly from the UI. (Upload/Restore functionality may still need work).
 - [ ] **Cheat Codes:** Missing implementation in the ROM Management tab.
-- [ ] **Homebrew Ports (SMW/Zelda3):** Not implemented at all. The plan is to bring the `restool` Python extraction scripts for Super Mario World (`smw`) and Zelda 3 (`zelda3`) over to the browser using Pyodide. A plan for supporting any other homebrew is still outstanding.
+- [x] **Homebrew Ports (SMW/Zelda3):** Implemented using a native WASM `restool` port rather than Pyodide. The UI smoothly integrates Homebrew directly into the ROM selection table, tracking missing assets, triggering extraction, and cleanly showing footprint sizes just like standard emulated games.
 
 ## Architecture
 
