@@ -14,6 +14,8 @@
   import { readFrogfsState } from "../engine/fsscan.js";
   import { dbg as dbgLog } from "../debug.js";
   import { readGameData } from "../engine/frogfsDevice.js";
+  import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
+  import type { LittlefsTreeNode } from "@gnw/fs-builders";
   import { HOMEBREW_TITLES } from "../engine/homebrew.js";
   import { planFlashLayout } from "@gnw/fs-builders";
   import { locateSuperblock, readSuperblock, SUPERBLOCK_SIZE } from "@gnw/gnw-patch";
@@ -145,6 +147,7 @@
       const userRoms = new Map<string, Uint8Array>();
       const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
       
+      const lfsData = new Map<string, Uint8Array>();
       let frogfsState;
       const isRetroGo = device.deviceClass?.kind === "retrogo-sd" || device.deviceClass?.kind === "retrogo-old";
       if (isRetroGo) {
@@ -153,6 +156,27 @@
           console.log("Read frogfsState:", frogfsState);
         } catch (e) {
           console.warn("Could not read previous FrogFS state:", e);
+        }
+        
+        try {
+          const lfsTree = await ensureLfsTree();
+          async function extractLfs(node: LittlefsTreeNode, pathPrefix: string) {
+            for (const child of node.children || []) {
+              const fullPath = pathPrefix + child.name;
+              if (child.isDirectory) {
+                await extractLfs(child, fullPath + "/");
+              } else {
+                lfsData.set(fullPath, await readLfsFile(fullPath));
+              }
+            }
+          }
+          const dataDir = lfsTree.children?.find((c) => c.name === "data" && c.isDirectory);
+          if (dataDir) await extractLfs(dataDir, "data/");
+          const configFile = lfsTree.children?.find((c) => c.name === "CONFIG" && !c.isDirectory);
+          if (configFile) lfsData.set("CONFIG", await readLfsFile("CONFIG"));
+          console.log("Extracted LittleFS data for migration:", [...lfsData.keys()]);
+        } catch (e) {
+          console.warn("Could not extract LittleFS data for migration:", e);
         }
       }
 
@@ -184,6 +208,7 @@
         reservedOffset: frogfsOffset,
         frogfsState,
         littlefsLength: littlefsOverride,
+        lfsData,
         opts: {
           selectedHomebrew,
           homebrewTitles: HOMEBREW_TITLES,

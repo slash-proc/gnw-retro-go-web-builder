@@ -51,6 +51,8 @@ export interface FlashInstallInputs {
    *  to flash a blob whose geometry is already baked in — isolates "is the superblock the
    *  problem, or the LittleFS image?". */
   patchSuperblockEnabled?: boolean;
+  /** Explicit files to inject into the LittleFS partition (e.g. migrating saves/config). */
+  lfsData?: Map<string, Uint8Array>;
   /** Options passed down to planFlashImage for filtering (e.g. unselected homebrew). */
   opts?: {
     selectedHomebrew?: Set<string>;
@@ -83,6 +85,7 @@ export async function buildFlashInstall(inp: FlashInstallInputs): Promise<FlashI
     lzmaRaw,
     compress: false,
     opts: inp.opts,
+    lfsData: inp.lfsData,
   });
   const frogfs = buildFrogfsFromPlan(plan, {
     previousOrder: inp.frogfsState?.order,

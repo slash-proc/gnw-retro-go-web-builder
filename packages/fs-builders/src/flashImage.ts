@@ -45,7 +45,10 @@ export interface FlashImageInputs {
   /** Build per-ROM `.lzma` sidecars (default true). `false` ⇒ store ROMs RAW (XiP,
    *  no on-device decompress / heap OOM); `lzmaRaw` is then unused. */
   compress?: boolean;
+  /** Options passed down from the UI/flash flow. */
   opts?: FlashImageOpts;
+  /** Explicit files to inject into the LittleFS partition (e.g. migrating saves/config). */
+  lfsData?: Map<string, Uint8Array>;
 }
 
 export interface FlashAssemblyPlan {
@@ -115,6 +118,11 @@ export function planFlashImage(inputs: FlashImageInputs): FlashAssemblyPlan {
   }
   for (const [rel, data] of userRoms) {
     tree.set(userDest(rel), data);
+  }
+  if (inputs.lfsData) {
+    for (const [key, data] of inputs.lfsData) {
+      coreTree.set(key, data);
+    }
   }
 
   // 2) Active /roms systems → omit bios/msx when no MSX games present.
