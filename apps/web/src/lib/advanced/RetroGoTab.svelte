@@ -7,9 +7,9 @@
   import RomSection from "./RomSection.svelte";
   import DumpSection from "./DumpSection.svelte";
   import FlashSection from "./FlashSection.svelte";
+  import EraseSection from "./EraseSection.svelte";
   import OfficialFirmwareSection from "./OfficialFirmwareSection.svelte";
   import FileBrowserSection from "./FileBrowserSection.svelte";
-  import SavesSection from "./SavesSection.svelte";
 
   // Tab: Device / Retro-Go Management. Three groups, top → bottom:
   //   1. Official Firmware — Backup → Patch-for-Dualboot (accordion).
@@ -68,14 +68,6 @@
 
     <div class="sections" class:disabled={gated} aria-disabled={gated}>
       <AccordionSection
-        id="saves"
-        title="Saves"
-        open={openSet.has("saves")}
-        {onToggle}
-      >
-        <SavesSection />
-      </AccordionSection>
-      <AccordionSection
         id="lfs"
         title="File Browser"
         open={openSet.has("lfs")}
@@ -104,6 +96,11 @@
       open={openSet.has("flash-image")}
       {onToggle}
       onRunning={(r) => onRunning("flash-image", r)}
+    />
+    <EraseSection
+      open={openSet.has("erase-flash")}
+      {onToggle}
+      onRunning={(r) => onRunning("erase-flash", r)}
     />
   </div>
 </div>

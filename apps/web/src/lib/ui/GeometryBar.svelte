@@ -11,16 +11,16 @@
     title = "",
     onClick,
     onDblClick,
-  }: { segments: GeoSegment[]; leftLabel?: string; rightLabel?: string; title?: string; onClick?: (s: GeoSegment) => void; onDblClick?: (s: GeoSegment) => void } = $props();
+  }: { segments: GeoSegment[]; leftLabel?: string; rightLabel?: string; title?: string; onClick?: (s: GeoSegment, e?: MouseEvent | KeyboardEvent) => void; onDblClick?: (s: GeoSegment) => void } = $props();
 
   let hovered = $state<GeoSegment | null>(null);
   // Click a segment to PIN its detail so it persists (and the text can be selected/copied);
   // hover just previews. The detail shows the hovered segment, falling back to the pinned one.
   let pinned = $state<GeoSegment | null>(null);
   const shown = $derived(hovered ?? pinned);
-  function togglePin(s: GeoSegment) {
+  function togglePin(s: GeoSegment, e: MouseEvent | KeyboardEvent | undefined = undefined) {
     pinned = pinned === s ? null : s;
-    if (onClick) onClick(s);
+    if (onClick) onClick(s, e);
   }
 </script>
 
@@ -39,12 +39,12 @@
         onmouseleave={() => (hovered = null)}
         onfocus={() => (hovered = s)}
         onblur={() => (hovered = null)}
-        onclick={() => togglePin(s)}
+        onclick={(e) => togglePin(s, e)}
         ondblclick={() => onDblClick?.(s)}
         onkeydown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            togglePin(s);
+            togglePin(s, e);
           }
         }}
       >
@@ -66,7 +66,7 @@
   }
   .gtitle {
     font-size: var(--fs-micro);
-    color: rgba(26, 23, 20, 0.6);
+    color: var(--ink-soft);
     text-align: left;
     margin-bottom: 0.15rem;
   }
@@ -76,8 +76,8 @@
     height: 1.4rem;
     border-radius: 4px;
     overflow: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.25);
-    background: var(--surface-sunk, #d9cdb4);
+    border: 1px solid var(--surface-sunk);
+    background: var(--surface-sunk);
   }
   .gseg {
     height: 100%;
@@ -96,7 +96,7 @@
   }
   /* The pinned segment keeps its detail showing below the bar. */
   .gseg.pinned {
-    outline: 2px solid rgba(0, 0, 0, 0.6);
+    outline: 2px solid var(--ink);
     outline-offset: -2px;
   }
   .gseg span {
@@ -143,14 +143,14 @@
     background: transparent;
   }
   .free span {
-    color: rgba(26, 23, 20, 0.45);
+    color: var(--ink-soft);
     text-shadow: none;
   }
   .glegend {
     display: flex;
     justify-content: space-between;
     font-size: var(--fs-micro);
-    color: rgba(26, 23, 20, 0.55);
+    color: var(--ink-soft);
     margin-top: 0.15rem;
   }
   .gdetail {
@@ -160,7 +160,7 @@
     min-height: 1.1rem;
     margin-top: 0.2rem;
     font-size: var(--fs-micro);
-    color: rgba(26, 23, 20, 0.78);
+    color: var(--ink);
     opacity: 0;
     transition: opacity 100ms ease;
     /* Selectable so pinned addresses/sizes can be copied. */

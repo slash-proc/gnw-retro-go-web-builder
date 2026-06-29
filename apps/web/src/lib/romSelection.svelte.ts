@@ -15,47 +15,60 @@ import { device } from "./device.svelte.js";
 import { consoleLabel } from "./engine/consoles.js";
 import { HOMEBREW_TITLES } from "./engine/homebrew.js";
 
-// Non-ROM files that sneak into roms/<system>/ folders. We can't skip these by the retro-go
-// extension rule: `.md` is the Mega Drive ROM extension, so a README.md collides — skip it by
-// NAME instead. `.xml` (e.g. msxromdb.xml), `.txt`, etc. are never ROM extensions.
-const NON_ROM_NAMES = new Set([
-  "readme.md",
-  "readme.txt",
-  "readme",
-  "license",
-  "license.txt",
-  "changelog.md",
-]);
-const NON_ROM_EXTS = new Set([
-  ".xml",
-  ".txt",
-  ".nfo",
-  ".htm",
-  ".html",
-  ".json",
-  ".ini",
-  ".url",
-  ".db",
-  ".log",
-  ".csv",
-  ".ggcodes",
-  ".mcf",
-  ".pceplus",
-]);
+const CONSOLE_WHITELISTS: Record<string, Set<string>> = {
+  nes: new Set([".nes", ".fds", ".nsf"]),
+  snes: new Set([".sfc", ".smc"]),
+  gb: new Set([".gb", ".gbc"]),
+  gbc: new Set([".gb", ".gbc"]),
+  sms: new Set([".sms"]),
+  gg: new Set([".gg"]),
+  md: new Set([".md", ".gen", ".smd", ".bin"]),
+  pce: new Set([".pce"]),
+  sg: new Set([".sg"]),
+  gw: new Set([".gw"]),
+  col: new Set([".col", ".rom"]),
+  wsv: new Set([".wsv", ".sv", ".bin"]),
+  msx: new Set([".msx", ".rom", ".dsk", ".mx1", ".mx2", ".cdk", ".cas"]),
+  a2600: new Set([".a26", ".bin"]),
+  a7800: new Set([".a78", ".bin"]),
+  amstrad: new Set([".dsk", ".cdk", ".cdt", ".sna"]),
+  videopac: new Set([".bin"]),
+  tama: new Set([".b", ".bin"]),
+  mini: new Set([".min"]),
+  pico8: new Set([".p8", ".png"])
+};
 
-/** Only real ROM files belong in the games table — drop cover art (.png/.jpg/…), .DS_Store,
- *  README.md (the .md/Mega-Drive collision), ROM databases (msxromdb.xml), and other non-ROM
- *  files. Uses retro-go's own skip-by-extension rule (keeps PICO-8 .png carts) plus a name/ext
- *  blocklist for the cases that rule can't catch. `path` is roms-relative ("<system>/<file>").
- *  (Per-title homebrew whitelisting — "the files each homebrew looks for" — is part of the
- *  deferred homebrew/restool module; see memory romgr-install-architecture.) */
-function isRomFile(romsRelPath: string): boolean {
-  if (shouldSkipRomsFile("roms/" + romsRelPath) || isDsStore(romsRelPath)) return false;
-  const base = romsRelPath.slice(romsRelPath.lastIndexOf("/") + 1).toLowerCase();
-  if (NON_ROM_NAMES.has(base)) return false;
-  const dot = base.lastIndexOf(".");
-  if (dot > 0 && NON_ROM_EXTS.has(base.slice(dot))) return false;
-  return true;
+export function parseRomPath(path: string): { system: string, name: string } | null {
+  const parts = path.split("/");
+  const filename = parts.pop();
+  if (!filename || isDsStore(path)) return null;
+
+  const dot = filename.lastIndexOf(".");
+  if (dot < 0) return null; // No extension
+  const ext = filename.slice(dot).toLowerCase();
+
+  // Find the most recent parent directory that matches a valid console shortname
+  let governingConsole: string | null = null;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i].toLowerCase();
+    if (CONSOLE_WHITELISTS[p]) {
+      governingConsole = p;
+      break;
+    }
+  }
+
+  if (!governingConsole) return null;
+
+  const whitelist = CONSOLE_WHITELISTS[governingConsole];
+  if (!whitelist.has(ext)) return null;
+
+  let system = governingConsole;
+  
+  // Special overriding rules based on file extension
+  if (ext === ".gbc") system = "gbc";
+  if (ext === ".gb") system = "gb";
+
+  return { system, name: filename };
 }
 
 export interface Game {
@@ -126,24 +139,32 @@ class RomSelectionStore {
     const folder = roms.scan?.userRoms;
     if (folder) {
       for (const [path, data] of folder) {
-        const slash = path.indexOf("/");
-        if (slash < 0) continue;
-        const system = path.slice(0, slash);
-        if (NON_GAME_SYSTEMS.has(system)) continue;
-        if (!isRomFile(path)) continue; // skip cover art / non-ROM files
-        const name = path.slice(slash + 1);
-        byKey.set(path, { key: path, system, name, size: data.length, inFolder: true, installed: false });
+        const topSys = path.slice(0, path.indexOf("/"));
+        if (NON_GAME_SYSTEMS.has(topSys) || topSys.endsWith("_bios")) continue;
+        
+        const parsed = parseRomPath(path);
+        if (!parsed) continue;
+
+        byKey.set(path, { key: path, system: parsed.system, name: parsed.name, size: data.length, inFolder: true, installed: false });
       }
     }
     for (const g of device.installedGames) {
       if (NON_GAME_SYSTEMS.has(g.system)) continue; // homebrew/bios preserved separately, not games
-      if (!isRomFile(`${g.system}/${g.name}`)) continue; // consistency with the folder side
-      const key = `${g.system}/${g.name}`;
+      const path = `${g.system}/${g.name}`;
+      const parsed = parseRomPath(path);
+      if (!parsed) continue; // consistency with the folder side
+      
+      const key = path;
       const existing = byKey.get(key);
       if (existing) existing.installed = true;
-      else byKey.set(key, { key, system: g.system, name: g.name, size: g.size, inFolder: false, installed: true });
+      else byKey.set(key, { key, system: parsed.system, name: parsed.name, size: g.size, inFolder: false, installed: true });
     }
-    return [...byKey.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    return [...byKey.values()].sort((a, b) => {
+      const normalize = (k: string) => k.toLowerCase().replace(/(^|\/)the\s+/g, "$1");
+      const aNorm = normalize(a.key);
+      const bNorm = normalize(b.key);
+      return aNorm < bNorm ? -1 : aNorm > bNorm ? 1 : 0;
+    });
   });
 
   /** Systems present (folder or device), with display labels + game counts. */

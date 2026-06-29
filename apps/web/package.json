@@ -10,13 +10,14 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@gnw/swd-transport": "*",
+    "@gnw/builder-core": "*",
+    "@gnw/fs-builders": "*",
     "@gnw/gnw-flasher": "*",
     "@gnw/gnw-patch": "*",
-    "@gnw/fs-builders": "*",
-    "@gnw/builder-core": "*",
     "@gnw/gnw-restool": "*",
-    "dapjs": "^2.3.0"
+    "@gnw/swd-transport": "*",
+    "dapjs": "^2.3.0",
+    "hash-wasm": "^4.12.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5",

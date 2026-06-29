@@ -85,11 +85,20 @@ export function isPico8Cartridge(path: string): boolean {
   );
 }
 
-/** True if a /roms file should be skipped by extension (gen_frogfs_image). */
+/** True if a file should be skipped by extension (gen_frogfs_image). */
 export function shouldSkipRomsFile(path: string): boolean {
-  if (destTop(path) !== "roms") return false;
-  if (isPico8Cartridge(path)) return false; // .png carts survive
-  return ROMS_SKIP_EXTENSIONS.has(suffixLower(basename(path)));
+  const top = destTop(path);
+  if (top === "roms") {
+    if (isPico8Cartridge(path)) return false; // .png carts survive
+    return ROMS_SKIP_EXTENSIONS.has(suffixLower(basename(path)));
+  }
+  if (top === "covers") {
+    // Drop high-quality originals from the covers directory; only .img sidecars go to the device.
+    const ext = suffixLower(basename(path));
+    if (ext === ".img") return false;
+    return ROMS_SKIP_EXTENSIONS.has(ext);
+  }
+  return false;
 }
 
 /** True if this is a Genesis/MD rom needing the 16-bit byteswap. */

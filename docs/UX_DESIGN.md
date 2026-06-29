@@ -48,7 +48,8 @@ Handles user content (games).
 - Flashes the new ROM structure to the device's external flash.
 - **Homebrew Ports:** Homebrew extraction (Super Mario World, Zelda 3) is implemented natively in the browser via a WASM port of `restool`. Homebrew games are seamlessly integrated into the primary ROM list and can be generated and managed directly alongside standard emulated games.
 - **Saves & Screenshots:** Implemented using a fast, lazy-loading LittleFS browser (`SavesSection.svelte`). Allows viewing available save slots and downloading both the save file `.sav` and automatically decodes and displays the accompanying raw RGB565 screenshots (`.raw`) as standard PNGs.
-- **Cheats / Covers:** Placeholder/deferred features intended for this tab.
+- **Cover Art:** A full 3D Cover Flow carousel (`Carousel.svelte`) visualizes games with high-quality box art. Includes integration with ScreenScraper (`GameDetailsPanel.svelte`) for both single-game and bulk batch scraping directly within the browser, seamlessly converting covers to the device's native format while caching full-res versions for the UI.
+- **Cheat Codes:** Natively supports parsing `.ggcodes` files, presenting an interactive UI to toggle cheats on/off per game, and seamlessly packing modified configurations back into the FrogFS payload stripped of descriptions to ensure Retro-Go compatibility.
 
 ## 3. Expert Corner
 Accessible only via the `#expert` hash. Contains deeply hidden, dangerous, or uncommonly used functionality.

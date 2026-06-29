@@ -86,9 +86,20 @@ const defaultDest = (key: string): string =>
   key.startsWith(ROMS + "bios/") ? BIOS + key.slice((ROMS + "bios/").length) : key;
 
 export function userDest(rel: string): string {
+  if (rel.startsWith("roms/")) return rel;
   if (rel.startsWith("covers/")) return rel;
   if (rel.startsWith("bios/")) return rel;
   if (rel.startsWith("cheats/")) return "roms/" + rel.slice(7);
+  
+  const slash = rel.indexOf("/");
+  if (slash > 0) {
+    const sys = rel.slice(0, slash);
+    if (sys.endsWith("_bios")) {
+      const realSys = sys.slice(0, -5);
+      return `bios/${realSys}/${rel.slice(slash + 1)}`;
+    }
+  }
+
   return `roms/${rel}`;
 }
 
@@ -167,6 +178,30 @@ export function planFlashImage(inputs: FlashImageInputs): FlashAssemblyPlan {
   // 3) FrogFS: stage (byteswap MD / skip-ext / .DS_Store) → lzma sidecars. Order
   //    mirrors gen_frogfs_image.py (stage_input_dirs then pack_staged_roms).
   const raw: StagedFile[] = [...tree].map(([path, data]) => ({ path, data }));
+  
+  const getGameBase = (path: string): string => {
+    let p = path;
+    if (path.startsWith("covers/")) p = path.slice(7);
+    else if (path.startsWith("roms/cheats/")) p = path.slice(12);
+    else if (path.startsWith("roms/")) p = path.slice(5);
+    else return path; // Not a game file, use full path as base
+    
+    // Check if it's in a system dir (has a slash)
+    const slash = p.indexOf("/");
+    if (slash > 0) {
+      const lastDot = p.lastIndexOf(".");
+      return p.slice(0, lastDot > slash ? lastDot : undefined);
+    }
+    return path;
+  };
+
+  raw.sort((a, b) => {
+    const baseA = getGameBase(a.path);
+    const baseB = getGameBase(b.path);
+    if (baseA !== baseB) return baseA < baseB ? -1 : 1;
+    return a.path < b.path ? -1 : 1;
+  });
+
   const staged = stageFrogfsTree(raw);
   const packed =
     compress === false

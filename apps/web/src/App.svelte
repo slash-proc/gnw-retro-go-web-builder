@@ -1,9 +1,7 @@
 <script lang="ts">
   import { device } from "./lib/device.svelte.js";
   import DeviceHeader from "./lib/ui/DeviceHeader.svelte";
-  import DeviceOverview from "./lib/ui/DeviceOverview.svelte";
-  import Connect from "./lib/views/Connect.svelte";
-  import Wizard from "./lib/views/Wizard.svelte";
+    import Connect from "./lib/views/Connect.svelte";
   import Advanced from "./lib/views/Advanced.svelte";
   import StubLoadModal from "./lib/ui/StubLoadModal.svelte";
 
@@ -33,21 +31,15 @@
 
 <div class="app" data-model={device.accent ?? undefined}>
   <StubLoadModal />
-  <DeviceHeader />
+  <header class="app-header">
+    <DeviceHeader />
+
+  </header>
   <main class="body">
     {#if !device.isConnected && !device.everConnected && !browseAnyway}
       <Connect onSkip={() => { browseAnyway = true; entryTab = "roms"; mode = "advanced"; }} onConnected={() => (entryTab = "info")} />
     {:else}
-      <DeviceOverview />
-      <nav class="modeswitch">
-        <button class:active={mode === "wizard"} onclick={() => (mode = "wizard")}>Guided Setup</button>
-        <button class:active={mode === "advanced"} onclick={() => (mode = "advanced")}>Advanced</button>
-      </nav>
-      {#if mode === "wizard"}
-        <Wizard />
-      {:else}
-        <Advanced initialTab={entryTab} onInitialApplied={() => (entryTab = undefined)} />
-      {/if}
+      <Advanced initialTab={entryTab} onInitialApplied={() => (entryTab = undefined)} bind:mode />
     {/if}
   </main>
 </div>
@@ -56,6 +48,16 @@
   .app {
     min-height: 100vh;
   }
+  .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    background: var(--grad-gold);
+    border-bottom: 3px solid var(--model-accent);
+    transition: border-color 200ms ease;
+  }
   .body {
     max-width: var(--maxw);
     margin: 1.5rem auto;
@@ -63,29 +65,5 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
-  }
-  .modeswitch {
-    display: flex;
-    gap: 0.25rem;
-    align-self: center;
-    background: var(--surface-sunk);
-    border-radius: 999px;
-    padding: 0.2rem;
-  }
-  .modeswitch button {
-    font: inherit;
-    font-size: var(--fs-caption);
-    border: none;
-    background: transparent;
-    color: var(--ink-soft);
-    padding: 0.35rem 1rem;
-    border-radius: 999px;
-    cursor: pointer;
-  }
-  .modeswitch button.active {
-    background: var(--surface);
-    color: var(--ink);
-    font-weight: 600;
-    box-shadow: var(--shadow-card);
   }
 </style>

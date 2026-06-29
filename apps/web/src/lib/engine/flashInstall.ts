@@ -203,6 +203,7 @@ async function flashRegion(
       const chunk = install.intflash.subarray(offset, offset + CHUNK_SIZE);
       const chunkReport: ProgressFn = (done) => report(offset + done, install.intflash.length);
       await flashImage(flasher, install.bank, offset, chunk, chunkReport, log, opts);
+      await new Promise((r) => setTimeout(r, 50));
     }
   } else if (region === "frogfs") {
     await flashImage(flasher, 0, install.layout.frogfsOffset, install.frogfs, report, log, opts);

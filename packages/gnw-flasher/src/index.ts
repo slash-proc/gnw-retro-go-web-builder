@@ -611,6 +611,9 @@ export class GnwFlasher {
       opts.onProgress?.(dataDone, total);
       // Update the device-side progress bar (0..26, gnwmanager parity).
       await this.transport.writeWord(this.addr(Field.PROGRESS), Math.floor((26 * (c + 1)) / nChunks));
+      
+      // Throttle delay to prevent ST-Link clone USB saturation between heavy chunk operations
+      await new Promise((r) => setTimeout(r, 50));
     }
     log("flash complete (device-verified).");
   }

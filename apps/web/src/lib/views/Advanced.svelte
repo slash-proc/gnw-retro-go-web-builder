@@ -5,6 +5,7 @@
   import RetroGoTab from "../advanced/RetroGoTab.svelte";
   import RomManagementTab from "../advanced/RomManagementTab.svelte";
   import ExpertCorner from "../advanced/ExpertCorner.svelte";
+  import Wizard from "./Wizard.svelte";
 
   // The Advanced shell (§2): tab strip + multi-open accordion. Persistent
   // DeviceHeader + DeviceOverview stay mounted in App.svelte above this.
@@ -15,7 +16,11 @@
   // Device Information then (so a stale persisted hash doesn't reopen Device Management mid-scan).
   // It's a one-shot: applied on mount, then cleared via onInitialApplied so later remounts (mode
   // toggles, reconnects) fall back to the hash/default. No forward on any other entry.
-  let { initialTab, onInitialApplied }: { initialTab?: Tab; onInitialApplied?: () => void } = $props();
+  let {
+    initialTab,
+    onInitialApplied,
+    mode = $bindable("advanced"),
+  }: { initialTab?: Tab; onInitialApplied?: () => void; mode?: "wizard" | "advanced" } = $props();
 
   // Which device-tab accordion (if any) to pre-open, from the scanned install state:
   //   • Retro-Go + LittleFS present  → fully installed → open NOTHING (they can still open
@@ -157,7 +162,7 @@
     <ExpertCorner />
   </div>
 {:else}
-  <div class="shell">
+  <div class="shell" class:wide={tab === "roms"}>
     <div class="tabbar" role="tablist" aria-label="Advanced tools" tabindex={-1} onkeydown={onTabKey}>
       <button
         role="tab"
@@ -166,7 +171,7 @@
         aria-selected={tab === "info"}
         tabindex={tab === "info" ? 0 : -1}
         onclick={() => selectTab("info")}
-      >Device Information</button>
+      >Information</button>
       <button
         role="tab"
         class="tab"
@@ -174,7 +179,7 @@
         aria-selected={tab === "device"}
         tabindex={tab === "device" ? 0 : -1}
         onclick={() => selectTab("device")}
-      >Device / Retro-Go Management</button>
+      >Device/Retro-Go Setup</button>
       <button
         role="tab"
         class="tab"
@@ -182,14 +187,22 @@
         aria-selected={tab === "roms"}
         tabindex={tab === "roms" ? 0 : -1}
         onclick={() => selectTab("roms")}
-      >ROM Management</button>
+      >ROMs</button>
 
     </div>
 
     {#if tab === "info"}
       <DeviceInfoTab />
     {:else if tab === "device"}
-      <RetroGoTab openSet={openByTab.device} onToggle={toggle} {onRunning} />
+      <nav class="modeswitch-inline">
+        <button class:active={mode === "wizard"} onclick={() => (mode = "wizard")}>Guided Setup</button>
+        <button class:active={mode === "advanced"} onclick={() => (mode = "advanced")}>Advanced</button>
+      </nav>
+      {#if mode === "wizard"}
+        <Wizard onComplete={() => selectTab("roms")} />
+      {:else}
+        <RetroGoTab openSet={openByTab.device} onToggle={toggle} {onRunning} />
+      {/if}
     {:else}
       <RomManagementTab openSet={openByTab.roms} onToggle={toggle} {onRunning} />
     {/if}
@@ -208,8 +221,14 @@
     flex-direction: column;
     gap: 0.75rem;
   }
+  .shell.wide {
+    max-width: none;
+    padding: 0 1rem;
+  }
   /* Tab strip is square-cornered (data surface), distinct from the mode pill. */
   .tabbar {
+    width: fit-content;
+    margin: 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -237,6 +256,32 @@
   .tab:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  
+  .modeswitch-inline {
+    display: flex;
+    gap: 0.2rem;
+    align-self: center;
+    background: var(--surface-sunk);
+    border-radius: 999px;
+    padding: 0.15rem;
+    margin-bottom: 0.5rem;
+  }
+  .modeswitch-inline button {
+    font: inherit;
+    font-size: 0.8rem;
+    border: none;
+    background: transparent;
+    color: var(--ink-soft);
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .modeswitch-inline button.active {
+    background: var(--surface);
+    color: var(--ink);
+    font-weight: 600;
+    box-shadow: var(--shadow-card);
   }
 
   .exphead {

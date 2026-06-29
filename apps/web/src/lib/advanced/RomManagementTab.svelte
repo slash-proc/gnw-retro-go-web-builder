@@ -20,7 +20,8 @@
   import ConfirmModal from "../ui/ConfirmModal.svelte";
   import InstallGeometry from "../ui/InstallGeometry.svelte";
   import ChangeSummary, { type ChangeItem } from "../ui/ChangeSummary.svelte";
-  import CheatsSection from "./CheatsSection.svelte";
+    import Carousel from "../ui/Carousel.svelte";
+  import GameDetailsPanel from "./GameDetailsPanel.svelte";
 
   let configuredCheats = $state<Record<string, string[]>>({});
 
@@ -129,19 +130,80 @@
 
   // --- Select-games table state -----------------------------------------------------------
   let consoleFilter = $state<string>("all");
+  let hasInitializedSelection = $state(false);
+
+  $effect(() => {
+    // When filter changes, reset the initialization flag
+    consoleFilter;
+    hasInitializedSelection = false;
+  });
+
+  function clearSelection(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    if (!target.closest(".row") && !target.closest(".coverflow-item") && !target.closest(".action-btn")) {
+      selectedCarouselId = "";
+      hasInitializedSelection = true;
+    }
+  }
   let showMissing = $state(false);
-  const visibleGames = $derived(
-    romSelection.games.filter(
+  const visibleGames = $derived.by(() => {
+    let list: any[] = romSelection.games.filter(
       (g) =>
         (consoleFilter === "all" || g.system === consoleFilter) && (!showMissing || !g.installed),
-    ),
-  );
-  const chipFor = (g: Game): { label: string; cls: string } =>
-    g.installed && g.inFolder
-      ? { label: "installed", cls: "installed" }
-      : g.inFolder
-        ? { label: "new", cls: "new" }
-        : { label: "on device", cls: "ondevice" };
+    ).map(g => ({ ...g, isHomebrew: false }));
+
+    if (consoleFilter === "all" || consoleFilter === "homebrew") {
+      HOMEBREW_TITLES.forEach(hb => {
+        list.push({
+          key: hb.key,
+          system: "homebrew",
+          name: hb.label,
+          size: getHomebrewSize(hb.key),
+          inFolder: false,
+          installed: false,
+          isHomebrew: true,
+          hb: hb // Keep reference to original object
+        });
+      });
+    }
+
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  });
+  function getActionState(g: any): { label: string, cls: string, action: (e?: Event) => void, disabled: boolean } {
+    if (g.isHomebrew) {
+      const hb = g.hb;
+      const isCeleste = hb.key === "celeste";
+      const onDevice = hb.deviceFiles.every((f: string) => deviceHomebrew.some((d) => d.name === f));
+      const isSelected = romSelection.isHomebrewSelected(hb.key);
+      const hasSourceRom = hb.sourceRoms.length > 0 && [...(roms.scan?.userRoms.keys() ?? [])].some(k => k.endsWith(hb.sourceRoms[0]));
+      const isExtracting = extracting.has(hb.key);
+      const hasExtracted = hb.deviceFiles.some((f: string) => extractedAssets.has(`homebrew/${f}`));
+      const isReady = isCeleste || hasExtracted || onDevice;
+
+      if (onDevice) {
+        if (isSelected) return { label: "installed", cls: "installed", action: () => romSelection.toggleHomebrew(hb.key, false), disabled: false };
+        else return { label: "uninstall", cls: "uninstall", action: () => romSelection.toggleHomebrew(hb.key, true), disabled: false };
+      } else {
+        if (!isReady) {
+          if (hasSourceRom && !isExtracting) return { label: "prepare", cls: "muted", action: () => convertAssets(hb), disabled: false };
+          if (isExtracting) return { label: "extracting...", cls: "muted", action: () => {}, disabled: true };
+          return { label: "missing rom", cls: "muted", action: () => {}, disabled: true };
+        } else {
+          if (isSelected) return { label: "install", cls: "new", action: () => romSelection.toggleHomebrew(hb.key, false), disabled: false };
+          else return { label: "not installed", cls: "muted", action: () => romSelection.toggleHomebrew(hb.key, true), disabled: false };
+        }
+      }
+    } else {
+      const isSelected = romSelection.isSelected(g.key);
+      if (g.installed) {
+        if (isSelected) return { label: "installed", cls: "installed", action: () => romSelection.toggle(g.key), disabled: false };
+        else return { label: "uninstall", cls: "uninstall", action: () => romSelection.toggle(g.key), disabled: false };
+      } else {
+        if (isSelected) return { label: "install", cls: "new", action: () => romSelection.toggle(g.key), disabled: false };
+        else return { label: "not installed", cls: "muted", action: () => romSelection.toggle(g.key), disabled: false };
+      }
+    }
+  }
 
   // --- Lazy preview: build the RAW FrogFS from the SELECTION to learn its size + reuse for flash.
   // Built when Select-games or Install-ROMs is open + the device is base-installed; rebuilt when the
@@ -159,6 +221,65 @@
   let extracting = $state(new Set<string>());
   let extractError = $state<string | null>(null);
   let extractedAssets = $state(new Map<string, Uint8Array>());
+
+  // Carousel State
+  let coverUrls = new Map<string, string>();
+  let coverVersion = $state(0);
+  
+  function getCoverUrl(gameKey: string, _version = 0) {
+    if (coverUrls.has(gameKey)) return coverUrls.get(gameKey)!;
+    let system = "";
+    let base = "";
+    
+    const hb = HOMEBREW_TITLES.find(h => h.key === gameKey);
+    if (hb) {
+      system = "homebrew";
+      base = hb.displayName;
+    } else {
+      const parts = gameKey.split("/");
+      if (parts.length < 2) return "";
+      system = parts[0];
+      base = parts[1].replace(/\.[^/.]+$/, "");
+    }
+    
+    // Check both standard paths and inline paths (prefer high-quality originals, fallback to .img)
+    for (const ext of [".png", ".jpg", ".jpeg", ".img"]) {
+      const inlinePath = `${system}/${base}${ext}`;
+      const coversPath = `covers/${system}/${base}${ext}`;
+      
+      let matchPath = null;
+      if (roms.scan?.userRoms.has(inlinePath)) matchPath = inlinePath;
+      else if (roms.scan?.userRoms.has(coversPath)) matchPath = coversPath;
+      
+      if (matchPath) {
+        const url = URL.createObjectURL(new Blob([roms.scan!.userRoms.get(matchPath) as any]));
+        coverUrls.set(gameKey, url);
+        return url;
+      }
+    }
+    return "";
+  }
+  let selectedCarouselId = $state<string>("");
+  $effect(() => {
+    if (selectedCarouselId && !carouselCovers.some(c => c.id === selectedCarouselId) && !unknownHomebrew.some(g => g.name === selectedCarouselId)) {
+      selectedCarouselId = "";
+      hasInitializedSelection = false;
+    }
+    if (!selectedCarouselId && carouselCovers.length > 0 && !hasInitializedSelection) {
+      selectedCarouselId = carouselCovers[0].id;
+      hasInitializedSelection = true;
+    }
+  });
+  let carouselCovers = $derived.by(() => {
+    // Reference coverVersion so this array re-evaluates and triggers the child Carousel correctly
+    const v = coverVersion;
+    return visibleGames.map(g => ({
+      id: g.key,
+      name: g.name,
+      system: g.system,
+      url: getCoverUrl(g.key, v)
+    }));
+  });
 
   async function convertAssets(hb: typeof HOMEBREW_TITLES[0]) {
     const romPath = [...(roms.scan?.userRoms.keys() ?? [])].find(k => k.endsWith(hb.sourceRoms[0]));
@@ -360,6 +481,10 @@
     }
 
     const numCheatGames = Object.values(configuredCheats).filter(c => c.length > 0).length;
+    let numCovers = 0;
+    for (const key of (roms.scan?.userRoms?.keys() ?? [])) {
+      if (key.startsWith("covers/") && key.endsWith(".img")) numCovers++;
+    }
 
     return [
       {
@@ -376,7 +501,11 @@
         kind: hbSel > 0 ? "info" : "muted",
         detail: hbDetail,
       },
-      { label: "Cover art", status: "None — cover scan not built yet", kind: "muted" },
+      {
+        label: "Cover art",
+        status: numCovers > 0 ? `${numCovers} ready` : "None found",
+        kind: numCovers > 0 ? "ok" : "muted"
+      },
       { label: "Saves", status: "Preserved — LittleFS untouched", kind: "ok" },
       { 
         label: "Cheats", 
@@ -448,11 +577,12 @@
 </script>
 
 <section class="roms">
-  <p class="intro">
-    Manage your games. A <strong>ROM folder</strong> is required to manage games and install them to the device.
-  </p>
+  {#if !roms.selected}
+    <p class="intro">
+      Manage your games. A <strong>ROM folder</strong> is required to manage games and install them to the device.
+    </p>
+  {/if}
 
-  <!-- Folder selector (mandatory). -->
   <div class="folder">
     {#if !roms.selected}
       <button class="action" disabled={!roms.supported || roms.scanning} onclick={() => roms.pickFolder()}>
@@ -464,24 +594,12 @@
       {#if !roms.supported}
         <p class="note">Folder selection needs a Chromium browser (Chrome / Edge).</p>
       {/if}
-    {:else}
-      <div class="picked">
-        <span class="mono"
-          >{folderGames.length} ROMs across {folderSystemCount} systems <span class="dim"
-            >({roms.scan!.summary.totalFiles} files in folder)</span
-          ></span
-        >
-        <button class="link" onclick={() => roms.pickFolder()}>change folder</button>
-        <button class="link" onclick={() => roms.clear()}>clear</button>
-      </div>
+      {#if roms.error}<p class="err">{roms.error}</p>{/if}
     {/if}
-    {#if roms.error}<p class="err">{roms.error}</p>{/if}
   </div>
-
   <!-- 1. Select games — the folder ∪ device list; choose what to install. -->
   <div class="group">
-    <h3 class="subhead">Select games</h3>
-    <AccordionSection id="select-games" title="Select games" open={openSet.has("select-games")} {onToggle}>
+    <div class="layered-panel">
       {#if !roms.selected}
         <p class="note">
           Select a ROM folder above to choose games.
@@ -503,94 +621,170 @@
             </button>
           </div>
 
-          <div class="selctrls">
-            <label class="missing"><input type="checkbox" bind:checked={showMissing} /> Show missing only</label>
-            {#if consoleFilter !== "all" && consoleFilter !== "homebrew"}
-              <button class="link" onclick={() => romSelection.setSystem(consoleFilter, true)}>select all</button>
-              <button class="link" onclick={() => romSelection.setSystem(consoleFilter, false)}>clear</button>
-            {/if}
-            {#if consoleFilter === "all" || consoleFilter === "homebrew"}
-               <!-- Homebrew special actions could go here if needed -->
-            {/if}
-            <button class="link" onclick={() => romSelection.selectAllMissing()}>Add all missing</button>
-          </div>
-
-          <div class="rows">
-            {#each visibleGames as g (g.key)}
-              {@const chip = chipFor(g)}
-              <label class="row">
-                <input type="checkbox" checked={romSelection.isSelected(g.key)} onchange={() => romSelection.toggle(g.key)} />
-                <span class="gname">{g.name}</span>
-                <span class="gsize mono">{size(g.size)}</span>
-                <span class="gchip {chip.cls}">{chip.label}</span>
-              </label>
-            {/each}
-
-            {#if consoleFilter === "all" || consoleFilter === "homebrew"}
-              {#each HOMEBREW_TITLES as hb}
-                {@const isCeleste = hb.key === "celeste"}
-                {@const onDevice = hb.deviceFiles.every((f) => deviceHomebrew.some((g) => g.name === f))}
-                {@const isSelected = romSelection.isHomebrewSelected(hb.key)}
-                {@const hasSourceRom = hb.sourceRoms.length > 0 && [...(roms.scan?.userRoms.keys() ?? [])].some(k => k.endsWith(hb.sourceRoms[0]))}
-                {@const isExtracting = extracting.has(hb.key)}
-                {@const hasExtracted = hb.deviceFiles.some((f) => extractedAssets.has(`homebrew/${f}`))}
-                {@const isReady = isCeleste || hasExtracted || onDevice}
-                {@const hbSize = getHomebrewSize(hb.key)}
-                <div style="display: flex; flex-direction: column;">
-                  <label class="row" style={(!isReady && !hasSourceRom) || isExtracting ? "opacity: 0.5; cursor: not-allowed;" : "cursor: pointer;"}>
-                    <input type="checkbox" checked={isSelected} disabled={(!isReady && !hasSourceRom) || isExtracting} onchange={(e) => {
-                      e.preventDefault();
-                      const checked = e.currentTarget.checked;
-                      if (checked && !isReady && hasSourceRom) {
-                        e.currentTarget.checked = false; // Keep it unchecked until conversion finishes
-                        convertAssets(hb);
+          <div class="two-pane">
+            <div class="left-column">
+              <div class="games-pane">
+                <div class="games-pane-header">
+                  <h2>Games</h2>
+                  <button class="folder-btn" title="Change ROM Folder" onclick={() => roms.pickFolder()}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                  </button>
+                </div>
+                
+                <div class="selctrls">
+                  <button class="action-btn" onclick={() => {
+                    for (const g of visibleGames) {
+                      if (g.isHomebrew) {
+                        const state = getActionState(g);
+                        if (state.label === 'prepare') state.action();
+                        else if (state.label === 'not installed') romSelection.toggleHomebrew(g.hb.key, false);
                       } else {
-                        romSelection.toggleHomebrew(hb.key, checked);
+                        if (!romSelection.isSelected(g.key)) romSelection.toggle(g.key);
                       }
-                    }} />
-                    <span class="gname">{hb.label}</span>
-                    <span class="gsize mono">{hbSize > 0 ? size(hbSize) : '—'}</span>
-                    {#if isReady}
-                      <span class="gchip {onDevice ? 'installed' : 'new'}">{onDevice ? 'installed' : 'ready'}</span>
-                    {:else if hasSourceRom}
-                      {#if isExtracting}
-                        <span class="gchip muted">extracting...</span>
-                      {:else}
-                        <span class="gchip muted">convert</span>
-                      {/if}
-                    {:else}
-                      <span class="gchip muted">missing rom</span>
-                    {/if}
-                  </label>
-                  {#if extractError && extracting.size === 0 && !isReady}
-                    <p class="error" style="margin: 0; padding: 0 0 0.5rem 1.5rem; font-size: 0.8rem;">Error: {extractError}</p>
+                    }
+                  }}>Select All</button>
+                  <button class="action-btn" onclick={() => {
+                    for (const g of visibleGames) {
+                      if (g.isHomebrew) {
+                        if (romSelection.isHomebrewSelected(g.hb.key)) romSelection.toggleHomebrew(g.hb.key, true);
+                      } else {
+                        if (romSelection.isSelected(g.key)) romSelection.toggle(g.key);
+                      }
+                    }
+                  }}>Unselect All</button>
+                </div>
+
+                <div class="rows">
+              {#each visibleGames as g (g.key)}
+                {@const state = getActionState(g)}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div 
+                  class="row {selectedCarouselId === g.key ? 'active' : ''}"
+                  style={state.disabled ? "opacity: 0.5; cursor: not-allowed;" : ""}
+                  onclick={() => { selectedCarouselId = g.key; }}
+                >
+                  {#if consoleFilter === "all"}
+                    <span class="gchip console-chip">{g.system === 'homebrew' ? 'HB' : g.system.toUpperCase()}</span>
                   {/if}
+                  <span class="gname">{g.name.replace(/\.[^/.]+$/, "")}</span>
+                  <button class="gchip {state.cls}" disabled={state.disabled} style={!state.disabled ? "cursor: pointer; border: none;" : "border: none;"} onclick={(e) => { e.stopPropagation(); state.action(e); }}>{state.label}</button>
                 </div>
+                {#if g.isHomebrew && extractError && extracting.size === 0 && !(['installed', 'install', 'not installed', 'uninstall'].includes(state.label))}
+                  <p class="error" style="margin: 0; padding: 0 0 0.5rem 1.5rem; font-size: 0.8rem;">Error: {extractError}</p>
+                {/if}
               {/each}
-              {#each unknownHomebrew as g (g.name)}
-                <div class="row">
-                  <span class="gname mono">{g.name}</span>
-                  <span class="gsize mono">{size(g.size)}</span>
-                  <button class="gchip muted" style="cursor: pointer; border: none; background: transparent;" onclick={(e) => {
-                    e.preventDefault();
-                    romSelection.removeUnknownHomebrew(g.name);
-                  }}>remove</button>
+              
+              {#if consoleFilter === "all" || consoleFilter === "homebrew"}
+                {#each unknownHomebrew as g (g.name)}
+                  <div class="row">
+                    <span class="gname mono">{g.name}</span>
+                    <button class="gchip muted" style="cursor: pointer; border: none; background: transparent;" onclick={(e) => {
+                      e.preventDefault();
+                      romSelection.removeUnknownHomebrew(g.name);
+                    }}>remove</button>
+                  </div>
+                {/each}
+              {/if}
+
+              {#if visibleGames.length === 0 && (consoleFilter !== "all" && consoleFilter !== "homebrew")}
+                <p class="note">No games match this filter.</p>
+              {/if}
                 </div>
-              {/each}
-            {/if}
 
-            {#if visibleGames.length === 0 && (consoleFilter !== "all" && consoleFilter !== "homebrew")}
-              <p class="note">No games match this filter.</p>
-            {/if}
-          </div>
-
-          <p class="delta">
-            <strong>+{romSelection.additions.length + hbAdditions}</strong> add ({MiB(romSelection.additionsBytes + hbAdditionsBytes)} MiB)
-            · <strong>−{romSelection.removals.length + hbRemovals}</strong> remove ({MiB(romSelection.removalsBytes + hbRemovalsBytes)} MiB)
+          <p class="delta" style="padding: 1rem; border-top: 1px solid var(--surface-sunk); background: var(--surface); text-align: center;">
+            <span style="color: {(romSelection.additions.length + hbAdditions) > 0 ? '#007bff' : 'var(--ink-soft)'}"><strong>+{(romSelection.additions.length + hbAdditions)}</strong> add ({MiB(romSelection.additionsBytes + hbAdditionsBytes)} MiB)</span>
+            <span style="color: var(--ink-soft)"> · </span>
+            <span style="color: {(romSelection.removals.length + hbRemovals) > 0 ? 'var(--caution, #d32f2f)' : 'var(--ink-soft)'}"><strong>−{(romSelection.removals.length + hbRemovals)}</strong> remove ({MiB(romSelection.removalsBytes + hbRemovalsBytes)} MiB)</span>
           </p>
+              </div> <!-- games-pane -->
+            </div> <!-- left-column -->
+          
+          <div class="carousel-pane">
+            <div style="flex: 1; min-height: 0;">
+              <Carousel 
+                covers={carouselCovers} 
+                bind:selectedId={selectedCarouselId} 
+                getUrl={(key) => getCoverUrl(key, coverVersion)} 
+                systemLabel={(c) => c.system}
+                version={coverVersion}
+              />
+            </div>
+            
+            <div class="info-pane">
+              {#if selectedCarouselId}
+                {@const activeGame = visibleGames.find(g => g.key === selectedCarouselId)}
+                {@const activeHb = !activeGame ? unknownHomebrew.find(g => g.name === selectedCarouselId) : null}
+                {#if activeGame}
+                  {@const state = getActionState(activeGame)}
+                  <div class="info-content">
+                    <h3 class="info-title" style="text-align: center;">{activeGame.name.replace(/\.[^/.]+$/, "")}</h3>
+                    <div class="info-details" style="justify-content: center; margin-top: 0.25rem;">
+                      <span class="info-tag">{activeGame.system === 'homebrew' ? 'HOMEBREW' : activeGame.system.toUpperCase()}</span>
+                      <span class="info-size mono">{activeGame.size > 0 ? size(activeGame.size) : '—'}</span>
+                      <span class="info-filename" style="color: var(--ink-soft); font-size: 0.8rem; border-left: 1px solid var(--hairline); padding-left: 0.5rem;">{activeGame.name}</span>
+                      {#if state && state.label !== 'missing rom'}
+                        <button class="gchip {state.cls}" disabled={state.disabled} style="margin-left: 0.5rem; border: none; font-size: 0.75rem; cursor: {state.disabled ? 'not-allowed' : 'pointer'};" onclick={(e) => { e.stopPropagation(); state.action(e); }}>{state.label}</button>
+                      {/if}
+                    </div>
+                  </div>
+                {:else if activeHb}
+                  <div class="info-content">
+                    <h3 class="info-title" style="text-align: center;">{activeHb.name.replace(/\.[^/.]+$/, "")}</h3>
+                    <div class="info-details" style="justify-content: center; margin-top: 0.25rem;">
+                      <span class="info-tag">UNKNOWN HOMEBREW</span>
+                      <span class="info-size mono">{activeHb.size > 0 ? size(activeHb.size) : '—'}</span>
+                      <span class="info-filename" style="color: var(--ink-soft); font-size: 0.8rem; border-left: 1px solid var(--hairline); padding-left: 0.5rem;">{activeHb.name}</span>
+                      <button class="gchip caution" style="margin-left: 0.5rem; border: none; font-size: 0.75rem; cursor: pointer;" onclick={(e) => { e.preventDefault(); romSelection.removeUnknownHomebrew(activeHb.name); }}>remove</button>
+                    </div>
+                  </div>
+                {:else}
+                  <div class="info-empty">Select a game to see details</div>
+                {/if}
+              {:else}
+                <div class="info-empty">Select a game to see details</div>
+              {/if}
+            </div>
+          </div>
+          </div> <!-- two-pane -->
 
-          {#if canInstallRoms}
-            <div style="margin-top: 2.5rem; margin-bottom: 0;">
+          <!-- Game Details Panel spanning below carousel & list -->
+          {#if selectedCarouselId}
+            {@const activeGame = visibleGames.find(g => g.key === selectedCarouselId)}
+            {@const activeHb = !activeGame ? unknownHomebrew.find(g => g.name === selectedCarouselId) : null}
+            {#if activeGame}
+              <GameDetailsPanel 
+                gameKey={activeGame.key} 
+                gameName={activeGame.name} 
+                system={activeGame.system} 
+                coverUrl={getCoverUrl(activeGame.key, coverVersion)} 
+                bind:configuredCheats 
+                onCoverChange={() => { coverUrls.clear(); coverVersion++; }}
+              />
+            {:else if activeHb}
+              <GameDetailsPanel 
+                gameKey={activeHb.name} 
+                gameName={activeHb.name} 
+                system="homebrew" 
+                coverUrl={null} 
+                bind:configuredCheats 
+                onCoverChange={() => { coverUrls.clear(); coverVersion++; }}
+              />
+            {/if}
+          {/if}
+
+
+          <div style="margin-top: 2.5rem; margin-bottom: 0;">
+            {#if !device.isConnected}
+              <p class="note" style="margin-top: 0.5rem;">Connect a device to install ROMs.</p>
+            {:else if !partitionsKnown}
+              <p class="note" style="margin-top: 0.5rem;">
+                {device.scanning ? "Scanning the device…" : "Scan the device to detect its partitions."}
+              </p>
+            {:else if !baseInstalled}
+              <p class="note" style="margin-top: 0.5rem;">Install Retro-Go first — no LittleFS partition found on this device.</p>
+            {:else}
+              <p class="note" style="margin-top: 0.5rem;">FrogFS gap: {MiB(ceilingOffset! - frogfsOffset)} MiB available (up to LittleFS).</p>
               <InstallGeometry
                 partitions={device.partitions}
                 extSize={device.extFlashBytes}
@@ -599,115 +793,36 @@
                 {changedFromOffset}
                 title="Extflash layout (existing vs. changes)"
               />
+              <ChangeSummary items={summaryItems} />
               {#if building}<p class="note" style="margin-top: 0.5rem;">Calculating layout…</p>{/if}
               {#if buildErr}<p class="err" style="margin-top: 0.5rem;">{buildErr}</p>{/if}
-            </div>
-          {/if}
 
-          <div class="navrow">
-            <button class="action primary" onclick={() => advance("select-games", "extras")}>
-              Confirm selection
-            </button>
+              <label class="lzma" style="margin-top: 1rem;">
+                <input type="checkbox" disabled checked={false} />
+                Compress ROMs with LZMA <span class="soon">uncompressed for now</span>
+              </label>
+
+              <div class="navrow" style="margin-top: 1.5rem; justify-content: flex-end;">
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
+                  <button
+                    class="action primary"
+                    disabled={!canInstallRoms || installing || building || !fitsGap}
+                    onclick={() => (installModal = true)}
+                  >
+                    {installing ? "Installing…" : "Install ROMs"}
+                  </button>
+                  {#if installed}<p class="ok">✓ ROMs installed.</p>{/if}
+                  {#if installErr}<p class="err">{installErr}</p>{/if}
+                </div>
+              </div>
+              {#if flashLog.length}
+                <pre class="flashlog" style="margin-top: 1rem;">{flashLog.slice(-12).join("\n")}</pre>
+              {/if}
+            {/if}
           </div>
         </div>
       {/if}
-    </AccordionSection>
-  </div>
-
-  <!-- 3. Library Extras — per-game cover art, saves, cheats. -->
-  <div class="group">
-    <h3 class="subhead">Library Extras</h3>
-    <AccordionSection id="extras" title="Cover art &amp; cheats" open={openSet.has("extras")} {onToggle}>
-      <div class="sections">
-        <div class="section">
-          <h4 class="head">Cover art</h4>
-          <p class="desc">
-            Find, convert, and assign box art via CoverStudio. The cover&rarr;IMG step becomes an
-            inherent part of installing ROMs when covers are present.
-          </p>
-          <button class="action" disabled>Manage cover art<span class="soon">coming soon</span></button>
-        </div>
-        
-        <div class="section" style="margin-top: 1rem;">
-          <h4 class="head">Cheat Codes</h4>
-          <p class="desc" style="margin-bottom: 0.5rem; margin-top: 0.5rem;">
-            Select cheat codes to generate `.ggcodes` files for your installed games.
-          </p>
-          <CheatsSection bind:configuredCheats games={romSelection.games.filter(g => romSelection.isSelected(g.key))} />
-        </div>
-      </div>
-      <div class="navrow">
-        <button class="link" onclick={() => advance("extras", "install-roms")}>
-          Skip to Install ROMs →
-        </button>
-      </div>
-    </AccordionSection>
-  </div>
-
-  <!-- 3. Install ROMs — repack FrogFS from the selection (non-destructive). -->
-  <div class="group">
-    <h3 class="subhead">Install ROMs</h3>
-    <AccordionSection
-      id="install-roms"
-      title="Install ROMs"
-      open={openSet.has("install-roms")}
-      running={installing}
-      {onToggle}
-    >
-      <div class="installroms">
-        <p class="desc">
-          Repacks your <strong>selection</strong> into the device&rsquo;s <strong>FrogFS</strong>
-          region — independent of which Retro-Go version is installed. This is
-          <strong>non-destructive</strong>: your saves and emulator cores (LittleFS) are untouched,
-          and on-device games you keep selected are preserved.
-        </p>
-
-        {#if !device.isConnected}
-          <p class="note">Connect a device to install ROMs.</p>
-        {:else if !partitionsKnown}
-          <p class="note">
-            {device.scanning ? "Scanning the device…" : "Scan the device to detect its partitions."}
-          </p>
-        {:else if !baseInstalled}
-          <p class="note">Install Retro-Go first — no LittleFS partition found on this device.</p>
-        {:else}
-          <p class="note">FrogFS gap: {MiB(ceilingOffset! - frogfsOffset)} MiB available (up to LittleFS).</p>
-
-          <div class="geo">
-            <InstallGeometry
-              partitions={device.partitions}
-              extSize={device.extFlashBytes}
-              {frogfsOffset}
-              {newFrogfsLen}
-              {changedFromOffset}
-              title="Extflash layout (existing vs. changes)"
-            />
-            {#if building}<p class="note">Calculating layout…</p>{/if}
-          </div>
-
-          <ChangeSummary items={summaryItems} />
-          {#if buildErr}<p class="err">{buildErr}</p>{/if}
-
-          <label class="lzma">
-            <input type="checkbox" disabled checked={false} />
-            Compress ROMs with LZMA <span class="soon">uncompressed for now</span>
-          </label>
-        {/if}
-
-        <button
-          class="action"
-          disabled={!canInstallRoms || installing || building || !fitsGap}
-          onclick={() => (installModal = true)}
-        >
-          {installing ? "Installing…" : "Install ROMs"}
-        </button>
-        {#if installed}<p class="ok">✓ ROMs installed.</p>{/if}
-        {#if installErr}<p class="err">{installErr}</p>{/if}
-        {#if flashLog.length}
-          <pre class="flashlog">{flashLog.slice(-12).join("\n")}</pre>
-        {/if}
-      </div>
-    </AccordionSection>
+    </div>
   </div>
 </section>
 
@@ -824,10 +939,8 @@
   .rows {
     display: flex;
     flex-direction: column;
-    max-height: 18rem;
+    flex: 1;
     overflow-y: auto;
-    border: 1px solid var(--surface-sunk);
-    border-radius: var(--r-control);
   }
   .row {
     display: flex;
@@ -870,9 +983,9 @@
     background: var(--zelda-green);
   }
   .gchip.new {
-    color: var(--ink);
-    background: var(--surface-sunk);
-    border: 1px solid var(--model-accent);
+    color: #fff;
+    background: #007bff;
+    border: none;
   }
   .gchip.ondevice {
     color: #161616;
@@ -889,6 +1002,19 @@
   .gchip.muted {
     color: var(--ink-soft);
     background: var(--surface-sunk);
+  }
+  .gchip.uninstall {
+    color: #161616;
+    background: var(--caution, #d32f2f);
+  }
+  .console-chip {
+    width: 3rem;
+    text-transform: uppercase;
+    background: #333;
+    color: #fff;
+    margin-right: 0.5rem;
+    border-radius: 4px;
+    font-size: var(--fs-micro);
   }
   .homebrew {
     display: flex;
@@ -930,6 +1056,13 @@
     margin: 0;
     font-size: var(--fs-caption);
     color: var(--ink-soft);
+  }
+  .layered-panel {
+    background: var(--surface);
+    border-radius: var(--r-card);
+    box-shadow: var(--shadow-card);
+    padding: 1rem;
+    border: 1px solid var(--surface-sunk);
   }
   .sections {
     display: flex;
@@ -983,7 +1116,7 @@
     color: var(--ink-soft);
   }
   .err {
-    color: #b03030;
+    color: var(--danger);
   }
   .ok {
     margin: 0;
@@ -1050,5 +1183,117 @@
     cursor: pointer;
     text-decoration: underline;
     text-underline-offset: 2px;
+  }
+  .two-pane {
+    display: grid;
+    grid-template-columns: 350px 1fr;
+    gap: 1rem;
+    height: 500px;
+  }
+  .left-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    height: 100%;
+    overflow: hidden;
+  }
+  .games-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-radius: var(--r-card);
+    border: 1px solid var(--surface-sunk);
+    overflow: hidden;
+  }
+  .info-pane {
+    flex-shrink: 0;
+    height: 80px;
+    background: var(--surface);
+    border-radius: var(--r-card);
+    border: 1px solid var(--surface-sunk);
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .info-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .info-title {
+    margin: 0;
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .info-details {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .info-tag {
+    font-size: var(--fs-micro);
+    font-weight: 600;
+    text-transform: uppercase;
+    background: #333;
+    color: #fff;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+  }
+  .info-size {
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
+  }
+  .info-empty {
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
+    text-align: center;
+    font-style: italic;
+  }
+  .games-pane-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .games-pane-header h2 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .folder-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--ink);
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+  }
+  .folder-btn:hover { background: var(--bg-hover); }
+  .action-btn {
+    flex: 1;
+    padding: 0.5rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .action-btn:hover { background: var(--bg-hover); }
+  .carousel-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
   }
 </style>

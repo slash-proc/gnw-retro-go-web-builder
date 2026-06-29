@@ -53,7 +53,7 @@ export function classifyDevice(
   const frogfs = parts.some((p) => p.fs === "frogfs");
   const littlefs = parts.some((p) => p.fs === "littlefs");
   const version = banks.map((b) => b.retroGoVersion).find(Boolean);
-  const hasApp = banks.some((b) => !["empty", "unknown", "unreadable"].includes(b.type));
+  const hasApp = banks.some((b) => !["empty", "unknown", "unreadable"].includes(b.type) && !b.type.includes("OFW"));
 
   // Official firmware (model + stock/patched) detected by the bank scan, if any.
   const ofw = banks.map((b) => b.ofw).find(Boolean) ?? null;
@@ -82,6 +82,10 @@ export function classifyDevice(
       installBanks: [1],
     };
 
+  if (ofw && ofw.patched) {
+    return { kind: "unknown", label: `Patched ${ofw.model === "mario" ? "Mario" : "Zelda"}`, ofw, hasGames: false, hasSaves: false, installBanks: [1] };
+  }
+
   return { kind: "unknown", label: "Unrecognized device", ofw, hasGames: false, hasSaves: false, installBanks: [1] };
 }
 
@@ -94,6 +98,8 @@ export interface GeoSegment {
   kind: string;
   label: string;
   bank?: 1 | 2;
+  offset?: number;
+  size?: number;
   /** Hover-detail lines (chainloader partition-viewer style). */
   detail: string[];
 }
@@ -126,7 +132,7 @@ export function extflashSegments(parts: ExtPartition[], extSize: number): GeoSeg
     const detail = [p.type, `${hex(EXTBASE + p.offset)} · ${mib(p.size)}`];
     if (p.fs === "littlefs" && p.meta) detail.push(`block ${p.meta.blockSize} × ${p.meta.blockCount}`);
     if (p.fs === "fat" && p.meta) detail.push(`${p.meta.bytesPerSector} B/sec × ${p.meta.totalSectors}`);
-    segs.push({ pct: (p.size / extSize) * 100, kind: partKind(p), label: p.type, detail });
+    segs.push({ pct: (p.size / extSize) * 100, kind: partKind(p), label: p.type, offset: p.offset, size: p.size, detail });
     cursor = p.offset + p.size;
   }
   free(cursor, extSize);
@@ -148,9 +154,9 @@ export function intflashSegments(banks: IntflashBank[]): GeoSegment[] {
       ...(b?.retroGoVersion ? [b.retroGoVersion] : []),
     ];
     if (used > 0)
-      segs.push({ pct: usedPct, kind: b?.type === "empty" ? "bank-empty" : "bank", label: `B${i + 1} ${b?.type ?? ""}`, detail, bank: (i + 1) as 1 | 2 });
+      segs.push({ pct: usedPct, kind: b?.type === "empty" ? "bank-empty" : "bank", label: `B${i + 1} ${b?.type ?? ""}`, offset: 0, size: BANK_SPAN, detail, bank: (i + 1) as 1 | 2 });
     if (50 - usedPct > 0.01)
-      segs.push({ pct: 50 - usedPct, kind: "free", label: used ? "" : `B${i + 1} empty`, detail: [`Bank ${i + 1} free`, `${kib(BANK_SPAN - used)} free`], bank: (i + 1) as 1 | 2 });
+      segs.push({ pct: 50 - usedPct, kind: "free", label: used ? "" : `B${i + 1} empty`, offset: 0, size: BANK_SPAN, detail: [`Bank ${i + 1} free`, `${kib(BANK_SPAN - used)} free`], bank: (i + 1) as 1 | 2 });
   }
   return segs;
 }

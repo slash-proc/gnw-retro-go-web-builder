@@ -53,9 +53,7 @@
           ? "canceled"
           : error
             ? "error"
-            : result
-              ? "✓ done"
-              : "idle",
+            : ""
   );
 
   // Quick-fill chips (§A.2). intflash chip is the stock-OFW internal range.

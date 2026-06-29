@@ -90,8 +90,18 @@ export function summarize(userRoms: Map<string, Uint8Array>): RomScanSummary {
 
 /** Recursively read a picked directory into a userRoms map + summary. */
 export async function scanRomDirectory(dir: FsDirHandle): Promise<RomScanResult> {
+  const raw = new Map<string, Uint8Array>();
+  await walk(dir, "", raw);
+  
   const userRoms = new Map<string, Uint8Array>();
-  await walk(dir, "", userRoms);
+  for (const [key, val] of raw) {
+    if (key.startsWith("roms/")) {
+      userRoms.set(key.slice(5), val);
+    } else {
+      userRoms.set(key, val);
+    }
+  }
+
   return { userRoms, summary: summarize(userRoms), dir };
 }
 
@@ -100,7 +110,8 @@ export const folderPickerSupported = (): boolean =>
   typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
 
 const CONSOLE_DIRS = new Set([
-  "nes", "snes", "gb", "gbc", "gba", "sms", "gg", "md", "pce", "sg", "gw"
+  "nes", "snes", "gb", "gbc", "sms", "gg", "md", "pce", "sg", "gw",
+  "a2600", "a7800", "amstrad", "col", "msx", "tama", "videopac", "wsv"
 ]);
 
 async function getValidRoot(dir: FsDirHandle): Promise<FsDirHandle | null> {
@@ -125,7 +136,7 @@ async function getValidRoot(dir: FsDirHandle): Promise<FsDirHandle | null> {
   if (romsFolder) {
     for await (const [name, handle] of romsFolder.entries()) {
       if (handle.kind === "directory" && CONSOLE_DIRS.has(name.toLowerCase())) {
-        return romsFolder;
+        return dir;
       }
     }
   }
@@ -142,7 +153,7 @@ export async function pickAndScanRomFolder(): Promise<RomScanResult | null> {
   }
   let dir: FsDirHandle;
   try {
-    dir = await window.showDirectoryPicker!({ id: "gnw-roms", mode: "read" });
+    dir = await window.showDirectoryPicker!({ id: "gnw-roms", mode: "readwrite" });
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return null; // user cancelled
     throw e;

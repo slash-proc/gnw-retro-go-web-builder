@@ -52,7 +52,7 @@
     writing ? "running" : lockedGuard ? "locked" : result ? "success" : "idle",
   );
   const chipText = $derived(
-    writing ? "writing" : lockedGuard ? "locked" : result ? "✓ done" : "idle",
+    writing ? "writing" : lockedGuard ? "locked" : "",
   );
 
   async function run(report: (d: number, t: number) => void) {

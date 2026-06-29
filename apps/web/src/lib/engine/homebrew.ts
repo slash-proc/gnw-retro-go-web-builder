@@ -20,23 +20,31 @@ export interface HomebrewTitle {
   sourceRoms: string[];
   /** Files expected under roms/homebrew/ on the device once installed. */
   deviceFiles: string[];
+  /** Virtual Console identifier for cover scraping (e.g. "snes", "pico8") */
+  virtualConsole: string;
+  /** The display name expected for the cover art file on device. */
+  displayName: string;
 }
 
 export const HOMEBREW_TITLES: HomebrewTitle[] = [
   // Self-contained — no user ROM needed.
-  { key: "celeste", label: "Celeste", sourceRoms: [], deviceFiles: ["celeste.bin"] },
+  { key: "celeste", label: "Celeste", sourceRoms: [], deviceFiles: ["celeste.bin"], virtualConsole: "pico8", displayName: "celeste" },
   // zelda3.sfc → zelda3_assets.dat + zelda3.ro + Zelda 3.bin
   {
     key: "zelda3",
     label: "Zelda 3 (A Link to the Past)",
     sourceRoms: ["zelda3.sfc"],
     deviceFiles: ["zelda3_assets.dat", "zelda3.ro", "Zelda 3.bin"],
+    virtualConsole: "snes",
+    displayName: "Zelda 3"
   },
   {
     key: "smw",
     label: "Super Mario World",
     sourceRoms: ["smw.sfc"],
     deviceFiles: ["smw_assets.dat", "Super Mario World.bin"],
+    virtualConsole: "snes",
+    displayName: "Super Mario World"
   },
 ];
 
