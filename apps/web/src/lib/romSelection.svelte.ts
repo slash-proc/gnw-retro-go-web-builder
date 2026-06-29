@@ -38,6 +38,9 @@ const NON_ROM_EXTS = new Set([
   ".db",
   ".log",
   ".csv",
+  ".ggcodes",
+  ".mcf",
+  ".pceplus",
 ]);
 
 /** Only real ROM files belong in the games table — drop cover art (.png/.jpg/…), .DS_Store,
@@ -75,7 +78,7 @@ export interface SystemGroup {
 // Systems that aren't user-selectable emulated games: bios assets, and homebrew (native apps whose
 // on-device files are GENERATED — engine .bin + restool assets — so they don't map to folder ROMs
 // and must NOT be flagged as removable "on device only" games; see engine/homebrew.ts).
-const NON_GAME_SYSTEMS = new Set(["bios", "homebrew"]);
+const NON_GAME_SYSTEMS = new Set(["bios", "homebrew", "cheats", "covers"]);
 
 class RomSelectionStore {
   /** Explicit user choices by game key; a key absent here follows the default (installed). */

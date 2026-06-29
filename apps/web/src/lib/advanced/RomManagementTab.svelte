@@ -24,6 +24,42 @@
 
   let configuredCheats = $state<Record<string, string[]>>({});
 
+  let lastCheatsScan = $state<unknown>(null);
+  $effect(() => {
+    if (roms.scan && roms.scan !== lastCheatsScan) {
+      lastCheatsScan = roms.scan;
+      const parsed: Record<string, string[]> = {};
+      const decoder = new TextDecoder();
+      for (const [path, data] of roms.scan.userRoms) {
+        if (path.endsWith(".ggcodes") || path.endsWith(".mcf") || path.endsWith(".pceplus")) {
+          let system = "";
+          let baseName = "";
+          const parts = path.split("/");
+          if (path.startsWith("cheats/") && parts.length >= 3) {
+            system = parts[1];
+            baseName = parts.slice(2).join("/").replace(/\.[^/.]+$/, "");
+          } else if (parts.length >= 2) {
+            system = parts[0];
+            baseName = parts.slice(1).join("/").replace(/\.[^/.]+$/, "");
+          }
+          if (system && baseName) {
+            const game = romSelection.games.find(g => 
+              g.system === system && g.name.replace(/\.[^/.]+$/, "") === baseName
+            );
+            if (game) {
+              try {
+                const text = decoder.decode(data);
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+                parsed[game.key] = lines;
+              } catch (e) {}
+            }
+          }
+        }
+      }
+      configuredCheats = parsed;
+    }
+  });
+
   const EXTBASE = 0x90000000;
   const hex = (n: number): string => "0x" + (n >>> 0).toString(16);
   const MiB = (n: number): string => (n / 1048576).toFixed(2);
@@ -175,7 +211,7 @@
       };
       const ext = cheatExts[system] || "ggcodes";
       const noExtName = name.replace(/\.[^/.]+$/, "");
-      const cheatContent = cheats.join("\n") + "\n";
+      const cheatContent = cheats.map(c => c.split(',')[0].trim()).join("\n") + "\n";
       map.set(`cheats/${system}/${noExtName}.${ext}`, new TextEncoder().encode(cheatContent));
     }
   }
