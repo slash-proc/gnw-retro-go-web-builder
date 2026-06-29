@@ -156,7 +156,7 @@
   let buildToken = 0;
 
   // Pyodide Extraction State
-  let extracting = $state<string | null>(null);
+  let extracting = $state(new Set<string>());
   let extractError = $state<string | null>(null);
   let extractedAssets = $state(new Map<string, Uint8Array>());
 
@@ -165,7 +165,8 @@
     if (!romPath) return;
     const romData = roms.scan!.userRoms.get(romPath)!;
     
-    extracting = hb.key;
+    extracting.add(hb.key);
+    extracting = new Set(extracting);
     extractError = null;
     try {
       const res = await Promise.race([
@@ -181,7 +182,8 @@
     } catch (err: any) {
       extractError = err.message;
     } finally {
-      extracting = null;
+      extracting.delete(hb.key);
+      extracting = new Set(extracting);
     }
   }
 
@@ -530,7 +532,7 @@
                 {@const onDevice = hb.deviceFiles.every((f) => deviceHomebrew.some((g) => g.name === f))}
                 {@const isSelected = romSelection.isHomebrewSelected(hb.key)}
                 {@const hasSourceRom = hb.sourceRoms.length > 0 && [...(roms.scan?.userRoms.keys() ?? [])].some(k => k.endsWith(hb.sourceRoms[0]))}
-                {@const isExtracting = extracting === hb.key}
+                {@const isExtracting = extracting.has(hb.key)}
                 {@const hasExtracted = hb.deviceFiles.some((f) => extractedAssets.has(`homebrew/${f}`))}
                 {@const isReady = isCeleste || hasExtracted || onDevice}
                 {@const hbSize = getHomebrewSize(hb.key)}
@@ -560,7 +562,7 @@
                       <span class="gchip muted">missing rom</span>
                     {/if}
                   </label>
-                  {#if extractError && extracting === null && !isReady}
+                  {#if extractError && extracting.size === 0 && !isReady}
                     <p class="error" style="margin: 0; padding: 0 0 0.5rem 1.5rem; font-size: 0.8rem;">Error: {extractError}</p>
                   {/if}
                 </div>

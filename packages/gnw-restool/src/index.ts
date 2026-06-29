@@ -12,7 +12,23 @@ export interface AssetExtractionRequest {
 }
 
 let worker: Worker | null = null;
-let currentResolve: ((res: AssetExtractionResult) => void) | null = null;
+type Task = { request: AssetExtractionRequest; resolve: (res: AssetExtractionResult) => void };
+const queue: Task[] = [];
+let isBusy = false;
+
+function processQueue() {
+  if (isBusy || queue.length === 0 || !worker) return;
+  const task = queue.shift()!;
+  isBusy = true;
+  
+  worker.onmessage = (e) => {
+    isBusy = false;
+    task.resolve(e.data);
+    processQueue();
+  };
+  
+  worker.postMessage(task.request);
+}
 
 export async function extractHomebrewAssets(
   game: "zelda3" | "smw",
@@ -21,20 +37,10 @@ export async function extractHomebrewAssets(
 ): Promise<AssetExtractionResult> {
   if (!worker) {
     worker = new Worker(new URL("./restool.worker.js", import.meta.url), { type: "module" });
-    worker.onmessage = (e) => {
-      if (currentResolve) {
-        currentResolve(e.data);
-        currentResolve = null;
-      }
-    };
   }
   
-  if (currentResolve) {
-    throw new Error("Worker is already busy extracting assets.");
-  }
-
   return new Promise((resolve) => {
-    currentResolve = resolve;
-    worker!.postMessage({ game, romData, zipUrl } as AssetExtractionRequest);
+    queue.push({ request: { game, romData, zipUrl }, resolve });
+    processQueue();
   });
 }
