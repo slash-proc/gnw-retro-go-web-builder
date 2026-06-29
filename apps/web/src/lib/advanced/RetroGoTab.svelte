@@ -100,7 +100,7 @@
     <EraseSection
       open={openSet.has("erase-flash")}
       {onToggle}
-      onRunning={(r) => onRunning("erase-flash", r)}
+      onRunning={(r: boolean) => onRunning("erase-flash", r)}
     />
   </div>
 </div>

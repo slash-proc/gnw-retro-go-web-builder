@@ -63,7 +63,8 @@ ok(!isMdRom("bios/md/x.md"), "!isMdRom bios/md/x.md (not roms)");
 ok(shouldSkipRomsFile("roms/nes/box.png"), "skip roms/nes/box.png");
 ok(shouldSkipRomsFile("roms/gb/scan.JPG"), "skip roms/gb/scan.JPG (case-insensitive)");
 ok(!shouldSkipRomsFile("roms/nes/smb.nes"), "!skip roms/nes/smb.nes");
-ok(!shouldSkipRomsFile("covers/nes/box.png"), "!skip covers/nes/box.png (not roms)");
+ok(shouldSkipRomsFile("covers/nes/box.png"), "skip covers/nes/box.png (not .img)");
+ok(!shouldSkipRomsFile("covers/nes/box.img"), "!skip covers/nes/box.img (.img kept)");
 ok(!shouldSkipRomsFile("roms/pico8/celeste.p8.png"), "!skip pico8 .p8.png cart");
 ok(!shouldSkipRomsFile("roms/pico8/jelpi.png"), "!skip pico8 .png cart");
 

@@ -853,6 +853,7 @@
         <div class="saves-preview-container">
           <button 
             class="arrow-btn" 
+            aria-label="Previous Save"
             disabled={!gameSaves.length || gameSaves.indexOf(selectedSlot!) <= 0}
             onclick={() => selectedSlot = gameSaves[gameSaves.indexOf(selectedSlot!) - 1]}
           >
@@ -873,6 +874,7 @@
 
           <button 
             class="arrow-btn" 
+            aria-label="Next Save"
             disabled={!gameSaves.length || gameSaves.indexOf(selectedSlot!) >= gameSaves.length - 1}
             onclick={() => selectedSlot = gameSaves[gameSaves.indexOf(selectedSlot!) + 1]}
           >
@@ -941,13 +943,17 @@
       
       <div style="display: flex; flex-direction: column; gap: 0.75rem;">
         <div>
-          <label style="display: block; font-size: 0.8rem; margin-bottom: 0.25rem; color: var(--ink-soft);">Username</label>
-          <input type="text" bind:value={ssUsername} style="width: 100%; padding: 0.4rem; border: 1px solid var(--hairline); border-radius: 4px; background: transparent; color: var(--ink);" />
+          <label style="display: block; font-size: 0.8rem; margin-bottom: 0.25rem; color: var(--ink-soft);">
+            Username
+            <input type="text" bind:value={ssUsername} style="width: 100%; padding: 0.4rem; border: 1px solid var(--hairline); border-radius: 4px; background: transparent; color: var(--ink); margin-top: 0.25rem;" />
+          </label>
         </div>
         
         <div>
-          <label style="display: block; font-size: 0.8rem; margin-bottom: 0.25rem; color: var(--ink-soft);">Password</label>
-          <input type="password" bind:value={ssPassword} style="width: 100%; padding: 0.4rem; border: 1px solid var(--hairline); border-radius: 4px; background: transparent; color: var(--ink);" />
+          <label style="display: block; font-size: 0.8rem; margin-bottom: 0.25rem; color: var(--ink-soft);">
+            Password
+            <input type="password" bind:value={ssPassword} style="width: 100%; padding: 0.4rem; border: 1px solid var(--hairline); border-radius: 4px; background: transparent; color: var(--ink); margin-top: 0.25rem;" />
+          </label>
         </div>
 
         <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--ink); cursor: pointer;">
@@ -984,7 +990,7 @@
     <div class="modal-content" style="background: var(--surface); padding: 1.5rem; border-radius: 8px; width: 600px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <h3 style="margin: 0; font-size: 1.2rem; color: var(--ink);">Import Covers</h3>
-        <button onclick={() => { if (!isImporting) showImportModal = false; }} style="background: none; border: none; color: var(--ink-soft); cursor: pointer;" disabled={isImporting}>
+        <button aria-label="Close" onclick={() => { if (!isImporting) showImportModal = false; }} style="background: none; border: none; color: var(--ink-soft); cursor: pointer;" disabled={isImporting}>
           <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
@@ -1159,24 +1165,6 @@
     min-height: 200px;
   }
   
-  /* Cover Art */
-  .cover-art-content {
-    align-items: center;
-    justify-content: center;
-  }
-  .cover-image {
-    max-width: 100%;
-    max-height: 200px;
-    object-fit: contain;
-    border-radius: 4px;
-    border: 1px solid var(--hairline);
-  }
-  .no-cover {
-    color: var(--ink-soft);
-    font-size: var(--fs-caption);
-    font-style: italic;
-  }
-
   /* Saves */
   .saves-content {
     gap: 0.5rem;
