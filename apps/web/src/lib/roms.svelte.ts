@@ -6,6 +6,7 @@ import {
   pickAndScanRomFolder,
   scanRomDirectory,
   folderPickerSupported,
+  dirSupportsWriteBack,
   summarize,
   type RomScanResult,
   type RomDirHandle,
@@ -66,7 +67,7 @@ class RomStore {
   pendingHandle = $state<RomDirHandle | null>(null);
   private triedRestore = false;
 
-  /** Folder selection needs the File System Access API (Chromium). */
+  /** Folder selection is always supported (native FSAA or webkitdirectory fallback). */
   get supported(): boolean {
     return folderPickerSupported();
   }
@@ -87,7 +88,8 @@ class RomStore {
         r.summary = summarize(r.userRoms);
         this.scan = r; // null = cancelled → keep whatever was there
         this.pendingHandle = null;
-        void saveDir("romDir", r.dir);
+        // Only persist native FSAA handles — InputDirHandle shims aren't structured-cloneable
+        if (dirSupportsWriteBack(r.dir)) void saveDir("romDir", r.dir);
       }
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);

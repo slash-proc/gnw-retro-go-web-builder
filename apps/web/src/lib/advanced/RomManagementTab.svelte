@@ -6,6 +6,7 @@
   // The ROM FOLDER is OPTIONAL. The on-device games come from device.installedGames (FrogFS read).
   // See memory: romgr-install-architecture.
   import { roms } from "../roms.svelte.js";
+  import { nativeFolderPickerSupported } from "../romScan.js";
   import { device } from "../device.svelte.js";
   import { romSelection, type Game } from "../romSelection.svelte.js";
   import { buildFrogfsImage, flashFrogfsRegion, BudgetError } from "../engine/flashInstall.js";
@@ -20,9 +21,11 @@
   import ConfirmModal from "../ui/ConfirmModal.svelte";
   import InstallGeometry from "../ui/InstallGeometry.svelte";
   import ChangeSummary, { type ChangeItem } from "../ui/ChangeSummary.svelte";
-    import Carousel from "../ui/Carousel.svelte";
+  import Carousel from "../ui/Carousel.svelte";
   import GameDetailsPanel from "./GameDetailsPanel.svelte";
+  import JSZip from "jszip";
 
+  let dismissedFirefoxWarning = $state(false);
   let configuredCheats = $state<Record<string, string[]>>({});
 
   let lastCheatsScan = $state<unknown>(null);
@@ -583,6 +586,21 @@
     </p>
   {/if}
 
+  {#if !nativeFolderPickerSupported() && !dismissedFirefoxWarning}
+    <div style="background: var(--surface-sunk); border: 1px solid var(--caution); padding: 0.75rem; border-radius: var(--r-card); margin-bottom: 1rem; position: relative;">
+      <button 
+        aria-label="Dismiss warning"
+        onclick={() => dismissedFirefoxWarning = true} 
+        style="position: absolute; top: 0.5rem; right: 0.5rem; background: none; border: none; color: var(--caution); cursor: pointer; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+      <p class="note" style="margin: 0; color: var(--caution); padding-right: 1.5rem;">
+        <strong>Firefox is only partially supported.</strong> Firefox doesn't allow for easily saving covers next to ROM files, so the only option is to export all covers to a zip file. To save downloaded/imported covers directly, please use Chromium, Chrome, Edge, etc instead.
+      </p>
+    </div>
+  {/if}
+
   <div class="folder">
     {#if !roms.selected}
       <button class="action" disabled={!roms.supported || roms.scanning} onclick={() => roms.pickFolder()}>
@@ -591,9 +609,7 @@
       {#if roms.pendingHandle}
         <button class="link" onclick={() => roms.reconnect()}>Reconnect last ROM folder</button>
       {/if}
-      {#if !roms.supported}
-        <p class="note">Folder selection needs a Chromium browser (Chrome / Edge).</p>
-      {/if}
+      
       {#if roms.error}<p class="err">{roms.error}</p>{/if}
     {/if}
   </div>
@@ -804,13 +820,15 @@
 
               <div class="navrow" style="margin-top: 1.5rem; justify-content: flex-end;">
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
-                  <button
-                    class="action primary"
-                    disabled={!canInstallRoms || installing || building || !fitsGap}
-                    onclick={() => (installModal = true)}
-                  >
-                    {installing ? "Installing…" : "Install ROMs"}
-                  </button>
+                  <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button
+                      class="action primary"
+                      disabled={!canInstallRoms || installing || building || !fitsGap}
+                      onclick={() => (installModal = true)}
+                    >
+                      {installing ? "Installing…" : "Install ROMs"}
+                    </button>
+                  </div>
                   {#if installed}<p class="ok">✓ ROMs installed.</p>{/if}
                   {#if installErr}<p class="err">{installErr}</p>{/if}
                 </div>

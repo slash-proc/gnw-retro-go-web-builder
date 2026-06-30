@@ -9,6 +9,8 @@
   import { romSelection } from "../romSelection.svelte.js";
   import { roms } from "../roms.svelte.js";
   import { systemIdsFor } from "../screenscraper/config.js";
+  import { saveFileToDirOrDownload, nativeFolderPickerSupported } from "../romScan.js";
+  import JSZip from "jszip";
 
   const cheatDb = cheatDbJson as Record<string, Record<string, { c: string; e: string }[]>>;
 
@@ -343,25 +345,28 @@
     if (roms.scan?.userRoms.has(inlineJpg)) roms.scan.userRoms.delete(inlineJpg);
     
     // Save ORIGINAL cover to disk (not the converted .img — conversion is session-only)
-    if (ssSaveLocal && roms.scan?.dir) {
+    if (ssSaveLocal && nativeFolderPickerSupported() && roms.scan?.dir) {
       try {
-        let currentDir: any = roms.scan.dir;
-        // Only create a 'covers' subfolder if we are at the SD root. 
-        // If the user picked the 'roms' folder directly, save inline instead of creating roms/covers/.
-        if (currentDir.name.toLowerCase() !== "roms") {
-          currentDir = await currentDir.getDirectoryHandle("covers", { create: true }).catch(() => null) || currentDir;
+        let relativePath = baseName + ".png";
+        let isRomsFolder = roms.scan.dir.name.toLowerCase() === "roms";
+        
+        // If not the 'roms' folder directly, stick it in 'covers/'
+        if (!isRomsFolder) {
+          relativePath = "covers/" + relativePath;
         }
+
         if (hb) {
-          currentDir = await currentDir.getDirectoryHandle("homebrew", { create: true }).catch(() => null) || currentDir;
+          relativePath = (isRomsFolder ? "homebrew/" : "covers/homebrew/") + baseName + ".png";
         } else {
-          for (let i = 0; i < parts.length - 1; i++) {
-            currentDir = await currentDir.getDirectoryHandle(parts[i], { create: true }).catch(() => null) || currentDir;
+          // e.g. parts = ["nes", "smb.nes"]
+          // We want "nes/smb.png" or "covers/nes/smb.png"
+          const pathPrefix = parts.slice(0, -1).join("/");
+          if (pathPrefix) {
+            relativePath = (isRomsFolder ? "" : "covers/") + pathPrefix + "/" + baseName + ".png";
           }
         }
-        const fileHandle = await currentDir.getFileHandle(baseName + ".png", { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(previewCoverBlob);
-        await writable.close();
+        
+        await saveFileToDirOrDownload(roms.scan.dir, relativePath, previewCoverBlob);
       } catch (e) {
         console.error("Failed to save applied cover to disk", e);
       }
@@ -376,7 +381,7 @@
   let ssPassword = $state(localStorage.getItem('ssPassword') || "");
   let ssRemember = $state(localStorage.getItem('ssRemember') === 'true');
   let ssPreferLocal = $state(localStorage.getItem('ssPreferLocal') !== 'false');
-  let ssSaveLocal = $state(localStorage.getItem('ssSaveLocal') !== 'false');
+  let ssSaveLocal = $state(nativeFolderPickerSupported() && localStorage.getItem('ssSaveLocal') !== 'false');
   let ssRequestsTotal = $state(50000);
   let ssRequestsUsed = $state(1500);
 
@@ -474,24 +479,26 @@
           if (roms.scan?.userRoms.has(inlineJpgPath)) roms.scan.userRoms.delete(inlineJpgPath);
           
           // Save ORIGINAL format to disk (not the converted .img)
-          if (ssSaveLocal && roms.scan?.dir) {
+          if (ssSaveLocal && nativeFolderPickerSupported() && roms.scan?.dir) {
             try {
               const parts = relPath.split("/");
-              let currentDir: any = roms.scan.dir;
-              if (currentDir.name.toLowerCase() !== "roms") {
-                currentDir = await currentDir.getDirectoryHandle("covers", { create: true });
+              let relativePath = parts[parts.length - 1];
+              let isRomsFolder = roms.scan.dir.name.toLowerCase() === "roms";
+              
+              if (!isRomsFolder) {
+                relativePath = "covers/" + relativePath;
               }
+              
               if (hb) {
-                 currentDir = await currentDir.getDirectoryHandle("homebrew", { create: true }).catch(() => null) || currentDir;
+                relativePath = (isRomsFolder ? "homebrew/" : "covers/homebrew/") + parts[parts.length - 1];
               } else {
-                 for (let i = 0; i < parts.length - 1; i++) {
-                   currentDir = await currentDir.getDirectoryHandle(parts[i], { create: true });
-                 }
+                const pathPrefix = parts.slice(0, -1).join("/");
+                if (pathPrefix) {
+                  relativePath = (isRomsFolder ? "" : "covers/") + pathPrefix + "/" + parts[parts.length - 1];
+                }
               }
-              const fileHandle = await currentDir.getFileHandle(parts[parts.length - 1], { create: true });
-              const writable = await fileHandle.createWritable();
-              await writable.write(blob);
-              await writable.close();
+              
+              await saveFileToDirOrDownload(roms.scan.dir, relativePath, blob);
             } catch (e) {
               console.error("Failed to save cover to disk", e);
             }
@@ -818,6 +825,66 @@
           </div>
         </div>
       {/if}
+
+      {#if (!nativeFolderPickerSupported() || !ssSaveLocal) && roms.scan}
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; border-top: 1px solid var(--hairline); padding-top: 1rem;">
+          <button 
+            class="action" 
+            style="font-size: 0.75rem; justify-content: center;"
+            onclick={async () => {
+              const zip = new JSZip();
+              let count = 0;
+              for (const [path, data] of roms.scan!.userRoms) {
+                if (path.startsWith("covers/") && path.endsWith(".img")) {
+                  zip.file(path, data instanceof Uint8Array ? data : new Uint8Array(await (data as Blob).arrayBuffer()));
+                  count++;
+                }
+              }
+              if (count === 0) {
+                alert("No converted covers found.");
+                return;
+              }
+              const blob = await zip.generateAsync({ type: "blob" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "covers-img.zip";
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Download converted covers (.img)
+          </button>
+          <button 
+            class="action" 
+            style="font-size: 0.75rem; justify-content: center;"
+            onclick={async () => {
+              const zip = new JSZip();
+              let count = 0;
+              for (const [path, data] of roms.scan!.userRoms) {
+                const lp = path.toLowerCase();
+                if (lp.endsWith(".png") || lp.endsWith(".jpg") || lp.endsWith(".jpeg")) {
+                  zip.file(path, data instanceof Uint8Array ? data : new Uint8Array(await (data as Blob).arrayBuffer()));
+                  count++;
+                }
+              }
+              if (count === 0) {
+                alert("No full-size covers found.");
+                return;
+              }
+              const blob = await zip.generateAsync({ type: "blob" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "covers-fullsize.zip";
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Download full-size covers (.png/.jpg)
+          </button>
+        </div>
+      {/if}
     </div>
   </div>
 
@@ -968,9 +1035,14 @@
           Prefer local covers
         </label>
         
-        <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--ink); cursor: pointer;">
-          <input type="checkbox" bind:checked={ssSaveLocal} />
-          Save downloaded covers to roms folder
+        <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--ink); cursor: pointer; {nativeFolderPickerSupported() ? '' : 'opacity: 0.5; cursor: not-allowed;'}">
+          <input type="checkbox" bind:checked={ssSaveLocal} disabled={!nativeFolderPickerSupported()} />
+          <div style="display: flex; flex-direction: column;">
+            <span>Save downloaded covers to roms folder</span>
+            {#if !nativeFolderPickerSupported()}
+              <span style="font-size: 0.7rem; color: var(--ink-soft); margin-top: 2px;">(Not supported in Firefox. Use 'Download all covers' instead.)</span>
+            {/if}
+          </div>
         </label>
       </div>
 
