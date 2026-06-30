@@ -379,7 +379,6 @@
   // The FrogFS packer preserves the block order of retained on-device games; the delta is strictly
   // at the end (new games appended) or mid-flash (a game was dropped, shifting everything after it).
   const changedFromOffset = $derived.by<number | null>(() => {
-    if (newFrogfsLen === null) return null;
     if (currentFrogfsLen === null) return frogfsOffset;
     if (romSelection.removals.length === 0 && romSelection.deletedUnknownHomebrew.size === 0 && HOMEBREW_TITLES.every(hb => !hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f)) || romSelection.selectedHomebrewKeys.has(hb.key))) return frogfsOffset + currentFrogfsLen;
     let min = Infinity;
@@ -405,6 +404,29 @@
   const fitsGap = $derived(
     newFrogfsLen === null || ceilingOffset === null ? true : frogfsOffset + newFrogfsLen <= ceilingOffset,
   );
+
+  const currentEstSize = $derived.by(() => {
+    let bytes = 0;
+    for (const g of romSelection.games) {
+      if (romSelection.isSelected(g.key)) bytes += g.size;
+    }
+    for (const k of romSelection.selectedHomebrewKeys) {
+      bytes += getHomebrewSize(k);
+    }
+    return bytes + 65536; // 64KB overhead
+  });
+
+  let spaceAlertMessage = $state<string | null>(null);
+
+  function validateFit(extraBytes: number): boolean {
+    if (ceilingOffset === null || frogfsOffset === null) return true;
+    const gap = ceilingOffset - frogfsOffset;
+    if (currentEstSize + extraBytes > gap) {
+      spaceAlertMessage = `Not enough space on device! Required: ${MiB(currentEstSize + extraBytes)} MiB, Available: ${MiB(gap)} MiB`;
+      return false;
+    }
+    return true;
+  }
 
   // --- Install ROMs -----------------------------------------------------------------------
   let installModal = $state(false);
@@ -649,15 +671,26 @@
                 
                 <div class="selctrls">
                   <button class="action-btn" onclick={() => {
+                    let extraBytes = 0;
+                    const toggles: Array<() => void> = [];
                     for (const g of visibleGames) {
                       if (g.isHomebrew) {
                         const state = getActionState(g);
-                        if (state.label === 'prepare') state.action();
-                        else if (state.label === 'not installed') romSelection.toggleHomebrew(g.hb.key, false);
+                        if (state.label === 'prepare') {
+                          state.action();
+                        } else if (state.label === 'not installed') {
+                          extraBytes += getHomebrewSize(g.hb.key);
+                          toggles.push(() => romSelection.toggleHomebrew(g.hb.key, true));
+                        }
                       } else {
-                        if (!romSelection.isSelected(g.key)) romSelection.toggle(g.key);
+                        if (!romSelection.isSelected(g.key)) {
+                          extraBytes += g.size;
+                          toggles.push(() => romSelection.toggle(g.key));
+                        }
                       }
                     }
+                    if (extraBytes > 0 && !validateFit(extraBytes)) return;
+                    toggles.forEach(t => t());
                   }}>Select All</button>
                   <button class="action-btn" onclick={() => {
                     for (const g of visibleGames) {
@@ -684,7 +717,14 @@
                     <span class="gchip console-chip">{g.system === 'homebrew' ? 'HB' : g.system.toUpperCase()}</span>
                   {/if}
                   <span class="gname">{g.name.replace(/\.[^/.]+$/, "")}</span>
-                  <button class="gchip {state.cls}" disabled={state.disabled} style={!state.disabled ? "cursor: pointer; border: none;" : "border: none;"} onclick={(e) => { e.stopPropagation(); state.action(e); }}>{state.label}</button>
+                  <button class="gchip {state.cls}" disabled={state.disabled} style={!state.disabled ? "cursor: pointer; border: none;" : "border: none;"} onclick={(e) => { 
+                    e.stopPropagation(); 
+                    if (state.label === 'install' || state.label === 'not installed') {
+                      const extraBytes = g.isHomebrew ? getHomebrewSize(g.hb.key) : g.size;
+                      if (!validateFit(extraBytes)) return;
+                    }
+                    state.action(e); 
+                  }}>{state.label}</button>
                 </div>
                 {#if g.isHomebrew && extractError && extracting.size === 0 && !(['installed', 'install', 'not installed', 'uninstall'].includes(state.label))}
                   <p class="error" style="margin: 0; padding: 0 0 0.5rem 1.5rem; font-size: 0.8rem;">Error: {extractError}</p>
@@ -740,7 +780,14 @@
                       <span class="info-size mono">{activeGame.size > 0 ? size(activeGame.size) : '—'}</span>
                       <span class="info-filename" style="color: var(--ink-soft); font-size: 0.8rem; border-left: 1px solid var(--hairline); padding-left: 0.5rem;">{activeGame.name}</span>
                       {#if state && state.label !== 'missing rom'}
-                        <button class="gchip {state.cls}" disabled={state.disabled} style="margin-left: 0.5rem; border: none; font-size: 0.75rem; cursor: {state.disabled ? 'not-allowed' : 'pointer'};" onclick={(e) => { e.stopPropagation(); state.action(e); }}>{state.label}</button>
+                        <button class="gchip {state.cls}" disabled={state.disabled} style="margin-left: 0.5rem; border: none; font-size: 0.75rem; cursor: {state.disabled ? 'not-allowed' : 'pointer'};" onclick={(e) => { 
+                          e.stopPropagation(); 
+                          if (state.label === 'install' || state.label === 'not installed') {
+                            const extraBytes = activeGame.isHomebrew ? getHomebrewSize(activeGame.hb.key) : activeGame.size;
+                            if (!validateFit(extraBytes)) return;
+                          }
+                          state.action(e); 
+                        }}>{state.label}</button>
                       {/if}
                     </div>
                   </div>
@@ -805,7 +852,7 @@
                 partitions={device.partitions}
                 extSize={device.extFlashBytes}
                 {frogfsOffset}
-                {newFrogfsLen}
+                newFrogfsLen={newFrogfsLen ?? currentEstSize}
                 {changedFromOffset}
                 title="Extflash layout (existing vs. changes)"
               />
@@ -878,7 +925,38 @@
   {/snippet}
 </ConfirmModal>
 
+{#if spaceAlertMessage}
+  <div class="space-alert-backdrop" role="presentation" onclick={() => spaceAlertMessage = null} onkeydown={(e) => e.key === "Escape" && (spaceAlertMessage = null)}>
+    <div class="space-alert-modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+      <h3 style="margin-top: 0; font-size: var(--fs-lg); color: var(--danger, #d32f2f);">Space Limit Reached</h3>
+      <p style="color: var(--ink-soft);">{spaceAlertMessage}</p>
+      <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
+        <button class="action primary" onclick={() => spaceAlertMessage = null}>OK</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
+  .space-alert-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+  }
+  .space-alert-modal {
+    background: var(--surface);
+    border: 2px solid var(--danger, #d32f2f);
+    border-radius: var(--r-card);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+    padding: 1.25rem 1.5rem;
+    max-width: 26rem;
+    width: 100%;
+  }
   .roms {
     display: flex;
     flex-direction: column;
