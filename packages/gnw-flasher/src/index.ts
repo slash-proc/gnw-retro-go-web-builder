@@ -319,6 +319,7 @@ export class GnwFlasher {
       if (Date.now() > deadline) {
         throw new Error(`[gnw-flasher] timed out waiting for IDLE (last status ${statusName(status)})`);
       }
+      await new Promise(r => setTimeout(r, 10));
     }
   }
 
@@ -390,6 +391,7 @@ export class GnwFlasher {
         if (((await this.transport.readWord(this.ctxAddr(i, Ctx.READY))) >>> 0) === 0) return i;
       }
       if (Date.now() > deadline) throw new Error("[gnw-flasher] timed out waiting for a free context");
+      await new Promise(r => setTimeout(r, 10));
     }
   }
 
@@ -490,7 +492,15 @@ export class GnwFlasher {
     for (let attempt = 1; ; attempt++) {
       await this.transport.writeMemory(addr, data, onProgress);
       if (!verify) return;
-      const back = await this.transport.readMemory(addr, data.length);
+      await new Promise(r => setTimeout(r, 20)); // settle before read
+      const back = new Uint8Array(data.length);
+      const CHUNK_SIZE = 16384;
+      for (let offset = 0; offset < data.length; offset += CHUNK_SIZE) {
+        const len = Math.min(CHUNK_SIZE, data.length - offset);
+        const chunk = await this.transport.readMemory(addr + offset, len);
+        back.set(chunk, offset);
+        await new Promise(r => setTimeout(r, 10)); // throttle reads
+      }
       let bad = -1;
       for (let k = 0; k < data.length; k++) {
         if (back[k] !== data[k]) {
@@ -506,6 +516,7 @@ export class GnwFlasher {
         );
       }
       log(`${label} verify mismatch at byte ${bad}; re-writing (attempt ${attempt + 1}/${MAX_ATTEMPTS})`);
+      await new Promise(r => setTimeout(r, 250)); // let device settle before retry
     }
   }
 
@@ -566,6 +577,7 @@ export class GnwFlasher {
         log(`retry ack timeout on ctx${idx}`);
         return false;
       }
+      await new Promise(r => setTimeout(r, 10));
     }
     return true;
   }
@@ -653,6 +665,7 @@ export class GnwFlasher {
     for (;;) {
       v = (await this.transport.readWord(this.addr(Field.FLASH_SIZE))) >>> 0;
       if (v !== 0 || Date.now() > deadline) return v;
+      await new Promise((r) => setTimeout(r, 10));
     }
   }
 

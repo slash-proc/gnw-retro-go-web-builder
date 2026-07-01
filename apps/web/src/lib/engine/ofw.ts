@@ -116,7 +116,7 @@ export type ProgressReport = (
  *  sub-bar, mirroring the Retro-Go flash flow. Patching itself is CPU-only (no progress)
  *  so the bars sit indeterminate until the first flash starts. */
 export async function patchAndFlash(
-  flasher: GnwFlasher,
+  flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
   model: OfwModel,
   internal: Uint8Array,
   external: Uint8Array,
@@ -135,11 +135,11 @@ export async function patchAndFlash(
   }
   const intLen = res.internal.length;
   const total = intLen + res.external.length;
-  await flashImage(flasher, 1, 0, res.internal, (d, t) =>
+  await flashImage(flasherOrGetter, 1, 0, res.internal, (d, t) =>
     report(d, total, { value: d, max: t, label: "internal → bank 1" }),
   );
   if (res.external.length) {
-    await flashImage(flasher, 0, 0, res.external, (d, t) =>
+    await flashImage(flasherOrGetter, 0, 0, res.external, (d, t) =>
       report(intLen + d, total, { value: d, max: t, label: "external → bank 0" }),
     );
   }

@@ -47,6 +47,8 @@
 <style>
   .app {
     min-height: 100vh;
+    display: flex;
+    flex-direction: column;
   }
   .app-header {
     position: sticky;
@@ -59,6 +61,8 @@
     transition: border-color 200ms ease;
   }
   .body {
+    flex: 1;
+    width: 100%;
     max-width: var(--maxw);
     margin: 1.5rem auto;
     padding: 0 1.25rem;

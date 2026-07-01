@@ -58,8 +58,7 @@
   async function run(report: (d: number, t: number) => void) {
     const off = offBytes || 0;
     const data = new Uint8Array(await file!.arrayBuffer());
-    const flasher = await device.ensureStub();
-    await flashImage(flasher, bank, off, data, report, undefined, { compress, verify });
+    await flashImage((force) => device.ensureStub(undefined, force), bank, off, data, report, undefined, { compress, verify });
   }
 </script>
 

@@ -712,8 +712,11 @@
   );
 </script>
 
-<div class="details-panels">
-  <div class="panel">
+<div class="game-details-accordion">
+  <details>
+    <summary>Additional Options</summary>
+    <div class="details-panels">
+      <div class="panel">
     <div style="display: flex; justify-content: space-between; align-items: center; padding-right: 0.5rem;">
       <h3>Cover Art</h3>
       <div style="display: flex; gap: 0.25rem;">
@@ -826,7 +829,7 @@
         </div>
       {/if}
 
-      {#if (!nativeFolderPickerSupported() || !ssSaveLocal) && roms.scan}
+      {#if roms.scan}
         <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; border-top: 1px solid var(--hairline); padding-top: 1rem;">
           <button 
             class="action" 
@@ -855,10 +858,11 @@
           >
             Download converted covers (.img)
           </button>
-          <button 
-            class="action" 
-            style="font-size: 0.75rem; justify-content: center;"
-            onclick={async () => {
+          {#if !nativeFolderPickerSupported() || !ssSaveLocal}
+            <button 
+              class="action" 
+              style="font-size: 0.75rem; justify-content: center;"
+              onclick={async () => {
               const zip = new JSZip();
               let count = 0;
               for (const [path, data] of roms.scan!.userRoms) {
@@ -881,8 +885,9 @@
               URL.revokeObjectURL(url);
             }}
           >
-            Download full-size covers (.png/.jpg)
+            Download scraped covers (images)
           </button>
+          {/if}
         </div>
       {/if}
     </div>
@@ -976,7 +981,7 @@
             <h4 class="cheats-col-head">Presets</h4>
             <div class="presets-list" class:disabled={presets.length === 0}>
               {#each presets as p}
-                <label class="preset-label">
+                <label class="preset-label" title={p.e || "Cheat"}>
                   <input type="checkbox" checked={isPresetEnabled(p)} onchange={() => togglePreset(p)} />
                   <span class="preset-name">{p.e || "Cheat"}</span>
                 </label>
@@ -997,8 +1002,49 @@
             </button>
           </div>
         </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; border-top: 1px solid var(--hairline); padding-top: 1rem;">
+          <button 
+            class="action" 
+            style="font-size: 0.75rem; justify-content: center;"
+            onclick={async () => {
+              const zip = new JSZip();
+              let count = 0;
+              for (const [key, cheats] of Object.entries(configuredCheats)) {
+                if (cheats.length === 0) continue;
+                const [sys, ...nameParts] = key.split("/");
+                const name = nameParts.join("/");
+                const cheatExts: Record<string, string> = {
+                  nes: "ggcodes", gb: "ggcodes", gbc: "ggcodes", 
+                  snes: "ggcodes", md: "ggcodes", gen: "ggcodes", gg: "ggcodes",
+                  pce: "pceplus", msx: "mcf"
+                };
+                const ext = cheatExts[sys] || "ggcodes";
+                const noExtName = name.replace(/\.[^/.]+$/, "");
+                const cheatContent = cheats.join("\n") + "\n";
+                zip.file(`cheats/${sys}/${noExtName}.${ext}`, cheatContent);
+                count++;
+              }
+              if (count === 0) {
+                alert("No configured cheats found.");
+                return;
+              }
+              const blob = await zip.generateAsync({ type: "blob" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "retro-go-cheats.zip";
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Download Retro-Go Cheats Files
+          </button>
+        </div>
     </div>
   </div>
+    </div>
+  </details>
 </div>
 
 {#if showCoverSettings}
@@ -1181,6 +1227,29 @@
 {/if}
 
 <style>
+  .game-details-accordion details {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-control);
+    margin-bottom: 0.5rem;
+    overflow: hidden;
+  }
+  .game-details-accordion summary {
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--surface-sunk);
+    user-select: none;
+    border-bottom: 1px solid transparent;
+    transition: background 0.2s;
+  }
+  .game-details-accordion summary:hover {
+    background: var(--hairline);
+  }
+  .game-details-accordion details[open] summary {
+    border-bottom-color: var(--hairline);
+  }
+
   .consoles {
     display: flex;
     flex-wrap: wrap;
@@ -1396,8 +1465,12 @@
     gap: 0.4rem;
     font-size: var(--fs-micro);
     cursor: pointer;
+    overflow: hidden;
+    max-width: 100%;
   }
   .preset-name {
+    flex: 1;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

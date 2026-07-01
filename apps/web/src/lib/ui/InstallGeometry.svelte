@@ -7,6 +7,7 @@
   import GeometryBar from "./GeometryBar.svelte";
   import { extflashSegments, type GeoSegment } from "../engine/classify.js";
   import type { ExtPartition } from "../engine/fsscan.js";
+  import { device } from "../device.svelte.js";
 
   let {
     partitions,
@@ -15,6 +16,10 @@
     newFrogfsLen,
     changedFromOffset,
     title = "",
+    additionsCount = 0,
+    additionsBytes = 0,
+    removalsCount = 0,
+    removalsBytes = 0,
   }: {
     partitions: ExtPartition[];
     extSize: number;
@@ -22,6 +27,10 @@
     newFrogfsLen: number | null;
     changedFromOffset: number | null;
     title?: string;
+    additionsCount?: number;
+    additionsBytes?: number;
+    removalsCount?: number;
+    removalsBytes?: number;
   } = $props();
 
   const EXTBASE = 0x90000000;
@@ -49,12 +58,14 @@
     const regions: Region[] = [];
     for (const p of partitions) {
       if (p.fs === "frogfs") continue; // replaced by the synthetic FrogFS below
+      let label = p.type;
+      if (p.fs === "littlefs") label = "Cores & Saves";
       regions.push({
         offset: p.offset,
         size: p.size,
         kind: kindOf(p),
-        label: p.type,
-        detail: [p.type, `${hex(EXTBASE + p.offset)} · ${mib(p.size)}`],
+        label: label,
+        detail: [label, mib(p.size)],
       });
     }
     if (cf - frogfsOffset > 0)
@@ -62,16 +73,16 @@
         offset: frogfsOffset,
         size: cf - frogfsOffset,
         kind: "frogfs",
-        label: "FrogFS",
-        detail: ["FrogFS (unchanged)", `${hex(EXTBASE + frogfsOffset)} · ${mib(cf - frogfsOffset)}`],
+        label: "Games (unchanged)",
+        detail: ["Games (unchanged)", mib(cf - frogfsOffset)],
       });
     if (newEnd - cf > 0)
       regions.push({
         offset: cf,
         size: newEnd - cf,
         kind: "frogfs-changed",
-        label: "new/changed",
-        detail: ["FrogFS new/changed", `${hex(EXTBASE + cf)} · ${mib(newEnd - cf)}`],
+        label: "Games (projected)",
+        detail: ["Games (projected)", mib(newEnd - cf)],
       });
 
     regions.sort((a, b) => a.offset - b.offset);
@@ -82,8 +93,8 @@
         out.push({
           pct: ((to - from) / extSize) * 100,
           kind: "free",
-          label: "free",
-          detail: [`free ${mib(to - from)}`, `${hex(EXTBASE + from)}–${hex(EXTBASE + to)}`],
+          label: "Free Space",
+          detail: ["Free Space", mib(to - from)],
         });
     };
     for (const r of regions) {
@@ -95,11 +106,148 @@
     free(cursor, extSize);
     return out;
   });
+
+  let activeExtPart = $state<ExtPartition | { offset: number; size: number; fs: "frogfs"; type: string } | null>(null);
+  
+  $effect(() => {
+    if (!activeExtPart && partitions.length > 0) {
+      activeExtPart = partitions.find((p) => p.fs === "frogfs") || null;
+    }
+  });
 </script>
 
-<GeometryBar
-  {segments}
-  {title}
-  leftLabel={hex(EXTBASE)}
-  rightLabel={hex(EXTBASE + extSize)}
-/>
+<div class="ext-panel">
+  <div class="bank-card ext-card">
+    {#if title}
+      <div class="bank-title">{title}</div>
+    {/if}
+    <div class="bank-body ext-body">
+      <GeometryBar
+        {segments}
+        onClick={(s) => {
+          let p: any = partitions.find(x => x.offset === s.offset);
+          if (s.kind === 'free' || s.kind === 'frogfs' || s.kind === 'frogfs-changed') {
+            const fOffset = s.kind === 'free' ? undefined : frogfsOffset;
+            const size = newFrogfsLen !== null ? newFrogfsLen : (partitions.find(x => x.fs === 'frogfs')?.size ?? 0);
+            if (fOffset !== undefined) {
+              p = { offset: fOffset, size, fs: 'frogfs', type: 'FrogFS' };
+            } else {
+              p = partitions.find(x => x.fs === 'frogfs');
+            }
+          }
+          if (p) activeExtPart = p;
+        }}
+      />
+    </div>
+
+    <div class="bank-footer ext-fs-single">
+      {#if activeExtPart}
+        {@const p = activeExtPart}
+        {#if p.fs === 'frogfs'}
+          {@const nextOffsets = partitions.filter(x => x.offset > p.offset).map(x => x.offset)}
+          {@const nextOffset = nextOffsets.length > 0 ? Math.min(...nextOffsets) : extSize}
+          {@const free = nextOffset - (p.offset + p.size)}
+          {@const total = p.size + free}
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+            <div class="fs-stat-name">Games</div>
+            <div class="fs-stat-row" style="width: auto;"><span>Capacity:</span> <span style="margin-left: 0.5rem;">{(total / 1048576).toFixed(2)} MB</span></div>
+          </div>
+          <div class="fs-stat-row"><span>Used (Projected):</span> <span>{(p.size / 1048576).toFixed(2)} MB</span></div>
+          <div class="fs-stat-row"><span>Free (Projected):</span> <span>{(free / 1048576).toFixed(2)} MB</span></div>
+          
+          <div class="fs-stat-row" style="margin-top: 0.5rem; justify-content: center; gap: 1rem; width: 100%; padding-top: 0.5rem; border-top: 1px solid var(--hairline);">
+            <span style="color: {additionsCount > 0 ? '#007bff' : 'var(--ink-soft)'}"><strong>+{additionsCount}</strong> add ({(additionsBytes / 1048576).toFixed(2)} MiB)</span>
+            <span style="color: var(--ink-soft)"> · </span>
+            <span style="color: {removalsCount > 0 ? 'var(--caution, #d32f2f)' : 'var(--ink-soft)'}"><strong>−{removalsCount}</strong> remove ({(removalsBytes / 1048576).toFixed(2)} MiB)</span>
+          </div>
+        {:else if p.fs}
+          {@const nextOffsets = partitions.filter(x => x.offset > p.offset).map(x => x.offset)}
+          {@const nextOffset = nextOffsets.length > 0 ? Math.min(...nextOffsets) : extSize}
+          {@const free = device.fsStats[p.offset]?.freeBytes ?? null}
+          {@const used = device.fsStats[p.offset]?.usedBytes ?? null}
+          {@const total = p.size}
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+            <div class="fs-stat-name">{p.fs === 'littlefs' ? 'Cores & Saves' : p.type}</div>
+            <div class="fs-stat-row" style="width: auto;"><span>Capacity:</span> <span style="margin-left: 0.5rem;">{(total / 1048576).toFixed(2)} MB</span></div>
+          </div>
+          <div class="fs-stat-row"><span>Used:</span> <span>{used !== null ? (used / 1048576).toFixed(2) + ' MB' : 'Calculating...'}</span></div>
+          <div class="fs-stat-row"><span>Free:</span> <span>{free !== null ? (free / 1048576).toFixed(2) + ' MB' : 'Calculating...'}</span></div>
+        {:else}
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+            <div class="fs-stat-name">{p.type}</div>
+            <div class="fs-stat-row" style="width: auto;"><span>Capacity:</span> <span style="margin-left: 0.5rem;">{(p.size / 1048576).toFixed(2)} MB</span></div>
+          </div>
+        {/if}
+      {/if}
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Hide the default geometry bar detail; we use the custom footer below instead. */
+  .ext-body :global(.gdetail) {
+    display: none !important;
+  }
+  
+  .bank-card {
+    border: 1px solid var(--surface-sunk);
+    border-radius: var(--r-card);
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .ext-card {
+    flex: 1;
+    width: auto;
+  }
+  .bank-title {
+    background: var(--surface);
+    border-bottom: 1px solid var(--surface-sunk);
+    padding: 0.5rem;
+    text-align: center;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .bank-body {
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .ext-body {
+    height: auto;
+  }
+  .bank-footer {
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--surface-sunk);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .fs-stat-name {
+    font-weight: 600;
+    margin-bottom: 0;
+    color: var(--ink);
+  }
+  .fs-stat-row {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
+  }
+  .fs-stat-row span:last-child {
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .ext-panel {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+</style>

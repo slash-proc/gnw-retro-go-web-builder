@@ -65,7 +65,7 @@ export async function readInfo(flasher: GnwFlasher, log?: LogFn): Promise<Device
  * "Transfer options" can toggle both (compress off → raw transfer).
  */
 export async function flashImage(
-  flasher: GnwFlasher,
+  flasherOrGetter: GnwFlasher | ((forceReboot?: boolean) => Promise<GnwFlasher>),
   bank: number,
   offset: number,
   data: Uint8Array,
@@ -76,12 +76,53 @@ export async function flashImage(
   const compress = opts.compress ?? true;
   const verify = opts.verify ?? true;
   if (compress) await preloadLzma();
-  await flasher.flash(bank, offset, data, {
-    compress: compress ? lzmaCompress : undefined,
-    verify,
-    onProgress,
-    log,
-  });
+
+  const maxAttempts = 3; // Initial + 2 retries
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let flasher: GnwFlasher;
+    if (typeof flasherOrGetter === "function") {
+      flasher = await flasherOrGetter(attempt > 1);
+    } else {
+      flasher = flasherOrGetter;
+    }
+
+    let lastProgressTime = Date.now();
+    const progressWrapper = (done: number, total: number) => {
+      lastProgressTime = Date.now();
+      onProgress?.(done, total);
+    };
+
+    try {
+      const flashPromise = flasher.flash(bank, offset, data, {
+        compress: compress ? lzmaCompress : undefined,
+        verify,
+        onProgress: progressWrapper,
+        log,
+      });
+
+      let intervalId: any;
+      const watchdogPromise = new Promise<void>((_, reject) => {
+        intervalId = setInterval(() => {
+          if (Date.now() - lastProgressTime > 12000) {
+            clearInterval(intervalId);
+            reject(new Error("Flash stalled for 12 seconds without progress (WebUSB lockup)."));
+          }
+        }, 1000);
+      });
+
+      // If flashPromise resolves or rejects, clear the watchdog
+      flashPromise.finally(() => clearInterval(intervalId));
+
+      await Promise.race([flashPromise, watchdogPromise]);
+      return; // Success
+    } catch (e) {
+      log?.(`Flash attempt ${attempt} failed: ${e instanceof Error ? e.message : String(e)}`);
+      if (attempt >= maxAttempts || typeof flasherOrGetter !== "function") {
+        throw e;
+      }
+      log?.("Restarting RAM flasher util and retrying...");
+    }
+  }
 }
 
 export async function dumpRegion(

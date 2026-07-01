@@ -102,7 +102,7 @@
 
       await withTimeout(
         (report) => patchAndFlash(
-          flasher, targetModel!, targetInt, targetExt, 
+          (force) => device.ensureStub(undefined, force), targetModel!, targetInt, targetExt, 
           { bootloader: true }, 
           report as any,
           device.extFlashBytes
@@ -202,7 +202,7 @@
       const regions = ["intflash", "frogfs", "littlefs"] as const;
       
       await withTimeout(
-        (progressReport) => flashInstallToDevice(flasher, install, progressReport as any, dbgLog, regions),
+        (progressReport) => flashInstallToDevice((force) => device.ensureStub(undefined, force), install, progressReport as any, dbgLog, regions),
         30000,
         (phase, d, t) => {
           const pct = t ? Math.min(100, Math.round((d / t) * 100)) : 0;

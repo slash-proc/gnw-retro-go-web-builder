@@ -246,3 +246,55 @@ export async function readFrogfsState(
   files.sort((a, b) => a.dataOffs - b.dataOffs);
   return { order: files.map(f => f.dest), dataStart: dataStart === size ? 0 : dataStart };
 }
+
+export async function readFatUsedSpace(read: ExtReadFn, offset: number, size: number): Promise<{ usedBytes: number, freeBytes: number } | null> {
+  const sec = await read(offset, 512);
+  const bps = sec[0x0b] | (sec[0x0c] << 8);
+  if (bps < 512 || bps > 4096) return null;
+  const spc = sec[0x0d];
+  const rsvdSecCnt = sec[0x0e] | (sec[0x0f] << 8);
+  const numFATs = sec[0x10];
+  const rootEntCnt = sec[0x11] | (sec[0x12] << 8);
+  const tot16 = sec[0x13] | (sec[0x14] << 8);
+  const tot32 = u32(sec, 0x20);
+  const totalSectors = tot16 || tot32;
+  const FATSz16 = sec[0x16] | (sec[0x17] << 8);
+  const FATSz32 = u32(sec, 0x24);
+  const FATSz = FATSz16 || FATSz32;
+  const rootDirSectors = Math.ceil((rootEntCnt * 32) / bps);
+  const dataSectors = totalSectors - (rsvdSecCnt + (numFATs * FATSz) + rootDirSectors);
+  const countOfClusters = Math.floor(dataSectors / spc);
+  const isFat32 = countOfClusters >= 65525;
+  const isFat16 = countOfClusters < 65525 && countOfClusters >= 4085;
+  
+  if (!isFat32 && !isFat16) return null;
+  
+  const fatOffset = offset + rsvdSecCnt * bps;
+  const fatBytes = FATSz * bps;
+  
+  let freeClusters = 0;
+  const entrySize = isFat32 ? 4 : 2;
+  const CHUNK_SIZE = 16384;
+  
+  for (let b = 0; b < fatBytes; b += CHUNK_SIZE) {
+    const len = Math.min(CHUNK_SIZE, fatBytes - b);
+    const chunk = await read(fatOffset + b, len);
+    for (let i = 0; i < len; i += entrySize) {
+      if (b + i < 2 * entrySize) continue;
+      let val = 0;
+      if (isFat32) {
+        val = chunk[i] | (chunk[i+1]<<8) | (chunk[i+2]<<16) | (chunk[i+3]<<24);
+        val &= 0x0FFFFFFF;
+      } else {
+        val = chunk[i] | (chunk[i+1]<<8);
+      }
+      if (val === 0) {
+        freeClusters++;
+      }
+    }
+  }
+  
+  const freeBytes = freeClusters * spc * bps;
+  const usedBytes = size - freeBytes;
+  return { usedBytes, freeBytes };
+}

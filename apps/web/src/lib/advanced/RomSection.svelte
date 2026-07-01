@@ -251,9 +251,8 @@
     }
 
     const totalB = actualFlashTarget.reduce((n, r) => n + sizes[r], 0);
-    const flasher = await device.ensureStub();
     await flashInstallToDevice(
-      flasher,
+      (force) => device.ensureStub(undefined, force),
       inst,
       (phase, d, t) => {
         let prior = 0;

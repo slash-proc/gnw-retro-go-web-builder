@@ -7,6 +7,7 @@ import { bootStub, readInfo, dumpRegion, attachFlasher, isStubAlive, pingTarget 
 import { scanExtflashPartitions, type ExtPartition } from "./engine/fsscan.js";
 import { scanIntflashBanks, type IntflashBank } from "./engine/intflashscan.js";
 import { classifyDevice, type DeviceClass } from "./engine/classify.js";
+import { captureScreenshot as _captureScreenshot } from "./engine/screenshot.js";
 import { readInstalledFrogfs, type InstalledGame, type InstalledFrogfs } from "./engine/frogfsDevice.js";
 import { dbg, dbgLog } from "./debug.js";
 import { readLogFromTransport, isRetroGoRunning } from "./engine/devicelog.js";
@@ -61,6 +62,8 @@ class DeviceStore {
   installedLfsTree = $state<LittlefsTreeNode | null>(null);
   /** Block cache for fast lazy LFS access */
   lfsBlockCache = new Map<number, Uint8Array>();
+  /** Async computed FS statistics keyed by partition offset */
+  fsStats = $state<Record<number, { usedBytes: number; freeBytes: number }>>({});
 
   /** The model that should tint the UI (null = unknown/neutral). */
   get accent(): Exclude<Model, "unknown"> | null {
@@ -154,13 +157,13 @@ class DeviceStore {
     }
   }
 
-  async ensureStub(log?: (m: string) => void): Promise<GnwFlasher> {
+  async ensureStub(log?: (m: string) => void, forceReboot = false): Promise<GnwFlasher> {
     if (!this.probe || !this.transport) throw new Error("Not connected.");
     // Reuse the cached stub ONLY if it's alive AND has a free context. A wedged stub (after a failed
     // flash), dirty contexts, or a power-cycled device → re-boot a clean stub (clears contexts +
     // resets the context counter), otherwise the next flash hangs forever in getContext.
-    let reboot = false;
-    if (this.flasher) {
+    let reboot = forceReboot;
+    if (this.flasher && !forceReboot) {
       if ((await this.stubAlive()) && (await this.contextsFree())) {
         dbg("[ensureStub] reusing cached flasher (alive + context free)");
         return this.flasher;
@@ -233,6 +236,16 @@ class DeviceStore {
         (done, total) => (this.scanProgress = total ? done / total : 0),
       );
       this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
+      
+      // Update basic reactive state from the much smarter device class:
+      if (this.deviceClass.ofw) {
+        this.model = this.deviceClass.ofw.model;
+      }
+      if (this.deviceClass.kind.startsWith("retrogo")) {
+        this.firmware = "retro-go";
+      } else if (this.deviceClass.kind === "stock") {
+        this.firmware = "stock-ofw";
+      }
       // Read the installed-games list from the device's FrogFS (metadata only). Best-effort:
       // no frogfs partition or an unreadable image → empty list, not a scan failure.
       const frogfs = this.partitions.find((p) => p.fs === "frogfs");
@@ -253,6 +266,23 @@ class DeviceStore {
     } finally {
       this.scanning = false;
     }
+    
+    // Background fetch of FS stats so we don't block the UI
+    for (const p of this.partitions) {
+      if (p.fs === "fat") {
+        import("./engine/fsscan.js").then(({ readFatUsedSpace }) => {
+          readFatUsedSpace((off: number, len: number) => dumpRegion(this.flasher!, 0, off, len), p.offset, p.size).then((res) => {
+            if (res) this.fsStats[p.offset] = res;
+          }).catch(console.error);
+        });
+      } else if (p.fs === "littlefs") {
+        import("./engine/lfsBrowser.js").then(({ getLfsUsedSpace }) => {
+          getLfsUsedSpace().then(res => {
+            if (res) this.fsStats[p.offset] = res;
+          }).catch(console.error);
+        });
+      }
+    }
   }
 
   /** Read retro-go's persistent printf log over the LIVE connection (the serialized
@@ -260,6 +290,14 @@ class DeviceStore {
   async readLog(): Promise<{ text: string; idx: number }> {
     if (!this.transport) throw new Error("Not connected.");
     return readLogFromTransport(this.transport);
+  }
+
+  /**
+   * Capture a screenshot from the LTDC layer-1 framebuffer (halts the device briefly).
+   */
+  async captureScreenshot(onProgress?: (done: number, total: number) => void): Promise<ImageData> {
+    if (!this.transport) throw new Error("Not connected to a device.");
+    return await _captureScreenshot(this.transport, onProgress);
   }
 
   // --- Liveness poll: catch the device being unplugged FROM the adapter (the adapter stays

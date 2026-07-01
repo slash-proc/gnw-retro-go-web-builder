@@ -162,7 +162,7 @@ export async function buildFrogfsImage(
  * Fits-check first: throws BudgetError if the image would overrun the gap.
  */
 export async function flashFrogfsRegion(
-  flasher: GnwFlasher,
+  flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
   frogfs: Uint8Array,
   geom: { frogfsOffset: number; ceilingOffset: number },
   onProgress?: ProgressFn,
@@ -176,7 +176,7 @@ export async function flashFrogfsRegion(
         `${mib(available)} MiB before LittleFS. Remove some ROMs.`,
     );
   }
-  await flashImage(flasher, 0, geom.frogfsOffset, frogfs, onProgress, log, {
+  await flashImage(flasherOrGetter, 0, geom.frogfsOffset, frogfs, onProgress, log, {
     compress: true,
     verify: true,
   });
@@ -187,7 +187,7 @@ export const FLASH_REGIONS: readonly FlashRegion[] = ["intflash", "frogfs", "lit
 
 /** Flash one region: intflash → its bank, FrogFS → extflash bottom, LittleFS → top. */
 async function flashRegion(
-  flasher: GnwFlasher,
+  flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
   install: FlashInstall,
   region: FlashRegion,
   onProgress?: (phase: FlashRegion, done: number, total: number) => void,
@@ -202,13 +202,13 @@ async function flashRegion(
     for (let offset = 0; offset < install.intflash.length; offset += CHUNK_SIZE) {
       const chunk = install.intflash.subarray(offset, offset + CHUNK_SIZE);
       const chunkReport: ProgressFn = (done) => report(offset + done, install.intflash.length);
-      await flashImage(flasher, install.bank, offset, chunk, chunkReport, log, opts);
+      await flashImage(flasherOrGetter, install.bank, offset, chunk, chunkReport, log, opts);
       await new Promise((r) => setTimeout(r, 50));
     }
   } else if (region === "frogfs") {
-    await flashImage(flasher, 0, install.layout.frogfsOffset, install.frogfs, report, log, opts);
+    await flashImage(flasherOrGetter, 0, install.layout.frogfsOffset, install.frogfs, report, log, opts);
   } else {
-    await flashImage(flasher, 0, install.layout.littlefsOffset, install.littlefs, report, log, opts);
+    await flashImage(flasherOrGetter, 0, install.layout.littlefsOffset, install.littlefs, report, log, opts);
   }
 }
 
@@ -217,13 +217,13 @@ async function flashRegion(
  * FrogFS + LittleFS); pass `regions` to flash a subset (e.g. just the patched intflash).
  */
 export async function flashInstallToDevice(
-  flasher: GnwFlasher,
+  flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
   install: FlashInstall,
   onProgress?: (phase: FlashRegion, done: number, total: number) => void,
   log?: LogFn,
   regions: readonly FlashRegion[] = FLASH_REGIONS,
 ): Promise<void> {
   for (const region of FLASH_REGIONS) {
-    if (regions.includes(region)) await flashRegion(flasher, install, region, onProgress, log);
+    if (regions.includes(region)) await flashRegion(flasherOrGetter, install, region, onProgress, log);
   }
 }

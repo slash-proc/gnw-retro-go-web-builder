@@ -97,7 +97,7 @@ export interface GeoSegment {
   /** CSS kind: littlefs | frogfs | fat | ofw | assets | data | free | bank | bank-empty. */
   kind: string;
   label: string;
-  bank?: 1 | 2;
+  bank?: 0 | 1 | 2;
   offset?: number;
   size?: number;
   /** Hover-detail lines (chainloader partition-viewer style). */
@@ -122,20 +122,30 @@ export function extflashSegments(parts: ExtPartition[], extSize: number): GeoSeg
   const sorted = [...parts].sort((a, b) => a.offset - b.offset);
   const segs: GeoSegment[] = [];
   let cursor = 0;
-  const free = (from: number, to: number) => {
+  let lastFrogfsDetail: string[] | null = null;
+  
+  const free = (from: number, to: number, inheritDetail?: string[] | null) => {
     if (to - from <= 0) return;
-    segs.push({ pct: ((to - from) / extSize) * 100, kind: "free", label: "free", detail: [`free ${mib(to - from)}`, `${hex(EXTBASE + from)}–${hex(EXTBASE + to)}`] });
+    segs.push({ pct: ((to - from) / extSize) * 100, kind: "free", label: "Free Space", detail: inheritDetail || ["Free Space", `${mib(to - from)}`], offset: from, size: to - from, bank: 0 });
   };
   for (const p of sorted) {
     if (p.offset < cursor) continue; // overlap (shouldn't happen) — skip
-    free(cursor, p.offset);
-    const detail = [p.type, `${hex(EXTBASE + p.offset)} · ${mib(p.size)}`];
-    if (p.fs === "littlefs" && p.meta) detail.push(`block ${p.meta.blockSize} × ${p.meta.blockCount}`);
-    if (p.fs === "fat" && p.meta) detail.push(`${p.meta.bytesPerSector} B/sec × ${p.meta.totalSectors}`);
-    segs.push({ pct: (p.size / extSize) * 100, kind: partKind(p), label: p.type, offset: p.offset, size: p.size, detail });
+    free(cursor, p.offset, null); // Free space before a partition doesn't inherit
+    let label = p.type;
+    if (p.fs === "frogfs") label = "Games";
+    if (p.fs === "littlefs") label = "Cores & Saves";
+    const detail = [label, `${mib(p.size)}`];
+    segs.push({ pct: (p.size / extSize) * 100, kind: partKind(p), label, offset: p.offset, size: p.size, detail, bank: 0 });
+    
+    if (p.fs === "frogfs") {
+      lastFrogfsDetail = detail;
+    } else {
+      lastFrogfsDetail = null;
+    }
+    
     cursor = p.offset + p.size;
   }
-  free(cursor, extSize);
+  free(cursor, extSize, lastFrogfsDetail);
   return segs;
 }
 
@@ -150,13 +160,13 @@ export function intflashSegments(banks: IntflashBank[]): GeoSegment[] {
     const usedPct = (used / BANK_SPAN) * 50; // each bank is 50% of the bar
     const detail = [
       `Bank ${i + 1}: ${b?.type ?? "—"}`,
-      `${hex(base)} · ${kib(used)} used`,
+      `${kib(used)} used`,
       ...(b?.retroGoVersion ? [b.retroGoVersion] : []),
     ];
     if (used > 0)
-      segs.push({ pct: usedPct, kind: b?.type === "empty" ? "bank-empty" : "bank", label: `B${i + 1} ${b?.type ?? ""}`, offset: 0, size: BANK_SPAN, detail, bank: (i + 1) as 1 | 2 });
+      segs.push({ pct: usedPct, kind: b?.type === "empty" ? "bank-empty" : "bank", label: b?.type ?? "", offset: 0, size: BANK_SPAN, detail, bank: (i + 1) as 1 | 2 });
     if (50 - usedPct > 0.01)
-      segs.push({ pct: 50 - usedPct, kind: "free", label: used ? "" : `B${i + 1} empty`, offset: 0, size: BANK_SPAN, detail: [`Bank ${i + 1} free`, `${kib(BANK_SPAN - used)} free`], bank: (i + 1) as 1 | 2 });
+      segs.push({ pct: 50 - usedPct, kind: "free", label: used ? "" : "empty", offset: 0, size: BANK_SPAN, detail: [`Bank ${i + 1} free`, `${kib(BANK_SPAN - used)} free`], bank: (i + 1) as 1 | 2 });
   }
   return segs;
 }

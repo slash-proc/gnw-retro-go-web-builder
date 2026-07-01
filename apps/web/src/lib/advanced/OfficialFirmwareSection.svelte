@@ -202,8 +202,7 @@
     report: (d: number, t: number, sub?: { value: number; max: number; label: string }) => void,
   ): Promise<void> {
     const sel = selected!;
-    const flasher = await device.ensureStub();
-    await patchAndFlash(flasher, sel.model, sel.internal, sel.external, { bootloader }, report, device.extFlashBytes);
+    await patchAndFlash((force) => device.ensureStub(undefined, force), sel.model, sel.internal, sel.external, { bootloader }, report, device.extFlashBytes);
   }
 
   const modalBody = $derived.by(() => {

@@ -133,6 +133,7 @@
 
   // --- Select-games table state -----------------------------------------------------------
   let consoleFilter = $state<string>("all");
+  let listCollapsed = $state<boolean>(false);
   let hasInitializedSelection = $state(false);
 
   $effect(() => {
@@ -592,7 +593,7 @@
     }
     dbg("[install] frogfs built:", frogfs.length, "bytes → flashing @", hex(frogfsOffset));
     await flashFrogfsRegion(
-      flasher,
+      (force) => device.ensureStub(undefined, force),
       frogfs,
       { frogfsOffset, ceilingOffset: ceilingOffset! },
       (d, t) => report(d, t, { value: d, max: t, label: "FrogFS → ext" }),
@@ -659,17 +660,33 @@
             </button>
           </div>
 
-          <div class="two-pane">
+          <div class="two-pane" class:collapsed={listCollapsed}>
             <div class="left-column">
               <div class="games-pane">
-                <div class="games-pane-header">
-                  <h2>Games</h2>
-                  <button class="folder-btn" title="Change ROM Folder" onclick={() => roms.pickFolder()}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                  </button>
+                <div class="games-pane-header" style={listCollapsed ? "flex-direction: column; align-items: center; justify-content: start; gap: 1rem; padding: 0.5rem 0;" : ""}>
+                  {#if !listCollapsed}
+                    <h2>Games</h2>
+                  {/if}
+                  <div style="display: flex; gap: 0.5rem; flex-direction: {listCollapsed ? 'column' : 'row'};">
+                    <button class="folder-btn" title={listCollapsed ? "Expand List" : "Collapse List"} onclick={() => listCollapsed = !listCollapsed} style="padding: 4px;">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        {#if listCollapsed}
+                          <polyline points="13 17 18 12 13 7"></polyline>
+                          <polyline points="6 17 11 12 6 7"></polyline>
+                        {:else}
+                          <polyline points="11 17 6 12 11 7"></polyline>
+                          <polyline points="18 17 13 12 18 7"></polyline>
+                        {/if}
+                      </svg>
+                    </button>
+                    <button class="folder-btn" title="Change ROM Folder" onclick={() => roms.pickFolder()} style="padding: 4px;">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    </button>
+                  </div>
                 </div>
                 
-                <div class="selctrls">
+                {#if !listCollapsed}
+                  <div class="selctrls">
                   <button class="action-btn" onclick={() => {
                     let extraBytes = 0;
                     const toggles: Array<() => void> = [];
@@ -747,12 +764,8 @@
                 <p class="note">No games match this filter.</p>
               {/if}
                 </div>
+              {/if}
 
-          <p class="delta" style="padding: 1rem; border-top: 1px solid var(--surface-sunk); background: var(--surface); text-align: center;">
-            <span style="color: {(romSelection.additions.length + hbAdditions) > 0 ? '#007bff' : 'var(--ink-soft)'}"><strong>+{(romSelection.additions.length + hbAdditions)}</strong> add ({MiB(romSelection.additionsBytes + hbAdditionsBytes)} MiB)</span>
-            <span style="color: var(--ink-soft)"> · </span>
-            <span style="color: {(romSelection.removals.length + hbRemovals) > 0 ? 'var(--caution, #d32f2f)' : 'var(--ink-soft)'}"><strong>−{(romSelection.removals.length + hbRemovals)}</strong> remove ({MiB(romSelection.removalsBytes + hbRemovalsBytes)} MiB)</span>
-          </p>
               </div> <!-- games-pane -->
             </div> <!-- left-column -->
           
@@ -837,7 +850,7 @@
           {/if}
 
 
-          <div style="margin-top: 2.5rem; margin-bottom: 0;">
+          <div>
             {#if !device.isConnected}
               <p class="note" style="margin-top: 0.5rem;">Connect a device to install ROMs.</p>
             {:else if !partitionsKnown}
@@ -847,14 +860,17 @@
             {:else if !baseInstalled}
               <p class="note" style="margin-top: 0.5rem;">Install Retro-Go first — no LittleFS partition found on this device.</p>
             {:else}
-              <p class="note" style="margin-top: 0.5rem;">FrogFS gap: {MiB(ceilingOffset! - frogfsOffset)} MiB available (up to LittleFS).</p>
               <InstallGeometry
                 partitions={device.partitions}
                 extSize={device.extFlashBytes}
                 {frogfsOffset}
                 newFrogfsLen={newFrogfsLen ?? currentEstSize}
                 {changedFromOffset}
-                title="Extflash layout (existing vs. changes)"
+                title=""
+                additionsCount={romSelection.additions.length + hbAdditions}
+                additionsBytes={romSelection.additionsBytes + hbAdditionsBytes}
+                removalsCount={romSelection.removals.length + hbRemovals}
+                removalsBytes={romSelection.removalsBytes + hbRemovalsBytes}
               />
               <ChangeSummary items={summaryItems} />
               {#if building}<p class="note" style="margin-top: 0.5rem;">Calculating layout…</p>{/if}
@@ -1285,6 +1301,10 @@
     grid-template-columns: 350px 1fr;
     gap: 1rem;
     height: 500px;
+    transition: grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .two-pane.collapsed {
+    grid-template-columns: 48px 1fr;
   }
   .left-column {
     display: flex;

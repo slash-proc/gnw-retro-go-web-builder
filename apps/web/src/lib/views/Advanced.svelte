@@ -179,7 +179,7 @@
         aria-selected={tab === "device"}
         tabindex={tab === "device" ? 0 : -1}
         onclick={() => selectTab("device")}
-      >Device/Retro-Go Setup</button>
+      >Firmware Setup</button>
       <button
         role="tab"
         class="tab"
@@ -213,9 +213,9 @@
   .shell {
     /* Centered content column within the wide frame — the block is centered, data inside
        stays left-aligned. (The future Games tab can break out to the full width.) */
-    align-self: center;
     width: 100%;
-    max-width: 900px;
+    flex: 1;
+    max-width: 1000px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;

@@ -105,7 +105,7 @@
             const data = new Uint8Array(s.size).fill(0xff);
             for (let offset = 0; offset < data.length; offset += CHUNK_SIZE) {
               const chunk = data.subarray(offset, offset + CHUNK_SIZE);
-              await flashImage(flasher, targetBank, s.offset + offset, chunk, (d) => {
+              await flashImage((force) => device.ensureStub(undefined, force), targetBank, s.offset + offset, chunk, (d) => {
                 r(completed + offset + d, totalSize);
               }, undefined, { compress: true, verify: false });
               await new Promise(res => setTimeout(res, 50));
@@ -113,7 +113,7 @@
             completed += s.size;
           } else {
             const data = new Uint8Array(s.size).fill(0xff);
-            await flashImage(flasher, targetBank, s.offset, data, (d) => {
+            await flashImage((force) => device.ensureStub(undefined, force), targetBank, s.offset, data, (d) => {
               r(completed + d, totalSize);
             }, undefined, { compress: true, verify: false });
             completed += s.size;

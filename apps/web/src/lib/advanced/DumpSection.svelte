@@ -6,6 +6,8 @@
   import AccordionSection, { type ChipKind } from "./AccordionSection.svelte";
   import Button from "../ui/Button.svelte";
   import Progress from "../ui/Progress.svelte";
+  import GeometryBar from "../ui/GeometryBar.svelte";
+  import { extflashSegments, intflashSegments, type GeoSegment } from "../engine/classify.js";
 
   // §A.2 — Dump flash (cancelable read). Real, wired to readFlash via dumpRegion.
   let {
@@ -26,6 +28,10 @@
   let result = $state<string | null>(null); // success summary
   let canceledChip = $state(false);
   let startedAt = 0;
+
+  const extSize = $derived(device.extFlashBytes);
+  const intSegs = $derived(intflashSegments(device.banks));
+  const extSegs = $derived(extflashSegments(device.partitions, extSize));
 
   // A locked device can't read internal flash (§3.1 / validation).
   const lockedGuard = $derived(device.locked === true && (bank === 1 || bank === 2));
@@ -60,6 +66,12 @@
   function fill(off: number, len: number) {
     offset = hex(off);
     length = hex(len);
+  }
+
+  function handleGeoClick(s: GeoSegment) {
+    if (s.bank !== undefined) bank = s.bank;
+    if (s.offset !== undefined) offset = hex(s.offset);
+    if (s.size !== undefined) length = hex(s.size);
   }
 
   async function dump() {
@@ -97,6 +109,32 @@
 <AccordionSection id="dump" title="Dump flash" {open} running={dumping} {chipKind} {chipText} {onToggle}>
   <div class="stack">
     <p class="muted">Read any region of any bank to a downloaded file. You can cancel mid-read.</p>
+
+    <div class="bars">
+      {#if intSegs.length > 0}
+        <div class="bar-group">
+          <GeometryBar 
+            segments={intSegs} 
+            title="Internal Flash (1 MiB)" 
+            leftLabel={hex(0x08000000)} 
+            rightLabel={hex(0x08200000)} 
+            onClick={handleGeoClick}
+          />
+        </div>
+      {/if}
+      
+      {#if extSegs.length > 0}
+        <div class="bar-group">
+          <GeometryBar 
+            segments={extSegs} 
+            title="External Flash" 
+            leftLabel={hex(0x90000000)} 
+            rightLabel={hex(0x90000000 + extSize)} 
+            onClick={handleGeoClick}
+          />
+        </div>
+      {/if}
+    </div>
 
     <div class="grid">
       <label class="field"><span>Bank</span>
@@ -168,6 +206,17 @@
     display: grid;
     gap: 0.75rem;
     grid-template-columns: 1.6fr 1fr 1fr;
+  }
+  .bars {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 0.25rem;
+  }
+  .bar-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
   }
   @media (max-width: 560px) {
     .grid {
