@@ -104,13 +104,20 @@ python3 apps/web/src/lib/cheats/ingest_libretro.py    # gap-fills nes.json/gb.js
 
 Only NES and GB actually get consumed by the UI (`lineCheatSystems` in `GameDetailsPanel.svelte`) — SNES/Genesis/Game Gear presets exist in the data but are deliberately unused (no firmware cheat support for those systems). `ingest_libretro.py` only pulls `.cht` files tagged `(Game Genie)`/`(GameShark)` in the filename — untagged files use an incompatible raw-address RetroArch-internal format and are skipped. It only *adds* games missing from the xlsx-derived baseline; never touches/merges an already-present entry.
 
-MSX/Coleco/SG-1000 cheats are a completely different mechanism: whole `.mcf` files (not individual toggleable codes), sourced from `cheat-codes/<system>/` at the repo root and mirrored as static assets under `apps/web/public/cheat-codes/` + `apps/web/src/lib/cheats/mcfManifest.json`. If you add more `.mcf` files to `cheat-codes/`, regenerate the manifest (see `cheats/index.ts`'s `MCF_WHOLE_FILE_SYSTEMS`/`findMcfPreset` for the consuming side) rather than hand-editing it.
+MSX/Coleco/SG-1000 cheats are a completely different mechanism: whole `.mcf` files (not individual toggleable codes). These were a one-time processing job, not an ongoing pipeline like the xlsx/libretro-database ingestion above — the raw `cheat-codes/<system>/` source tree (unlike the xlsx file and the `references/libretro-database` submodule) is deliberately NOT tracked in this repo; only its output is: the mirrored static assets under `apps/web/public/cheat-codes/` + the generated `apps/web/src/lib/cheats/mcfManifest.json`. Those two are what the app actually consumes (`cheats/index.ts`'s `MCF_WHOLE_FILE_SYSTEMS`/`findMcfPreset`) and are the only things that need to exist for a fresh clone to work. These are old/discontinued consoles with an effectively-frozen cheat set — if this ever needs redoing from scratch, re-source the raw `.mcf` files externally rather than expecting a `cheat-codes/` folder to already be present.
 
 ## Dependencies & Gotchas
 
 - **Stale `node_modules` anon volume:** Fix missing symlinks via `docker compose up -d --force-recreate --renew-anon-volumes`.
 - **Stale `tsconfig.tsbuildinfo`:** Fix via `tsc -b --force`.
 - **Root ownership of generated files:** Fix via `docker compose exec -u root dev chown -R "$(id -u):$(id -g)" <path>`.
+- **GitHub Pages deploy (`.github/workflows/deploy-pages.yml`)** builds and publishes `apps/web/`
+  on every push to `main`. If `actions/deploy-pages@v4` fails with "Multiple artifacts named
+  github-pages were unexpectedly found," that's a re-run of an already-attempted run leaving a
+  stale artifact attached to the same run ID — the workflow has a cleanup step for this, but if
+  it ever resurfaces, a fresh run (not "re-run failed jobs") also clears it. A bare "Deployment
+  failed, try again later" with only one artifact found is usually a transient GitHub-side Pages
+  hiccup (check githubstatus.com) — just re-run.
 
 ## Hardware Testing
 
