@@ -6,10 +6,13 @@ on:
   workflow_dispatch: # Allows you to run this manually from the Actions tab
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+# `actions: write` is needed only for the stale-artifact cleanup step below (deleting a leftover
+# "github-pages" artifact via the API) — not for the deploy itself.
 permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write
 
 # Allow only one concurrent deployment
 concurrency:
@@ -48,6 +51,22 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
+
+      # Guards against "Multiple artifacts named github-pages were unexpectedly found for this
+      # workflow run" from actions/deploy-pages@v4. That error happens when this run has been
+      # re-run (GitHub's "Re-run jobs") — the previous attempt's "github-pages" artifact is still
+      # attached to this run ID, so the new upload below creates a second one with the same name.
+      # Delete any leftover one first so there's always at most one by the time we deploy.
+      - name: Clean up stale github-pages artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq '.artifacts[] | select(.name=="github-pages") | .id' |
+          while read -r id; do
+            echo "Deleting stale github-pages artifact $id"
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
+          done
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
