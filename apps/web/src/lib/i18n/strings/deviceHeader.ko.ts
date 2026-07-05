@@ -1,0 +1,33 @@
+import type { DeviceHeaderStrings } from "./deviceHeader.js";
+
+export const deviceHeaderKo: DeviceHeaderStrings = {
+  changeInstallationMethod: "설치 방식 변경",
+  sdCard: "💾 SD 카드",
+  internalFlash: "⚡ 내장 플래시",
+  connectionLost: "연결 끊김",
+  noConnection: "연결 없음",
+  connectedRecoveryMode: "연결됨 (복구 모드)",
+  connectedRetroGo: "연결됨 (Retro-Go)",
+  connectedAs: (label: string) => `연결됨 (${label})`,
+  connected: "연결됨",
+  scanning: "스캔 중…",
+  dash: "—",
+  patchMissing: "패치 누락",
+  notInstalled: "설치되지 않음",
+  none: "없음",
+  mario: "마리오",
+  zelda: "젤다",
+  patched: "패치됨",
+  stock: "순정",
+  ofwLabel: (model: string, status: string) => `${model} (${status})`,
+  toggleTheme: "밝은 화면 / 어두운 화면 전환",
+  toggleThemeAria: "테마 전환",
+  toggleLanguage: "언어 전환",
+  toggleLanguageAria: "언어 전환",
+  changeMethodTitle: "설치 방식을 변경할까요?",
+  changeMethodBody:
+    "다른 설치 방식을 선택하시겠어요? 기기 연결이 끊어지고 홈 화면으로 돌아갑니다.",
+  changeMethodConfirm: "방식 변경",
+  logoRgoAlt: "Retro-Go",
+  logoOfwAlt: "공식 펌웨어",
+} as const;

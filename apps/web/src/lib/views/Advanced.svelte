@@ -1,9 +1,10 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { device } from "../device.svelte.js";
-  import DeviceInfoTab from "../advanced/DeviceInfoTab.svelte";
+  import { locale } from "../i18n/locale.svelte.js";
+  import OverviewTab from "./OverviewTab.svelte";
   import RetroGoTab from "../advanced/RetroGoTab.svelte";
-  import RomManagementTab from "../advanced/RomManagementTab.svelte";
+  import RomManagementTab from "./RomManagementTab.svelte";
   import ExpertCorner from "../advanced/ExpertCorner.svelte";
   import Wizard from "./Wizard.svelte";
 
@@ -13,7 +14,7 @@
   type Tab = "info" | "device" | "roms";
 
   // `initialTab` is set ONLY when the user just connected from the Connect homepage — we land on
-  // Device Information then (so a stale persisted hash doesn't reopen Device Management mid-scan).
+  // Overview then (so a stale persisted hash doesn't reopen Device Management mid-scan).
   // It's a one-shot: applied on mount, then cleared via onInitialApplied so later remounts (mode
   // toggles, reconnects) fall back to the hash/default. No forward on any other entry.
   let {
@@ -22,60 +23,57 @@
     mode = $bindable("advanced"),
   }: { initialTab?: Tab; onInitialApplied?: () => void; mode?: "wizard" | "advanced" } = $props();
 
-  // Which device-tab accordion (if any) to pre-open, from the scanned install state:
-  //   • Retro-Go + LittleFS present  → fully installed → open NOTHING (they can still open
-  //     "Backup & Patch" themselves to patch a different OFW over the current one).
-  //   • Retro-Go intflash but NO LittleFS → broken install → pre-open "install" (repair).
-  //   • Patched OFW (dual-boot) but no Retro-Go → pre-open "install".
-  //   • Stock OFW (unpatched) → pre-open "ofw" (Backup & Patch — patch it first).
-  //   • Unknown / pre-scan → "install" (the usual next action).
-  function deviceDefaultId(): string | null {
-    const banks = device.banks;
-    const parts = device.partitions;
-    const retroGo = banks.some((b) => !!b.retroGoVersion || /retro-go/i.test(b.type));
-    const littlefs = parts.some((p) => p.fs === "littlefs");
-    const patchedOfw = banks.some((b) => b.ofw?.patched);
-    const stockOfw = banks.some((b) => b.ofw && !b.ofw.patched);
-    if (retroGo) return littlefs ? null : "install";
-    if (patchedOfw) return "install";
-    if (stockOfw) return "ofw";
-    return "install";
-  }
-  function deviceDefaultSet(): Set<string> {
-    const id = deviceDefaultId();
-    return new Set(id ? [id] : []);
-  }
-
   let tab = $state<Tab>(untrack(() => initialTab) ?? "device"); // one-shot: see the mount effect
-  // Open sections per tab (multi-open). Default-open one per tab (§2.2).
+  // Open sections per tab (multi-open). All tabs start fully closed — the device tab used to
+  // auto-open a "next action" section from the scanned install state, but that state resolves
+  // asynchronously (banks/partitions are empty at mount, then settle after the scan), so the
+  // section would pop open pre-scan, re-target itself (bank1 → bank2) as the scan progressed,
+  // then sometimes auto-close once "fully installed" resolved — all out from under the user.
+  // Every section now opens only on an explicit click (or a hash deep-link).
   let openByTab = $state<Record<Tab, Set<string>>>({
     info: new Set(),
-    device: untrack(() => deviceDefaultSet()),
+    device: new Set(),
     roms: new Set(),
   });
-  // While true, the device tab auto-tracks the firmware-appropriate default-open section. The
-  // user's first manual toggle on the device tab (or a hash deep-link) flips it false so we stop.
-  let deviceAutoDefault = $state(true);
   // Sections whose op is running — these cannot be collapsed (§2.4).
   let runningSections = $state(new Set<string>());
-
-  // Reactively keep the device tab's default-open synced to the scanned install state (banks +
-  // partitions are empty at mount → "install", then resolve once the scan lands — possibly to
-  // "nothing open" for a fully-installed device). deviceDefaultSet() is read in the TRACKED scope
-  // so this effect depends on device.banks/partitions + deviceAutoDefault; the openByTab write is
-  // untracked so it never depends on its own output — no reactive loop.
-  $effect(() => {
-    if (!deviceAutoDefault) return;
-    const next = deviceDefaultSet();
-    untrack(() => {
-      openByTab = { ...openByTab, device: next };
-    });
-  });
 
   // Expert corner: reached only via the #expert hash (§2.1.1).
   let expert = $state(false);
 
-  // ---- hash deep-link: #advanced/<tab>/<sec,sec> | #expert (§2.3) ----
+  // Firmware Setup requires a basic connection for ANYTHING on it — both Guided and Advanced
+  // sub-modes. Surface the shared connect gate the instant the tab is viewed while disconnected
+  // (mirrors OverviewTab's gate; single check at the tab level, not per-section/per-mode).
+  // Cancelling sends the user back to the Overview tab, matching the old modal's "Back" behavior.
+  let connectGateActive = false;
+  $effect(() => {
+    if (tab !== "device" || device.isConnected) return;
+    if (connectGateActive) return;
+    connectGateActive = true;
+    device.ensureConnectGate()
+      .catch(() => untrack(() => selectTab("info")))
+      .finally(() => (connectGateActive = false));
+  });
+
+  // Guided Setup (the Wizard) additionally requires Recovery Mode (the stub) — a layer below the
+  // basic connection gate above. Fires once per entry into wizard mode while connected+not booted;
+  // if the user cancels the confirm, route them to the Advanced sub-view instead of leaving them stuck.
+  let stubGateActive = false;
+  $effect(() => {
+    if (tab !== "device" || mode !== "wizard" || !device.isConnected || device.utilLoaded) return;
+    if (stubGateActive) return;
+    stubGateActive = true;
+    device.ensureStub()
+      .catch(() => untrack(() => (mode = "advanced")))
+      .finally(() => (stubGateActive = false));
+  });
+
+  // ---- hash deep-link: #<tab>/<sec,sec> | #expert (§2.3) ----
+  // URL segment names reflect the actual (flat, non-"advanced") tab structure: "info" and
+  // "roms" match their Tab value directly; the "device" Tab value (internal name, unchanged
+  // per the file-structure flattening) surfaces in the URL as "firmware" (the tab is labeled
+  // "Firmware Setup" in the UI) since "device" alone reads as unrelated to "advanced/device".
+  const HASH_SEGMENT: Record<Tab, string> = { info: "info", device: "firmware", roms: "roms" };
   function readHash() {
     const h = location.hash.replace(/^#/, "");
     if (h === "expert") {
@@ -83,15 +81,14 @@
       return;
     }
     expert = false;
-    const m = h.match(/^advanced\/(info|device|roms)(?:\/(.*))?$/);
+    const m = h.match(/^(info|firmware|roms)(?:\/(.*))?$/);
     if (!m) return;
-    tab = m[1] as Tab;
+    tab = (m[1] === "firmware" ? "device" : m[1]) as Tab;
     if (m[2]) {
       const ids = m[2].split(",").filter(Boolean);
       const next = { ...openByTab };
       next[tab] = new Set(ids);
       openByTab = next;
-      if (tab === "device") deviceAutoDefault = false; // a hash deep-link wins over the auto-default
     }
   }
 
@@ -103,7 +100,7 @@
     untrack(() => {
       if (initialTab) {
         // Connected from the homepage: land on the requested tab, ignore any stale hash, and
-        // write the clean hash. The device tab's auto-default resolves later if they go there.
+        // write the clean hash.
         tab = initialTab;
         syncHash();
         onInitialApplied?.();
@@ -118,13 +115,12 @@
 
   function syncHash() {
     const open = [...openByTab[tab]].join(",");
-    const next = `#advanced/${tab}${open ? "/" + open : ""}`;
+    const next = `#${HASH_SEGMENT[tab]}${open ? "/" + open : ""}`;
     if (location.hash !== next) history.replaceState(null, "", next);
   }
 
   function toggle(id: string) {
     if (runningSections.has(id)) return; // running can't collapse (§2.4)
-    if (tab === "device") deviceAutoDefault = false; // user took control of the device tab
     const cur = openByTab[tab];
     const next = new Set(cur);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -156,14 +152,14 @@
 {#if expert}
   <div class="shell">
     <div class="exphead">
-      <h2>Expert</h2>
-      <button class="quiet" onclick={() => { location.hash = "#advanced/device"; }}>← Back to Advanced</button>
+      <h2>{locale.t.advanced.expertHeading}</h2>
+      <button class="quiet" onclick={() => { location.hash = "#firmware"; }}>{locale.t.advanced.backToAdvanced}</button>
     </div>
     <ExpertCorner />
   </div>
 {:else}
-  <div class="shell" class:wide={tab === "roms"}>
-    <div class="tabbar" role="tablist" aria-label="Advanced tools" tabindex={-1} onkeydown={onTabKey}>
+  <div class="shell" class:wide={tab === "roms"} class:narrow={tab === "info"}>
+    <div class="tabbar" role="tablist" aria-label={locale.t.advanced.tabbarLabel} tabindex={-1} onkeydown={onTabKey}>
       <button
         role="tab"
         class="tab"
@@ -171,7 +167,7 @@
         aria-selected={tab === "info"}
         tabindex={tab === "info" ? 0 : -1}
         onclick={() => selectTab("info")}
-      >Information</button>
+      >{locale.t.advanced.tabOverview}</button>
       <button
         role="tab"
         class="tab"
@@ -179,7 +175,7 @@
         aria-selected={tab === "device"}
         tabindex={tab === "device" ? 0 : -1}
         onclick={() => selectTab("device")}
-      >Firmware Setup</button>
+      >{locale.t.advanced.tabFirmwareSetup}</button>
       <button
         role="tab"
         class="tab"
@@ -187,21 +183,25 @@
         aria-selected={tab === "roms"}
         tabindex={tab === "roms" ? 0 : -1}
         onclick={() => selectTab("roms")}
-      >ROMs</button>
+      >{locale.t.advanced.tabRoms}</button>
 
     </div>
 
     {#if tab === "info"}
-      <DeviceInfoTab />
+      <OverviewTab openSet={openByTab.info} />
     {:else if tab === "device"}
-      <nav class="modeswitch-inline">
-        <button class:active={mode === "wizard"} onclick={() => (mode = "wizard")}>Guided Setup</button>
-        <button class:active={mode === "advanced"} onclick={() => (mode = "advanced")}>Advanced</button>
-      </nav>
-      {#if mode === "wizard"}
-        <Wizard onComplete={() => selectTab("roms")} />
+      {#if !device.isConnected}
+        <p class="connecting-placeholder">{locale.t.advanced.waitingForDevice}</p>
       {:else}
-        <RetroGoTab openSet={openByTab.device} onToggle={toggle} {onRunning} />
+        <nav class="modeswitch-inline">
+          <button class:active={mode === "wizard"} onclick={() => (mode = "wizard")}>{locale.t.advanced.modeGuidedSetup}</button>
+          <button class:active={mode === "advanced"} onclick={() => (mode = "advanced")}>{locale.t.advanced.modeAdvanced}</button>
+        </nav>
+        {#if mode === "wizard"}
+          <Wizard onComplete={() => selectTab("roms")} />
+        {:else}
+          <RetroGoTab openSet={openByTab.device} onToggle={toggle} {onRunning} />
+        {/if}
       {/if}
     {:else}
       <RomManagementTab openSet={openByTab.roms} onToggle={toggle} {onRunning} />
@@ -210,6 +210,12 @@
 {/if}
 
 <style>
+  .connecting-placeholder {
+    margin: 2rem auto;
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
+    text-align: center;
+  }
   .shell {
     /* Centered content column within the wide frame — the block is centered, data inside
        stays left-aligned. (The future Games tab can break out to the full width.) */
@@ -220,6 +226,9 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+  .shell.narrow {
+    max-width: 900px;
   }
   .shell.wide {
     max-width: none;

@@ -1,0 +1,88 @@
+import type { SharedStrings } from "./shared.js";
+
+export const sharedEs: SharedStrings = {
+  common: {
+    cancel: "Cancelar",
+    close: "Cerrar",
+    connect: "Conectar",
+    connecting: "Conectando…",
+    workingNotePre: "Trabajando — ",
+    workingNoteBold: "no desconectes el dispositivo",
+    workingNotePost: ".",
+    done: "✓ Listo.",
+    changeEllipsis: "Cambiar…",
+    chooseEllipsis: "Elegir…",
+    or: "o",
+  },
+  confirmModal: {
+    defaultConfirmText: "Confirmar",
+  },
+  accordionSection: {
+    operationInProgress: "Operación en curso",
+  },
+  filePick: {
+    defaultLabel: "Elegir archivo",
+    noFileChosen: "Ningún archivo elegido",
+  },
+  splitButton: {
+    moreOptions: "Más opciones",
+  },
+  deviceControls: {
+    deviceActions: "Acciones del dispositivo",
+    rescan: "Volver a escanear",
+    restartRecoveryMode: "Reiniciar Modo de recuperación",
+    startRecoveryMode: "Iniciar Modo de recuperación",
+    changeAdapter: "Cambiar adaptador",
+    disconnectDevice: "Desconectar dispositivo",
+  },
+  stubLoadModal: {
+    title: "¿Entrar en Modo de recuperación?",
+    body1Pre: "Para realizar esta acción (como leer la memoria flash, hacer una copia de seguridad o instalar firmware), el dispositivo debe entrar en ",
+    body1Bold: "Modo de recuperación",
+    body1Post: ". Esto detendrá temporalmente la aplicación en ejecución.",
+    body2Pre: "Mantén presionado el ",
+    body2Bold: "botón de encendido",
+    body2Post: " del dispositivo mientras se conecta; luego, déjalo sobre una superficie y no lo toques hasta que termine la operación.",
+    continue: "Continuar",
+  },
+  connectGateModal: {
+    title: "Se necesita el dispositivo",
+    subtitle: "Conecta el adaptador de tu dispositivo para continuar.",
+    deviceConnectionTitle: "Conexión del dispositivo",
+    connectedFallback: "Conectado",
+    adapterHint: "Un adaptador ST-Link v2 (o compatible)",
+    chooseAdapter: "Elegir adaptador",
+    connectionFailed: "Error de conexión.",
+  },
+  folderGateModal: {
+    title: "Se necesitan carpetas",
+    subtitlePlural: "Selecciona las carpetas de abajo para continuar.",
+    subtitleSingular: "Selecciona la carpeta de abajo para continuar.",
+    romFolderTitle: "Carpeta de ROMs",
+    selectedFallback: "Seleccionada",
+    romFolderHint: "Tu colección local de archivos ROM",
+    reconnectLastFolder: "Reconectar la última carpeta",
+    scanning: "Escaneando…",
+    sdCardFolderTitle: "Carpeta de la tarjeta SD",
+    sdCardFolderHint: "La raíz del volumen de tu tarjeta SD",
+    continue: "Continuar",
+  },
+  installProgressModal: {
+    logLabel: (count: number) => `Registro (${count})`,
+  },
+  geometry: {
+    freeSpace: "Espacio libre",
+    games: "Juegos",
+    coresAndSaves: "Emuladores y partidas guardadas",
+    bankLabel: (n: number) => `Banco ${n}`,
+    bankUnknown: "—",
+    used: "usado",
+    free: "libre",
+    bankFree: (n: number) => `Banco ${n} libre`,
+    empty: "vacío",
+  },
+  bankSelect: {
+    external: (addr: string) => `Externo · banco 0 (${addr})`,
+    internal: (bank: number, addr: string) => `Interno · banco ${bank} (${addr})`,
+  },
+};

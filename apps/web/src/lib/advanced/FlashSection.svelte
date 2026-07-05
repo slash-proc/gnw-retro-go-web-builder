@@ -1,11 +1,12 @@
 <script lang="ts">
   import { device } from "../device.svelte.js";
   import { flashImage } from "../engine/flasher.js";
-  import { parseAddr, hex8, commas, BANK_BASE, BANKS, regionSize, alignFor } from "./addr.js";
+  import { parseAddr, hex8, commas, BANK_BASE, bankOptions, regionSize, alignFor } from "./addr.js";
   import AccordionSection, { type ChipKind } from "./AccordionSection.svelte";
   import Button from "../ui/Button.svelte";
-  import ConfirmModal from "../ui/ConfirmModal.svelte";
   import FilePick from "../ui/FilePick.svelte";
+  import { installProgress, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
+  import { locale } from "../i18n/locale.svelte.js";
 
   // §A.3 — Flash image (blocking write). Real, wired to flash via flashImage.
   let {
@@ -21,10 +22,11 @@
   let compress = $state(true);
   let verify = $state(true);
 
-  let modalOpen = $state(false);
   let writing = $state(false);
   let ack = $state(false); // bank-1 acknowledgement checkbox
   let result = $state<"success" | null>(null);
+
+  const BANKS = $derived(bankOptions(locale.t.shared.bankSelect));
 
   const offBytes = $derived(parseAddr(offset));
   const align = $derived(alignFor(bank));
@@ -42,9 +44,14 @@
 
   const planBody = $derived(
     file
-      ? `Plan: bank${bank} (${hex8(base)}) + ${hex8(offBytes || 0)} ← ${file.name} ` +
-        `(${commas(file.size)} B, padded → ${hex8(padTarget)}). ` +
-        `Don't unplug your device until it finishes.`
+      ? locale.t.flashSection.planBody(
+          bank,
+          hex8(base),
+          hex8(offBytes || 0),
+          file.name,
+          commas(file.size),
+          hex8(padTarget),
+        )
       : "",
   );
 
@@ -52,50 +59,93 @@
     writing ? "running" : lockedGuard ? "locked" : result ? "success" : "idle",
   );
   const chipText = $derived(
-    writing ? "writing" : lockedGuard ? "locked" : "",
+    writing ? locale.t.flashSection.writingChip : lockedGuard ? locale.t.flashSection.lockedChip : "",
   );
 
-  async function run(report: (d: number, t: number) => void) {
+  const flashPhases: PhaseDef[] = [{ id: "flash", label: locale.t.flashSection.phaseFlashingImage }];
+
+  async function run(report: PhaseReporter) {
     const off = offBytes || 0;
     const data = new Uint8Array(await file!.arrayBuffer());
-    await flashImage((force) => device.ensureStub(undefined, force), bank, off, data, report, undefined, { compress, verify });
+    report.start("flash");
+    device.suspendPoll();
+    try {
+      await flashImage(
+        (force) => device.ensureStub(undefined, force, true),
+        bank,
+        off,
+        data,
+        (d, t) => report.progress("flash", d, t),
+        undefined,
+        { compress, verify },
+      );
+    } finally {
+      device.resumePoll();
+    }
+    report.finish("flash");
+  }
+
+  function openFlash() {
+    void installProgress.run({
+      title: locale.t.flashSection.modalTitle,
+      body: planBody,
+      danger: true,
+      confirmText: locale.t.flashSection.modalConfirmText,
+      phases: flashPhases,
+      exec: async (report) => {
+        writing = true;
+        onRunning?.(true);
+        try {
+          await run(report);
+          result = "success";
+        } finally {
+          writing = false;
+          onRunning?.(false);
+        }
+      },
+    });
   }
 </script>
 
-<AccordionSection id="flash-image" title="Flash image" {open} running={writing} {chipKind} {chipText} {onToggle}>
+<AccordionSection id="flash-image" title={locale.t.flashSection.title} {open} running={writing} {chipKind} {chipText} {onToggle}>
+  {#if device.scanning}
+    <div class="placeholder">{locale.t.flashSection.scanningDevice}</div>
+  {:else if !device.utilLoaded}
+    <Button variant="action" onclick={() => device.ensureStub()}>{locale.t.flashSection.enterRecoveryMode}</Button>
+  {:else}
   <div class="stack">
-    <p class="muted">Write an arbitrary image to any bank/offset. You confirm before it writes.</p>
+    <p class="muted">{locale.t.flashSection.intro}</p>
 
-    <div class="field"><span>Image file</span>
-      <FilePick accept=".bin" label="Choose image" onpick={(f) => { file = f; result = null; }} />
+    <div class="field"><span>{locale.t.flashSection.imageFileLabel}</span>
+      <FilePick accept=".bin" label={locale.t.flashSection.chooseImage} onpick={(f) => { file = f; result = null; }} />
       {#if file}<span class="meta mono">{file.name} · {commas(file.size)} B</span>{/if}
     </div>
 
     <div class="grid">
-      <label class="field"><span>Bank</span>
+      <label class="field"><span>{locale.t.flashSection.bankLabel}</span>
         <select class="mono" bind:value={bank} onchange={() => (ack = false)}>
           {#each BANKS as b (b.v)}<option value={b.v}>{b.label}</option>{/each}
         </select>
       </label>
-      <label class="field"><span>Offset</span>
-        <input class="mono" bind:value={offset} placeholder="0x0" />
+      <label class="field"><span>{locale.t.flashSection.offsetLabel}</span>
+        <input class="mono" bind:value={offset} placeholder={locale.t.flashSection.offsetPlaceholder} />
       </label>
     </div>
 
     <!-- Transfer options sub-disclosure (transfer mechanics, allowed here). -->
     <div class="sub">
       <button class="sub-toggle" aria-expanded={optsOpen} onclick={() => (optsOpen = !optsOpen)}>
-        <span aria-hidden="true">{optsOpen ? "▾" : "▸"}</span> Transfer options
+        <span aria-hidden="true">{optsOpen ? "▾" : "▸"}</span> {locale.t.flashSection.transferOptions}
       </button>
       {#if optsOpen}
         <div class="sub-body">
           <label class="check">
             <input type="checkbox" bind:checked={compress} />
-            <span>LZMA compress <em>(faster transfer; device decompresses; auto-skips if it doesn&rsquo;t help)</em></span>
+            <span>{locale.t.flashSection.compressLabel} <em>{locale.t.flashSection.compressHint}</em></span>
           </label>
           <label class="check">
             <input type="checkbox" bind:checked={verify} />
-            <span>Verify writes <em>(read back each buffer to catch probe corruption; slower)</em></span>
+            <span>{locale.t.flashSection.verifyLabel} <em>{locale.t.flashSection.verifyHint}</em></span>
           </label>
         </div>
       {/if}
@@ -103,58 +153,44 @@
 
     {#if lockedGuard}
       <p class="notice">
-        🔒 Internal flash is locked — a locked device rejects writes. Unlocking happens automatically
-        during Easy setup&rsquo;s backup step. (Bank 0 / external stays writable.)
+        {locale.t.flashSection.lockedNotice}
       </p>
     {/if}
 
     {#if file}
       <div class="well mono">
-        <div>Plan: bank{bank} ({hex8(base)}) + {hex8(offBytes || 0)} ← {file.name}</div>
-        <div>{commas(file.size)} B → padded {commas(padTarget)} B ({hex8(padTarget)})</div>
-        {#if !aligned}<div class="warn">Offset must be a multiple of {align} ({bank === 0 ? "ext" : "int"}flash alignment).</div>{/if}
-        {#if overrun}<div class="warn">Image overruns the {commas(region)} B region.</div>{/if}
+        <div>{locale.t.flashSection.planLine(bank, hex8(base), hex8(offBytes || 0), file.name)}</div>
+        <div>{locale.t.flashSection.planSizeLine(commas(file.size), commas(padTarget), hex8(padTarget))}</div>
+        {#if !aligned}<div class="warn">{locale.t.flashSection.alignWarning(align, bank === 0 ? locale.t.flashSection.extIntWordExt : locale.t.flashSection.extIntWordInt)}</div>{/if}
+        {#if overrun}<div class="warn">{locale.t.flashSection.overrunWarning(commas(region))}</div>{/if}
       </div>
     {/if}
 
     {#if needsAck && file && !lockedGuard}
       <label class="check ack">
         <input type="checkbox" bind:checked={ack} />
-        <span>I understand this overwrites the firmware bank; I have a backup.</span>
+        <span>{locale.t.flashSection.ackLabel}</span>
       </label>
     {/if}
 
     <div>
-      <Button variant="action" disabled={!valid} onclick={() => (modalOpen = true)}>Flash image…</Button>
+      <Button variant="action" disabled={!valid} onclick={openFlash}>{locale.t.flashSection.flashImageButton}</Button>
     </div>
   </div>
+  {/if}
 </AccordionSection>
-
-<ConfirmModal
-  open={modalOpen}
-  title="Flash this image?"
-  body={planBody}
-  danger
-  confirmText="Flash"
-  run={async (report) => {
-    writing = true;
-    onRunning?.(true);
-    try {
-      await run(report);
-      result = "success";
-    } finally {
-      writing = false;
-      onRunning?.(false);
-    }
-  }}
-  onClose={() => (modalOpen = false)}
-/>
 
 <style>
   .stack {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+  .placeholder {
+    margin: 0;
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
+    opacity: 0.7;
   }
   .muted {
     color: var(--ink-soft);

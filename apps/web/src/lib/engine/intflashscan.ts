@@ -6,10 +6,12 @@
  * Phase 2 & 3: Island Discovery & Sizing (4K probes in 32K strides, then circumfix)
  */
 
-/** Reads `len` bytes of internal flash at absolute `addr` (e.g. 0x08000000). */
-export type IntReadFn = (addr: number, len: number) => Promise<Uint8Array>;
+import { BANK_BASE } from "./addr.js";
+import type { MemReadFn as IntReadFn } from "./addr.js";
+import { locateSuperblock, readSuperblock, FLAG_LITTLEFS_LENGTH } from "@gnw/gnw-patch";
+export type { IntReadFn };
 
-export const INT_BANK_BASES = [0x08000000, 0x08100000] as const;
+export const INT_BANK_BASES = [BANK_BASE[1], BANK_BASE[2]] as const;
 const BANK_SIZE = 256 << 10; // gnw-flasher INT_BANK_SIZE convention
 // OFW initial SP (== gnwmanager's mario/zelda_int_sig as a little-endian u32) identifies
 // the device model; stock-vs-patched then comes from the OFW image's last byte.
@@ -26,8 +28,22 @@ export interface IntflashBank {
   type: string;
   /** Retro-Go version token ("v1.2.3…") if the signature is present. */
   retroGoVersion?: string;
+  /** True iff the GIT_TAG string said "Retro-Go SD" (the fork name — supports SD-card use,
+   *  doesn't mean THIS build is one; see installOrigin in classify.ts for that). */
+  retroGoIsSdFork?: boolean;
   /** Official firmware present in this bank (model + stock/patched), or undefined. */
   ofw?: { model: "mario" | "zelda"; patched: boolean };
+  /** True iff gnw-patch's own "GWLB" layout superblock is embedded in this bank's intflash
+   *  bytes — patched in by BOTH this tool's Flash- and SD-mode install paths (encodes
+   *  frogfsOffset/reservedOffset/littlefsLength etc.), so its presence means this bank's image
+   *  is web-builder-aware (see classify.ts's installOrigin). */
+  layoutSuperblockPresent?: boolean;
+  /** True iff that layout superblock has FLAG_LITTLEFS_LENGTH set — patchSuperblock() only
+   *  ever sets this when a littlefsLength was actually passed in, which only this tool's
+   *  Flash-mode build ever does (SD-mode's patchSuperblock call never passes one). This is a
+   *  far more reliable flash-vs-sd signal than probing extflash for a real LittleFS partition
+   *  superblock — that scan can miss it even on a genuine Flash-mode device. */
+  layoutSuperblockHasLittlefs?: boolean;
 }
 
 const u32 = (b: Uint8Array, i: number) =>
@@ -56,15 +72,16 @@ function lastNonFF(win: Uint8Array): number {
   return -1;
 }
 
-/** Detect Retro-Go in `buf` and pull a "v1.2.3…" version token (GIT_TAG style). */
-function retroGoInfo(buf: Uint8Array): { present: boolean; version?: string } {
+/** Detect Retro-Go in `buf` and pull a "v1.2.3…" version token (GIT_TAG style), plus whether
+ *  the "SD" fork-name marker was present. GIT_TAG is baked as "Retro-Go [SD ]<tag>" — "SD" here
+ *  just names the fork (it supports SD-card use, doesn't mean this particular build IS one; a
+ *  Flash-mode build from the same SD-capable fork still says "Retro-Go SD"), so it must be
+ *  preserved for display, not silently dropped. Older, pre-SD-fork retro-go omits it entirely. */
+function retroGoInfo(buf: Uint8Array): { present: boolean; version?: string; isSdFork?: boolean } {
   const s = new TextDecoder("latin1").decode(buf);
   const present = s.includes(RETROGO_SIG);
-  // GIT_TAG is baked as "Retro-Go [SD ]<tag>". Be tolerant of the "SD " (older retro-go
-  // omits it) and capture either a real version ("v1.3.2-13-g…") or the untagged-build
-  // sentinel "NOTAG".
-  const m = s.match(/Retro-Go (?:SD )?(v\d[\w.+-]*|NOTAG)/);
-  return { present, version: m ? m[1] : undefined };
+  const m = s.match(/Retro-Go (SD )?(v\d[\w.+-]*|NOTAG)/);
+  return { present, version: m ? m[2] : undefined, isSdFork: m ? !!m[1] : undefined };
 }
 
 async function getBankDataSize(read: IntReadFn, base: number, maxTop: number): Promise<number> {
@@ -178,7 +195,10 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
     }
 
     let retroGoVersion: string | undefined;
+    let retroGoIsSdFork: boolean | undefined;
     let hasRetroGo = false;
+    let layoutSuperblockPresent = false;
+    let layoutSuperblockHasLittlefs = false;
 
     // Orchestration optimization: If this bank is already confirmed to be Mario/Zelda OFW,
     // we absolutely do not need to download its payload to do a deep search for Retro-Go strings.
@@ -189,6 +209,17 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
         const rg = retroGoInfo(data);
         hasRetroGo = rg.present;
         retroGoVersion = rg.version;
+        retroGoIsSdFork = rg.isSdFork;
+        // Same buffer, no extra device read — just also probe it for gnw-patch's layout
+        // superblock (see classify.ts's installOrigin: flash/sd/old discrimination).
+        try {
+          const off = locateSuperblock(data);
+          layoutSuperblockPresent = true;
+          const sb = readSuperblock(data, off);
+          layoutSuperblockHasLittlefs = !!(sb.flags & FLAG_LITTLEFS_LENGTH) && sb.littlefsLength > 0;
+        } catch {
+          layoutSuperblockPresent = false;
+        }
       } catch (e) {
         // Just fail the Retro-Go search, keep the size.
       }
@@ -204,7 +235,10 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
       dataSize: size,
       type: classify(sp, pc, hasRetroGo, ofwLast),
       retroGoVersion,
+      retroGoIsSdFork,
       ofw,
+      layoutSuperblockPresent,
+      layoutSuperblockHasLittlefs,
     });
   }
   return banks;

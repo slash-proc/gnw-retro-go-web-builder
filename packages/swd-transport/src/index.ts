@@ -46,6 +46,22 @@ const VC_CORERESET = 1 << 0; // DEMCR: halt on reset vector
 const AIRCR_VECTKEY = 0x05fa0000;
 const SYSRESETREQ = 1 << 2;
 
+// STM32H7B0-specific: BOTH firmwares we halt into run a hardware watchdog, refreshed only
+// by their own main loop, that is NOT frozen by default when the core halts for debug —
+// so ANY halt (e.g. a screenshot capture) that outlasts the watchdog's window resets the
+// chip out from under us, independent of anything in the host-side transport/poll/retry
+// logic. Freeze BOTH before halting:
+//  - Retro-Go's application firmware: Window Watchdog WWDG1 (game-and-watch-retro-go-sd
+//    Core/Src/main.c HAL_WWDG_Refresh; Prescaler=128, Counter=Window=127 → sub-second window).
+//    DBGMCU.APB3FZ1 bit 6 (DBG_WWDG1).
+//  - The gnwmanager RAM stub (the flash util itself): Independent Watchdog IWDG1
+//    (references/gnwmanager Core/Src/main.c; Prescaler=4, Reload=Window=4095 on the ~32kHz
+//    LSI → ~512ms window). DBGMCU.APB4FZ1 bit 18 (DBG_IWDG1).
+const DBGMCU_APB3FZ1 = 0x5c001034;
+const DBG_WWDG1 = 1 << 6;
+const DBGMCU_APB4FZ1 = 0x5c001054;
+const DBG_IWDG1 = 1 << 18;
+
 const POLL_TRIES = 200; // each iteration is a USB round-trip (~ms)
 
 /** ARM core register name → DCRSR selector number (shared by both backends). */
@@ -79,6 +95,10 @@ abstract class BaseTransport implements SwdTransport {
   protected abstract _readCoreReg(num: number): Promise<number>;
   protected abstract _writeCoreReg(num: number, val: number): Promise<void>;
 
+  // This is the underlying chunked-read PRIMITIVE (per-backend transfer-size cap +
+  // pacing delay), not a duplicate of apps/web's engine/chunkedRead.ts or
+  // screenshot.ts helpers — those build on top of readMemory, calling it with a
+  // chosen chunk size. See docs/AUDIT_NOTES.md item #2.
   async readMemory(addr: number, len: number, onProgress?: ProgressFn): Promise<Uint8Array> {
     assertWordAligned(addr, len);
     const out = new Uint8Array(len);
@@ -86,6 +106,7 @@ abstract class BaseTransport implements SwdTransport {
       const n = Math.min(this.CHUNK, len - off);
       out.set(await this._readMemRaw(addr + off, n), off);
       onProgress?.(off + n, len);
+      if (len > this.CHUNK) await new Promise((r) => setTimeout(r, 10));
     }
     return out;
   }
@@ -96,6 +117,7 @@ abstract class BaseTransport implements SwdTransport {
       const n = Math.min(this.CHUNK, data.length - off);
       await this._writeMemRaw(addr + off, data.subarray(off, off + n));
       onProgress?.(off + n, data.length);
+      if (data.length > this.CHUNK) await new Promise((r) => setTimeout(r, 10));
     }
   }
 
@@ -112,6 +134,20 @@ abstract class BaseTransport implements SwdTransport {
   }
 
   async halt(): Promise<void> {
+    // Freeze both watchdogs BEFORE halting — once the core is stopped it's too late; the
+    // watchdogs are asynchronous hardware and don't wait for us. We don't know which
+    // firmware is running (Retro-Go vs the gnwmanager stub), so freeze both unconditionally;
+    // writing the freeze bit for a watchdog that isn't currently active is a harmless no-op.
+    // Best-effort: if these writes fail we still attempt the halt (a hang is recoverable,
+    // silently skipping the halt isn't).
+    try {
+      const fz3 = (await this.readWord(DBGMCU_APB3FZ1)) >>> 0;
+      if (!(fz3 & DBG_WWDG1)) await this.writeWord(DBGMCU_APB3FZ1, fz3 | DBG_WWDG1);
+      const fz4 = (await this.readWord(DBGMCU_APB4FZ1)) >>> 0;
+      if (!(fz4 & DBG_IWDG1)) await this.writeWord(DBGMCU_APB4FZ1, fz4 | DBG_IWDG1);
+    } catch {
+      /* non-fatal — see comment above */
+    }
     await this.writeWord(DHCSR, DBGKEY | C_DEBUGEN | C_HALT);
     for (let i = 0; i < POLL_TRIES; i++) {
       if ((await this.readWord(DHCSR)) & S_HALT) return;
@@ -121,6 +157,17 @@ abstract class BaseTransport implements SwdTransport {
 
   async resume(): Promise<void> {
     await this.writeWord(DHCSR, DBGKEY | C_DEBUGEN);
+    // Unfreeze both watchdogs now that the core is running again — halt() froze them only
+    // to survive the halted read; leaving them frozen after resume would silently disable a
+    // real firmware safety net for the rest of the run.
+    try {
+      const fz3 = (await this.readWord(DBGMCU_APB3FZ1)) >>> 0;
+      if (fz3 & DBG_WWDG1) await this.writeWord(DBGMCU_APB3FZ1, fz3 & ~DBG_WWDG1);
+      const fz4 = (await this.readWord(DBGMCU_APB4FZ1)) >>> 0;
+      if (fz4 & DBG_IWDG1) await this.writeWord(DBGMCU_APB4FZ1, fz4 & ~DBG_IWDG1);
+    } catch {
+      /* non-fatal */
+    }
   }
 
   /** Reset and halt at the reset vector (DEMCR.VC_CORERESET + SYSRESETREQ). */

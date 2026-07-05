@@ -113,11 +113,12 @@ To determine the true data size, a **backward 16 K stride** scan from the bank t
 
 ### Device Classification
 
-On connect, the device is grouped into one of the following categories to drive UI options:
-- **Stock (Mario|Zelda)**: Bank1 (overwrite) *or* Bank2 (keep stock, patch bank1 to chainload).
-- **Retro-Go-sd (current)**: Reinstall / ROM Management.
-- **Retro-Go-sd (out-of-date)**: Upgrade offered.
-- **Unknown/Locked**: Unlock-first path or read-only backup fallback.
+On connect, the device is grouped into one of the following categories (`DeviceKind` in `classify.ts`) to drive UI options:
+- **`stock`**: Bank1 holds stock Nintendo OFW (Mario or Zelda). Bank1 overwrite *or* Bank2 install (keep stock, patch bank1 to chainload).
+- **`retrogo-sd`**: Retro-Go SD firmware detected — version string starts with "Retro-Go SD" or FrogFS is present in extflash. Current install; Reinstall / ROM Management offered.
+- **`retrogo-old`**: Older Retro-Go install — LittleFS/app present but no SD version string. Upgrade to the SD-capable build offered.
+- **`locked`**: RDP lock active. Unlock-first path.
+- **`unknown`**: Unrecognized flash contents. Read-only backup fallback.
 
 ## Key Decisions
 
@@ -129,6 +130,16 @@ On connect, the device is grouped into one of the following categories to drive 
 For performance and byte-exact compatibility, we use two separate LZMA implementations. See [PATCHING.md](./PATCHING.md) and [FILESYSTEMS.md](./FILESYSTEMS.md) for details.
 
 **Bank swapping: dropped.** The STM32 dual-bank `SWAP_BANK` option byte is not part of this product. No swap UI, logic, or awareness — except one build guard: never flash a bank1-built image into bank2.
+
+**Firmware blobs come from upstream CI, not this repo.** This repo's CI only builds and deploys the web frontend. The intflash firmware blobs (`1`, `2`, `sd_1`, `sd_2`) and `sdContent` (cores, bios, fonts) are built by the upstream `game-and-watch-retro-go` / `game-and-watch-retro-go-sd` CI pipelines and shipped in a `web-artifacts.zip` attached to each GitHub release. The web app fetches this zip at runtime from `artifacts.ts`.
+
+**A folder scan whitelist can silently break something years later.** `romScan.ts`'s local-folder walker only keeps whitelisted filenames (`HOMEBREW_DEVICE_FILES`/`HOMEBREW_SOURCE_ROMS`) inside a `homebrew/` folder — added to keep stray junk out of the scan, it also silently dropped homebrew cover art (`.png`/`.jpg`/`.img`), since a cover matches neither list. This broke cover loading for both flash and SD, for both manually-placed and UI-set covers, and looked like a device/sync bug for a while before the actual cause (the scan itself, upstream of everything else) was found. Lesson: a whitelist filter needs to be re-examined whenever a new content *type* (not just new content) is added to a directory it covers.
+
+**Auto-scan on discovering a live device — freshness-gated, not unconditional.** `device.svelte.ts`'s liveness poll (`pollTick()`, every 300ms while idle) can passively discover the flash util already running (e.g. left over from a prior session) via `isStubAlive()`. `ensureStub()` itself deliberately never triggers a scan, so without this the UI could show "Connected (Recovery Mode)" (status bar, keyed on `utilLoaded`) while other panels still showed stale "Enter Recovery Mode" prompts (keyed on `device.partitions`, populated only by a scan that never ran). Fixed by having the poll fire `runScan()` on a genuine not-loaded→loaded transition — but gated by `_lastFullScanAt`/`AUTO_SCAN_FRESHNESS_WINDOW_MS` (60s), so a device that scanned recently doesn't get an unsolicited extra scan every time the poll happens to notice. This gate applies **only** to that passive trigger — every deliberate `runScan()` call elsewhere (post-install, an explicit Scan button) always runs regardless of freshness.
+
+**One shared stat-panel component, not three.** `StatPanel.svelte` (`apps/web/src/lib/ui/`) is the single implementation for "bordered box of label/bold-value rows" — previously duplicated three times under unrelated names (`OverviewTab.svelte`'s `.bank-footer`/`.ext-fs-single`/`.fs-stat-row`, `RomManagementTab.svelte`'s `.sd-summary`/`.sd-stat`/`.sd-label`/`.sd-val`, `ChangeSummary.svelte`'s `.summary`/`.row`/`.label`/`.status`). `ChangeSummary.svelte` is now a thin wrapper around it (kept for its external `{items, bare}` interface, still used by `ConfirmModal.svelte`). Reach for `StatPanel` directly for any new stat/summary display — don't hand-roll a fourth version.
+
+**Open question, not yet resolved: does our web app's "Sync SD Card" actually work end-to-end?** `references/game-and-watch-retro-go-sd/external/firmware_update/` is a **separate git submodule** building its own standalone `firmware_update.bin` artifact — the code that actually checks for `update_bank2.bin`/`update_bank1.bin`/`gnw_bootloader*.bin`/`update_extflash.bin` on the SD card lives there, not in the main `gw_retro_go.bin` the device runs day-to-day. Nothing found in this repo or the retro-go-sd Makefile/release process flashes `firmware_update.bin` into any bank — our Wizard's "patch official firmware" step flashes bank1 with the stock OFW patched to chainload (via `gnw-patch`), which is a different binary entirely. If `firmware_update.bin` never actually boots on the device, the update-checking code never runs, and `update_bank2.bin` sitting on the SD card would be silently ignored regardless of correct naming/placement — this may be why SD-card "sync cores" hasn't been observed to actually apply an update. Needs resolution before trusting that feature; see [[sd-content-variant-mismatch-bug]] for related SD/flash divergence history. Also noted in passing: `references/gnw-chainloader/` is a **separate, more ambitious** triple-boot/multi-payload bootloader project (its own repo, its own `DESIGN.md`) — not integrated with this app at all currently, distinct from (and not a fix for) the above.
 
 ## Glossary & Hardware Reference
 

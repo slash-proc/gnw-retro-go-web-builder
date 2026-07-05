@@ -93,6 +93,19 @@ make build/gw_retro_go_intflash.bin INTFLASH_BANK=2 $FLAGS -j"$(nproc)"
 - **`EXTFLASH_OFFSET` must be decimal**. Do not pass hex.
 - **`GNW_TARGET` is retired**.
 
+## Cheat Data Ingestion
+
+The cheat preset database (`apps/web/src/lib/cheats/{nes,gb}.json`, one file per system) is generated, not hand-edited:
+
+```bash
+python3 apps/web/src/lib/cheats/ingest.py            # xlsx source -> {nes,snes,gb,genesis,gamegear}.json + cheatsMeta.json
+python3 apps/web/src/lib/cheats/ingest_libretro.py    # gap-fills nes.json/gb.json from references/libretro-database (stdlib only)
+```
+
+Only NES and GB actually get consumed by the UI (`lineCheatSystems` in `GameDetailsPanel.svelte`) — SNES/Genesis/Game Gear presets exist in the data but are deliberately unused (no firmware cheat support for those systems). `ingest_libretro.py` only pulls `.cht` files tagged `(Game Genie)`/`(GameShark)` in the filename — untagged files use an incompatible raw-address RetroArch-internal format and are skipped. It only *adds* games missing from the xlsx-derived baseline; never touches/merges an already-present entry.
+
+MSX/Coleco/SG-1000 cheats are a completely different mechanism: whole `.mcf` files (not individual toggleable codes), sourced from `cheat-codes/<system>/` at the repo root and mirrored as static assets under `apps/web/public/cheat-codes/` + `apps/web/src/lib/cheats/mcfManifest.json`. If you add more `.mcf` files to `cheat-codes/`, regenerate the manifest (see `cheats/index.ts`'s `MCF_WHOLE_FILE_SYSTEMS`/`findMcfPreset` for the consuming side) rather than hand-editing it.
+
 ## Dependencies & Gotchas
 
 - **Stale `node_modules` anon volume:** Fix missing symlinks via `docker compose up -d --force-recreate --renew-anon-volumes`.

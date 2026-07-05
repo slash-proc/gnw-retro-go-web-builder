@@ -12,6 +12,9 @@
  * each such read is a `read(phys_addr, len)` over SWD (extflash bank, base 0x90000000).
  */
 
+import type { MemReadFn as ExtReadFn } from "./addr.js";
+export type { ExtReadFn };
+
 /** A filesystem a future gnwmanager-style browser can mount in-place. */
 export type FsKind = "littlefs" | "frogfs" | "fat";
 
@@ -30,9 +33,6 @@ export interface ExtPartition {
    *  {blockSize, blockCount}; FAT {bytesPerSector, totalSectors}; FrogFS {binSize}. */
   meta?: Record<string, number>;
 }
-
-/** Reads `len` bytes of external flash at physical `offset` (i.e. 0x90000000+offset). */
-export type ExtReadFn = (offset: number, len: number) => Promise<Uint8Array>;
 
 // 4-byte internal-flash reset-vector signatures (start of a relocated OFW backup).
 const MARIO_INT_SIG = [0x30, 0x13, 0x01, 0x20];

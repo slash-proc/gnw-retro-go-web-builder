@@ -32,6 +32,8 @@ export interface RomScanResult {
   /** The picked directory handle — kept so the location can be remembered + re-scanned later.
    *  May be a read-only shim (InputDirHandle) in Firefox. */
   dir: RomDirHandle;
+  /** Whether the user picked the SD root containing a 'roms/' folder */
+  hasRomsPrefix?: boolean;
 }
 
 // Minimal File System Access API surface (not all in lib.dom yet).
@@ -55,6 +57,15 @@ declare global {
   }
 }
 
+import { HOMEBREW_DEVICE_FILES, HOMEBREW_SOURCE_ROMS } from "./engine/homebrew.js";
+import { download } from "./util.js";
+import {
+  parseCoreHeader,
+  evaluateCoreVersions,
+  CORE_HEADER_PROBE_BYTES,
+  type CoreVersionCheck,
+} from "./engine/coreVersion.js";
+
 const isHidden = (name: string): boolean => name.startsWith(".");
 
 async function walk(
@@ -65,9 +76,25 @@ async function walk(
   for await (const [name, handle] of dir.entries()) {
     if (isHidden(name)) continue; // .DS_Store, .git, … (the pipeline also drops .DS_Store)
     const rel = prefix ? `${prefix}/${name}` : name;
+    const isInsideHomebrew = prefix === "homebrew" || prefix === "roms/homebrew";
+
     if (handle.kind === "directory") {
-      await walk(handle, rel, out);
+      // Do not recurse into subdirectories inside homebrew
+      if (!isInsideHomebrew) {
+        await walk(handle, rel, out);
+      }
     } else {
+      if (isInsideHomebrew) {
+        // Cover art (celeste.png, "Zelda 3.png", …) also lives directly in homebrew/ (see
+        // GameDetailsPanel.svelte's applyPreview()/getCoverUrl() in RomManagementTab.svelte)
+        // — it's neither a device file nor a source ROM, so the exact-name whitelist below
+        // was silently dropping it from every scan, regardless of whether it was placed
+        // manually or written here by our own UI. Without this, a homebrew cover could never
+        // survive a rescan/reload no matter how it got there.
+        const isCoverImage = /\.(png|jpe?g|img)$/i.test(name);
+        const isWhitelisted = isCoverImage || HOMEBREW_DEVICE_FILES.has(name) || HOMEBREW_SOURCE_ROMS.has(name);
+        if (!isWhitelisted) continue;
+      }
       const file = await handle.getFile();
       out.set(rel, new Uint8Array(await file.arrayBuffer()));
     }
@@ -99,15 +126,18 @@ export async function scanRomDirectory(dir: FsDirHandle): Promise<RomScanResult>
   await walk(dir, "", raw);
   
   const userRoms = new Map<string, Uint8Array>();
+  let hasRomsPrefix = false;
   for (const [key, val] of raw) {
     if (key.startsWith("roms/")) {
+      hasRomsPrefix = true;
       userRoms.set(key.slice(5), val);
     } else {
       userRoms.set(key, val);
     }
   }
 
-  return { userRoms, summary: summarize(userRoms), dir };
+  const summary = summarize(userRoms);
+  return { userRoms, summary, dir, hasRomsPrefix };
 }
 
 /** True when the native File System Access API is available (Chromium). */
@@ -129,7 +159,7 @@ const CONSOLE_DIRS = new Set([
   "a2600", "a7800", "amstrad", "col", "msx", "tama", "videopac", "wsv"
 ]);
 
-async function getValidRoot(dir: FsDirHandle): Promise<FsDirHandle | null> {
+export async function getValidRoot(dir: FsDirHandle): Promise<FsDirHandle | null> {
   let hasConsoleDir = false;
   let romsFolder: FsDirHandle | null = null;
 
@@ -292,35 +322,45 @@ function buildTreeFromFileList(files: FileList): InputDirHandle {
   return root;
 }
 
+export async function pickFolder(id: string = "gnw-roms"): Promise<FsDirHandle | null> {
+  if (nativeFolderPickerSupported()) {
+    try {
+      return await window.showDirectoryPicker!({ id, mode: "readwrite" });
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return null;
+      throw e;
+    }
+  }
+
+  const files = await pickFolderViaInput();
+  if (!files) return null;
+  return buildTreeFromFileList(files);
+}
+
+/** Pick the SD card folder and store it on the device store — the SAME picker used by
+ *  FolderGateModal.svelte (ROMs tab) and Wizard.svelte's SD-mode Install Retro-Go gate, so the
+ *  user is never asked to pick it twice. No-ops (silently) if the user cancels the picker. */
+export async function pickSdCardFolder(): Promise<void> {
+  const { device } = await import("./device.svelte.js");
+  try {
+    const handle = await pickFolder("gnw-sd-card");
+    if (handle) {
+      device.sdHandle = handle;
+      await device.scanSdCardGames();
+    }
+  } catch {
+    // cancelled
+  }
+}
+
 /**
  * Prompt for a folder then scan it. Returns null if the user cancels the picker.
  * Uses the native File System Access API when available, otherwise falls back to
  * <input webkitdirectory>.
  */
-export async function pickAndScanRomFolder(): Promise<RomScanResult | null> {
-  // Strategy 1: Native FSAA (Chromium) — supports write-back
-  if (nativeFolderPickerSupported()) {
-    let dir: FsDirHandle;
-    try {
-      dir = await window.showDirectoryPicker!({ id: "gnw-roms", mode: "readwrite" });
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") return null; // user cancelled
-      throw e;
-    }
-
-    const validRoot = await getValidRoot(dir);
-    if (!validRoot) {
-      throw new Error("Invalid folder selected. Please select your 'roms' folder containing console subfolders (e.g., nes, gbc, md).");
-    }
-
-    return scanRomDirectory(validRoot);
-  }
-
-  // Strategy 2: <input webkitdirectory> fallback (Firefox, Safari)
-  const files = await pickFolderViaInput();
-  if (!files) return null; // cancelled
-
-  const dir = buildTreeFromFileList(files);
+export async function pickAndScanRomFolder(id: string = "gnw-roms"): Promise<RomScanResult | null> {
+  const dir = await pickFolder(id);
+  if (!dir) return null;
 
   const validRoot = await getValidRoot(dir);
   if (!validRoot) {
@@ -355,13 +395,52 @@ export async function saveFileToDirOrDownload(
   }
 
   // Fallback: trigger a browser download
-  const blob = data instanceof Uint8Array ? new Blob([data as unknown as BlobPart]) : data;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = relativePath.split("/").pop() || "cover.png";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  download(relativePath.split("/").pop() || "cover.png", data);
+}
+
+/** Delete a file at `relativePath` from `dir` via FSAA's removeEntry. No-op (not an error) if
+ *  the file is already gone, or if `dir` doesn't support write-back (Firefox — nothing is
+ *  actually persisted there to delete). */
+/** Validate that every core file directly on the SD card (`cores/*.bin`) agrees with the given
+ *  firmware version (and with each other, if no firmware version is known — e.g. validating a
+ *  bare SD card with no connected/booted device to read a live firmware version from). Unlike
+ *  the Flash/LittleFS path, plain `File` objects support `.slice()`, so this only ever reads
+ *  the first `CORE_HEADER_PROBE_BYTES` of each core — cheap regardless of core count/size. */
+export async function checkSdCoreVersions(
+  dir: RomDirHandle | null | undefined,
+  firmwareVersion: string | null,
+): Promise<CoreVersionCheck> {
+  const cores: Record<string, string | null> = {};
+  if (dir) {
+    for await (const [name, handle] of dir.entries()) {
+      if (name !== "cores" || handle.kind !== "directory") continue;
+      for await (const [coreName, coreHandle] of handle.entries()) {
+        if (coreHandle.kind !== "file" || isHidden(coreName)) continue;
+        const path = `cores/${coreName}`;
+        try {
+          const file = await coreHandle.getFile();
+          const head = new Uint8Array(await file.slice(0, CORE_HEADER_PROBE_BYTES).arrayBuffer());
+          cores[path] = parseCoreHeader(head)?.tag ?? null;
+        } catch {
+          cores[path] = null;
+        }
+      }
+    }
+  }
+  return evaluateCoreVersions(firmwareVersion, cores);
+}
+
+export async function deleteFileFromDir(dir: RomDirHandle | null | undefined, relativePath: string): Promise<void> {
+  if (!dir || !dirSupportsWriteBack(dir)) return;
+  const parts = relativePath.split("/");
+  let currentDir: any = dir;
+  try {
+    for (let i = 0; i < parts.length - 1; i++) {
+      currentDir = await currentDir.getDirectoryHandle(parts[i]);
+    }
+    await currentDir.removeEntry(parts[parts.length - 1]);
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "NotFoundError") return;
+    throw e;
+  }
 }

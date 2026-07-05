@@ -5,10 +5,17 @@
   // written (additions append at the current end) or a removal forces a rewrite (from the earliest
   // removed game's offset). Reused by the Select-games and Install-ROMs drop-downs.
   import GeometryBar from "./GeometryBar.svelte";
+  import StatPanel, { type StatRow } from "./StatPanel.svelte";
   import { extflashSegments, type GeoSegment } from "../engine/classify.js";
   import type { ExtPartition } from "../engine/fsscan.js";
   import { device } from "../device.svelte.js";
+  import { EXTBASE } from "../engine/addr.js";
+  import { locale } from "../i18n/locale.svelte.js";
 
+  // additionsCount/additionsBytes/removalsCount/removalsBytes were removed from this
+  // component's props — they duplicated the "N new, N removed" detail already shown on
+  // ChangeSummary's "ROMs" row (this component's own footer now sticks to describing
+  // whichever partition is clicked, not re-summarizing the whole selection).
   let {
     partitions,
     extSize,
@@ -16,10 +23,6 @@
     newFrogfsLen,
     changedFromOffset,
     title = "",
-    additionsCount = 0,
-    additionsBytes = 0,
-    removalsCount = 0,
-    removalsBytes = 0,
   }: {
     partitions: ExtPartition[];
     extSize: number;
@@ -27,13 +30,8 @@
     newFrogfsLen: number | null;
     changedFromOffset: number | null;
     title?: string;
-    additionsCount?: number;
-    additionsBytes?: number;
-    removalsCount?: number;
-    removalsBytes?: number;
   } = $props();
 
-  const EXTBASE = 0x90000000;
   const hex = (n: number): string => "0x" + (n >>> 0).toString(16);
   const mib = (n: number): string => (n / 1048576).toFixed(2) + " MiB";
 
@@ -59,7 +57,7 @@
     for (const p of partitions) {
       if (p.fs === "frogfs") continue; // replaced by the synthetic FrogFS below
       let label = p.type;
-      if (p.fs === "littlefs") label = "Cores & Saves";
+      if (p.fs === "littlefs") label = locale.t.roms.installGeometry.coresAndSaves;
       regions.push({
         offset: p.offset,
         size: p.size,
@@ -73,16 +71,16 @@
         offset: frogfsOffset,
         size: cf - frogfsOffset,
         kind: "frogfs",
-        label: "Games (unchanged)",
-        detail: ["Games (unchanged)", mib(cf - frogfsOffset)],
+        label: locale.t.roms.installGeometry.gamesUnchanged,
+        detail: [locale.t.roms.installGeometry.gamesUnchanged, mib(cf - frogfsOffset)],
       });
     if (newEnd - cf > 0)
       regions.push({
         offset: cf,
         size: newEnd - cf,
         kind: "frogfs-changed",
-        label: "Games (projected)",
-        detail: ["Games (projected)", mib(newEnd - cf)],
+        label: locale.t.roms.installGeometry.gamesProjected,
+        detail: [locale.t.roms.installGeometry.gamesProjected, mib(newEnd - cf)],
       });
 
     regions.sort((a, b) => a.offset - b.offset);
@@ -93,8 +91,8 @@
         out.push({
           pct: ((to - from) / extSize) * 100,
           kind: "free",
-          label: "Free Space",
-          detail: ["Free Space", mib(to - from)],
+          label: locale.t.roms.installGeometry.freeSpace,
+          detail: [locale.t.roms.installGeometry.freeSpace, mib(to - from)],
         });
     };
     for (const r of regions) {
@@ -108,11 +106,45 @@
   });
 
   let activeExtPart = $state<ExtPartition | { offset: number; size: number; fs: "frogfs"; type: string } | null>(null);
-  
+
   $effect(() => {
     if (!activeExtPart && partitions.length > 0) {
       activeExtPart = partitions.find((p) => p.fs === "frogfs") || null;
     }
+  });
+
+  const footerHeading = $derived.by((): string | undefined => {
+    const p = activeExtPart;
+    if (!p) return undefined;
+    if (p.fs === "frogfs") return locale.t.roms.installGeometry.games;
+    if (p.fs === "littlefs") return locale.t.roms.installGeometry.coresAndSaves;
+    return p.fs ? p.type : p.type;
+  });
+
+  // Capacity + Free only — Used is dropped here on purpose. The detailed change/projection
+  // story (what's added/removed, total projected size) lives in the summary further down;
+  // this footer is just a low-key caption under the bar, not a second stats section.
+  const footerRows = $derived.by((): StatRow[] => {
+    const p = activeExtPart;
+    if (!p) return [];
+    if (p.fs === "frogfs") {
+      const nextOffsets = partitions.filter((x) => x.offset > p.offset).map((x) => x.offset);
+      const nextOffset = nextOffsets.length > 0 ? Math.min(...nextOffsets) : extSize;
+      const free = nextOffset - (p.offset + p.size);
+      const total = p.size + free;
+      return [
+        { label: locale.t.roms.installGeometry.capacity, value: mib(total) },
+        { label: locale.t.roms.installGeometry.freeProjected, value: mib(free) },
+      ];
+    }
+    if (p.fs) {
+      const free = device.fsStats[p.offset]?.freeBytes ?? null;
+      return [
+        { label: locale.t.roms.installGeometry.capacity, value: mib(p.size) },
+        { label: locale.t.roms.installGeometry.free, value: free !== null ? mib(free) : locale.t.roms.installGeometry.calculating },
+      ];
+    }
+    return [{ label: locale.t.roms.installGeometry.capacity, value: mib(p.size) }];
   });
 </script>
 
@@ -140,46 +172,9 @@
       />
     </div>
 
-    <div class="bank-footer ext-fs-single">
-      {#if activeExtPart}
-        {@const p = activeExtPart}
-        {#if p.fs === 'frogfs'}
-          {@const nextOffsets = partitions.filter(x => x.offset > p.offset).map(x => x.offset)}
-          {@const nextOffset = nextOffsets.length > 0 ? Math.min(...nextOffsets) : extSize}
-          {@const free = nextOffset - (p.offset + p.size)}
-          {@const total = p.size + free}
-          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
-            <div class="fs-stat-name">Games</div>
-            <div class="fs-stat-row" style="width: auto;"><span>Capacity:</span> <span style="margin-left: 0.5rem;">{(total / 1048576).toFixed(2)} MB</span></div>
-          </div>
-          <div class="fs-stat-row"><span>Used (Projected):</span> <span>{(p.size / 1048576).toFixed(2)} MB</span></div>
-          <div class="fs-stat-row"><span>Free (Projected):</span> <span>{(free / 1048576).toFixed(2)} MB</span></div>
-          
-          <div class="fs-stat-row" style="margin-top: 0.5rem; justify-content: center; gap: 1rem; width: 100%; padding-top: 0.5rem; border-top: 1px solid var(--hairline);">
-            <span style="color: {additionsCount > 0 ? '#007bff' : 'var(--ink-soft)'}"><strong>+{additionsCount}</strong> add ({(additionsBytes / 1048576).toFixed(2)} MiB)</span>
-            <span style="color: var(--ink-soft)"> · </span>
-            <span style="color: {removalsCount > 0 ? 'var(--caution, #d32f2f)' : 'var(--ink-soft)'}"><strong>−{removalsCount}</strong> remove ({(removalsBytes / 1048576).toFixed(2)} MiB)</span>
-          </div>
-        {:else if p.fs}
-          {@const nextOffsets = partitions.filter(x => x.offset > p.offset).map(x => x.offset)}
-          {@const nextOffset = nextOffsets.length > 0 ? Math.min(...nextOffsets) : extSize}
-          {@const free = device.fsStats[p.offset]?.freeBytes ?? null}
-          {@const used = device.fsStats[p.offset]?.usedBytes ?? null}
-          {@const total = p.size}
-          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
-            <div class="fs-stat-name">{p.fs === 'littlefs' ? 'Cores & Saves' : p.type}</div>
-            <div class="fs-stat-row" style="width: auto;"><span>Capacity:</span> <span style="margin-left: 0.5rem;">{(total / 1048576).toFixed(2)} MB</span></div>
-          </div>
-          <div class="fs-stat-row"><span>Used:</span> <span>{used !== null ? (used / 1048576).toFixed(2) + ' MB' : 'Calculating...'}</span></div>
-          <div class="fs-stat-row"><span>Free:</span> <span>{free !== null ? (free / 1048576).toFixed(2) + ' MB' : 'Calculating...'}</span></div>
-        {:else}
-          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
-            <div class="fs-stat-name">{p.type}</div>
-            <div class="fs-stat-row" style="width: auto;"><span>Capacity:</span> <span style="margin-left: 0.5rem;">{(p.size / 1048576).toFixed(2)} MB</span></div>
-          </div>
-        {/if}
-      {/if}
-    </div>
+    {#if activeExtPart}
+      <StatPanel variant="footer" heading={footerHeading} rows={footerRows} />
+    {/if}
   </div>
 </div>
 
@@ -219,31 +214,6 @@
   }
   .ext-body {
     height: auto;
-  }
-  .bank-footer {
-    padding: 0.75rem 1rem;
-    border-top: 1px solid var(--surface-sunk);
-    background: var(--bg);
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .fs-stat-name {
-    font-weight: 600;
-    margin-bottom: 0;
-    color: var(--ink);
-  }
-  .fs-stat-row {
-    display: flex;
-    justify-content: space-between;
-    width: 100%;
-    font-size: var(--fs-caption);
-    color: var(--ink-soft);
-  }
-  .fs-stat-row span:last-child {
-    font-weight: 600;
-    color: var(--ink);
-    font-variant-numeric: tabular-nums;
   }
   .ext-panel {
     min-width: 0;

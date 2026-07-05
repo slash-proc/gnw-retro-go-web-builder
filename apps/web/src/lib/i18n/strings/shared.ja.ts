@@ -1,0 +1,88 @@
+import type { SharedStrings } from "./shared.js";
+
+export const sharedJa: SharedStrings = {
+  common: {
+    cancel: "キャンセル",
+    close: "閉じる",
+    connect: "接続",
+    connecting: "接続中…",
+    workingNotePre: "実行中 — ",
+    workingNoteBold: "デバイスを取り外さないでください",
+    workingNotePost: "。",
+    done: "✓ 完了しました。",
+    changeEllipsis: "変更…",
+    chooseEllipsis: "選択…",
+    or: "または",
+  },
+  confirmModal: {
+    defaultConfirmText: "確認",
+  },
+  accordionSection: {
+    operationInProgress: "操作を実行中です",
+  },
+  filePick: {
+    defaultLabel: "ファイルを選択",
+    noFileChosen: "ファイルが選択されていません",
+  },
+  splitButton: {
+    moreOptions: "その他のオプション",
+  },
+  deviceControls: {
+    deviceActions: "デバイス操作",
+    rescan: "再スキャン",
+    restartRecoveryMode: "リカバリーモードを再起動",
+    startRecoveryMode: "リカバリーモードを開始",
+    changeAdapter: "アダプターを変更",
+    disconnectDevice: "デバイスを切断",
+  },
+  stubLoadModal: {
+    title: "リカバリーモードに入りますか？",
+    body1Pre: "この操作（フラッシュの読み出し、バックアップ、ファームウェアのインストールなど）を行うには、デバイスを",
+    body1Bold: "リカバリーモード",
+    body1Post: "にする必要があります。実行中のアプリケーションは一時的に停止します。",
+    body2Pre: "接続する際にデバイスの",
+    body2Bold: "電源ボタン",
+    body2Post: "を押し続け、その後デバイスを置いて操作が終わるまで触れないでください。",
+    continue: "続行",
+  },
+  connectGateModal: {
+    title: "デバイスが必要です",
+    subtitle: "続行するにはデバイスのアダプターを接続してください。",
+    deviceConnectionTitle: "デバイス接続",
+    connectedFallback: "接続済み",
+    adapterHint: "ST-Link v2（または互換）アダプター",
+    chooseAdapter: "アダプターを選択",
+    connectionFailed: "接続に失敗しました。",
+  },
+  folderGateModal: {
+    title: "フォルダが必要です",
+    subtitlePlural: "続行するには以下のフォルダを選択してください。",
+    subtitleSingular: "続行するには以下のフォルダを選択してください。",
+    romFolderTitle: "ROMフォルダ",
+    selectedFallback: "選択済み",
+    romFolderHint: "お使いのROMファイルのコレクション",
+    reconnectLastFolder: "前回のフォルダに再接続",
+    scanning: "スキャン中…",
+    sdCardFolderTitle: "SDカードフォルダ",
+    sdCardFolderHint: "SDカードのルートフォルダ",
+    continue: "続行",
+  },
+  installProgressModal: {
+    logLabel: (count: number) => `ログ（${count}）`,
+  },
+  geometry: {
+    freeSpace: "空き容量",
+    games: "ゲーム",
+    coresAndSaves: "エミュレータ＆セーブデータ",
+    bankLabel: (n: number) => `バンク${n}`,
+    bankUnknown: "—",
+    used: "使用済み",
+    free: "空き",
+    bankFree: (n: number) => `バンク${n} 空き`,
+    empty: "空",
+  },
+  bankSelect: {
+    external: (addr: string) => `外部・バンク0（${addr}）`,
+    internal: (bank: number, addr: string) => `内部・バンク${bank}（${addr}）`,
+  },
+};

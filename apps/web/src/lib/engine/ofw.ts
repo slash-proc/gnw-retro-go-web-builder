@@ -122,6 +122,7 @@ export async function patchAndFlash(
   external: Uint8Array,
   options: Record<string, unknown>,
   report: ProgressReport,
+  abortSignal?: AbortSignal,
   extFlashBytes = 0,
 ): Promise<void> {
   const res = await patchModel(model, internal, external, options);
@@ -137,10 +138,14 @@ export async function patchAndFlash(
   const total = intLen + res.external.length;
   await flashImage(flasherOrGetter, 1, 0, res.internal, (d, t) =>
     report(d, total, { value: d, max: t, label: "internal → bank 1" }),
+    undefined,
+    { abortSignal }
   );
   if (res.external.length) {
     await flashImage(flasherOrGetter, 0, 0, res.external, (d, t) =>
       report(intLen + d, total, { value: d, max: t, label: "external → bank 0" }),
+      undefined,
+      { abortSignal }
     );
   }
 }

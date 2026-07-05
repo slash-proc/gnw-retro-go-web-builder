@@ -6,9 +6,8 @@
  * after the stub is up and a frogfs partition is known.
  */
 import { parseFrogfs, parseFrogfsHead, hashtableOffset, type FrogfsFile } from "@gnw/fs-builders";
-
-/** Read `len` bytes of external flash at physical `offset` (0 == 0x90000000). */
-export type ExtReadFn = (offset: number, len: number) => Promise<Uint8Array>;
+import type { MemReadFn as ExtReadFn } from "./addr.js";
+export type { ExtReadFn };
 
 const align4 = (n: number): number => ((n + 3) >>> 2) << 2;
 

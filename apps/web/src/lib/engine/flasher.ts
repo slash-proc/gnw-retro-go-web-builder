@@ -71,10 +71,13 @@ export async function flashImage(
   data: Uint8Array,
   onProgress?: ProgressFn,
   log?: LogFn,
-  opts: { compress?: boolean; verify?: boolean } = {},
+  opts: { compress?: boolean; verify?: boolean; abortSignal?: AbortSignal } = {},
 ): Promise<void> {
   const compress = opts.compress ?? true;
-  const verify = opts.verify ?? true;
+  // Default off — the device's own hash check + chunk-retry handshake already catch
+  // transport corruption; a forced per-chunk read-back roughly triples WebUSB transaction
+  // count per transfer for no real benefit (see gnw-flasher's program()/writeVerified()).
+  const verify = opts.verify ?? false;
   if (compress) await preloadLzma();
 
   const maxAttempts = 3; // Initial + 2 retries
@@ -94,32 +97,45 @@ export async function flashImage(
 
     try {
       const flashPromise = flasher.flash(bank, offset, data, {
-        compress: compress ? lzmaCompress : undefined,
+        compress: compress ? (d) => {
+          const res = lzmaCompress(d);
+          lastProgressTime = Date.now();
+          return res;
+        } : undefined,
         verify,
         onProgress: progressWrapper,
+        abortSignal: opts.abortSignal,
         log,
       });
 
+      // Reverted from a same-day 15s reduction (was 120s) — that change was chasing a symptom
+      // (frequent stalls/reboots) whose actual root cause was the per-chunk read-back verify
+      // above being removed just now; an 8x-more-trigger-happy watchdog on top of that was
+      // aborting/rebooting far more often than warranted for ordinary transient slowness. Back
+      // to the original, well-tested threshold.
       let intervalId: any;
       const watchdogPromise = new Promise<void>((_, reject) => {
         intervalId = setInterval(() => {
-          if (Date.now() - lastProgressTime > 12000) {
+          if (Date.now() - lastProgressTime > 120000) {
             clearInterval(intervalId);
-            reject(new Error("Flash stalled for 12 seconds without progress (WebUSB lockup)."));
+            reject(new Error("Flash stalled for 120 seconds without progress (WebUSB lockup)."));
           }
         }, 1000);
       });
 
-      // If flashPromise resolves or rejects, clear the watchdog
+      // Clear watchdog when the flash settles (success or error)
       flashPromise.finally(() => clearInterval(intervalId));
 
       await Promise.race([flashPromise, watchdogPromise]);
+
+      // Allow ST-Link clone USB bulk endpoints to settle before the next operation
+      await new Promise(r => setTimeout(r, 500));
       return; // Success
     } catch (e) {
-      log?.(`Flash attempt ${attempt} failed: ${e instanceof Error ? e.message : String(e)}`);
-      if (attempt >= maxAttempts || typeof flasherOrGetter !== "function") {
+      if (opts.abortSignal?.aborted || attempt >= maxAttempts || typeof flasherOrGetter !== "function") {
         throw e;
       }
+      log?.(`Flash attempt ${attempt} failed: ${e instanceof Error ? e.message : String(e)}`);
       log?.("Restarting RAM flasher util and retrying...");
     }
   }

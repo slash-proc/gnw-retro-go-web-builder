@@ -18,7 +18,16 @@ export const ARTIFACT_REPO = "slash-proc/game-and-watch-retro-go-sd";
 export const ARTIFACT_WORKER = "https://gnw-artifacts.slash-proc.workers.dev";
 
 const ASSET = "web-artifacts.zip";
-const SD_PREFIX = "sd_content/";
+// Two separate content trees, not one: every core/homebrew .bin is objcopy'd out of
+// whichever ELF was built, and several overlay entry points land at different RAM
+// addresses between an SD_CARD=0 (flash) and SD_CARD=1 (SD) build of identical source
+// (confirmed on real hardware: NES/PCE/MSX, likely more). sd_content/ comes from the
+// SD_CARD=0 build (flash-mode FrogFS/LittleFS building ONLY); sd_content_sd/ comes from
+// the SD_CARD=1 build (writing to an actual SD card ONLY). Never substitute one for the
+// other — that's exactly the bug that caused every game/homebrew launch to corrupt
+// execution on flash-only installs.
+const FLASH_PREFIX = "sd_content/";
+const SD_PREFIX = "sd_content_sd/";
 
 export interface FirmwareVersion {
   tag: string;
@@ -45,8 +54,14 @@ export interface FirmwareManifest {
 export interface FirmwareBundle {
   /** intflash blobs by bank — both carry the GWLB layout superblock.
    * 1 = overwrite stock (0x08000000); 2 = keep stock for dual-boot (0x08100000). */
-  blobs: { 1: Uint8Array; 2: Uint8Array };
-  /** Default content, keyed by path relative to sd_content/ (e.g. "cores/nes_fceu.bin"). */
+  blobs: { 1: Uint8Array; 2: Uint8Array; sd_1?: Uint8Array; sd_2?: Uint8Array };
+  /** Flash-mode content (from the SD_CARD=0 build), keyed by path relative to
+   *  sd_content/ (e.g. "cores/nes_fceu.bin"). Use for flash-mode FrogFS/LittleFS
+   *  building ONLY — NOT valid for writing to an actual SD card (see sdContent). */
+  flashContent: Map<string, Uint8Array>;
+  /** SD-mode content (from the SD_CARD=1 build). Use ONLY when actually syncing an
+   *  SD card — these cores/homebrew binaries are compiled for a different memory
+   *  layout than the flash-mode ones and will corrupt execution if flashed instead. */
   sdContent: Map<string, Uint8Array>;
   manifest: FirmwareManifest;
 }
@@ -81,7 +96,7 @@ export async function listVersions(): Promise<FirmwareVersion[]> {
     }));
 }
 
-/** Fetch + unzip a version's bundle into { blob, sdContent, manifest }. */
+/** Fetch + unzip a version's bundle into { blob, flashContent, manifest }. */
 export async function fetchBundle(tag: string): Promise<FirmwareBundle> {
   const res = await fetch(`${ARTIFACT_WORKER}/${encodeURIComponent(tag)}/${ASSET}`);
   if (!res.ok) throw new Error(`artifact fetch ${res.status} for ${tag}`);
@@ -102,9 +117,17 @@ export async function fetchBundle(tag: string): Promise<FirmwareBundle> {
   const b2 = files.get(b2file);
   if (!b1 || !b2) throw new Error("bundle missing a bank blob");
 
+  const sdb1file = manifest.blobs?.sd_bank1?.file;
+  const sdb2file = manifest.blobs?.sd_bank2?.file;
+  const sd_1 = sdb1file ? files.get(sdb1file) : undefined;
+  const sd_2 = sdb2file ? files.get(sdb2file) : undefined;
+
   const search = new TextEncoder().encode("/cheats\0");
   const replace = new TextEncoder().encode("/roms\0\0\0");
-  for (const b of [b1, b2]) {
+  const allBlobs = [b1, b2];
+  if (sd_1) allBlobs.push(sd_1);
+  if (sd_2) allBlobs.push(sd_2);
+  for (const b of allBlobs) {
     for (let i = 0; i < b.length - search.length; i++) {
       let match = true;
       for (let j = 0; j < search.length; j++) {
@@ -117,9 +140,11 @@ export async function fetchBundle(tag: string): Promise<FirmwareBundle> {
     }
   }
 
+  const flashContent = new Map<string, Uint8Array>();
   const sdContent = new Map<string, Uint8Array>();
   for (const [path, bytes] of files) {
     if (path.startsWith(SD_PREFIX)) sdContent.set(path.slice(SD_PREFIX.length), bytes);
+    else if (path.startsWith(FLASH_PREFIX)) flashContent.set(path.slice(FLASH_PREFIX.length), bytes);
   }
-  return { blobs: { 1: b1, 2: b2 }, sdContent, manifest };
+  return { blobs: { 1: b1, 2: b2, sd_1, sd_2 }, flashContent, sdContent, manifest };
 }

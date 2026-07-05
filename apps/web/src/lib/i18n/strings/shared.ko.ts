@@ -1,0 +1,88 @@
+import type { SharedStrings } from "./shared.js";
+
+export const sharedKo: SharedStrings = {
+  common: {
+    cancel: "취소",
+    close: "닫기",
+    connect: "연결",
+    connecting: "연결 중…",
+    workingNotePre: "작업 중 — ",
+    workingNoteBold: "기기를 뽑지 마세요",
+    workingNotePost: ".",
+    done: "✓ 완료.",
+    changeEllipsis: "변경…",
+    chooseEllipsis: "선택…",
+    or: "또는",
+  },
+  confirmModal: {
+    defaultConfirmText: "확인",
+  },
+  accordionSection: {
+    operationInProgress: "작업 진행 중",
+  },
+  filePick: {
+    defaultLabel: "파일 선택",
+    noFileChosen: "선택된 파일 없음",
+  },
+  splitButton: {
+    moreOptions: "추가 옵션",
+  },
+  deviceControls: {
+    deviceActions: "기기 작업",
+    rescan: "다시 스캔",
+    restartRecoveryMode: "복구 모드 재시작",
+    startRecoveryMode: "복구 모드 시작",
+    changeAdapter: "어댑터 변경",
+    disconnectDevice: "기기 연결 해제",
+  },
+  stubLoadModal: {
+    title: "복구 모드로 들어갈까요?",
+    body1Pre: "이 작업(플래시 읽기, 백업, 펌웨어 설치 등)을 수행하려면 기기가 ",
+    body1Bold: "복구 모드",
+    body1Post: "로 전환되어야 해요. 실행 중인 애플리케이션이 잠시 멈춰요.",
+    body2Pre: "연결하는 동안 기기의 ",
+    body2Bold: "전원 버튼",
+    body2Post: "을 계속 누르고 있다가, 연결되면 기기를 내려놓고 작업이 끝날 때까지 건드리지 마세요.",
+    continue: "계속",
+  },
+  connectGateModal: {
+    title: "기기가 필요해요",
+    subtitle: "계속하려면 기기 어댑터를 연결해 주세요.",
+    deviceConnectionTitle: "기기 연결",
+    connectedFallback: "연결됨",
+    adapterHint: "ST-Link v2(또는 호환) 어댑터",
+    chooseAdapter: "어댑터 선택",
+    connectionFailed: "연결에 실패했어요.",
+  },
+  folderGateModal: {
+    title: "폴더가 필요해요",
+    subtitlePlural: "계속하려면 아래 폴더를 선택해 주세요.",
+    subtitleSingular: "계속하려면 아래 폴더를 선택해 주세요.",
+    romFolderTitle: "ROM 폴더",
+    selectedFallback: "선택됨",
+    romFolderHint: "내 컴퓨터에 있는 ROM 파일 모음",
+    reconnectLastFolder: "마지막 폴더 다시 연결",
+    scanning: "스캔 중…",
+    sdCardFolderTitle: "SD 카드 폴더",
+    sdCardFolderHint: "SD 카드 볼륨의 최상위 폴더",
+    continue: "계속",
+  },
+  installProgressModal: {
+    logLabel: (count: number) => `로그 (${count})`,
+  },
+  geometry: {
+    freeSpace: "여유 공간",
+    games: "게임",
+    coresAndSaves: "코어 & 세이브",
+    bankLabel: (n: number) => `뱅크 ${n}`,
+    bankUnknown: "—",
+    used: "사용 중",
+    free: "여유",
+    bankFree: (n: number) => `뱅크 ${n} 여유`,
+    empty: "비어 있음",
+  },
+  bankSelect: {
+    external: (addr: string) => `외장 · 뱅크0 (${addr})`,
+    internal: (bank: number, addr: string) => `내장 · 뱅크${bank} (${addr})`,
+  },
+} as const;

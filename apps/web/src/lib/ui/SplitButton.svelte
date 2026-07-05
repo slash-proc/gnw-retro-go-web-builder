@@ -1,6 +1,8 @@
 <script lang="ts">
   // A primary "action" button with a caret that opens a small menu of secondary
   // actions (e.g. Connect | ▾ → "Choose Adapter…").
+  import { locale } from "../i18n/locale.svelte.js";
+
   let {
     label,
     onclick,
@@ -56,7 +58,7 @@
     {disabled}
     aria-haspopup="menu"
     aria-expanded={open}
-    aria-label="More options"
+    aria-label={locale.t.shared.splitButton.moreOptions}
     onclick={toggle}
   >
     <span aria-hidden="true">▾</span>

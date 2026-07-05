@@ -1,5 +1,6 @@
 <script lang="ts">
   import AccordionSection from "./AccordionSection.svelte";
+  import { locale } from "../i18n/locale.svelte.js";
 
   // Honest deferred panel (§5.4): a designed section header + "what this will do
   // + what unblocks it" copy + disabled controls. NOT a fake live button.
@@ -7,7 +8,7 @@
     id,
     title,
     open = false,
-    chipText = "not yet available",
+    chipText = locale.t.deferredSection.defaultChipText,
     will,
     needs,
     control,
@@ -27,11 +28,11 @@
 <AccordionSection {id} {title} {open} chipKind="deferred" {chipText} {onToggle}>
   <div class="stack">
     <p class="will">{will}</p>
-    <p class="needs"><strong>Needs:</strong> {needs}</p>
+    <p class="needs"><strong>{locale.t.deferredSection.needsLabel}</strong> {needs}</p>
     {#if control}
       <div><button class="inert" disabled>{control}</button></div>
     {/if}
-    <span class="soon">Coming soon</span>
+    <span class="soon">{locale.t.deferredSection.comingSoon}</span>
   </div>
 </AccordionSection>
 

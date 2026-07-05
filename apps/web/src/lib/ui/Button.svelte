@@ -6,18 +6,20 @@
     variant = "default",
     type = "button",
     disabled = false,
+    class: className = "",
     onclick,
     children,
   }: {
     variant?: Variant;
     type?: "button" | "submit";
     disabled?: boolean;
+    class?: string;
     onclick?: (e: MouseEvent) => void;
     children?: Snippet;
   } = $props();
 </script>
 
-<button class="btn {variant}" {type} {disabled} {onclick}>
+<button class="btn {variant} {className}" {type} {disabled} {onclick}>
   {@render children?.()}
 </button>
 

@@ -3,53 +3,32 @@
   // set; Continue resolves the pending ensureStub(), Cancel rejects it.
   import { device } from "../device.svelte.js";
   import Button from "./Button.svelte";
+  import ModalShell from "./ModalShell.svelte";
+  import { locale } from "../i18n/locale.svelte.js";
 </script>
 
 {#if device.stubPrompt}
-  <div
-    class="backdrop"
-    role="presentation"
-    onclick={(e) => e.target === e.currentTarget && device.cancelStubLoad()}
-    onkeydown={(e) => e.key === "Escape" && device.cancelStubLoad()}
-  >
-    <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
-      <h3>Load the flash utility?</h3>
+  <!-- Explicit zIndex above InstallProgressModal's default 100: while a flash/SD-sync is
+       running, ensureStub() can prompt for Recovery Mode confirmation — that confirmation must
+       render on top of (not behind) the still-visible progress modal. -->
+  <ModalShell zIndex={110} onDismiss={() => device.cancelStubLoad()}>
+    {#snippet children()}
+      <h3>{locale.t.shared.stubLoadModal.title}</h3>
       <p class="muted">
-        Managing the device — reading its flash, backing up, or flashing — needs the RAM flash
-        utility running. Loading it <strong>resets the device</strong>.
+        {locale.t.shared.stubLoadModal.body1Pre}<strong>{locale.t.shared.stubLoadModal.body1Bold}</strong>{locale.t.shared.stubLoadModal.body1Post}
       </p>
       <p class="muted">
-        Hold down the device's <strong>power button</strong> while it connects, then set the
-        device down and don't touch it until the operation finishes.
+        {locale.t.shared.stubLoadModal.body2Pre}<strong>{locale.t.shared.stubLoadModal.body2Bold}</strong>{locale.t.shared.stubLoadModal.body2Post}
       </p>
       <div class="actions">
-        <Button onclick={() => device.cancelStubLoad()}>Cancel</Button>
-        <Button variant="action" onclick={() => device.confirmStubLoad()}>Continue</Button>
+        <Button onclick={() => device.cancelStubLoad()}>{locale.t.shared.common.cancel}</Button>
+        <Button variant="action" onclick={() => device.confirmStubLoad()}>{locale.t.shared.stubLoadModal.continue}</Button>
       </div>
-    </div>
-  </div>
+    {/snippet}
+  </ModalShell>
 {/if}
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 100;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1.25rem;
-  }
-  .modal {
-    background: var(--surface);
-    border: 2px solid var(--model-accent);
-    border-radius: var(--r-card);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-    padding: 1.25rem 1.5rem;
-    max-width: 26rem;
-    width: 100%;
-  }
   h3 {
     font-size: var(--fs-lg);
     margin-bottom: 0.5rem;

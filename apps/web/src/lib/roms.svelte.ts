@@ -13,6 +13,7 @@ import {
 } from "./romScan.js";
 import { saveDir, loadDir, handlePermission } from "./persist.js";
 import { toGWCover } from "./screenscraper/gw.js";
+import { device } from "./device.svelte.js";
 
 const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".bmp"]);
 
@@ -61,7 +62,15 @@ async function convertCoversInMap(userRoms: Map<string, Uint8Array>): Promise<vo
 
 class RomStore {
   scan = $state<RomScanResult | null>(null);
-  scanning = $state(false);
+  /** Set when a folder is required but not yet selected — drives FolderGateModal. */
+  folderGatePrompt = $state<{
+    sd: boolean;
+    resolve: () => void;
+    reject: (e: Error) => void;
+  } | null>(null);
+  savesScan = $state<RomScanResult | null>(null);
+  dirtyFiles = $state<Set<string>>(new Set());
+  folderScanning = $state(false);
   error = $state<string | null>(null);
   // A remembered folder location from a prior visit that needs a permission re-grant before use.
   pendingHandle = $state<RomDirHandle | null>(null);
@@ -79,7 +88,7 @@ class RomStore {
 
   /** Prompt for a folder, scan it, store the result + remember the location. No-op on cancel. */
   async pickFolder(): Promise<void> {
-    this.scanning = true;
+    this.folderScanning = true;
     this.error = null;
     try {
       const r = await pickAndScanRomFolder();
@@ -87,6 +96,7 @@ class RomStore {
         await convertCoversInMap(r.userRoms);
         r.summary = summarize(r.userRoms);
         this.scan = r; // null = cancelled → keep whatever was there
+        this.clearDirty();
         this.pendingHandle = null;
         // Only persist native FSAA handles — InputDirHandle shims aren't structured-cloneable
         if (dirSupportsWriteBack(r.dir)) void saveDir("romDir", r.dir);
@@ -94,18 +104,31 @@ class RomStore {
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
     } finally {
-      this.scanning = false;
+      this.folderScanning = false;
+    }
+  }
+
+  async pickSavesFolder(): Promise<void> {
+    this.folderScanning = true;
+    try {
+      const result = await pickAndScanRomFolder();
+      if (!result) return;
+      this.savesScan = result;
+    } catch (e) {
+      console.error("Failed to pick saves folder", e);
+    } finally {
+      this.folderScanning = false;
     }
   }
 
   /** Silently re-adopt the last-used folder if permission is still granted (no prompt). If it
    *  needs a re-grant, stash it in `pendingHandle` so the UI can offer a reconnect button. */
   async restoreLast(): Promise<void> {
-    if (this.triedRestore || this.scan || this.scanning) return;
+    if (this.triedRestore || this.scan || this.folderScanning) return;
     this.triedRestore = true;
     const handle = (await loadDir("romDir")) as RomDirHandle | null;
     if (!handle) return;
-    if (await handlePermission(handle, "readwrite", false)) await this.adopt(handle);
+    if (await handlePermission(handle, "readwrite", false)) await this.adoptHandle(handle);
     else this.pendingHandle = handle;
   }
 
@@ -115,29 +138,71 @@ class RomStore {
     if (!handle) return;
     if (await handlePermission(handle, "readwrite", true)) {
       this.pendingHandle = null;
-      await this.adopt(handle);
+      await this.adoptHandle(handle);
     }
   }
 
-  private async adopt(handle: RomDirHandle): Promise<void> {
-    this.scanning = true;
+  async adoptHandle(handle: RomDirHandle): Promise<void> {
+    this.folderScanning = true;
     this.error = null;
     try {
       const result = await scanRomDirectory(handle);
       await convertCoversInMap(result.userRoms);
       result.summary = summarize(result.userRoms);
       this.scan = result;
+      this.clearDirty();
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
     } finally {
-      this.scanning = false;
+      this.folderScanning = false;
     }
   }
 
   clear(): void {
     this.scan = null;
+    this.savesScan = null;
+    this.clearDirty();
     this.error = null;
     this.pendingHandle = null;
+  }
+
+  /** Ensure the required folders are available. Resolves immediately if already satisfied;
+   *  otherwise surfaces FolderGateModal and waits for the user to provide them. */
+  async ensureFolders(sd: boolean): Promise<void> {
+    if (this.selected && (!sd || !!device.sdHandle)) return;
+    return new Promise<void>((resolve, reject) => {
+      this.folderGatePrompt = { sd, resolve, reject };
+    });
+  }
+
+  /** Always surface FolderGateModal, even if folders are already satisfied — for a "change
+   *  folder(s)" affordance (unlike ensureFolders, which no-ops when already satisfied). */
+  openFolderGate(sd: boolean): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.folderGatePrompt = { sd, resolve, reject };
+    });
+  }
+
+  resolveFolderGate(): void {
+    const p = this.folderGatePrompt;
+    this.folderGatePrompt = null;
+    p?.resolve();
+  }
+
+  cancelFolderGate(): void {
+    const p = this.folderGatePrompt;
+    this.folderGatePrompt = null;
+    p?.reject(new Error("Folder selection cancelled."));
+  }
+
+  markDirty(path: string) {
+    this.dirtyFiles.add(path);
+    // Force reactivity in Svelte 5 by reassigning the Set
+    this.dirtyFiles = new Set(this.dirtyFiles);
+  }
+
+  clearDirty() {
+    this.dirtyFiles = new Set();
   }
 }
 

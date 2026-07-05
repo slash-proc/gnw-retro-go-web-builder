@@ -69,6 +69,19 @@ function matchesFilters(dev: USBDevice, filters: USBDeviceFilter[]): boolean {
   );
 }
 
+/** Return all already-authorized SWD probes without showing any UI or picker.
+ *  Safe to call fire-and-forget; returns [] if WebUSB is unavailable or no
+ *  trusted adapters are registered. */
+export async function getKnownProbes(): Promise<USBDevice[]> {
+  if (typeof navigator === "undefined" || !navigator.usb) return [];
+  const filters = [...libstlink.usb.filters, { vendorId: RASPBERRY_PI_VENDOR_ID }];
+  try {
+    return (await navigator.usb.getDevices()).filter((d) => matchesFilters(d, filters));
+  } catch {
+    return [];
+  }
+}
+
 async function withTimeoutAndRetry<T>(
   action: () => Promise<T>,
   timeoutMs: number,

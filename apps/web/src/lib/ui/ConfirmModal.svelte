@@ -2,7 +2,9 @@
   import type { Snippet } from "svelte";
   import Button from "./Button.svelte";
   import Progress from "./Progress.svelte";
+  import ModalShell from "./ModalShell.svelte";
   import { kb } from "../util.js";
+  import { locale } from "../i18n/locale.svelte.js";
 
   let {
     open = false,
@@ -10,7 +12,7 @@
     body = "",
     summary,
     detail,
-    confirmText = "Confirm",
+    confirmText = locale.t.shared.confirmModal.defaultConfirmText,
     danger = false,
     run,
     onClose,
@@ -62,31 +64,25 @@
     }
   }
 
-  // The dialog cannot be dismissed while a write is in flight.
-  function tryClose() {
-    if (phase !== "running") onClose();
-  }
+  // The dialog cannot be dismissed (backdrop click / Escape) while a write is in flight —
+  // ModalShell's onDismiss is omitted entirely in that phase, matching its own contract for
+  // "non-dismissible that way."
 </script>
 
 {#if open}
-  <div
-    class="backdrop"
-    role="presentation"
-    onclick={(e) => e.target === e.currentTarget && tryClose()}
-    onkeydown={(e) => e.key === "Escape" && tryClose()}
-  >
-    <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
+  <ModalShell onDismiss={phase !== "running" ? onClose : null}>
+    {#snippet children()}
       <h3>{title}</h3>
 
       {#if phase === "confirm"}
         {#if summary}<div class="summary">{@render summary()}</div>{/if}
         {#if body}<p class="muted">{body}</p>{/if}
         <div class="actions">
-          <Button onclick={onClose}>Cancel</Button>
+          <Button onclick={onClose}>{locale.t.shared.common.cancel}</Button>
           <Button variant={danger ? "destructive" : "action"} onclick={confirm}>{confirmText}</Button>
         </div>
       {:else if phase === "running"}
-        <p class="muted">Working — <strong>do not unplug your device</strong>.</p>
+        <p class="muted">{locale.t.shared.common.workingNotePre}<strong>{locale.t.shared.common.workingNoteBold}</strong>{locale.t.shared.common.workingNotePost}</p>
         {#if total > 0}
           <Progress value={done} max={total} label={`${kb(done)} / ${kb(total)} KB`} />
         {:else}
@@ -97,38 +93,19 @@
         {/if}
         {#if detail}<div class="detail">{@render detail()}</div>{/if}
       {:else if phase === "done"}
-        <p class="ok">✓ Done.</p>
+        <p class="ok">{locale.t.shared.common.done}</p>
         {#if detail}<div class="detail">{@render detail()}</div>{/if}
-        <div class="actions"><Button variant="action" onclick={onClose}>Close</Button></div>
+        <div class="actions"><Button variant="action" onclick={onClose}>{locale.t.shared.common.close}</Button></div>
       {:else}
         <p class="err">{error}</p>
         {#if detail}<div class="detail">{@render detail()}</div>{/if}
-        <div class="actions"><Button onclick={onClose}>Close</Button></div>
+        <div class="actions"><Button onclick={onClose}>{locale.t.shared.common.close}</Button></div>
       {/if}
-    </div>
-  </div>
+    {/snippet}
+  </ModalShell>
 {/if}
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 100;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1.25rem;
-  }
-  .modal {
-    background: var(--surface);
-    border: 2px solid var(--model-accent);
-    border-radius: var(--r-card);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-    padding: 1.25rem 1.5rem;
-    max-width: 26rem;
-    width: 100%;
-  }
   h3 {
     font-size: var(--fs-lg);
     margin-bottom: 0.5rem;

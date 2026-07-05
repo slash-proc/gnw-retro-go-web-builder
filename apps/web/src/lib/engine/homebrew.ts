@@ -53,6 +53,11 @@ export const HOMEBREW_DEVICE_FILES: ReadonlySet<string> = new Set(
   HOMEBREW_TITLES.flatMap((t) => t.deviceFiles),
 );
 
+/** Every user-supplied ROM filename required to build homebrew titles (under roms/homebrew/). */
+export const HOMEBREW_SOURCE_ROMS: ReadonlySet<string> = new Set(
+  HOMEBREW_TITLES.flatMap((t) => t.sourceRoms),
+);
+
 /** Completeness of each homebrew title given the set of homebrew filenames present on the device. */
 export function homebrewStatus(
   presentDeviceFiles: Iterable<string>,

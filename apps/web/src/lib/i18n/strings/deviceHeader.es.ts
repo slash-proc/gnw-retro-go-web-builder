@@ -1,0 +1,33 @@
+import type { DeviceHeaderStrings } from "./deviceHeader.js";
+
+export const deviceHeaderEs: DeviceHeaderStrings = {
+  changeInstallationMethod: "Cambiar método de instalación",
+  sdCard: "💾 Tarjeta SD",
+  internalFlash: "⚡ Flash interno",
+  connectionLost: "Conexión perdida",
+  noConnection: "Sin conexión",
+  connectedRecoveryMode: "Conectado (Modo de recuperación)",
+  connectedRetroGo: "Conectado (Retro-Go)",
+  connectedAs: (label: string) => `Conectado (${label})`,
+  connected: "Conectado",
+  scanning: "Escaneando…",
+  dash: "—",
+  patchMissing: "Falta el parche",
+  notInstalled: "No instalado",
+  none: "Ninguno",
+  mario: "Mario",
+  zelda: "Zelda",
+  patched: "Parcheado",
+  stock: "De fábrica",
+  ofwLabel: (model: string, status: string) => `${model} (${status})`,
+  toggleTheme: "Alternar modo claro / oscuro",
+  toggleThemeAria: "Alternar tema",
+  toggleLanguage: "Cambiar idioma",
+  toggleLanguageAria: "Cambiar idioma",
+  changeMethodTitle: "¿Cambiar método de instalación?",
+  changeMethodBody:
+    "¿Seguro que quieres elegir un método de instalación distinto? Esto desconectará tu dispositivo y volverá a la página de inicio.",
+  changeMethodConfirm: "Cambiar método",
+  logoRgoAlt: "Retro-Go",
+  logoOfwAlt: "Firmware oficial",
+};

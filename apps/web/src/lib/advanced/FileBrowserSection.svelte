@@ -7,6 +7,7 @@
   import { dumpRegion } from "../engine/flasher.js";
   import { ensureLfsTree } from "../engine/lfsBrowser.js";
   import { kb } from "../util.js";
+  import { locale } from "../i18n/locale.svelte.js";
 
   let selectedFs = $state<string | null>(null);
 
@@ -84,7 +85,7 @@
     lfsLoading = true;
     lfsError = null;
     try {
-      lfsTree = await ensureLfsTree((p) => { lfsProgress = p; }) as TreeNode;
+      lfsTree = await ensureLfsTree((done, total) => { lfsProgress = done / total; }) as TreeNode;
     } catch (e) {
       lfsError = String(e);
     } finally {
@@ -101,7 +102,7 @@
 
 <div class="stack">
   <div class="desc">
-    <p>Select a filesystem partition on the bar below to view its files.</p>
+    <p>{locale.t.fileBrowserSection.intro}</p>
   </div>
   <GeometryBar segments={segments} onClick={handleFsClick} />
 
@@ -138,20 +139,20 @@
 
   {#if selectedFs === "frogfs"}
     <div class="fs-view">
-      <h3>FrogFS</h3>
+      <h3>{locale.t.fileBrowserSection.frogfsTitle}</h3>
       {#if frogfsTree && frogfsTree.children && frogfsTree.children.length > 0}
         <div class="tree">
           {@render renderTree(frogfsTree.children)}
         </div>
       {:else}
-        <p class="muted">No files found in FrogFS.</p>
+        <p class="muted">{locale.t.fileBrowserSection.noFrogfsFiles}</p>
       {/if}
     </div>
   {:else if selectedFs === "littlefs"}
     <div class="fs-view">
-      <h3>LittleFS</h3>
+      <h3>{locale.t.fileBrowserSection.littlefsTitle}</h3>
       {#if lfsLoading}
-        <p class="muted">Reading LittleFS partition over SWD ({Math.round(lfsProgress * 100)}%)...</p>
+        <p class="muted">{locale.t.fileBrowserSection.readingLittlefs(Math.round(lfsProgress * 100))}</p>
       {:else if lfsError}
         <p class="error">{lfsError}</p>
       {:else if lfsTree && lfsTree.children && lfsTree.children.length > 0}
@@ -159,12 +160,12 @@
           {@render renderTree(lfsTree.children)}
         </div>
       {:else}
-        <p class="muted">No files found in LittleFS.</p>
+        <p class="muted">{locale.t.fileBrowserSection.noLittlefsFiles}</p>
       {/if}
     </div>
   {:else if selectedFs}
     <div class="fs-view">
-      <p class="muted">File browser not available for {selectedFs}.</p>
+      <p class="muted">{locale.t.fileBrowserSection.browserNotAvailable(selectedFs)}</p>
     </div>
   {/if}
 </div>

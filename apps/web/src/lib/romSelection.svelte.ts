@@ -11,6 +11,7 @@
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { shouldSkipRomsFile, isDsStore } from "@gnw/fs-builders";
 import { roms } from "./roms.svelte.js";
+import { nativeFolderPickerSupported } from "./romScan.js";
 import { device } from "./device.svelte.js";
 import { consoleLabel } from "./engine/consoles.js";
 import { HOMEBREW_TITLES } from "./engine/homebrew.js";
@@ -47,15 +48,10 @@ export function parseRomPath(path: string): { system: string, name: string } | n
   if (dot < 0) return null; // No extension
   const ext = filename.slice(dot).toLowerCase();
 
-  // Find the most recent parent directory that matches a valid console shortname
-  let governingConsole: string | null = null;
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const p = parts[i].toLowerCase();
-    if (CONSOLE_WHITELISTS[p]) {
-      governingConsole = p;
-      break;
-    }
-  }
+  // The top-level directory must be the console shortname (e.g. 'nes/mario.nes' or 'nes/hacks/mario.nes')
+  if (parts.length === 0) return null;
+  const topDir = parts[0].toLowerCase();
+  const governingConsole = CONSOLE_WHITELISTS[topDir] ? topDir : null;
 
   if (!governingConsole) return null;
 
@@ -92,6 +88,57 @@ export interface SystemGroup {
 // on-device files are GENERATED — engine .bin + restool assets — so they don't map to folder ROMs
 // and must NOT be flagged as removable "on device only" games; see engine/homebrew.ts).
 const NON_GAME_SYSTEMS = new Set(["bios", "homebrew", "cheats", "covers"]);
+
+export function isNonGameSystem(system: string): boolean {
+  return NON_GAME_SYSTEMS.has(system);
+}
+
+export type ContentCategory = "game" | "bios" | "cheat" | "cover" | "homebrew";
+
+export interface ClassifiedContentPath {
+  category: ContentCategory;
+  /** Only set for category "cover": true if this is the device-ready .img format
+   *  (vs. a raw source PNG/JPG kept only for local UI display — see convertCoversInMap). */
+  isDeviceCover?: boolean;
+  /** Only set for category "cover" paths under covers/homebrew/: the homebrew title's
+   *  displayName this cover belongs to (matches HomebrewTitle.displayName). */
+  homebrewCoverName?: string;
+}
+
+// Confirmed on real hardware (both flash and SD): despite there being a dedicated cheats/
+// directory convention in older assumptions, the firmware actually expects cheat files
+// DIRECTLY NEXT TO the ROM — same directory, same base name, cheat extension. So a cheat
+// file's path looks identical in structure to a game's (e.g. "nes/Super Mario Bros. 3.ggcodes"
+// sits right next to "nes/Super Mario Bros. 3.nes") and can only be told apart by extension.
+const CHEAT_EXTENSIONS = new Set(["ggcodes", "pceplus", "mcf"]);
+
+/** Classify a userRoms-map path (e.g. "nes/mario.nes", "bios/msx.rom",
+ *  "covers/homebrew/Celeste.img") by its top-level directory (cheat files are the one
+ *  exception — recognized by extension, since they live next to the ROM, not under a
+ *  separate directory). Does NOT special-case "<console>_bios"-style per-console bios
+ *  folders — that's a single caller's concern (see the endsWith("_bios") check next to
+ *  this function's one call site that needs it). */
+export function classifyContentPath(path: string): ClassifiedContentPath {
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  if (CHEAT_EXTENSIONS.has(ext)) return { category: "cheat" };
+  const topSys = path.slice(0, path.indexOf("/"));
+  switch (topSys) {
+    case "bios":
+      return { category: "bios" };
+    case "homebrew":
+      return { category: "homebrew" };
+    case "covers":
+      return {
+        category: "cover",
+        isDeviceCover: path.endsWith(".img"),
+        homebrewCoverName: path.startsWith("covers/homebrew/")
+          ? path.slice("covers/homebrew/".length, path.lastIndexOf("."))
+          : undefined,
+      };
+    default:
+      return { category: "game" };
+  }
+}
 
 class RomSelectionStore {
   /** Explicit user choices by game key; a key absent here follows the default (installed). */
@@ -140,16 +187,17 @@ class RomSelectionStore {
     if (folder) {
       for (const [path, data] of folder) {
         const topSys = path.slice(0, path.indexOf("/"));
-        if (NON_GAME_SYSTEMS.has(topSys) || topSys.endsWith("_bios")) continue;
-        
+        if (classifyContentPath(path).category !== "game" || topSys.endsWith("_bios")) continue;
+
         const parsed = parseRomPath(path);
         if (!parsed) continue;
 
         byKey.set(path, { key: path, system: parsed.system, name: parsed.name, size: data.length, inFolder: true, installed: false });
       }
     }
+    
     for (const g of device.installedGames) {
-      if (NON_GAME_SYSTEMS.has(g.system)) continue; // homebrew/bios preserved separately, not games
+      if (isNonGameSystem(g.system)) continue; // homebrew/bios preserved separately, not games
       const path = `${g.system}/${g.name}`;
       const parsed = parseRomPath(path);
       if (!parsed) continue; // consistency with the folder side
@@ -228,11 +276,11 @@ class RomSelectionStore {
     if (!folder) return out;
     const sel = this.selectedKeys;
     for (const [path, data] of folder) {
-      const system = path.split("/")[0];
+      const cat = classifyContentPath(path).category;
       // Always include bios assets; include selected games. Homebrew folder sources (e.g.
       // zelda3.sfc) are NOT packed raw — they need restool (deferred) — and on-device homebrew is
       // preserved separately by the install (readGameData).
-      if (system === "bios" || system === "cheats" || system === "covers" || sel.has(path)) out.set(path, data);
+      if (cat === "bios" || cat === "cheat" || cat === "cover" || sel.has(path)) out.set(path, data);
     }
     return out;
   }

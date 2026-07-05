@@ -110,18 +110,35 @@
   .frogfs {
     background: #c0392b;
   }
-  /* FrogFS region that the next install will rewrite (new games / removal rewrite). */
+  /* FrogFS region that the next install will rewrite (new games / removal rewrite) — the
+     partition's own solid color underneath, with real semi-transparent diagonal bars over it
+     (not just a second opaque shade), so it visually reads as "projected change", not just a
+     different flat color. */
   .frogfs-changed {
-    background: repeating-linear-gradient(
+    background-color: #c0392b;
+    background-image: repeating-linear-gradient(
       45deg,
-      #e8743b,
-      #e8743b 6px,
-      #f0a06a 6px,
-      #f0a06a 12px
+      rgba(255, 255, 255, 0.32),
+      rgba(255, 255, 255, 0.32) 6px,
+      transparent 6px,
+      transparent 12px
     );
   }
   .littlefs {
     background: #2e7d32;
+  }
+  /* LittleFS region that the next install will reset (not migrating saves). Same treatment as
+     .frogfs-changed (solid base color + semi-transparent diagonal overlay), over LittleFS's own
+     green, so the two "projected change" regions genuinely match each other visually. */
+  .littlefs-changed {
+    background-color: #2e7d32;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.32),
+      rgba(255, 255, 255, 0.32) 6px,
+      transparent 6px,
+      transparent 12px
+    );
   }
   .fat {
     background: #1565c0;

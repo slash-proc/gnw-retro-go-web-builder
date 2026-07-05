@@ -3,6 +3,9 @@
 // hex, optional binary k/m/g (or kb/mb/gb) suffix. Richer than Manage's old
 // parseNum (which only did hex/decimal).
 
+export { EXTBASE, BANK_BASE } from "../engine/addr.js";
+import { BANK_BASE } from "../engine/addr.js";
+
 const MULT: Record<string, number> = {
   k: 1 << 10,
   kb: 1 << 10,
@@ -35,19 +38,30 @@ export const hex8 = (n: number): string => "0x" + (n >>> 0).toString(16).padStar
 /** Grouped decimal byte count, e.g. 245,760. */
 export const commas = (n: number): string => n.toLocaleString("en-US");
 
-/** The three real bank targets, always shown with their base address (§4.3). */
-export const BANK_BASE: Record<number, number> = { 0: 0x90000000, 1: 0x08000000, 2: 0x08100000 };
-
 export interface BankOpt {
   v: number;
   label: string;
   internal: boolean;
 }
-export const BANKS: BankOpt[] = [
-  { v: 0, label: "External · bank0 (0x90000000)", internal: false },
-  { v: 1, label: "Internal · bank1 (0x08000000)", internal: true },
-  { v: 2, label: "Internal · bank2 (0x08100000)", internal: true },
+
+// Base metadata (locale-independent) for the bank picker <select> — DumpSection and
+// FlashSection both render this exact three-entry list. Labels are supplied by the caller
+// (via `bankOptions()`) so they route through the current locale instead of being hardcoded
+// English baked into this data table.
+const BANK_META: { v: number; internal: boolean }[] = [
+  { v: 0, internal: false },
+  { v: 1, internal: true },
+  { v: 2, internal: true },
 ];
+
+/** Build the bank <select> options using the shared `bankSelect` locale strings. */
+export function bankOptions(t: { external: (addr: string) => string; internal: (bank: number, addr: string) => string }): BankOpt[] {
+  return BANK_META.map((b) => ({
+    v: b.v,
+    internal: b.internal,
+    label: b.internal ? t.internal(b.v, hex(BANK_BASE[b.v])) : t.external(hex(BANK_BASE[b.v])),
+  }));
+}
 
 /** Region size (bytes) for a bank: ext from device size, 256 KiB per int bank. */
 export const regionSize = (bank: number, extSizeMB: number | null): number =>

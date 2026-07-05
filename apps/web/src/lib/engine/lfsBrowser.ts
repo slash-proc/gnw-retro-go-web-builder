@@ -1,7 +1,24 @@
 import { device } from "../device.svelte.js";
 import { readLittleFsTree, readLittleFsFileLazy, type LittlefsTreeNode } from "@gnw/fs-builders";
+import { readMemoryPaced } from "./chunkedRead.js";
+import { EXTBASE } from "./addr.js";
+import { parseCoreHeader, evaluateCoreVersions, type CoreVersionCheck } from "./coreVersion.js";
 
-export async function ensureLfsTree(onProgress?: (p: number) => void): Promise<LittlefsTreeNode> {
+/** Read `len` bytes from `addr` in 1 KiB chunks so each chunk passes through the
+ *  serialTransport as its own queue entry (no internal 10 ms sleep). Other queued
+ *  ops (poll, screenshot halt, etc.) can interleave between chunks. */
+function readInChunks(addr: number, len: number): Promise<Uint8Array> {
+  return readMemoryPaced(device.transport!, addr, len, { chunkSize: 1024 });
+}
+
+/** LittleFS doesn't expose a total block count up front, so progress here is a rough
+ *  estimate (assumes ~20 blocks for a typical tree walk), reported as a percentage on a
+ *  0..100 scale — matches every other engine progress callback's `(done, total)` shape
+ *  instead of the 0..1 fraction this used to report. */
+const LFS_TREE_PROGRESS_TOTAL = 100;
+const LFS_TREE_PROGRESS_ESTIMATED_BLOCKS = 20;
+
+export async function ensureLfsTree(onProgress?: (done: number, total: number) => void): Promise<LittlefsTreeNode> {
   if (device.installedLfsTree) return device.installedLfsTree;
 
   const p = device.partitions.find((p) => p.fs === "littlefs");
@@ -11,22 +28,23 @@ export async function ensureLfsTree(onProgress?: (p: number) => void): Promise<L
 
   const blockSize = p.meta?.blockSize ?? device.info?.minEraseSizeBytes ?? 4096;
   const blockCount = p.meta?.blockCount ?? Math.floor(p.size / blockSize);
-  
+
   let blocksFetched = 0;
-  
+
   const tree = await readLittleFsTree(blockSize, blockCount, async (block) => {
     if (device.lfsBlockCache.has(block)) return device.lfsBlockCache.get(block)!;
-    
-    const addr = 0x90000000 + p.offset + p.size - ((block + 1) * blockSize);
-    const data = await device.transport!.readMemory(addr, blockSize);
+
+    const addr = EXTBASE + p.offset + p.size - ((block + 1) * blockSize);
+    const data = await readInChunks(addr, blockSize);
     device.lfsBlockCache.set(block, data);
-    
+
     blocksFetched++;
-    if (onProgress) onProgress(Math.min(0.99, blocksFetched / 20));
+    const pct = Math.min(99, Math.round((blocksFetched / LFS_TREE_PROGRESS_ESTIMATED_BLOCKS) * 100));
+    onProgress?.(pct, LFS_TREE_PROGRESS_TOTAL);
     return data;
   });
-  
-  if (onProgress) onProgress(1);
+
+  onProgress?.(LFS_TREE_PROGRESS_TOTAL, LFS_TREE_PROGRESS_TOTAL);
 
   function sortTree(n: LittlefsTreeNode) {
     if (n.children) {
@@ -55,11 +73,44 @@ export async function readLfsFile(path: string): Promise<Uint8Array> {
   return readLittleFsFileLazy(blockSize, blockCount, path, async (block) => {
     if (device.lfsBlockCache.has(block)) return device.lfsBlockCache.get(block)!;
     
-    const addr = 0x90000000 + p.offset + p.size - ((block + 1) * blockSize);
-    const data = await device.transport!.readMemory(addr, blockSize);
+    const addr = EXTBASE + p.offset + p.size - ((block + 1) * blockSize);
+    const data = await readInChunks(addr, blockSize);
     device.lfsBlockCache.set(block, data);
     return data;
   });
+}
+
+/** Validate that every installed core (LittleFS, Flash-mode) agrees with the given firmware
+ *  version (and with each other). No partial-read primitive exists in the LittleFS reader
+ *  (`readLittleFsFileLazy` always reads a file to completion), so this pulls each core's full
+ *  bytes over SWD — call it from the deep scan's background/non-blocking tail, never inline
+ *  with the extflash-partition-scan results the UI is waiting on.
+ *
+ *  `isCancelled` is checked BEFORE EVERY core read, not just once at the end — a stub reboot
+ *  (e.g. a flash starting while this is still running) causes a real, brief USB
+ *  disconnect/reconnect, and this must stop issuing transferOut calls against the old
+ *  transport the instant that happens, not keep reading and crash with "device must be opened
+ *  first". Returns whatever was read so far if cancelled partway through. */
+export async function checkCoreVersions(
+  firmwareVersion: string | null,
+  isCancelled?: () => boolean,
+): Promise<CoreVersionCheck> {
+  const tree = await ensureLfsTree();
+  const coresDir = tree.children?.find((n) => n.isDirectory && n.name === "cores");
+  const cores: Record<string, string | null> = {};
+  if (coresDir?.children) {
+    for (const f of coresDir.children) {
+      if (f.isDirectory) continue;
+      if (isCancelled?.()) break;
+      try {
+        const data = await readLfsFile(f.path);
+        cores[f.path] = parseCoreHeader(data)?.tag ?? null;
+      } catch {
+        cores[f.path] = null;
+      }
+    }
+  }
+  return evaluateCoreVersions(firmwareVersion, cores);
 }
 
 export async function getLfsUsedSpace(): Promise<{ usedBytes: number, freeBytes: number } | null> {

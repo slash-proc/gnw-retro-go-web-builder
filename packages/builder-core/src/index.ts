@@ -6,10 +6,10 @@
  * Makefile-equivalent layout logic so there is something concrete to test.
  */
 
-import type { SwdTransport } from "@gnw/swd-transport";
+import type { SwdTransport, ProgressFn } from "@gnw/swd-transport";
 import type { BuildDescriptor, FilesystemPlan, InstallMode, RomFile } from "@gnw/fs-builders";
 
-export type ProgressFn = (done: number, total: number) => void;
+export type { ProgressFn } from "@gnw/swd-transport";
 
 // Layout source of truth: Makefile / linker scripts. See PLAN.md §"Critical files".
 const INTFLASH_BANK1_ADDRESS = 0x08000000;

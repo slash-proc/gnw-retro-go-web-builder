@@ -29,6 +29,14 @@
 
   --model-accent: var(--neutral-edge);
 
+  /* Device connection-status LED/badge colors (DeviceHeader's .dot, DeviceControls'
+     .indicator) — previously hardcoded identically in both files. Distinct from
+     --danger/--caution, which are for error/warning text and borders, not this LED. */
+  --status-red: #c0392b;
+  --status-yellow: #d4a000;
+  --status-green: #2e9e44;
+  --status-gray: #7f8c8d;
+
   --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "Commit Mono", "SF Mono", Menlo, monospace;
   --fs-micro: 0.75rem;
@@ -46,6 +54,17 @@
   color-scheme: light;
 }
 
+/* Dark theme is defined TWICE on purpose, not a lingering duplication bug:
+ *  - `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }` avoids a
+ *    flash-of-wrong-theme on first paint for OS-dark-mode users, before theme.svelte.ts's
+ *    JS runs and sets `data-theme` explicitly.
+ *  - `:root[data-theme="dark"]` is the JS-driven, unconditional override (e.g. a user on a
+ *    light-OS forcing dark theme) — it must NOT be gated behind the OS media query, or
+ *    that override would silently stop working.
+ *  Plain CSS has no way to share one copy of these custom-property values across two rules
+ *  with genuinely different trigger conditions without either a preprocessor (out of scope —
+ *  this project is bundler-free) or dropping the first-paint flash guard (a real, if minor,
+ *  UX regression). Keep both blocks in sync by hand if either changes. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #161616;

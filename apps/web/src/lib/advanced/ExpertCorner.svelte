@@ -1,5 +1,6 @@
 <script lang="ts">
   import AccordionSection from "./AccordionSection.svelte";
+  import { locale } from "../i18n/locale.svelte.js";
 
   // §2.1.1 / §3.5 — the deliberately-hidden Expert surface. Reached only via the
   // `#expert` hash (unobvious, never linked from Easy setup). Deferred panels:
@@ -14,45 +15,41 @@
 
 <div class="stack">
   <p class="warn">
-    Expert surface — almost nobody needs anything here. These controls are dangerous or
-    pointless for most users and are kept only so the capability isn&rsquo;t lost.
+    {locale.t.expertCorner.warnBanner}
   </p>
 
   <AccordionSection
     id="lock"
-    title="Manual re-lock"
+    title={locale.t.expertCorner.manualRelockTitle}
     open={openSet.has("lock")}
     chipKind="deferred"
-    chipText="not yet available"
+    chipText={locale.t.expertCorner.manualRelockChip}
     onToggle={toggle}
   >
     <div class="inner">
-      <p class="will">Re-enable read-out protection (RDP) on the device. The single place lock is a deliberate action.</p>
-      <p class="needs"><strong>Needs:</strong> the power-cycle handshake; <code class="mono">GnwFlasher.lock()</code> is notImplemented. Will ship behind a typed acknowledgement + blocking confirm.</p>
-      <div><button class="inert" disabled>Re-lock device…</button></div>
+      <p class="will">{locale.t.expertCorner.manualRelockWill}</p>
+      <p class="needs"><strong>{locale.t.deferredSection.needsLabel}</strong> {locale.t.expertCorner.manualRelockNeeds}</p>
+      <div><button class="inert" disabled>{locale.t.expertCorner.relockButton}</button></div>
     </div>
   </AccordionSection>
 
   <AccordionSection
     id="patch"
-    title="Raw firmware patch options"
+    title={locale.t.expertCorner.rawPatchTitle}
     open={openSet.has("patch")}
     chipKind="deferred"
-    chipText="expert / unsupported"
+    chipText={locale.t.expertCorner.rawPatchChip}
     onToggle={toggle}
   >
     <div class="inner">
-      <p class="will">
-        The <code class="mono">/dev</code> patch-option schema (<code class="mono">no_smb2</code>,
-        <code class="mono">sleep_time</code>, <code class="mono">slim</code>, bootloader repo/tag, …),
-        exposed verbatim and explicitly unsupported.
-      </p>
+      <p class="will">{locale.t.expertCorner.rawPatchWill}</p>
       <p class="needs">
-        <strong>You probably don&rsquo;t need this.</strong> The knob-free
-        <code class="mono">patchModel(model, internal, external)</code> in Easy setup is what everyone should use.
-        This panel only exists so the capability isn&rsquo;t lost.
+        <strong>{locale.t.expertCorner.rawPatchNeedsBold}</strong>
+        {locale.t.expertCorner.rawPatchNeedsMid}
+        <code class="mono">patchModel(model, internal, external)</code>
+        {locale.t.expertCorner.rawPatchNeedsBody}
       </p>
-      <div><button class="inert" disabled>Patch with options…</button></div>
+      <div><button class="inert" disabled>{locale.t.expertCorner.patchWithOptionsButton}</button></div>
     </div>
   </AccordionSection>
 </div>

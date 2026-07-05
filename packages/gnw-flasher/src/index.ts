@@ -11,7 +11,8 @@
  * the flashing / SD / dump ops remain stubs for a later phase.
  */
 
-import type { SwdTransport } from "@gnw/swd-transport";
+import type { SwdTransport, ProgressFn } from "@gnw/swd-transport";
+export type { ProgressFn } from "@gnw/swd-transport";
 
 /** Memory-mapped mailbox base — gnwmanager gnw.py. */
 export const MAILBOX_ADDR = 0x24025800;
@@ -161,8 +162,6 @@ const hexAddr = (n: number): string => "0x" + (n >>> 0).toString(16).padStart(8,
 
 const toHex = (data: Uint8Array): string =>
   Array.from(data, (b) => b.toString(16).padStart(2, "0")).join("");
-
-export type ProgressFn = (done: number, total: number) => void;
 
 /** Optional step-by-step logger for debugging the boot sequence. */
 export type LogFn = (msg: string) => void;
@@ -383,10 +382,14 @@ export class GnwFlasher {
     }
   }
 
-  /** Wait for a free context slot (ready==0) and return its index (gnw.py get_context). */
-  async getContext(timeoutMs = 120000): Promise<number> {
+  /**
+   * Acquire a free context buffer (0 or 1). Will wait up to timeoutMs if both
+   * are busy. Used by program() to implement double-buffered streaming.
+   */
+  async getContext(timeoutMs = 10000, abortSignal?: AbortSignal): Promise<number> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
+      if (abortSignal?.aborted) throw new Error("Operation aborted");
       for (let i = 0; i < N_CONTEXTS; i++) {
         if (((await this.transport.readWord(this.ctxAddr(i, Ctx.READY))) >>> 0) === 0) return i;
       }
@@ -413,8 +416,10 @@ export class GnwFlasher {
       compress?: CompressFn;
       verify?: boolean;
       onWriteProgress?: ProgressFn;
+      abortSignal?: AbortSignal;
     } = {},
   ): Promise<void> {
+    if (opts.abortSignal?.aborted) throw new Error("Operation aborted");
     const log = opts.log ?? (() => {});
     const erase = opts.erase ?? true;
     if (!(bank in BANK_BASE)) throw new Error(`[gnw-flasher] bank must be 0, 1, or 2 (got ${bank})`);
@@ -423,7 +428,7 @@ export class GnwFlasher {
       throw new Error(`[gnw-flasher] program chunk must be 1..${CONTEXT_BUFFER_SIZE} bytes (got ${data.length})`);
     }
 
-    const i = await this.getContext();
+    const i = await this.getContext(10000, opts.abortSignal);
     const expectedHash = await sha256(data);
 
     // Try compression; fall back to raw if it doesn't help (gnw.py: >0.9x).
@@ -463,7 +468,17 @@ export class GnwFlasher {
       this.inFlight[i] = null;
       log(`program ctx${i}: bank=${bank} off=${hexAddr(offset)} size=${data.length} (raw)${erase ? " erase" : ""}`);
     }
-    await this.writeVerified(this.ctxBuffer(i), payload, opts.verify ?? true, log, "buffer", opts.onWriteProgress);
+    // Default OFF (unlike the one-time stub firmware load in startStub(), which stays
+    // hardcoded verify=true — a corrupt stub hardfaults, so that one's cheap and justified).
+    // gnwmanager's reference Python has no read-back verification of this per-chunk context
+    // buffer write at all — it trusts the device's own BAD_HASH_RAM(_COMPRESSED) check plus
+    // the chunk-retry handshake (tryChunkRetry, below) entirely. Our added read-back (up to
+    // 16 extra chunked reads per 256KB payload, each with its own settle/throttle delay) was a
+    // TS-only addition that roughly triples the WebUSB transaction count per chunk on every
+    // flash operation — directly increasing exposure to the documented ST-Link-clone USB-
+    // saturation lockup risk, without catching anything the device's own hash check doesn't
+    // already catch. See CLAUDE.md/memory for the investigation that found this.
+    await this.writeVerified(this.ctxBuffer(i), payload, opts.verify ?? false, log, "buffer", opts.onWriteProgress);
     // Barrier: ensure buffer write lands before we trigger (gnw.py _drain_pending_writes).
     await this.transport.readWord(this.ctxBuffer(i));
 
@@ -471,7 +486,18 @@ export class GnwFlasher {
     this.contextCounter += 1;
     await this.transport.writeWord(this.addr(Field.UPLOAD_IN_PROGRESS), 0);
 
-    await this.waitForContextComplete(i, log);
+    await this.waitForContextComplete(i, log, 120000, opts.abortSignal);
+    // waitForContextComplete only confirms the RAM context's own `ready` flag cleared — the
+    // firmware clears that right after the buffer transfer/decompression step, BEFORE it has
+    // actually erased, programmed, or hash-verified the flash (gnwmanager.c: release_context()
+    // runs at the top of GNWMANAGER_DECOMPRESSING, well before GNWMANAGER_ERASE/PROGRAM/
+    // CHECK_HASH_FLASH). The reference Python tool always follows a completed context with a
+    // wait for the global status to reach IDLE (wait_for_all_contexts_complete ->
+    // wait_for_idle) — without the equivalent here, program() previously returned (and the
+    // device-side progress bar got updated) while the device was still mid-erase/program/verify,
+    // which is what produced both the apparent multi-second "stall" on later operations and the
+    // on-device progress bar failing to clear.
+    await this.waitForIdle(15000, log);
   }
 
   /**
@@ -521,10 +547,11 @@ export class GnwFlasher {
   }
 
   /** Wait for context i's ready→0, surfacing device errors with hash detail. */
-  private async waitForContextComplete(i: number, log: LogFn = () => {}, timeoutMs = 120000): Promise<void> {
+  private async waitForContextComplete(i: number, log: LogFn = () => {}, timeoutMs = 120000, abortSignal?: AbortSignal): Promise<void> {
     let deadline = Date.now() + timeoutMs;
     let lastStatus: number | null = null;
     for (;;) {
+      if (abortSignal?.aborted) throw new Error("Operation aborted");
       const ready = (await this.transport.readWord(this.ctxAddr(i, Ctx.READY))) >>> 0;
       if (ready === 0) break;
       const status = (await this.transport.readWord(this.addr(Field.STATUS))) >>> 0;
@@ -592,7 +619,7 @@ export class GnwFlasher {
     bank: number,
     offset: number,
     data: Uint8Array,
-    opts: { onProgress?: ProgressFn; log?: LogFn; compress?: CompressFn; verify?: boolean } = {},
+    opts: { onProgress?: ProgressFn; log?: LogFn; compress?: CompressFn; verify?: boolean; abortSignal?: AbortSignal } = {},
   ): Promise<void> {
     const log = opts.log ?? (() => {});
     if (!(bank in BANK_BASE)) throw new Error(`[gnw-flasher] bank must be 0, 1, or 2 (got ${bank})`);
@@ -609,6 +636,7 @@ export class GnwFlasher {
     log(`flashing ${total} bytes to bank ${bank} @ ${hexAddr(offset)} in ${nChunks} chunk(s)`);
     let dataDone = 0;
     for (let c = 0; c < nChunks; c++) {
+      if (opts.abortSignal?.aborted) throw new Error("Operation aborted");
       const start = c * CONTEXT_BUFFER_SIZE;
       const chunk = padded.subarray(start, Math.min(start + CONTEXT_BUFFER_SIZE, padded.length));
       await this.program(bank, offset + start, chunk, {
@@ -616,6 +644,7 @@ export class GnwFlasher {
         log,
         compress: opts.compress,
         verify: opts.verify,
+        abortSignal: opts.abortSignal,
         // Map this chunk's buffer-transfer progress onto overall data bytes.
         onWriteProgress: (w, t) => opts.onProgress?.(dataDone + Math.round((w / t) * chunk.length), total),
       });

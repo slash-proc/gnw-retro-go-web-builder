@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { locale } from "../i18n/locale.svelte.js";
 
   // A multi-open disclosure panel (§2.2). A section whose operation is *running*
   // cannot be collapsed (§2.4) — the header button goes aria-disabled so a
@@ -42,7 +43,7 @@
       aria-expanded={open}
       aria-controls={regionId}
       aria-disabled={running}
-      title={running ? "Operation in progress" : undefined}
+      title={running ? locale.t.shared.accordionSection.operationInProgress : undefined}
       onclick={toggle}
     >
       {#if running}

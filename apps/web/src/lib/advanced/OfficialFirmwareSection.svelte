@@ -15,12 +15,14 @@
   } from "../engine/ofw.js";
   import { loadSel, saveSel, saveDir, loadDir, handlePermission } from "../persist.js";
   import Button from "../ui/Button.svelte";
-  import ConfirmModal from "../ui/ConfirmModal.svelte";
+  import Badge from "../ui/Badge.svelte";
+  import { installProgress, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
+  import { locale } from "../i18n/locale.svelte.js";
 
   // Official Firmware — a staged, progressive-disclosure flow:
   //   1. Firmware Backup  — pick a folder; validate existing backups or take a fresh one.
   //   2. Patch            — appears once a valid stock backup is selected (one button + bootloader).
-  //   3. Patch & flash    — ConfirmModal-gated, multi-transfer progress (internal + external).
+  //   3. Patch & flash    — shared install-progress-modal-gated, multi-transfer progress (internal + external).
   // A device is needed for a fresh backup + the flash; an existing valid backup unlocks step 2
   // without one. The patch model comes from the BACKUP (not the scanned hardware) — with a guard
   // for the dangerous Zelda-firmware-onto-Mario-hardware case (Mario hardware lacks two buttons).
@@ -65,7 +67,6 @@
   let bootloader = $state(loadSel("ofwBootloader", true));
   $effect(() => saveSel("ofwBootloader", bootloader));
   let ackCrossModel = $state(false);
-  let modalOpen = $state(false);
   let patchErr = $state<string | null>(null);
   let patched = $state(false);
 
@@ -93,6 +94,26 @@
   const canPatch = $derived(
     !!selected && device.isConnected && !tooBig && (!dangerous || ackCrossModel),
   );
+
+  // Patch firmware needs Recovery Mode: (1) a deep scan to find existing OFW assets, and
+  // (2) it's itself a write op. Two-click affordance on one button: first click enters Recovery
+  // Mode (+ runs the deep scan), second click (once device.utilLoaded) performs the patch.
+  let enteringRecovery = $state(false);
+  let recoveryErr = $state<string | null>(null);
+  async function enterRecoveryAndScan(): Promise<void> {
+    recoveryErr = null;
+    enteringRecovery = true;
+    try {
+      await device.ensureStub();
+      await device.runScan();
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes("cancelled"))) {
+        recoveryErr = e instanceof Error ? e.message : String(e);
+      }
+    } finally {
+      enteringRecovery = false;
+    }
+  }
 
   const MiB = (n: number): string => (n / 1048576).toFixed(2);
 
@@ -160,7 +181,7 @@
       const flasher = await device.ensureStub();
       if (device.locked) {
         if (!unlockOptIn) {
-          throw new Error('Device is locked (RDP read-protection). Check "Unlock device" to remove it before backing up.');
+          throw new Error(locale.t.officialFirmware.errDeviceLocked);
         }
         await flasher.unlock(); // NOTE: flasher.unlock() is notImplemented — surfaces a clear error for now.
       }
@@ -176,7 +197,7 @@
       });
       const det = await detectDevice(dumps.internal, dumps.external);
       if (!det.model || !det.internalOk) {
-        throw new Error("The dumped firmware doesn't match a known stock Mario/Zelda ROM — backup not saved.");
+        throw new Error(locale.t.officialFirmware.errFirmwareMismatch);
       }
       dir = await writeBackup(dir, det.model, dumps);
       const fb: FoundBackup = {
@@ -197,45 +218,112 @@
     }
   }
 
-  // ConfirmModal run: patch the selected backup, then flash internal → bank 1 + external → bank 0.
-  async function run(
-    report: (d: number, t: number, sub?: { value: number; max: number; label: string }) => void,
-  ): Promise<void> {
+  // Phase shape mirrors Wizard.svelte's already-migrated step1 (Backup & Patch): patch, then
+  // the two flash sub-phases patchAndFlash reports via its own progressReport(sub.label), then
+  // a rescan. This flow's backup is already selected (step 1 above), so there's no
+  // locate-backup/read-device phase here.
+  const patchPhases: PhaseDef[] = [
+    { id: "patch", label: locale.t.officialFirmware.phasePatch },
+    { id: "flash-internal", label: locale.t.officialFirmware.phaseFlashInternal },
+    { id: "flash-external", label: locale.t.officialFirmware.phaseFlashExternal },
+    { id: "rescan", label: locale.t.officialFirmware.phaseRescan },
+  ];
+
+  async function run(report: PhaseReporter): Promise<void> {
     const sel = selected!;
-    await patchAndFlash((force) => device.ensureStub(undefined, force), sel.model, sel.internal, sel.external, { bootloader }, report, device.extFlashBytes);
+    report.start("patch");
+    report.log("patch", locale.t.officialFirmware.logPatchingModel(sel.model));
+    let flashInternalStarted = false;
+    let flashExternalStarted = false;
+    device.suspendPoll();
+    try {
+      await patchAndFlash(
+        (force) => device.ensureStub(undefined, force, true),
+        sel.model,
+        sel.internal,
+        sel.external,
+        { bootloader },
+        (d, t, sub) => {
+          if (sub?.label === "internal → bank 1") {
+            if (!flashInternalStarted) {
+              flashInternalStarted = true;
+              report.finish("patch");
+              report.start("flash-internal");
+            }
+            report.progress("flash-internal", sub.value, sub.max);
+          } else if (sub?.label === "external → bank 0") {
+            if (!flashExternalStarted) {
+              flashExternalStarted = true;
+              if (flashInternalStarted) report.finish("flash-internal");
+              report.start("flash-external");
+            }
+            report.progress("flash-external", sub.value, sub.max);
+          }
+        },
+        undefined,
+        device.extFlashBytes,
+      );
+    } finally {
+      device.resumePoll();
+    }
+    if (flashInternalStarted) report.finish("flash-internal");
+    if (flashExternalStarted) report.finish("flash-external");
+
+    report.start("rescan");
+    report.log("rescan", "Rescanning device geometry…");
+    await device.runScan();
+    report.finish("rescan");
   }
 
   const modalBody = $derived.by(() => {
     if (!selected) return "";
-    const base =
-      `Patches the ${modelLabel(selected.model)} stock firmware${bootloader ? " (with the SD-card bootloader)" : ""} ` +
-      `and flashes it: internal → bank 1, external → bank 0. ` +
-      `Do not move or unplug the device during the write — it can fail the flash.`;
-    return dangerous
-      ? `⚠ You are flashing ZELDA firmware onto MARIO hardware, which lacks two of the buttons Zelda needs. ${base}`
-      : base;
+    const base = locale.t.officialFirmware.modalBodyBase(modelLabel(selected.model), bootloader);
+    return dangerous ? locale.t.officialFirmware.modalBodyDangerPrefix(base) : base;
   });
+
+  function openPatch() {
+    patchErr = null;
+    patched = false;
+    void installProgress.run({
+      title: locale.t.officialFirmware.modalTitle,
+      body: modalBody,
+      danger: true,
+      confirmText: locale.t.officialFirmware.modalConfirmText,
+      phases: patchPhases,
+      exec: async (report) => {
+        try {
+          await run(report);
+          patched = true;
+          void device.runScan();
+        } catch (e) {
+          patchErr = e instanceof Error ? e.message : String(e);
+          throw e;
+        }
+      },
+    });
+  }
 </script>
 
 <div class="ofw">
   <!-- Step 1 — Firmware Backup -->
   <section class="step">
-    <h4 class="steph"><span class="num">1</span> Firmware Backup</h4>
+    <h4 class="steph"><Badge>1</Badge> {locale.t.officialFirmware.step1Title}</h4>
     {#if !supported}
-      <p class="notice">Folder selection needs a Chromium browser (same as WebUSB).</p>
+      <p class="notice">{locale.t.officialFirmware.chromiumRequired}</p>
     {/if}
+    <p class="muted">{locale.t.officialFirmware.pickFolderIntro}</p>
     <p class="muted">
-      Pick a folder holding your stock backups, or an empty folder to back up into. We look for
-      <span class="mono">internal_flash_backup_*.bin</span> + <span class="mono">flash_backup_*.bin</span>
-      and validate them by hash.
+      {locale.t.officialFirmware.pickFolderLookForPre}
+      <span class="mono">{locale.t.officialFirmware.internalBackupFilename}</span> + <span class="mono">{locale.t.officialFirmware.externalBackupFilename}</span>
+      {locale.t.officialFirmware.pickFolderBodyPost}
     </p>
     <div class="pickrow">
       <Button variant="default" disabled={!supported || backupBusy} onclick={doPickFolder}>
-        {dir ? "Choose a different folder" : "Choose backup folder"}
+        {dir ? locale.t.officialFirmware.chooseDifferentFolder : locale.t.officialFirmware.chooseBackupFolder}
       </Button>
       {#if !dir && pendingDir}
         <Button variant="quiet" disabled={backupBusy} onclick={reconnectFolder}>
-          Reconnect last folder
+          {locale.t.officialFirmware.reconnectLastFolder}
         </Button>
       {/if}
     </div>
@@ -246,16 +334,16 @@
       {#if scanResults.length > 0}
         <!-- A folder may hold both Mario and Zelda backups — pick one. -->
         <fieldset class="picklist">
-          <legend>Stock backup{scanResults.length > 1 ? "s" : ""} found in this folder</legend>
+          <legend>{locale.t.officialFirmware.backupsFoundLegend(scanResults.length > 1)}</legend>
           {#each scanResults as fb (fb.model)}
             <label class="pick">
               <input type="radio" name="ofw-backup" value={fb.model} bind:group={chosenModel} />
               <span class="pmodel">{modelLabel(fb.model)}</span>
               {#if fb.internalOk && fb.externalOk}
-                <span class="chip ok-chip">✓ valid</span>
+                <span class="chip ok-chip">{locale.t.officialFirmware.validChip}</span>
               {:else}
                 <span class="chip bad-chip">
-                  ✗ invalid (int {fb.internalOk ? "✓" : "✗"} · ext {fb.externalOk ? "✓" : "✗"})
+                  {locale.t.officialFirmware.invalidChip(fb.internalOk, fb.externalOk)}
                 </span>
               {/if}
             </label>
@@ -265,32 +353,29 @@
 
       {#if backupValid && chosen}
         <p class="ok">
-          ✓ Valid {modelLabel(chosen.model)} stock backup selected (internal + external hashes match).
+          {locale.t.officialFirmware.validBackupSelected(modelLabel(chosen.model))}
         </p>
       {:else if chosen && !backupValid}
         <p class="notice warn">
-          The {modelLabel(chosen.model)} backup failed validation
-          (internal {chosen.internalOk ? "✓" : "✗"} · external {chosen.externalOk ? "✓" : "✗"}).
-          Take a fresh backup below.
+          {locale.t.officialFirmware.backupFailedValidation(modelLabel(chosen.model), chosen.internalOk, chosen.externalOk)}
         </p>
       {:else if noBackup}
-        <p class="muted">No stock backup in this folder yet — back one up from the connected device.</p>
+        <p class="muted">{locale.t.officialFirmware.noBackupYet}</p>
       {/if}
 
       <!-- Fresh backup from the device (needs the RAM util). -->
       {#if offerBackup}
         {#if alreadyPatched}
           <p class="notice">
-            This device is already running <strong>patched Retro-Go</strong> firmware, so there's no
-            stock firmware on it to back up. To install a <strong>different</strong> official firmware
-            (e.g. Mario ↔ Zelda), choose a folder above that holds a Mario or Zelda stock backup, then
-            patch it below.
+            {locale.t.officialFirmware.alreadyPatchedNoticePre} <strong>{locale.t.officialFirmware.alreadyPatchedNoticeBold}</strong>
+            {locale.t.officialFirmware.alreadyPatchedNoticePost} <strong>{locale.t.officialFirmware.alreadyPatchedNoticeDifferentBold}</strong>
+            {locale.t.officialFirmware.alreadyPatchedNoticeEnd}
           </p>
         {:else}
           {#if device.locked}
             <label class="check">
               <input type="checkbox" bind:checked={unlockOptIn} disabled={backupBusy} />
-              Unlock device <em>(removes RDP read-protection — required to read a locked device)</em>
+              {locale.t.officialFirmware.unlockDeviceLabel} <em>{locale.t.officialFirmware.unlockDeviceHint}</em>
             </label>
           {/if}
           <div>
@@ -299,12 +384,12 @@
               disabled={!device.isConnected || backupBusy || (device.locked === true && !unlockOptIn)}
               onclick={doBackup}
             >
-              {backupBusy ? "Backing up…" : "Back up now"}
+              {backupBusy ? locale.t.officialFirmware.backingUp : locale.t.officialFirmware.backUpNow}
             </Button>
             {#if !device.isConnected}
-              <span class="hint">Connect a device to back up.</span>
+              <span class="hint">{locale.t.officialFirmware.connectToBackUp}</span>
             {:else if device.locked === true && !unlockOptIn}
-              <span class="hint">Opt in to unlock to back up a locked device.</span>
+              <span class="hint">{locale.t.officialFirmware.optInToUnlock}</span>
             {/if}
           </div>
           {#if backupBusy}
@@ -322,75 +407,55 @@
   <!-- Step 2 — Patch (only once a valid stock backup is selected) -->
   {#if selected}
     <section class="step">
-      <h4 class="steph"><span class="num">2</span> Patch firmware</h4>
+      <h4 class="steph"><Badge>2</Badge> {locale.t.officialFirmware.step2Title}</h4>
       <p class="muted">
-        Patches the {modelLabel(selected.model)} stock firmware into a Retro-Go dual-boot.
-        One-size-fits-all — no extra options.
+        {locale.t.officialFirmware.step2Body(modelLabel(selected.model))}
       </p>
       <label class="check">
         <input type="checkbox" bind:checked={bootloader} />
-        Install bootloader <em>(recommended)</em>
+        {locale.t.officialFirmware.installBootloaderLabel} <em>{locale.t.officialFirmware.installBootloaderHint}</em>
       </label>
 
       {#if dangerous}
         <div class="danger">
           <p>
-            <strong>⚠ Cross-model:</strong> this is <strong>Zelda</strong> firmware, but the connected
-            hardware scanned as <strong>Mario</strong>. Mario hardware lacks two of the buttons Zelda
-            needs — the result may be partly unusable.
+            <strong>{locale.t.officialFirmware.crossModelDangerBold}</strong> {locale.t.officialFirmware.crossModelDangerBody}
           </p>
           <label class="check">
             <input type="checkbox" bind:checked={ackCrossModel} />
-            I understand and want to flash Zelda firmware onto Mario hardware anyway
+            {locale.t.officialFirmware.crossModelAck}
           </label>
         </div>
       {:else if crossModel}
         <p class="muted">
-          Note: backup is {modelLabel(selected.model)} firmware on {modelLabel(device.model)} hardware
-          — allowed.
+          {locale.t.officialFirmware.crossModelAllowedNote(modelLabel(selected.model), modelLabel(device.model))}
         </p>
       {/if}
 
       {#if tooBig}
         <p class="notice warn">
-          ⛔ This {modelLabel(selected.model)} backup's external image
-          ({MiB(selected.external.length)} MB) is larger than this device's external flash
-          ({MiB(device.extFlashBytes)} MB) — it physically won't fit and can't be flashed here.
+          {locale.t.officialFirmware.tooBigNotice(modelLabel(selected.model), MiB(selected.external.length), MiB(device.extFlashBytes))}
         </p>
       {/if}
 
       <div>
-        <Button variant="action" disabled={!canPatch} onclick={() => (modalOpen = true)}>
-          Patch firmware
-        </Button>
-        {#if !device.isConnected}<span class="hint">Connect a device to patch + flash.</span>{/if}
+        {#if !device.utilLoaded}
+          <Button variant="action" disabled={!device.isConnected || enteringRecovery} onclick={enterRecoveryAndScan}>
+            {enteringRecovery ? locale.t.officialFirmware.enteringRecoveryMode : locale.t.officialFirmware.enterRecoveryMode}
+          </Button>
+        {:else}
+          <Button variant="action" disabled={!canPatch} onclick={openPatch}>
+            {locale.t.officialFirmware.patchFirmwareButton}
+          </Button>
+        {/if}
+        {#if !device.isConnected}<span class="hint">{locale.t.officialFirmware.connectToPatchAndFlash}</span>{/if}
       </div>
-      {#if patched}<p class="ok">✓ Patched + flashed.</p>{/if}
+      {#if recoveryErr}<p class="notice warn">{recoveryErr}</p>{/if}
+      {#if patched}<p class="ok">{locale.t.officialFirmware.patchedAndFlashed}</p>{/if}
       {#if patchErr}<p class="notice warn">{patchErr}</p>{/if}
     </section>
   {/if}
 </div>
-
-<ConfirmModal
-  open={modalOpen}
-  title="Patch + flash official firmware?"
-  body={modalBody}
-  danger
-  confirmText="Patch & flash"
-  run={async (report) => {
-    patchErr = null;
-    patched = false;
-    try {
-      await run(report);
-      patched = true;
-      void device.runScan();
-    } catch (e) {
-      patchErr = e instanceof Error ? e.message : String(e);
-      throw e;
-    }
-  }}
-  onClose={() => (modalOpen = false)}
-/>
 
 <style>
   .ofw {
@@ -416,17 +481,6 @@
     font-size: var(--fs-caption);
     font-weight: 600;
     color: var(--ink);
-  }
-  .num {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.3rem;
-    height: 1.3rem;
-    border-radius: 50%;
-    background: var(--model-accent);
-    color: #fff;
-    font-size: var(--fs-micro);
   }
   .muted {
     margin: 0;

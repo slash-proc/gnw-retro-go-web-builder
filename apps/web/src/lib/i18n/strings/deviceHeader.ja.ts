@@ -1,0 +1,33 @@
+import type { DeviceHeaderStrings } from "./deviceHeader.js";
+
+export const deviceHeaderJa: DeviceHeaderStrings = {
+  changeInstallationMethod: "インストール方法を変更",
+  sdCard: "💾 SDカード",
+  internalFlash: "⚡ 内蔵フラッシュ",
+  connectionLost: "接続が切断されました",
+  noConnection: "未接続",
+  connectedRecoveryMode: "接続済み（リカバリーモード）",
+  connectedRetroGo: "接続済み（Retro-Go）",
+  connectedAs: (label: string) => `接続済み（${label}）`,
+  connected: "接続済み",
+  scanning: "スキャン中…",
+  dash: "—",
+  patchMissing: "パッチが見つかりません",
+  notInstalled: "未インストール",
+  none: "なし",
+  mario: "マリオ",
+  zelda: "ゼルダ",
+  patched: "パッチ済み",
+  stock: "純正",
+  ofwLabel: (model: string, status: string) => `${model}（${status}）`,
+  toggleTheme: "ライト／ダークモード切り替え",
+  toggleThemeAria: "テーマを切り替え",
+  toggleLanguage: "言語を切り替え",
+  toggleLanguageAria: "言語を切り替え",
+  changeMethodTitle: "インストール方法を変更しますか？",
+  changeMethodBody:
+    "別のインストール方法を選び直しますか？ この操作を行うとデバイスとの接続が切断され、ホーム画面に戻ります。",
+  changeMethodConfirm: "方法を変更",
+  logoRgoAlt: "Retro-Go",
+  logoOfwAlt: "純正ファームウェア",
+};

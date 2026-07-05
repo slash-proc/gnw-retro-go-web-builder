@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { locale } from "../i18n/locale.svelte.js";
+
   let {
     accept = "",
     disabled = false,
-    label = "Choose file",
+    label,
     onpick,
   }: { accept?: string; disabled?: boolean; label?: string; onpick?: (f: File | null) => void } = $props();
 
@@ -15,8 +17,8 @@
 </script>
 
 <label class="pick" class:disabled>
-  <span class="cap">{label}</span>
-  <span class="name">{name ?? "No file chosen"}</span>
+  <span class="cap">{label ?? locale.t.shared.filePick.defaultLabel}</span>
+  <span class="name">{name ?? locale.t.shared.filePick.noFileChosen}</span>
   <input type="file" {accept} {disabled} onchange={change} />
 </label>
 

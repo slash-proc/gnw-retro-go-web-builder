@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Spring } from "svelte/motion";
+  import { locale } from "../i18n/locale.svelte.js";
   
   const ASPECT = 1.3;
   const SIDE = 4;
@@ -275,7 +276,7 @@
 
   <div class="coverflow-stage" aria-live="polite">
     {#if covers.length === 0}
-      <div class="coverflow-empty">No Games</div>
+      <div class="coverflow-empty">{locale.t.roms.carousel.noGames}</div>
     {:else}
       <div 
         class="coverflow-viewport" 
@@ -303,7 +304,7 @@
                   width: {cardW}px;
                   height: {cardH}px;
                   transform: translate(-50%, -50%) translateX({layout.x}px) translateZ({layout.z}px) rotateY({layout.ry}deg) scale({layout.sc});
-                  z-index: {100 - a};
+                  z-index: {20 - a};
                   opacity: {Math.max(0, 1 - a * 0.12)};
                   pointer-events: none;
                 "
@@ -313,7 +314,7 @@
                 {#if cover.url}
                   <img src={cover.url} alt="" data-version={version} draggable={false} onload={(e) => onImgLoad(cover.id, e)} />
                 {:else}
-                  <span class="coverflow-item__placeholder"></span>
+                  <span class="coverflow-item__placeholder">{locale.t.roms.carousel.noCover}</span>
                 {/if}
               </button>
             {/if}
@@ -444,9 +445,6 @@
     padding: 1rem;
     box-sizing: border-box;
   }
-  .coverflow-item__placeholder::after {
-    content: "No Cover";
-  }
   .alphabet-scrubber-container {
     width: 66%;
     max-width: none;
@@ -479,7 +477,7 @@
     border-radius: 7px;
     transform: translate(-50%, -50%);
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    z-index: 10;
+    z-index: 2;
     transition: background 0.1s;
     cursor: ew-resize;
   }

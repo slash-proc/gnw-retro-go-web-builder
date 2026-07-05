@@ -1,15 +1,14 @@
 <script lang="ts">
   import { device } from "../device.svelte.js";
-  import { roms } from "../roms.svelte.js";
-  import { loadSel, saveSel } from "../persist.js";
-  import DeferredSection from "./DeferredSection.svelte";
   import AccordionSection from "./AccordionSection.svelte";
+  import Button from "../ui/Button.svelte";
   import RomSection from "./RomSection.svelte";
   import DumpSection from "./DumpSection.svelte";
   import FlashSection from "./FlashSection.svelte";
   import EraseSection from "./EraseSection.svelte";
   import OfficialFirmwareSection from "./OfficialFirmwareSection.svelte";
   import FileBrowserSection from "./FileBrowserSection.svelte";
+  import { locale } from "../i18n/locale.svelte.js";
 
   // Tab: Device / Retro-Go Management. Three groups, top → bottom:
   //   1. Official Firmware — Backup → Patch-for-Dualboot (accordion).
@@ -30,18 +29,19 @@
   // File-manager device-FS items need a modded (retro-go) device to be meaningful.
   const gated = $derived(device.deviceClass?.kind !== "retrogo-sd" && device.deviceClass?.kind !== "retrogo-old");
 
-  // Install target: flash (default) or SD — both ALWAYS selectable (someone installing the SD
-  // build is hunting for that button; SD detection can't cover every mod). Remembered per visit.
-  let installMode = $state<"flash" | "sd">(loadSel("installMode", "flash"));
-  $effect(() => saveSel("installMode", installMode));
+  // Auto-naming: "Install" until Retro-Go is found anywhere on the device, then "Reinstall".
+  const retroGoInstalledAnywhere = $derived(device.banks.some((b) => b.retroGoVersion));
+  const installSectionTitle = $derived(
+    retroGoInstalledAnywhere ? locale.t.retroGoTab.reinstallRetroGoTitle : locale.t.retroGoTab.installRetroGoTitle,
+  );
 </script>
 
 <div class="stack">
   <!-- 1. Official Firmware — staged backup → patch flow, in the shared accordion style. Default-
        opened by Advanced.svelte when stock firmware is detected. -->
   <div class="group">
-    <h3 class="subhead">Official Firmware</h3>
-    <AccordionSection id="ofw" title="Backup & Patch" open={openSet.has("ofw")} {onToggle}>
+    <h3 class="subhead">{locale.t.retroGoTab.officialFirmwareHeading}</h3>
+    <AccordionSection id="ofw" title={locale.t.retroGoTab.backupAndPatchTitle} open={openSet.has("ofw")} {onToggle}>
       <OfficialFirmwareSection />
     </AccordionSection>
   </div>
@@ -50,47 +50,44 @@
        Flash (default) vs SD via the switch — both always selectable. RomSection renders inside.
        The FS tools need a modded (retro-go) device, so they gate on that. -->
   <div class="group">
-    <h3 class="subhead">Retro-Go</h3>
-    <AccordionSection id="install" title="Install / Repair" open={openSet.has("install")} {onToggle}>
+    <h3 class="subhead">{locale.t.retroGoTab.retroGoHeading}</h3>
+    <AccordionSection id="install" title={installSectionTitle} open={openSet.has("install")} {onToggle}>
       <div class="install">
-        <div class="seg" role="group" aria-label="Install target">
-          <button class="opt" class:active={installMode === "flash"} onclick={() => (installMode = "flash")}>
-            Flash
-          </button>
-          <button class="opt" class:active={installMode === "sd"} onclick={() => (installMode = "sd")}>
-            SD
-          </button>
-        </div>
-
-        <RomSection {installMode} onRunning={(r) => onRunning("install", r)} />
+        {#if device.scanning}
+          <!-- The bank inference (RomSection's `inferredBank`) and the "Install"/"Reinstall"
+               title above both read device.banks, which is empty pre-scan and settles
+               asynchronously — rendering the real content here mid-scan means showing a
+               bank-1 default that then jumps to whatever the scan actually finds. Mask it
+               behind a scanning placeholder instead, same idea as the Overview tab's external-
+               flash panel. -->
+          <div class="placeholder">{locale.t.retroGoTab.scanningDevice}</div>
+        {:else if device.utilLoaded}
+          <RomSection installMode={device.targetMedia} onRunning={(r) => onRunning("install", r)} />
+        {:else}
+          <Button variant="action" onclick={() => device.ensureStub()}>{locale.t.retroGoTab.enterRecoveryMode}</Button>
+        {/if}
       </div>
     </AccordionSection>
 
     <div class="sections" class:disabled={gated} aria-disabled={gated}>
       <AccordionSection
         id="lfs"
-        title="File Browser"
+        title={locale.t.retroGoTab.fileBrowserTitle}
         open={openSet.has("lfs")}
         {onToggle}
       >
-        <FileBrowserSection />
+        {#if device.utilLoaded}
+          <FileBrowserSection />
+        {:else}
+          <Button variant="action" onclick={() => device.ensureStub()}>{locale.t.retroGoTab.enterRecoveryMode}</Button>
+        {/if}
       </AccordionSection>
-      <DeferredSection
-        id="screenshots"
-        title="Screenshots"
-        open={openSet.has("screenshots")}
-        {onToggle}
-        chipText="none found"
-        will="List and download screenshots Retro-Go saved on the device (LittleFS flash or SD FatFS) — mostly useful for LittleFS users; shows none when the filesystem has no screenshots."
-        needs="the same device FS read bindings as the File Browser (sdListDir / sdRead). No separate screenshot() op."
-        control="Load screenshots"
-      />
     </div>
   </div>
 
   <!-- 4. Flash management — dump / flash arbitrary images at offsets. -->
   <div class="group">
-    <h3 class="subhead">Flash management</h3>
+    <h3 class="subhead">{locale.t.retroGoTab.flashManagementHeading}</h3>
     <DumpSection open={openSet.has("dump")} {onToggle} onRunning={(r) => onRunning("dump", r)} />
     <FlashSection
       open={openSet.has("flash-image")}
@@ -119,38 +116,6 @@
     flex-direction: column;
     gap: 0.85rem;
   }
-  /* [Flash | SD] segmented switch. */
-  .seg {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-  .seg .opt {
-    font: inherit;
-    font-size: var(--fs-caption);
-    font-weight: 600;
-    color: var(--ink-soft);
-    background: var(--surface-sunk);
-    border: 1px solid var(--hairline);
-    padding: 0.25rem 0.95rem;
-    cursor: pointer;
-  }
-  .seg .opt:first-of-type {
-    border-radius: var(--r-control) 0 0 var(--r-control);
-  }
-  .seg .opt:last-of-type {
-    border-radius: 0 var(--r-control) var(--r-control) 0;
-    border-left: none;
-  }
-  .seg .opt.active {
-    background: var(--surface);
-    color: var(--ink);
-    border-color: var(--model-accent);
-  }
-  .seg .opt:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
   .sections {
     display: flex;
     flex-direction: column;
@@ -173,5 +138,11 @@
     font-size: var(--fs-caption);
     font-weight: 600;
     color: var(--ink-soft);
+  }
+  .placeholder {
+    margin: 0;
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
+    opacity: 0.7;
   }
 </style>

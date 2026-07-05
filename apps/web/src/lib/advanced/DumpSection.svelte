@@ -2,12 +2,13 @@
   import { device } from "../device.svelte.js";
   import { dumpRegion } from "../engine/flasher.js";
   import { download, kb } from "../util.js";
-  import { parseAddr, hex, hex8, commas, BANK_BASE, BANKS, regionSize } from "./addr.js";
+  import { parseAddr, hex, hex8, commas, BANK_BASE, bankOptions, regionSize } from "./addr.js";
   import AccordionSection, { type ChipKind } from "./AccordionSection.svelte";
   import Button from "../ui/Button.svelte";
   import Progress from "../ui/Progress.svelte";
   import GeometryBar from "../ui/GeometryBar.svelte";
   import { extflashSegments, intflashSegments, type GeoSegment } from "../engine/classify.js";
+  import { locale } from "../i18n/locale.svelte.js";
 
   // §A.2 — Dump flash (cancelable read). Real, wired to readFlash via dumpRegion.
   let {
@@ -28,6 +29,8 @@
   let result = $state<string | null>(null); // success summary
   let canceledChip = $state(false);
   let startedAt = 0;
+
+  const BANKS = $derived(bankOptions(locale.t.shared.bankSelect));
 
   const extSize = $derived(device.extFlashBytes);
   const intSegs = $derived(intflashSegments(device.banks));
@@ -52,13 +55,13 @@
   );
   const chipText = $derived(
     dumping
-      ? `reading ${total > 0 ? Math.round((100 * done) / total) : 0}%`
+      ? locale.t.dumpSection.readingPct(total > 0 ? Math.round((100 * done) / total) : 0)
       : lockedGuard
-        ? "locked"
+        ? locale.t.dumpSection.lockedChip
         : canceledChip
-          ? "canceled"
+          ? locale.t.dumpSection.canceledChip
           : error
-            ? "error"
+            ? locale.t.dumpSection.errorChip
             : ""
   );
 
@@ -72,6 +75,21 @@
     if (s.bank !== undefined) bank = s.bank;
     if (s.offset !== undefined) offset = hex(s.offset);
     if (s.size !== undefined) length = hex(s.size);
+  }
+
+  // Dumping intflash (bank 1/2) only needs a connection. Dumping extflash (bank 0) needs
+  // Recovery Mode (the stub) — if it's not booted yet, the button becomes "Enter Recovery Mode".
+  const needsRecovery = $derived(bank === 0 && !device.utilLoaded);
+
+  async function enterRecovery() {
+    error = null;
+    try {
+      await device.ensureStub();
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes("cancelled"))) {
+        error = e instanceof Error ? e.message : String(e);
+      }
+    }
   }
 
   async function dump() {
@@ -95,7 +113,7 @@
       });
       download(filename, data);
       const secs = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-      result = `${(data.length / (1 << 20)).toFixed(1)} MiB read in ${secs} s`;
+      result = locale.t.dumpSection.resultSummary((data.length / (1 << 20)).toFixed(1), secs);
     } catch (e) {
       if (canceled) canceledChip = true;
       else error = e instanceof Error ? e.message : String(e);
@@ -106,30 +124,36 @@
   }
 </script>
 
-<AccordionSection id="dump" title="Dump flash" {open} running={dumping} {chipKind} {chipText} {onToggle}>
+<AccordionSection id="dump" title={locale.t.dumpSection.title} {open} running={dumping} {chipKind} {chipText} {onToggle}>
+  {#if device.scanning}
+    <!-- The bank/offset quick-fills and geometry bars below all read device.banks/partitions,
+         which are mid-flight during a scan — mask the section instead of showing a stale or
+         half-populated layout. -->
+    <div class="placeholder">{locale.t.dumpSection.scanningDevice}</div>
+  {:else}
   <div class="stack">
-    <p class="muted">Read any region of any bank to a downloaded file. You can cancel mid-read.</p>
+    <p class="muted">{locale.t.dumpSection.intro}</p>
 
     <div class="bars">
       {#if intSegs.length > 0}
         <div class="bar-group">
-          <GeometryBar 
-            segments={intSegs} 
-            title="Internal Flash (1 MiB)" 
-            leftLabel={hex(0x08000000)} 
-            rightLabel={hex(0x08200000)} 
+          <GeometryBar
+            segments={intSegs}
+            title={locale.t.dumpSection.internalFlashTitle}
+            leftLabel={hex(0x08000000)}
+            rightLabel={hex(0x08200000)}
             onClick={handleGeoClick}
           />
         </div>
       {/if}
-      
+
       {#if extSegs.length > 0}
         <div class="bar-group">
-          <GeometryBar 
-            segments={extSegs} 
-            title="External Flash" 
-            leftLabel={hex(0x90000000)} 
-            rightLabel={hex(0x90000000 + extSize)} 
+          <GeometryBar
+            segments={extSegs}
+            title={locale.t.dumpSection.externalFlashTitle}
+            leftLabel={hex(0x90000000)}
+            rightLabel={hex(0x90000000 + extSize)}
             onClick={handleGeoClick}
           />
         </div>
@@ -137,55 +161,59 @@
     </div>
 
     <div class="grid">
-      <label class="field"><span>Bank</span>
+      <label class="field"><span>{locale.t.dumpSection.bankLabel}</span>
         <select class="mono" bind:value={bank} disabled={dumping}>
           {#each BANKS as b (b.v)}<option value={b.v}>{b.label}</option>{/each}
         </select>
       </label>
-      <label class="field"><span>Offset</span>
-        <input class="mono" bind:value={offset} disabled={dumping} placeholder="0x0" />
+      <label class="field"><span>{locale.t.dumpSection.offsetLabel}</span>
+        <input class="mono" bind:value={offset} disabled={dumping} placeholder={locale.t.dumpSection.offsetPlaceholder} />
       </label>
-      <label class="field"><span>Length</span>
-        <input class="mono" bind:value={length} disabled={dumping} placeholder="whole region" />
+      <label class="field"><span>{locale.t.dumpSection.lengthLabel}</span>
+        <input class="mono" bind:value={length} disabled={dumping} placeholder={locale.t.dumpSection.lengthPlaceholder} />
       </label>
     </div>
 
     <div class="chips">
-      <button class="qf" disabled={dumping} onclick={() => fill(0, region)}>Whole region</button>
-      <button class="qf" disabled={dumping} onclick={() => fill(offBytes || 0, 128 * 1024)}>128 KiB</button>
-      <button class="qf" disabled={dumping} onclick={() => fill(offBytes || 0, 1024 * 1024)}>1 MiB</button>
-      <button class="qf" disabled={dumping} onclick={() => fill(0, 0x20000)}>Stock OFW intflash (0–0x20000)</button>
+      <button class="qf" disabled={dumping} onclick={() => fill(0, region)}>{locale.t.dumpSection.quickFillWholeRegion}</button>
+      <button class="qf" disabled={dumping} onclick={() => fill(offBytes || 0, 128 * 1024)}>{locale.t.dumpSection.quickFill128Kib}</button>
+      <button class="qf" disabled={dumping} onclick={() => fill(offBytes || 0, 1024 * 1024)}>{locale.t.dumpSection.quickFill1Mib}</button>
+      <button class="qf" disabled={dumping} onclick={() => fill(0, 0x20000)}>{locale.t.dumpSection.quickFillStockOfw}</button>
     </div>
 
     {#if lockedGuard}
       <p class="notice">
-        🔒 Internal flash is unreadable while the device is locked — unlocking happens automatically
-        during Easy setup&rsquo;s backup step. (Bank 0 / external stays readable.)
+        {locale.t.dumpSection.lockedNotice}
       </p>
     {:else if length.trim() === ""}
-      <p class="muted small">Length blank = whole region from offset.</p>
+      <p class="muted small">{locale.t.dumpSection.lengthBlankHint}</p>
     {/if}
 
     <div class="well mono">
-      <div>Plan: {hex8(base + (offBytes || 0))} → {hex8(base + (offBytes || 0) + (lenBytes || 0))}</div>
-      <div>{commas(lenBytes || 0)} bytes → {filename}</div>
-      {#if overrun}<div class="warn">Length exceeds region; will clamp to {commas(region - (offBytes || 0))} bytes.</div>{/if}
+      <div>{locale.t.dumpSection.planLine(hex8(base + (offBytes || 0)), hex8(base + (offBytes || 0) + (lenBytes || 0)))}</div>
+      <div>{locale.t.dumpSection.planBytesLine(commas(lenBytes || 0), filename)}</div>
+      {#if overrun}<div class="warn">{locale.t.dumpSection.overrunWarning(commas(region - (offBytes || 0)))}</div>{/if}
     </div>
 
     {#if !dumping}
       <div>
-        <Button variant="action" disabled={!valid} onclick={dump}>Dump to file</Button>
-        {#if !valid && !lockedGuard}<span class="hint">Enter a valid offset and length.</span>{/if}
+        {#if needsRecovery}
+          <Button variant="action" onclick={enterRecovery}>{locale.t.dumpSection.enterRecoveryMode}</Button>
+        {:else}
+          <Button variant="action" disabled={!valid} onclick={dump}>{locale.t.dumpSection.dumpToFile}</Button>
+          {#if !valid && !lockedGuard}<span class="hint">{locale.t.dumpSection.invalidHint}</span>{/if}
+        {/if}
       </div>
     {:else}
-      <Progress value={done} max={total} label={`${kb(done)} / ${kb(total)} KB`} />
-      <div><Button onclick={() => (canceled = true)}>Cancel</Button></div>
-      <p class="muted small">A read is non-destructive — cancel discards the partial dump (no file).</p>
+      <Progress value={done} max={total} label={locale.t.dumpSection.progressLabel(String(kb(done)), String(kb(total)))} />
+      <div><Button onclick={() => (canceled = true)}>{locale.t.dumpSection.cancel}</Button></div>
+      <p class="muted small">{locale.t.dumpSection.cancelHint}</p>
     {/if}
 
     {#if result}<p class="ok">{result}</p>{/if}
     {#if error}<p class="err mono">{error}</p>{/if}
   </div>
+  {/if}
 </AccordionSection>
 
 <style>
@@ -193,6 +221,12 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+  .placeholder {
+    margin: 0;
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
+    opacity: 0.7;
   }
   .muted {
     color: var(--ink-soft);
