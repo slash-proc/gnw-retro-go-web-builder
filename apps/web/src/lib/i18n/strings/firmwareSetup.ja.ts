@@ -307,6 +307,9 @@ export const fileBrowserSectionJa: FileBrowserSectionStrings = {
   noLittlefsFiles: "LittleFSにファイルが見つかりません。",
   readingLittlefs: (pct: number) => `SWD経由でLittleFSパーティションを読み出し中（${pct}%）...`,
   browserNotAvailable: (kind: string) => `${kind}にはファイルブラウザが利用できません。`,
+  downloadTitle: (path: string) => `${path} をデバイスからダウンロード`,
+  downloadNeedsRecovery: "ファイルをダウンロードするにはリカバリーモードを開始してください。",
+  downloadFailed: (err: string) => `ダウンロードに失敗しました: ${err}`,
 };
 
 // retroGoTab: RetroGoTab.svelte — the Firmware Setup tab shell (group headings + section titles).

@@ -301,6 +301,9 @@ export const fileBrowserSectionEs: FileBrowserSectionStrings = {
   noLittlefsFiles: "No se encontraron archivos en LittleFS.",
   readingLittlefs: (pct: number) => `Leyendo la partición LittleFS por SWD (${pct}%)...`,
   browserNotAvailable: (kind: string) => `El explorador de archivos no está disponible para ${kind}.`,
+  downloadTitle: (path: string) => `Descargar ${path} del dispositivo`,
+  downloadNeedsRecovery: "Entra en el modo de recuperación para descargar archivos.",
+  downloadFailed: (err: string) => `Error al descargar: ${err}`,
 };
 
 export const retroGoTabEs: RetroGoTabStrings = {

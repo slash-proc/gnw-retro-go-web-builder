@@ -330,6 +330,9 @@ export const fileBrowserSectionPl: FileBrowserSectionStrings = {
   noLittlefsFiles: "Nie znaleziono plików w LittleFS.",
   readingLittlefs: (pct: number) => `Odczytywanie partycji LittleFS przez SWD (${pct}%)...`,
   browserNotAvailable: (kind: string) => `Przeglądarka plików niedostępna dla ${kind}.`,
+  downloadTitle: (path: string) => `Pobierz ${path} z urządzenia`,
+  downloadNeedsRecovery: "Przejdź w Tryb odzyskiwania, aby pobierać pliki.",
+  downloadFailed: (err: string) => `Pobieranie nie powiodło się: ${err}`,
 };
 
 export const retroGoTabPl: RetroGoTabStrings = {

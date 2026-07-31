@@ -5,8 +5,8 @@
   import { extflashSegments } from "../engine/classify.js";
   import type { FrogfsFile, LittlefsTreeNode } from "@gnw/fs-builders";
   import { dumpRegion } from "../engine/flasher.js";
-  import { ensureLfsTree } from "../engine/lfsBrowser.js";
-  import { kb } from "../util.js";
+  import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
+  import { download, kb } from "../util.js";
   import { locale } from "../i18n/locale.svelte.js";
 
   let selectedFs = $state<string | null>(null);
@@ -93,6 +93,25 @@
     }
   }
 
+  // Downloading a file re-reads it block-by-block over SWD via the RAM stub, so it's gated
+  // behind Recovery Mode (device.utilLoaded) exactly like every other on-device read path.
+  // FrogFS rows stay non-interactive — only LittleFS has a per-file reader today.
+  const canDownload = $derived(selectedFs === "littlefs" && device.utilLoaded);
+
+  let downloading = $state<string | null>(null);
+
+  async function downloadFile(node: TreeNode) {
+    if (!canDownload || downloading) return;
+    downloading = node.path;
+    try {
+      download(node.name, await readLfsFile(node.path));
+    } catch (e) {
+      alert(locale.t.fileBrowserSection.downloadFailed(String(e)));
+    } finally {
+      downloading = null;
+    }
+  }
+
   $effect(() => {
     if (selectedFs === "littlefs" && !lfsTree && !lfsLoading && !lfsError) {
       loadLittleFs();
@@ -128,9 +147,25 @@
               {@render renderTree(node.children)}
             {/if}
           {:else}
-            <div class="file">
-              <span class="icon">📄</span> {node.name} <span class="size">({kb(node.size ?? 0)} KB)</span>
-            </div>
+            {#if canDownload}
+              <button
+                class="file downloadable"
+                type="button"
+                disabled={downloading !== null}
+                title={locale.t.fileBrowserSection.downloadTitle(node.path)}
+                onclick={() => downloadFile(node)}
+              >
+                <span class="icon">{downloading === node.path ? "⏳" : "📄"}</span>
+                {node.name} <span class="size">({kb(node.size ?? 0)} KB)</span>
+              </button>
+            {:else}
+              <div
+                class="file"
+                title={selectedFs === "littlefs" ? locale.t.fileBrowserSection.downloadNeedsRecovery : undefined}
+              >
+                <span class="icon">📄</span> {node.name} <span class="size">({kb(node.size ?? 0)} KB)</span>
+              </div>
+            {/if}
           {/if}
         </li>
       {/each}
@@ -211,6 +246,22 @@
   .file {
     padding: 0.25rem 0;
     color: var(--ink-soft);
+  }
+  button.file {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    font: inherit;
+    cursor: pointer;
+  }
+  button.file:hover:not(:disabled) {
+    color: var(--model-accent, var(--brand-blue));
+  }
+  button.file:disabled {
+    cursor: default;
+    opacity: 0.6;
   }
   .size {
     font-size: 0.85em;

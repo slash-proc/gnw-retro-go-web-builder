@@ -310,6 +310,9 @@ export const fileBrowserSectionFr: FileBrowserSectionStrings = {
   noLittlefsFiles: "Aucun fichier trouvé dans LittleFS.",
   readingLittlefs: (pct: number) => `Lecture de la partition LittleFS via SWD (${pct} %)…`,
   browserNotAvailable: (kind: string) => `Navigateur de fichiers indisponible pour ${kind}.`,
+  downloadTitle: (path: string) => `Télécharger ${path} depuis l'appareil`,
+  downloadNeedsRecovery: "Passez en mode de récupération pour télécharger des fichiers.",
+  downloadFailed: (err: string) => `Échec du téléchargement : ${err}`,
 } as const;
 
 // retroGoTab: RetroGoTab.svelte — the Firmware Setup tab shell (group headings + section titles).

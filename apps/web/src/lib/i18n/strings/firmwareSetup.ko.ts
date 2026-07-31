@@ -303,6 +303,9 @@ export const fileBrowserSectionKo: FileBrowserSectionStrings = {
   noLittlefsFiles: "LittleFS에서 파일을 찾을 수 없어요.",
   readingLittlefs: (pct: number) => `SWD로 LittleFS 파티션을 읽는 중 (${pct}%)...`,
   browserNotAvailable: (kind: string) => `${kind}용 파일 브라우저를 사용할 수 없어요.`,
+  downloadTitle: (path: string) => `기기에서 ${path} 내려받기`,
+  downloadNeedsRecovery: "파일을 내려받으려면 복구 모드로 진입하세요.",
+  downloadFailed: (err: string) => `내려받기에 실패했어요: ${err}`,
 } as const;
 
 export const retroGoTabKo: RetroGoTabStrings = {

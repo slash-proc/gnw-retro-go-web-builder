@@ -499,6 +499,9 @@ export const fileBrowserSectionEn = {
   noLittlefsFiles: "No files found in LittleFS.",
   readingLittlefs: (pct: number) => `Reading LittleFS partition over SWD (${pct}%)...`,
   browserNotAvailable: (kind: string) => `File browser not available for ${kind}.`,
+  downloadTitle: (path: string) => `Download ${path} from the device`,
+  downloadNeedsRecovery: "Enter Recovery Mode to download files.",
+  downloadFailed: (err: string) => `Download failed: ${err}`,
 } as const;
 
 export type FileBrowserSectionStrings = Widen<typeof fileBrowserSectionEn>;
@@ -511,6 +514,9 @@ export const fileBrowserSectionDe: FileBrowserSectionStrings = {
   noLittlefsFiles: "Keine Dateien in LittleFS gefunden.",
   readingLittlefs: (pct: number) => `LittleFS-Partition wird über SWD gelesen (${pct} %) …`,
   browserNotAvailable: (kind: string) => `Für ${kind} steht kein Dateibrowser zur Verfügung.`,
+  downloadTitle: (path: string) => `${path} vom Gerät herunterladen`,
+  downloadNeedsRecovery: "Starte den Recovery-Modus, um Dateien herunterzuladen.",
+  downloadFailed: (err: string) => `Download fehlgeschlagen: ${err}`,
 };
 
 // retroGoTab: RetroGoTab.svelte — the Firmware Setup tab shell (group headings + section titles).
