@@ -6,8 +6,15 @@
 import type { GnwFlasher } from "@gnw/gnw-flasher";
 import { patchModel } from "./patch.js";
 import { flashImage, dumpRegion } from "./flasher.js";
+import { dbgLog } from "../debug.js";
+import bootloaderUrl from "@gnw/gnw-patch/vendor/gnw_bootloader_0x08032000.bin?url";
 
 export type OfwModel = "mario" | "zelda";
+
+/** Bank-1 offset the SD bootloader is linked for — 0x08000000 + 200 KiB. The patched
+ *  internal image is deliberately capped at 200 KiB in bootloader mode to leave this
+ *  region free (see gnw-patch's _common_prepare port), so the two never overlap. */
+const BOOTLOADER_OFFSET = 200 << 10; // 0x32000 → flashed at 0x08032000
 
 const SHEET_OFFSET = 8192; // mario external hash excludes the trailing save bank
 const INTERNAL_STOCK_LEN = 0x20000; // 128 KiB stock internal image (also the patch-engine input size)
@@ -134,17 +141,51 @@ export async function patchAndFlash(
         `external flash is only ${(extFlashBytes / 1048576).toFixed(2)} MB — it won't fit.`,
     );
   }
-  const intLen = res.internal.length;
+  // In bootloader (dual-boot) mode the SD bootloader is a THIRD image, flashed into the
+  // 200 KiB-onward region of bank 1 that the patch deliberately leaves free. gnwmanager
+  // does this as a separate `flash-bootloader` step; the browser flow has to do it inline
+  // or the device is left with a dual-boot firmware and no bootloader to boot with.
+  const wantBootloader = options.bootloader === true;
+  const boot = wantBootloader
+    ? new Uint8Array(await (await fetch(bootloaderUrl)).arrayBuffer())
+    : new Uint8Array(0);
+  if (boot.length && res.internal.length > BOOTLOADER_OFFSET) {
+    throw new Error(
+      `Patched internal image is ${res.internal.length} bytes, which overlaps the bootloader ` +
+        `region at 0x${(0x08000000 + BOOTLOADER_OFFSET).toString(16)} — refusing to flash.`,
+    );
+  }
+
+  // ONE bank-1 image, ONE erase. gnwmanager needs two passes only because `flash-patch`
+  // and `flash-bootloader` are separate CLI invocations; we build both images in the same
+  // call, so there's no reason to erase bank 1 twice, acquire a second context and re-probe
+  // the stub in between. The bootloader lives at a fixed offset inside the same bank, so
+  // this is just a splice: patched image at 0, bootloader at 200 KiB, 0xFF in any gap
+  // (0xFF = erased state, and the same fill the flasher's own padBytes uses).
+  const bank1 = boot.length ? new Uint8Array(BOOTLOADER_OFFSET + boot.length) : res.internal;
+  if (boot.length) {
+    bank1.fill(0xff);
+    bank1.set(res.internal, 0);
+    bank1.set(boot, BOOTLOADER_OFFSET);
+  }
+
+  const intLen = bank1.length;
   const total = intLen + res.external.length;
-  await flashImage(flasherOrGetter, 1, 0, res.internal, (d, t) =>
+  await flashImage(flasherOrGetter, 1, 0, bank1, (d, t) =>
     report(d, total, { value: d, max: t, label: "internal → bank 1" }),
-    undefined,
+    // Was `undefined`: this flow discarded the flasher's own status-transition log
+    // (`status: ERASE/PROGRAM/...`), which is exactly what identifies where a stall
+    // happens. flashRegion() has always passed its log through; this one never did.
+    dbgLog("ofw-flash"),
     { abortSignal }
   );
   if (res.external.length) {
     await flashImage(flasherOrGetter, 0, 0, res.external, (d, t) =>
       report(intLen + d, total, { value: d, max: t, label: "external → bank 0" }),
-      undefined,
+      // Was `undefined`: this flow discarded the flasher's own status-transition log
+      // (`status: ERASE/PROGRAM/...`), which is exactly what identifies where a stall
+      // happens. flashRegion() has always passed its log through; this one never did.
+      dbgLog("ofw-flash"),
       { abortSignal }
     );
   }

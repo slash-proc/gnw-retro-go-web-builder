@@ -1465,7 +1465,7 @@
     // Stall mitigation (hypothesis, NOT proven — see CLAUDE.md / plan notes): give the
     // link a beat + a liveness ping before the first flash write after the CPU/WASM-heavy
     // FrogFS build above. Mirrors the existing 500ms post-flash settle in engine/flasher.ts;
-    // does not touch the flashImage() 15s watchdog itself. Deliberately NOT a visible
+    // does not touch the flashImage() 120s stall watchdog itself. Deliberately NOT a visible
     // phase — an internal mitigation detail, not a user-facing checklist step.
     report.log("flash", locale.t.roms.install.logConfirmingLinkResponsive);
     await new Promise((r) => setTimeout(r, 500));

@@ -19,7 +19,15 @@ from argparse import Namespace
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-GNW = REPO / "references" / "gnwmanager" / "gnwmanager" / "cli"
+# The patch reference REQUIRES the `remove-keystone-engine` branch — other branches still
+# import keystone at module load and this script won't even start. The submodule is often
+# parked on a different branch for unrelated work, so allow pointing at a separate checkout
+# (e.g. a `git worktree` of that branch) instead of forcing everyone to move theirs:
+#   GNWMANAGER_DIR=/app/references/_gnwmanager_ref python3 packages/gnw-patch/test/oracle.py
+import os  # noqa: E402
+GNW = Path(os.environ.get("GNWMANAGER_DIR", REPO / "references" / "gnwmanager")) / "gnwmanager" / "cli"
+if not GNW.is_dir():
+    raise SystemExit(f"gnwmanager cli not found at {GNW} (set GNWMANAGER_DIR)")
 sys.path.insert(0, str(GNW))  # import the gnw_patch package directly
 
 import gnw_patch  # noqa: E402
@@ -57,39 +65,55 @@ MODELS = {
     "zelda": (ZeldaGnW, Namespace(no_la=False, no_sleep_images=False, no_second_beep=False, no_hour_tune=False)),
 }
 
+# BOTH build variants, mirroring gnwmanager's _common_prepare branch on `bootloader`:
+#   ""      -> binaries/<model>/default.bin|elf,     extend +0x20000  (-> 256 KiB total)
+#   "_boot" -> binaries/<model>/0x08032000.bin|elf,  extend +73728    (-> 200 KiB total)
+# The bootloader variant was NOT covered here originally, which is exactly how the port
+# shipped building bootloader-mode images from the default blob/symbols and extending them
+# to 256 KiB — mispatching ~46 symbols and overwriting the bootloader's own region. Any new
+# option that changes the blob, the symbol table or the extend length needs a case here.
+VARIANTS = {
+    "": ("default", 0x20000),
+    "_boot": ("0x08032000", (200 << 10) - 0x20000),
+}
+
 summary_all = {}
 for name, (cls, args) in MODELS.items():
-    bin_dir = BINARIES / name
-    patch_data = (bin_dir / "default.bin").read_bytes()
-    elf = bin_dir / "default.elf"
-    internal = BACKUPS / f"internal_flash_backup_{name}.bin"
-    external = BACKUPS / f"flash_backup_{name}.bin"
+    for suffix, (variant, extend_len) in VARIANTS.items():
+        bin_dir = BINARIES / name
+        patch_data = (bin_dir / f"{variant}.bin").read_bytes()
+        elf = bin_dir / f"{variant}.elf"
+        internal = BACKUPS / f"internal_flash_backup_{name}.bin"
+        external = BACKUPS / f"flash_backup_{name}.bin"
 
-    device = cls(str(internal), str(elf), str(external))
-    device.crypt()
-    novel_code_start = device.internal.STOCK_ROM_END
-    device.internal[novel_code_start:] = patch_data[novel_code_start:]
-    device.internal.extend(b"\x00" * 0x20000)  # standard (non-bootloader): +128 KiB
-    device.args = args
+        device = cls(str(internal), str(elf), str(external))
+        device.crypt()
+        novel_code_start = device.internal.STOCK_ROM_END
+        device.internal[novel_code_start:] = patch_data[novel_code_start:]
+        device.internal.extend(b"\x00" * extend_len)
+        device.args = args
 
-    int_free, cmem_free = device()
+        int_free, cmem_free = device()
 
-    int_bytes = bytes(device.internal)
-    ext_bytes = bytes(device.external)
-    (REF / f"{name}_internal.bin").write_bytes(int_bytes)
-    (REF / f"{name}_external.bin").write_bytes(ext_bytes)
-    summary = {
-        "internal_len": len(int_bytes),
-        "internal_sha1": hashlib.sha1(int_bytes).hexdigest(),
-        "external_len": len(ext_bytes),
-        "external_sha1": hashlib.sha1(ext_bytes).hexdigest(),
-        "internal_free": int_free,
-        "compressed_memory_free": cmem_free,
-    }
-    (REF / f"{name}_summary.json").write_text(json.dumps(summary, indent=2))
-    summary_all[name] = summary
-    print(f"{name}: int {len(int_bytes)} (free {int_free}) sha1 {summary['internal_sha1'][:12]} | "
-          f"ext {len(ext_bytes)} sha1 {summary['external_sha1'][:12]}")
+        int_bytes = bytes(device.internal)
+        ext_bytes = bytes(device.external)
+        key = f"{name}{suffix}"
+        (REF / f"{key}_internal.bin").write_bytes(int_bytes)
+        (REF / f"{key}_external.bin").write_bytes(ext_bytes)
+        summary = {
+            "variant": variant,
+            "extend_len": extend_len,
+            "internal_len": len(int_bytes),
+            "internal_sha1": hashlib.sha1(int_bytes).hexdigest(),
+            "external_len": len(ext_bytes),
+            "external_sha1": hashlib.sha1(ext_bytes).hexdigest(),
+            "internal_free": int_free,
+            "compressed_memory_free": cmem_free,
+        }
+        (REF / f"{key}_summary.json").write_text(json.dumps(summary, indent=2))
+        summary_all[key] = summary
+        print(f"{key}: int {len(int_bytes)} (free {int_free}) sha1 {summary['internal_sha1'][:12]} | "
+              f"ext {len(ext_bytes)} sha1 {summary['external_sha1'][:12]}")
 
 (VEC / "index.json").write_text(json.dumps(_seen, indent=2))
 print(f"liblzma vectors captured (distinct): {len(_seen)}")

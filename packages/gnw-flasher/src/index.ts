@@ -301,7 +301,12 @@ export class GnwFlasher {
    * Like gnw.py, the deadline resets whenever the status value changes (the
    * stub legitimately spends time probing flash between states).
    */
-  async waitForIdle(timeoutMs = 10000, log: LogFn = () => {}): Promise<void> {
+  // Default 120s to match gnw.py's `wait_for_idle(timeout: float = 120)`. This is a
+  // NO-PROGRESS budget, not wall-clock: the deadline resets on every status change, so a
+  // slow-but-advancing operation is tolerated indefinitely and only a genuine stall raises.
+  // Our port previously defaulted to 10s (and program() passed 15s), which is 8-12x tighter
+  // than the reference for no reason — see the call site at the end of program().
+  async waitForIdle(timeoutMs = 120000, log: LogFn = () => {}): Promise<void> {
     let deadline = Date.now() + timeoutMs;
     let last: number | null = null;
     for (;;) {
@@ -386,7 +391,12 @@ export class GnwFlasher {
    * Acquire a free context buffer (0 or 1). Will wait up to timeoutMs if both
    * are busy. Used by program() to implement double-buffered streaming.
    */
-  async getContext(timeoutMs = 10000, abortSignal?: AbortSignal): Promise<number> {
+  // Default 120s to match gnw.py's `get_context(timeout=120)`. Callers that want a quick
+  // liveness PROBE rather than a real acquisition pass an explicit short timeout (see
+  // device.svelte.ts's contextsFree(), which uses 3s and additionally races it — this
+  // loop, like waitForIdle/waitForContextComplete, only checks its deadline AFTER a
+  // transport read returns, so a wedged probe can park it indefinitely).
+  async getContext(timeoutMs = 120000, abortSignal?: AbortSignal): Promise<number> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       if (abortSignal?.aborted) throw new Error("Operation aborted");
@@ -428,7 +438,8 @@ export class GnwFlasher {
       throw new Error(`[gnw-flasher] program chunk must be 1..${CONTEXT_BUFFER_SIZE} bytes (got ${data.length})`);
     }
 
-    const i = await this.getContext(10000, opts.abortSignal);
+    // Reference passes no timeout here → gnw.py's 120s default. Was 10s.
+    const i = await this.getContext(undefined, opts.abortSignal);
     const expectedHash = await sha256(data);
 
     // Try compression; fall back to raw if it doesn't help (gnw.py: >0.9x).
@@ -497,7 +508,16 @@ export class GnwFlasher {
     // device-side progress bar got updated) while the device was still mid-erase/program/verify,
     // which is what produced both the apparent multi-second "stall" on later operations and the
     // on-device progress bar failing to clear.
-    await this.waitForIdle(15000, log);
+    // 120s, matching gnw.py's `wait_for_idle()` default at the same point in program().
+    // A 15s budget here was the actual cause of the "patched OFW flash is flaky / works on
+    // the 3rd try" report: erasing a large internal-flash region legitimately holds STATUS
+    // at ERASE for longer than 15s with no intermediate status change, so this threw
+    // `timed out waiting for IDLE (last status ERASE)` at the very END of a write that had
+    // in fact succeeded. flashImage() then caught it and re-sent the ENTIRE image (that's
+    // the progress bar visibly winding back and re-filling), up to maxAttempts=3 — and each
+    // retry forces a stub reboot, i.e. a device reset, which is what turned an already-
+    // completed flash into a wedged target. Observed on hardware, 2026-08.
+    await this.waitForIdle(120000, log);
   }
 
   /**

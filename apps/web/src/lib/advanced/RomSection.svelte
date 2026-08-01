@@ -600,7 +600,7 @@
       // CPU/WASM-heavy build above runs with zero wall-clock pause, unlike the old
       // two-click Build-then-Flash flow. Give the link a beat + a liveness ping before
       // the first flash write, mirroring the existing 500ms post-flash settle in
-      // engine/flasher.ts. This does not touch the flashImage() 15s watchdog itself.
+      // engine/flasher.ts. This does not touch the flashImage() 120s stall watchdog itself.
       // Deliberately NOT a visible phase — this is an internal mitigation detail, not
       // something the user needs to see as its own checklist step.
       report.log("flash", locale.t.romSection.logConfirmingLinkResponsive);

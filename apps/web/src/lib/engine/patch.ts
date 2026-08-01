@@ -3,10 +3,18 @@
 import { patchFirmware, type PatchModel, type PatchResult } from "@gnw/gnw-patch";
 import createLiblzma from "@gnw/gnw-patch/vendor/lzma-wasm/liblzma.mjs";
 import wasmUrl from "@gnw/gnw-patch/vendor/lzma-wasm/liblzma.wasm?url";
+// TWO variants per model, matching gnwmanager's binaries/<model>/{default,0x08032000}.*.
+// Never mix them: 46-47 symbols differ between the tables (including `read_buttons`, which
+// the patch emits a `bl` to), and `bootloader` resolves to the same ADDRESS in both while
+// being a different IMPLEMENTATION. Selection is driven by `options.bootloader` below.
 import symbolsMario from "@gnw/gnw-patch/vendor/symbols_mario.json";
 import symbolsZelda from "@gnw/gnw-patch/vendor/symbols_zelda.json";
+import symbolsMarioBoot from "@gnw/gnw-patch/vendor/symbols_mario_boot.json";
+import symbolsZeldaBoot from "@gnw/gnw-patch/vendor/symbols_zelda_boot.json";
 import novelMarioUrl from "@gnw/gnw-patch/vendor/novel_mario.bin?url";
 import novelZeldaUrl from "@gnw/gnw-patch/vendor/novel_zelda.bin?url";
+import novelMarioBootUrl from "@gnw/gnw-patch/vendor/novel_mario_boot.bin?url";
+import novelZeldaBootUrl from "@gnw/gnw-patch/vendor/novel_zelda_boot.bin?url";
 
 let compressFn: ((bytes: Uint8Array) => Uint8Array) | null = null;
 
@@ -43,8 +51,18 @@ export async function patchModel(
   options?: Record<string, unknown>,
 ): Promise<PatchResult> {
   const compress = await loadLiblzma();
-  const symbols = (model === "mario" ? symbolsMario : symbolsZelda) as Record<string, number>;
-  const novelUrl = model === "mario" ? novelMarioUrl : novelZeldaUrl;
+  // Must track patchFirmware's own `options.bootloader` branch (which picks the extend
+  // length) — the blob, the symbol table and the extend length are one matched set.
+  const bootloader = options?.bootloader === true;
+  const symbols = (
+    model === "mario"
+      ? bootloader ? symbolsMarioBoot : symbolsMario
+      : bootloader ? symbolsZeldaBoot : symbolsZelda
+  ) as Record<string, number>;
+  const novelUrl =
+    model === "mario"
+      ? bootloader ? novelMarioBootUrl : novelMarioUrl
+      : bootloader ? novelZeldaBootUrl : novelZeldaUrl;
   const novel = new Uint8Array(await (await fetch(novelUrl)).arrayBuffer());
   return patchFirmware({ model, internal, external, symbols, novel, compress, options });
 }

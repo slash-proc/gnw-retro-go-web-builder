@@ -147,41 +147,57 @@
     report.log("patch", `Patching firmware for model: ${targetModel}.`);
     let flashInternalStarted = false;
     let flashExternalStarted = false;
-    await withTimeout(
-      (progressReport, signal) => patchAndFlash(
-        // Silent, but still forwards flashImage's own retry-driven `force` flag (true only on
-        // an actual stall-retry, false on a normal/first attempt) — the user already confirmed
-        // entering Recovery Mode via the earlier unforced ensureStub() call above, so this must
-        // never re-prompt for that same already-granted consent, but it must still reuse the
-        // live cached stub whenever possible (this getter is invoked once per chunk) rather
-        // than resetting the device on every single call — hardcoding force=true here
-        // previously caused the device to reset repeatedly mid-flash (see
-        // docs/AUDIT_NOTES.md item #19's follow-up fix).
-        (force) => device.ensureStub(undefined, force, true), targetModel!, targetInt, targetExt,
-        { bootloader: true },
-        progressReport as any,
-        signal,
-        device.extFlashBytes
-      ),
-      120000,
-      (d, t, sub) => {
-        if (sub?.label === "internal → bank 1") {
-          if (!flashInternalStarted) {
-            flashInternalStarted = true;
-            report.finish("patch");
-            report.start("flash-internal");
+    // Suspend the liveness poll for the whole patch+flash, exactly as step 2 below and every
+    // other flash-writing flow does. Without this the poll keeps issuing its own SWD traffic
+    // in the gaps BETWEEN transport ops (it only backs off while transport.busy()) — the
+    // ensureStub() settle, the post-flash settle, and above all the internal→external
+    // handover, where the flow re-enters ensureStub() and a poll-perturbed
+    // stubAlive()/contextsFree() probe can wrongly conclude the stub is dead and trigger a
+    // bootStub() reset. That reset lands on a device whose bank 1 was JUST overwritten with
+    // the patched dual-boot image, so it comes back running that instead of a clean stub and
+    // re-attach is unreliable — the "works on the third try" OFW flash. This was the only
+    // flash-writing path missing the suspend.
+    device.suspendPoll();
+    try {
+      await withTimeout(
+        (progressReport, signal) => patchAndFlash(
+          // Silent, but still forwards flashImage's own retry-driven `force` flag (true only on
+          // an actual stall-retry, false on a normal/first attempt) — the user already confirmed
+          // entering Recovery Mode via the earlier unforced ensureStub() call above, so this must
+          // never re-prompt for that same already-granted consent, but it must still reuse the
+          // live cached stub whenever possible (this getter is invoked once per chunk) rather
+          // than resetting the device on every single call — hardcoding force=true here
+          // previously caused the device to reset repeatedly mid-flash (see
+          // docs/AUDIT_NOTES.md item #19's follow-up fix).
+          (force) => device.ensureStub(undefined, force, true), targetModel!, targetInt, targetExt,
+          { bootloader: true },
+          progressReport as any,
+          signal,
+          device.extFlashBytes
+        ),
+        120000,
+        (d, t, sub) => {
+          // "bootloader → bank 1" shares the internal phase — both write bank 1.
+        if (sub?.label.endsWith("bank 1")) {
+            if (!flashInternalStarted) {
+              flashInternalStarted = true;
+              report.finish("patch");
+              report.start("flash-internal");
+            }
+            report.progress("flash-internal", sub.value, sub.max, sub.label);
+          } else if (sub?.label === "external → bank 0") {
+            if (!flashExternalStarted) {
+              flashExternalStarted = true;
+              if (flashInternalStarted) report.finish("flash-internal");
+              report.start("flash-external");
+            }
+            report.progress("flash-external", sub.value, sub.max, sub.label);
           }
-          report.progress("flash-internal", sub.value, sub.max, sub.label);
-        } else if (sub?.label === "external → bank 0") {
-          if (!flashExternalStarted) {
-            flashExternalStarted = true;
-            if (flashInternalStarted) report.finish("flash-internal");
-            report.start("flash-external");
-          }
-          report.progress("flash-external", sub.value, sub.max, sub.label);
         }
-      }
-    );
+      );
+    } finally {
+      device.resumePoll();
+    }
     if (flashInternalStarted) report.finish("flash-internal");
     if (flashExternalStarted) report.finish("flash-external");
 
@@ -493,7 +509,7 @@
     // Stall mitigation (hypothesis, NOT proven — see CLAUDE.md / plan notes): give the
     // link a beat + a liveness ping before the first flash write after the CPU/WASM-heavy
     // build above. Mirrors the existing 500ms post-flash settle in engine/flasher.ts;
-    // does not touch the flashImage() 15s watchdog itself. Deliberately NOT a visible
+    // does not touch the flashImage() 120s stall watchdog itself. Deliberately NOT a visible
     // phase — an internal mitigation detail, not a user-facing checklist step.
     report.log("flash", locale.t.wizard.step2.logConfirmingLinkResponsive);
     await new Promise((r) => setTimeout(r, 500));

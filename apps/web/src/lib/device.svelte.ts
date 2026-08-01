@@ -269,8 +269,15 @@ class DeviceStore {
   private async contextsFree(): Promise<boolean> {
     if (!this.flasher) return false;
     try {
-      await this.flasher.getContext(3000);
-      return true;
+      // raceWithFallback, NOT getContext's own timeout: getContext (like waitForIdle and
+      // waitForContextComplete) checks its deadline only AFTER a transport read returns —
+      // `for(;;) { await readWord(); ...; if (past deadline) throw }`. A wedged probe/target
+      // leaves that read pending forever (see pollTick's note: a yanked device leaves reads
+      // HANGING), so the deadline is unreachable and the call never returns. This probe runs
+      // at the intflash→extflash handover, inside ensureStub, which flashImage invokes
+      // OUTSIDE its 120s stall watchdog — so a hang here was covered by nothing at all and
+      // simply stalled the flow forever. Mirrors stubAlive()'s protection directly above.
+      return await raceWithFallback(this.flasher.getContext(3000).then(() => true), 3500, false);
     } catch {
       return false;
     }
@@ -526,24 +533,38 @@ class DeviceStore {
    *  cannot race against the in-flight halt/read/resume sequence. */
   async captureScreenshot(onProgress?: (done: number, total: number) => void): Promise<ImageData> {
     if (!this.transport) throw new Error("Not connected to a device.");
-    this.stopPoll();
+    // Counted suspend, not raw stopPoll/startPoll: if a screenshot is ever taken while a
+    // flash holds its own suspend, the raw pair's finally would restart the poll mid-flash.
+    this.suspendPoll();
     try {
       return await _captureScreenshot(this.transport, onProgress);
     } finally {
-      this.startPoll();
+      this.resumePoll();
     }
   }
+
+  /** Nesting depth of suspendPoll() calls. COUNTED, not a plain stop/start pair: the poll is
+   *  one shared timer, so an inner resumePoll() would otherwise restart it while an OUTER
+   *  flash is still running — silently reintroducing the very race suspendPoll exists to
+   *  prevent, and doing it in the hardest place to reproduce. Only the outermost resume
+   *  restarts the timer. */
+  private pollSuspendDepth = 0;
 
   /** Public wrapper: suspend the liveness poll around a flash-writing operation that may
    *  trigger its own internal reset/reboot (e.g. a retry's forced RAM-stub reboot) — same
    *  reasoning as captureScreenshot's poll suppression, to prevent the poll's independent
-   *  SWD traffic from racing a concurrent reset. Pair with resumePoll() in a finally. */
+   *  SWD traffic from racing a concurrent reset. Pair with resumePoll() in a finally.
+   *  Safe to nest. */
   suspendPoll(): void {
+    this.pollSuspendDepth++;
     this.stopPoll();
   }
-  /** Public wrapper: resume the liveness poll after suspendPoll(). */
+  /** Public wrapper: resume the liveness poll after suspendPoll(). Only the outermost call
+   *  actually restarts it. An unbalanced resume (more resumes than suspends) is ignored
+   *  rather than force-starting the poll underneath a still-running outer operation. */
   resumePoll(): void {
-    this.startPoll();
+    if (this.pollSuspendDepth === 0) return;
+    if (--this.pollSuspendDepth === 0) this.startPoll();
   }
 
   // --- Liveness poll: catch the device being unplugged FROM the adapter (the adapter stays
@@ -551,6 +572,10 @@ class DeviceStore {
   // op is caught by that op's own transport calls throwing; this poll covers idle moments.
   // The serialized transport lets it share the link with in-flight ops safely.
   private startPoll(): void {
+    // Never start underneath an active suspendPoll() — otherwise any internal starter
+    // (connect, a nested op's finally) would punch the poll back on mid-flash. The
+    // outermost resumePoll() is what legitimately restarts it.
+    if (this.pollSuspendDepth > 0) return;
     if (this.pollTimer) return;
     this.pollTimer = setInterval(() => void this.pollTick(), 300);
   }
@@ -634,6 +659,11 @@ class DeviceStore {
    *  fresh connect) them). Shared by handleLost/disconnect/resetDevice/connect's failure path. */
   private async _teardownConnection(): Promise<void> {
     this.stopPoll();
+    // The link is gone, so any outstanding suspend is moot. Clearing the depth stops a
+    // suspend that never got its finally (lost device mid-flash) from permanently
+    // disabling the poll for the next connection — connect()'s startPoll() would
+    // otherwise be swallowed by the leftover depth.
+    this.pollSuspendDepth = 0;
     if (typeof navigator !== "undefined" && navigator.usb) {
       navigator.usb.removeEventListener("disconnect", this.onUsbDisconnect);
     }

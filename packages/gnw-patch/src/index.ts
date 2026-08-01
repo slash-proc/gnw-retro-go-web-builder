@@ -57,11 +57,24 @@ export function patchFirmware(input: PatchInput): PatchResult {
 
   const device = new Cls(cfg, input.internal, input.external, input.symbols, input.compress, sha1Hex);
 
-  // _common_prepare (non-bootloader): decrypt ext, copy novel code, extend +128 KiB.
+  // _common_prepare (gnwmanager cli/_patch.py): decrypt ext, copy novel code, extend.
+  //
+  // The extend length depends on `bootloader`, and so does the novel code + symbol table
+  // the CALLER must supply (gnwmanager picks binaries/<model>/0x08032000.{bin,elf} instead
+  // of default.{bin,elf}). Getting this wrong is silent and severe: the two ELFs place 46-47
+  // symbols — including `read_buttons`, which mario.ts/zelda.ts patch a `bl` to — at
+  // different addresses, and `bootloader` itself is the SAME address in both but a DIFFERENT
+  // implementation (the blobs differ across ~7.3 KB starting just past STOCK_ROM_END). This
+  // branch was missing entirely until now: every bootloader-mode patch was built from the
+  // non-bootloader blob/symbols AND extended to 256 KiB, which both mispatches the firmware
+  // and overwrites the 200 KiB-onward region the bootloader is supposed to occupy.
   device.crypt();
   const novelStart = cfg.int.STOCK_ROM_END;
   device.internal.buf.setSlice(novelStart, device.internal.length, input.novel.subarray(novelStart));
-  device.internal.buf.extend(new Uint8Array(0x20000));
+  // bootloader: +73728 → 200 KiB total, leaving 0x08032000 onward free for the SD bootloader
+  // (flashed separately — gnwmanager's `flash-bootloader`). Otherwise: +128 KiB → 256 KiB.
+  const bootloader = input.options?.bootloader === true;
+  device.internal.buf.extend(new Uint8Array(bootloader ? (200 << 10) - 0x20000 : 0x20000));
 
   device.args = { compression_ratio: 1.4, ...(input.options ?? {}) };
   const [internalFree, compressedMemoryFree] = device.run();

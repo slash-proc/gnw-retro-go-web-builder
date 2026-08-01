@@ -244,7 +244,8 @@
         sel.external,
         { bootloader },
         (d, t, sub) => {
-          if (sub?.label === "internal → bank 1") {
+          // "bootloader → bank 1" shares the internal phase — both write bank 1.
+          if (sub?.label.endsWith("bank 1")) {
             if (!flashInternalStarted) {
               flashInternalStarted = true;
               report.finish("patch");
