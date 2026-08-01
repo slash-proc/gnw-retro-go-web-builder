@@ -545,11 +545,14 @@
     if (device.targetMedia === "sd") {
       report.start("sd-sync");
       report.log("sd-sync", locale.t.wizard.step2.logSdSyncStarting);
-      report.log("sd-sync", locale.t.wizard.step2.logSdSyncFoundItems(bundle.sdContent.size));
+      // Keyed off the bank we just installed: SD cores call back into firmware at
+      // bank-specific absolute addresses, so the tree must match `install.bank`.
+      const sdTree = bundle.contentFor(install.bank, true);
+      report.log("sd-sync", locale.t.wizard.step2.logSdSyncFoundItems(sdTree.size));
       if (device.sdHandle) {
-        let totalFiles = bundle.sdContent.size;
+        let totalFiles = sdTree.size;
         let doneFiles = 0;
-        for (const [path, data] of bundle.sdContent.entries()) {
+        for (const [path, data] of sdTree.entries()) {
           report.log("sd-sync", locale.t.wizard.step2.logSdSyncCopyingFile(path));
           await saveFileToDirOrDownload(device.sdHandle, path, data);
           doneFiles++;
@@ -558,7 +561,7 @@
       } else {
         report.log("sd-sync", locale.t.wizard.step2.logSdSyncGeneratingZip);
         const zip = new JSZip();
-        for (const [path, data] of bundle.sdContent.entries()) {
+        for (const [path, data] of sdTree.entries()) {
           zip.file(path, data);
         }
         const blob = await zip.generateAsync({ type: "blob" });

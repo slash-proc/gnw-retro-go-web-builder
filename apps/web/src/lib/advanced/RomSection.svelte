@@ -102,7 +102,7 @@
       },
       { id: "rescan", label: locale.t.romSection.phaseRescan },
       // SD mode also writes the bundle's cores/bios/fonts content to the SD card itself —
-      // mirrors Wizard.svelte's step 2 exactly (same bundle.sdContent, same
+      // mirrors Wizard.svelte's step 2 exactly (same per-bank SD content tree, same
       // saveFileToDirOrDownload/ZIP-fallback pair).
       ...(installMode === "sd" ? [{ id: "sd-sync", label: locale.t.romSection.phaseSyncSdCores } as PhaseDef] : []),
     ];
@@ -462,7 +462,9 @@
       const bundleBytes = bundle.blobs[1].length + bundle.blobs[2].length;
       report.log("download", locale.t.romSection.logBundleDownloaded(targetVersion, MiB(bundleBytes)));
       report.finish("download");
-      pendingSdContent = installMode === "sd" ? bundle.sdContent : null;
+      // Must follow the SELECTED bank (this view lets the user pick it): SD cores call
+      // back into firmware at bank-specific absolute addresses.
+      pendingSdContent = installMode === "sd" ? bundle.contentFor(bank, true) : null;
 
       const userRoms = new Map<string, Uint8Array>();
       const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);

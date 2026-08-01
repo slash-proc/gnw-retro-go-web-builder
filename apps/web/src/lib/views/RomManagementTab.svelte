@@ -552,7 +552,7 @@
       const combinedRoms = romSelection.selectedFolderRoms();
       for (const [k, v] of extractedAssets.entries()) combinedRoms.set(k, v);
       injectCheats(combinedRoms);
-      const { frogfs } = await buildFrogfsImage(bundle, combinedRoms, { 
+      const { frogfs } = await buildFrogfsImage(bundle, installBank, combinedRoms, { 
         installAllCores,
         selectedHomebrew: romSelection.selectedHomebrewKeys,
         homebrewTitles: HOMEBREW_TITLES
@@ -770,7 +770,11 @@
     coreBundleErr = null;
     fetchBundle(tag)
       .then((bundle) => {
-        coreBundleInfo = { tag, fileCount: bundle.sdContent.size, emulatorCount: bundle.manifest.cores.length };
+        coreBundleInfo = {
+          tag,
+          fileCount: bundle.contentFor(installBank, true).size,
+          emulatorCount: bundle.manifest.cores.length,
+        };
       })
       .catch((e) => {
         coreBundleErr = e instanceof Error ? e.message : String(e);
@@ -782,6 +786,10 @@
 
   // Only relevant for bank2 installs (OFW in bank1, Retro-Go in bank2).
   const isBank2Install = $derived(device.banks.some((b) => b.index === 2 && !!b.retroGoVersion));
+  // Which bank's content tree to pull cores/homebrew from. Cores call back into firmware
+  // at bank-specific absolute addresses, so this must track where Retro-Go actually lives
+  // — the wrong tree hardfaults on the first core callback, it doesn't merely degrade.
+  const installBank = $derived<1 | 2>(isBank2Install ? 2 : 1);
 
   // Sub-steps for the two system-level items (Emulators, Firmware Update) only appear in the
   // checklist at all when their corresponding checkbox is actually on — otherwise they're
@@ -1228,7 +1236,7 @@
       const tag = selectedCoreVersionTag || (await listVersions())[0]?.tag;
       report.log("write", locale.t.roms.sdSync.logFetchingBundle(tag), "cores");
       const bundle = await fetchBundle(tag);
-      if (syncCores) sdContent = bundle.sdContent;
+      if (syncCores) sdContent = bundle.contentFor(installBank, true);
       sd2Blob = bundle.blobs.sd_2;
     }
 
@@ -1441,7 +1449,7 @@
       const bundle = await fetchBundle(versions[0].tag);
       for (const [k, v] of extractedAssets.entries()) userRoms.set(k, v);
       injectCheats(userRoms);
-      frogfs = (await buildFrogfsImage(bundle, userRoms, {
+      frogfs = (await buildFrogfsImage(bundle, installBank, userRoms, {
         installAllCores,
         selectedHomebrew: romSelection.selectedHomebrewKeys,
         homebrewTitles: HOMEBREW_TITLES

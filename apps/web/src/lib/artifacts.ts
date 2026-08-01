@@ -18,16 +18,23 @@ export const ARTIFACT_REPO = "slash-proc/game-and-watch-retro-go-sd";
 export const ARTIFACT_WORKER = "https://gnw-artifacts.slash-proc.workers.dev";
 
 const ASSET = "web-artifacts.zip";
-// Two separate content trees, not one: every core/homebrew .bin is objcopy'd out of
-// whichever ELF was built, and several overlay entry points land at different RAM
-// addresses between an SD_CARD=0 (flash) and SD_CARD=1 (SD) build of identical source
-// (confirmed on real hardware: NES/PCE/MSX, likely more). sd_content/ comes from the
-// SD_CARD=0 build (flash-mode FrogFS/LittleFS building ONLY); sd_content_sd/ comes from
-// the SD_CARD=1 build (writing to an actual SD card ONLY). Never substitute one for the
-// other — that's exactly the bug that caused every game/homebrew launch to corrupt
-// execution on flash-only installs.
-const FLASH_PREFIX = "sd_content/";
-const SD_PREFIX = "sd_content_sd/";
+// FOUR content trees, one per (SD_CARD, INTFLASH_BANK) pair — never one shared tree.
+// Every core/homebrew .bin is objcopy'd out of whichever ELF was built, so it carries
+// that build's absolute addresses on BOTH axes:
+//   SD_CARD - overlay entry points land at different RAM addresses between SD_CARD=0
+//     and SD_CARD=1 builds (confirmed on hardware: NES/PCE/MSX, likely more).
+//   INTFLASH_BANK - cores call back into firmware through absolute pointers that are
+//     bank-specific. Bank2-built cores hold 0x0810cdcd (odroid_system_init @ bank2);
+//     pair them with a bank1 blob and the first callback jumps into bank 2 — silently
+//     odd if a stale image sits there, instant hardfault at PC=0x0810cdcc once bank 2
+//     is erased. Shipped in v1.4.1-43-gff74121c and diagnosed on hardware.
+// Content therefore comes from manifest.blobs[<key>].content — see contentFor().
+type ContentKey = "bank1" | "bank2" | "sd_bank1" | "sd_bank2";
+// Pre-fix bundles carried only these two trees, both extracted from the BANK2 builds.
+const LEGACY_PREFIX: Record<string, ContentKey> = {
+  "sd_content_sd/": "sd_bank2",
+  "sd_content/": "bank2",
+};
 
 export interface FirmwareVersion {
   tag: string;
@@ -41,8 +48,13 @@ export interface FirmwareManifest {
   id: string;
   ref: string;
   sha: string;
-  /** Linked blobs by bank: { bank1: { file, intflashAddr, bytes }, bank2: {...} }. */
-  blobs: Record<string, { file: string; intflashAddr: string; bytes: number }>;
+  /** Linked blobs by bank: { bank1: { file, intflashAddr, bytes, content }, bank2: {...} }.
+   *  `content` (post-fix bundles only) names the ONE content tree built alongside that
+   *  blob; content must never be taken from anywhere else. */
+  blobs: Record<
+    string,
+    { file: string; intflashAddr: string; bytes: number; content?: string; cores?: string[] }
+  >;
   /** Capabilities baked into the blobs (coverflow, cheatCodes, screenshot, …). */
   capabilities: string[];
   cores: string[];
@@ -55,14 +67,14 @@ export interface FirmwareBundle {
   /** intflash blobs by bank — both carry the GWLB layout superblock.
    * 1 = overwrite stock (0x08000000); 2 = keep stock for dual-boot (0x08100000). */
   blobs: { 1: Uint8Array; 2: Uint8Array; sd_1?: Uint8Array; sd_2?: Uint8Array };
-  /** Flash-mode content (from the SD_CARD=0 build), keyed by path relative to
-   *  sd_content/ (e.g. "cores/nes_fceu.bin"). Use for flash-mode FrogFS/LittleFS
-   *  building ONLY — NOT valid for writing to an actual SD card (see sdContent). */
-  flashContent: Map<string, Uint8Array>;
-  /** SD-mode content (from the SD_CARD=1 build). Use ONLY when actually syncing an
-   *  SD card — these cores/homebrew binaries are compiled for a different memory
-   *  layout than the flash-mode ones and will corrupt execution if flashed instead. */
-  sdContent: Map<string, Uint8Array>;
+  /** Content trees keyed exactly like `blobs`, each valid ONLY for its own blob.
+   *  Paths are relative to the tree root (e.g. "cores/nes_fceu.bin"). Prefer
+   *  contentFor() over indexing this directly. */
+  content: Partial<Record<ContentKey, Map<string, Uint8Array>>>;
+  /** The content built alongside the blob for `bank` in the given mode. Throws rather
+   *  than falling back to another bank's tree — a wrong pairing is not a degraded
+   *  install, it's a hardfault on the first core callback. */
+  contentFor(bank: 1 | 2, sdCard: boolean): Map<string, Uint8Array>;
   manifest: FirmwareManifest;
 }
 
@@ -140,11 +152,40 @@ export async function fetchBundle(tag: string): Promise<FirmwareBundle> {
     }
   }
 
-  const flashContent = new Map<string, Uint8Array>();
-  const sdContent = new Map<string, Uint8Array>();
-  for (const [path, bytes] of files) {
-    if (path.startsWith(SD_PREFIX)) sdContent.set(path.slice(SD_PREFIX.length), bytes);
-    else if (path.startsWith(FLASH_PREFIX)) flashContent.set(path.slice(FLASH_PREFIX.length), bytes);
+  // Post-fix bundles: each blob names its own tree. Pre-fix bundles: two shared trees,
+  // both actually extracted from the BANK2 builds — mapped to the bank2 keys only, so a
+  // bank1 install off an old bundle fails loudly in contentFor() instead of hardfaulting
+  // on hardware.
+  const prefixes = new Map<string, ContentKey>();
+  for (const key of ["bank1", "bank2", "sd_bank1", "sd_bank2"] as ContentKey[]) {
+    const dir = manifest.blobs?.[key]?.content;
+    if (dir) prefixes.set(dir.endsWith("/") ? dir : `${dir}/`, key);
   }
-  return { blobs: { 1: b1, 2: b2, sd_1, sd_2 }, flashContent, sdContent, manifest };
+  const legacy = prefixes.size === 0;
+  if (legacy) for (const [p, k] of Object.entries(LEGACY_PREFIX)) prefixes.set(p, k);
+
+  const content: Partial<Record<ContentKey, Map<string, Uint8Array>>> = {};
+  for (const [path, bytes] of files) {
+    for (const [prefix, key] of prefixes) {
+      if (path.startsWith(prefix)) {
+        (content[key] ??= new Map()).set(path.slice(prefix.length), bytes);
+        break;
+      }
+    }
+  }
+
+  const contentFor = (bank: 1 | 2, sdCard: boolean): Map<string, Uint8Array> => {
+    const key = (sdCard ? `sd_bank${bank}` : `bank${bank}`) as ContentKey;
+    const tree = content[key];
+    if (tree?.size) return tree;
+    throw new Error(
+      legacy
+        ? `"${tag}" ships only bank2 content (cores carry bank-specific firmware ` +
+          `pointers, and this build predates the per-bank fix). Installing to bank ` +
+          `${bank} from it would hardfault on the first core callback — pick a newer build.`
+        : `bundle missing content tree "${key}"`,
+    );
+  };
+
+  return { blobs: { 1: b1, 2: b2, sd_1, sd_2 }, content, contentFor, manifest };
 }

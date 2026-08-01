@@ -3,7 +3,7 @@
  * folder into a flashable install, then writes it to the device.
  *
  * Pipeline (docs/FROGFS_PIPELINE.md, docs/BINARY_PATCHING.md):
- *   bundle.flashContent + userRoms ──planFlashImage──▶ FrogFS tree + cores tree
+ *   bundle.contentFor(bank,false) + userRoms ──planFlashImage──▶ FrogFS tree + cores tree
  *   ──buildFrogfsFromPlan──▶ FrogFS image      (measure length)
  *   ──planFlashLayout──▶ extflash geometry      (8 MiB LittleFS floor + budget)
  *   ──buildCoresLittlefs──▶ cores LittleFS image
@@ -126,7 +126,8 @@ export async function buildFlashInstall(inp: FlashInstallInputs): Promise<FlashI
   }
 
   const plan = planFlashImage({
-    defaultContent: inp.bundle.flashContent,
+    // Content for THIS bank — cores embed bank-specific firmware callback pointers.
+    defaultContent: inp.bundle.contentFor(inp.bank, false),
     userRoms: inp.userRoms,
     lzmaRaw,
     compress: false,
@@ -193,13 +194,17 @@ export interface FrogfsImage {
  */
 export async function buildFrogfsImage(
   bundle: FirmwareBundle,
+  bank: 1 | 2,
   userRoms: Map<string, Uint8Array>,
   opts?: { installAllCores?: boolean; selectedHomebrew?: Set<string>; homebrewTitles?: { key: string; deviceFiles: string[] }[] }
 ): Promise<FrogfsImage> {
   // RAW (uncompressed) ROMs for execute-in-place — no per-ROM .lzma sidecars (no on-device
   // decompress → no heap OOM). lzmaRaw is unused in raw mode but the planner still wants it.
   const lzmaRaw = await loadLiblzma();
-  const plan = planFlashImage({ defaultContent: bundle.flashContent, userRoms, lzmaRaw, compress: false, opts });
+  // `bank` is required, not defaulted: homebrew/core binaries in this tree call back into
+  // firmware at bank-specific absolute addresses, so guessing here would reintroduce the
+  // 0x0810cdcd hardfault.
+  const plan = planFlashImage({ defaultContent: bundle.contentFor(bank, false), userRoms, lzmaRaw, compress: false, opts });
   return { frogfs: buildFrogfsFromPlan(plan), plan };
 }
 
