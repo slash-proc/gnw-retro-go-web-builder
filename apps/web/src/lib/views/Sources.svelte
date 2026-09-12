@@ -217,6 +217,15 @@
       firstReport = false;
       onRoute?.(canonical, false);
     }
+    // A deep link to the card's pane on a Flash target has no rail row to return from, and the
+    // card is not part of that build's content at all. Send it to Directories rather than
+    // drawing a pane the rail does not offer.
+    if (r.pane === "local-sd" && device.targetMedia !== "sd") {
+      pane = "local-directories";
+      addOpen = detailsOpen = false;
+      onRoute?.("#sources/local-directories", false);
+      return;
+    }
     pane = r.pane;
     if (r.pane === "local-cache" || r.pane === "local-sd") {
       addOpen = detailsOpen = folderAddOpen = false;
@@ -518,11 +527,17 @@
         //
         // No count badge either, for the reason Cache has none: a one-of source has nothing to
         // count, and "1" would be a tally of a thing whose presence the row already states.
-        {
-          id: "local-sd" as SourcePaneId,
-          label: t.sd.heading,
-          count: null as number | null,
-        },
+        // SD ONLY. The card is a source of the SD build's content; on Flash there is no card in
+        // play, so the entry is absent rather than present-and-empty. `applyRoute` redirects a
+        // deep link to it for the same reason, so the pane cannot be reached with the rail row
+        // gone.
+        ...(device.targetMedia === "sd"
+          ? [{
+              id: "local-sd" as SourcePaneId,
+              label: t.sd.heading,
+              count: null as number | null,
+            }]
+          : []),
         {
           id: "local-directories" as SourcePaneId,
           label: t.railDirectories,

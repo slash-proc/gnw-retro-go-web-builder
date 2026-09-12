@@ -422,6 +422,21 @@ for (const [label, state] of [
 }
 
 rmSync(out, { recursive: true, force: true });
+// --- the entry is SD-only ---------------------------------------------------------------------
+// The card is a source of the SD build's content. On a Flash target there is no card in play, so
+// the rail must not offer it and a deep link to it must not draw it. Both halves are asserted:
+// guarding only the rail would leave `#sources/local-sd` reachable with no row to return from.
+{
+  const src = readFileSync(join(web, "src/lib/views/Sources.svelte"), "utf8");
+  const rail = src.slice(src.indexOf("const railGroups"), src.indexOf("const railGroups") + 2000);
+  ok(/device\.targetMedia === "sd"[\s\S]{0,200}id: "local-sd"/.test(rail),
+    "the rail lists the SD card entry without asking whether the target is the card, so a Flash " +
+    "user is offered a source that is not part of that build");
+  ok(/r\.pane === "local-sd" && device\.targetMedia !== "sd"/.test(src),
+    "a deep link to #sources/local-sd is not redirected on a Flash target, so the pane draws " +
+    "with no rail row to return from");
+}
+
 if (failures.length) {
   console.error(`sd pane: ${failures.length} FAILED of ${passed}`);
   for (const f of failures) console.error(`  ${f}`);
