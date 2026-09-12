@@ -2,6 +2,7 @@
   "name": "@gnw/desktop",
   "version": "2.0.0-alpha",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "description": "Electron shell for GNW Web Builder",
   "main": "src/main.js",
   "scripts": {
@@ -25,8 +26,18 @@
     "artifactName": "gnw-web-builder-${version}-${arch}.${ext}",
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
@@ -36,13 +47,24 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["universal"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
       ],
       "category": "public.app-category.developer-tools"
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64", "arm64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "Utility"
     }

@@ -2,6 +2,7 @@
   "name": "gnw-web-builder",
   "version": "2.0.0-alpha",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "description": "Client-side firmware builder & flasher for game-and-watch-retro-go-sd",
   "workspaces": [
     "packages/*",
