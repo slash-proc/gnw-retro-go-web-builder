@@ -31,7 +31,7 @@
  *     checked in German, where `Sonstiges` would sort mid-list and `Bildschirmfotos` sorts
  *     before `BIOS`. A hardcoded English order looks arbitrary in fourteen languages.
  */
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
@@ -40,6 +40,9 @@ import { render } from "svelte/server";
 
 const here = new URL(".", import.meta.url).pathname;
 const web = join(here, "..");
+// CI installs from the repo root, so `apps/web/node_modules` may not exist; node still
+// resolves the bundle's imports by walking up to the root install.
+mkdirSync(join(web, "node_modules"), { recursive: true });
 const out = mkdtempSync(join(web, "node_modules/.sdpane-"));
 
 let passed = 0;

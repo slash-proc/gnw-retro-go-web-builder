@@ -27,7 +27,7 @@
  * a copy of the real source, exactly as `landingshift.mjs` reaches its step 2. Two armed guards
  * keep that honest: the rewrite must match exactly once, and the two renders must differ.
  */
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
@@ -36,6 +36,9 @@ import { render } from "svelte/server";
 
 const here = new URL(".", import.meta.url).pathname;
 const web = join(here, "..");
+// CI installs from the repo root, so `apps/web/node_modules` may not exist; node still
+// resolves the bundle's imports by walking up to the root install.
+mkdirSync(join(web, "node_modules"), { recursive: true });
 const out = mkdtempSync(join(web, "node_modules/.choosercommit-"));
 const failures = [];
 let passed = 0;

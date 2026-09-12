@@ -25,7 +25,7 @@
  *   - a session row is never drawn for a sitting whose lines the list cannot show;
  *   - with nothing selected the whole record renders, with a boundary rule between sittings.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
@@ -35,6 +35,9 @@ import { render } from "svelte/server";
 const here = new URL(".", import.meta.url).pathname;
 const web = join(here, "..");
 // Inside the workspace, not /tmp: the emitted bundle imports `svelte` and has to resolve it.
+// CI installs from the repo root, so `apps/web/node_modules` may not exist; node still
+// resolves the bundle's imports by walking up to the root install.
+mkdirSync(join(web, "node_modules"), { recursive: true });
 const out = mkdtempSync(join(web, "node_modules/.activitypane-"));
 const failures = [];
 let passed = 0;

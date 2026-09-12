@@ -22,7 +22,7 @@
  * `untrack()` is NOT the fix and that is measured here, not assumed -- it loops exactly as the
  * synchronous call does. Deferring the write out of the flush is what works.
  */
-import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
@@ -30,6 +30,9 @@ import { compileModule } from "svelte/compiler";
 
 const here = new URL(".", import.meta.url).pathname;
 const web = join(here, "..");
+// CI installs from the repo root, so `apps/web/node_modules` may not exist; node still
+// resolves the bundle's imports by walking up to the root install.
+mkdirSync(join(web, "node_modules"), { recursive: true });
 const out = mkdtempSync(join(web, "node_modules/.effectloop-"));
 const failures = [];
 let passed = 0;
