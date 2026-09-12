@@ -26,6 +26,47 @@ host side reduces to: a thin transport, the gnwmanager mailbox protocol replayed
 on top, and the device blobs reused unmodified. No OpenOCD, no WASM debugger, no
 external-flash-loader engineering.
 
+## Codebase map
+
+One screen of where everything lives. The layer detail is below.
+
+```
+packages/swd-transport  L1: SwdTransport interface + DapjsTransport/WebStlinkTransport
+                            (wrap an injected CortexM / Stlinkv2; generic ARMv7-M halt/reset)
+packages/gnw-flasher     L2: GnwFlasher — startStub, info, flash (context protocol,
+                            verify+retry, device progress, clock sync), readFlash, unlock, blobs/
+                            (lock() stays a deliberate stub; see the routing/unlock notes below)
+packages/thumb-asm          in-house Thumb-2 assembler (assemble()); validated vs keystone
+packages/gnw-patch          firmware patcher (patchFirmware): Device/firmware/mario/zelda,
+                            aes, lz77, sha1; vendor/{lzma-wasm,symbols_*,novel_*}; wasm/ build
+packages/builder-core    L3: resolveBuild (real) + manifest/artifact/flash (stubs)
+packages/fs-builders    L-FS: FrogFS (builder+parser), LittleFS, staging, ROM .lzma,
+                            flash-install orchestrator — real; index.ts keeps SD scaffold stubs
+apps/web/                THE REAL UI — Svelte 5 + Vite SPA: device.svelte.ts (store), ui/, views/,
+                            advanced/, sources/, i18n/, engine/ = typed connect/info/flash/
+                            dump/patch over the @gnw packages
+  firmwareDist/             client for the firmware distribution contract (versions.json ->
+                            manifest.json -> hash-verified bundles); artifacts.ts adapts it
+  sources/                  third-party cores/homebrew: manifest client, core registry, the
+                            sandboxed WASM converter host, input discovery, caches
+  views/OverviewRail.svelte Overview's rail (CONSOLE: Status, Details / LOGS: Activity, Device
+                            log); panes are ui/{Status,Details,DeviceLog}Pane.svelte
+  backupPresence /          two folder-reading stores: does a real firmware backup exist, and
+  sdStorage.svelte.ts       what is on the SD card. Both cache and expose an explicit refresh
+backend/                 Express dev server (tsx, :3001): legacy /dev harness + /packages, /api
+frontend/                throwaway ES-module harness, served at /dev (probe.js, gnw.js, patch.js…)
+external/                REAL submodules: sylverb's zelda3 / smw forks (homebrew sources)
+references/              gitignored plain local clones, NOT submodules and NOT tracked — a
+                            fresh clone or an agent worktree has no references/ at all, so the
+                            reference-oracle tests only run from the main clone
+  gnwmanager                porting reference; the patch oracle needs it checked out on
+                            remove-keystone-engine — check the branch before running it
+  game-and-watch-retro-go-sd  firmware reference (developed on a local branch); also the home
+                            of docs/FIRMWARE_DIST.md, the distribution contract we implement
+  game-and-watch-bootloader, gnw-chainloader, external_cores, libretro-database, CoverStudio
+                            further read-only references (bootloader diagnostics, cheat data)
+```
+
 ## Layers
 
 ```

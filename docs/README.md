@@ -8,18 +8,31 @@ quick orientation for contributors, and [`STATUS.md`](../STATUS.md) tracks what 
 
 ## Map
 
-Five core technical documents carry the durable knowledge. Everything else in
-this directory is either a live scoreboard, a dated record, or design material —
-see the sections below them.
+Documentation is two tiers, and **both are read in full, never skimmed.**
+[`CLAUDE.md`](../CLAUDE.md) is tier 1: under 100 lines, read at the start of every session.
+Everything below is tier 2, read **in full before the first edit** whenever the work touches its
+subject. `CLAUDE.md` carries the trigger for each.
+
+### Tier 2 — the rules, by subject
+
+| Doc | Read it before you |
+|---|---|
+| [UI_VOICE.md](./UI_VOICE.md) | write or change any user-visible string, or draw any artboard. **Binding.** Every rule in it is quoted from a correction the owner made. |
+| [I18N.md](./I18N.md) | add, change or remove any string. A new string is a 15-file edit across fifteen locales. |
+| [FRONTEND.md](./FRONTEND.md) | edit anything under `apps/web/src/lib/`. The scroll container, routing, tokens, the `dbg()` reactive hazard, and the shared primitives to check before hand-rolling one. |
+| [SOURCES.md](./SOURCES.md) | touch `sources/`, the Library, the SD card, or what counts as a console. |
+| [DEVICE_IO.md](./DEVICE_IO.md) | touch the transport, the flasher, or anything that halts, resets or writes the device. |
+| [GUARDS.md](./GUARDS.md) | add a test, or change a doc a guard reads. |
+
+### Tier 2 — how it is built
 
 | Doc | What it covers |
 |---|---|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | The layered design, the packages, device classification, and the key decisions (e.g., why no OpenOCD, dependency-injection). Also includes the **Master Glossary & Hardware Quick Reference**. |
-| [DEVELOPMENT.md](./DEVELOPMENT.md) | How to build, run, and test (the validation oracles), plus the Docker/dev-container gotchas. Also details the CI Artifact pipeline. |
-| [FILESYSTEMS.md](./FILESYSTEMS.md) | The definitive guide to how data is stored. Explains FrogFS (ROMs/BIOS) vs LittleFS (Cores/Saves), WASM integrations, LZMA compression for ROMs, and the client-side content packing pipeline. |
-| [PATCHING.md](./PATCHING.md) | How the firmware patcher works (stock Mario/Zelda OFW → dual-boot), the byte-exact `liblzma` requirement, and the `GnwLayoutSuperblock` v2 used to dynamically size partitions at flash-time. |
-| [UX_DESIGN.md](./UX_DESIGN.md) | The UI structure and components mapping directly to the `apps/web/src/` Svelte codebase. Covers the Guided Wizard vs Advanced Mode tabs, accordion structures, and the mental model for ROM and game management. |
-| [UI_VOICE.md](./UI_VOICE.md) | **Binding on every user-visible string and every artboard.** No narration, no filler, state carried by structure rather than wording, nothing invented that no board draws. Every rule in it is quoted from a correction the owner made, because each was fought over at least once. Read it before writing copy, every time. |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | The codebase map, the layered design, device classification, and the key decisions (why no OpenOCD, dependency injection). Includes the **Master Glossary & Hardware Quick Reference**. |
+| [DEVELOPMENT.md](./DEVELOPMENT.md) | How to build, run and test (the validation oracles), the Docker and worktree gotchas, and the CI artifact pipeline. |
+| [FILESYSTEMS.md](./FILESYSTEMS.md) | How data is stored: FrogFS (ROMs/BIOS) vs LittleFS (cores/saves), the WASM integrations, LZMA for ROMs, and the client-side packing pipeline. |
+| [PATCHING.md](./PATCHING.md) | The firmware patcher (stock Mario/Zelda to dual-boot), the byte-exact `liblzma` requirement, and the `GnwLayoutSuperblock` v2. |
+| [UX_DESIGN.md](./UX_DESIGN.md) | The UI structure mapped to `apps/web/src/`: Guided vs Advanced, and the mental model for ROM and game management. |
 
 ### Live working documents
 
@@ -44,7 +57,7 @@ see the sections below them.
 
 ### Dated records
 
-`AUDIT_NOTES.md`, `audit-*.md`, `OPEN-QUESTIONS-SURVEY-A.md`, `RESUME-HERE.md`
+`AUDIT_NOTES.md`, `audit-*.md`, `OPEN-QUESTIONS-SURVEY-A.md`
 and `CORE_ABI_MIGRATION.md` are point-in-time findings, kept for the reasoning
 behind decisions already taken. Each states its date; **read the code before
 acting on any of them**.

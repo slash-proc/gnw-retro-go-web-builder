@@ -115,7 +115,29 @@ and a set of dated audit and decision records.
 
 ## Licensing & ethics
 
-ROMs and firmware backups are **user-supplied and never uploaded**. Reference
-submodules (`gnwmanager`, retro-go) keep their own licenses; vendored device
-blobs and novel-code payloads from gnwmanager are Apache-2.0 (see the relevant
-`PROVENANCE.md` files). This tool is for working with hardware **you own**.
+This project is licensed under the **GNU Affero General Public License v3.0 or later**
+([`LICENSE`](./LICENSE)). AGPL rather than a permissive license for one specific reason: this
+is a web app, and section 13 means anyone who hosts a modified copy as a service has to publish
+their changes, not only someone who redistributes the code.
+
+What that means in practice: use it, fork it, modify it and run it freely. If you distribute it
+or host a modified version, your users get the source under the same terms.
+
+**Inbound licensing.** Everything combined into this repo is compatible:
+
+| Component | License | Where |
+|---|---|---|
+| `zelda3`, `smw` (sylverb's forks) | MIT | `external/` submodules |
+| gnwmanager device blobs and novel-code payloads | Apache-2.0 | `packages/gnw-patch/vendor/` (see its `PROVENANCE.md`) |
+| LZMA-JS | MIT | `frontend/vendor/lzma/` |
+| `game-and-watch-retro-go-sd` (the firmware) | GPL-2.0 | **not in this repo** |
+
+MIT and Apache-2.0 are both one-way compatible with AGPL-3.0, so they combine cleanly.
+
+The GPL-2.0 firmware is worth stating plainly, because GPL-2.0-only code could **not** be
+combined with AGPL-3.0. It is not combined. `references/` is gitignored and never distributed:
+the firmware is a separate program this app talks to, and its binaries are fetched at runtime
+from the upstream project's own releases. No firmware source is vendored here.
+
+ROMs and firmware backups are **user-supplied and never uploaded**. This tool is for working
+with hardware **you own**.

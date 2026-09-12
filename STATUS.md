@@ -385,6 +385,4 @@ The documentation hierarchy is strictly limited to 3 hops (`CLAUDE.md` -> `STATU
 - [**`docs/CONFORMANCE.md`**](./docs/CONFORMANCE.md): The live scoreboard for the UI redesign —
   what conforms to the artboards and what does not, with its counting rule stated. Open questions
   are in `docs/DECISIONS.md` / `docs/DECISIONS-MAP.md` / `docs/BLOCKED-AUDIT.md`.
-- [**`docs/RESUME-HERE.md`**](./docs/RESUME-HERE.md): The running "start here next session" note —
-  what the last session actually changed and the questions it left open.
 - [**`docs/UX_DESIGN.md`**](./docs/UX_DESIGN.md): The UI specs, workflows, phase models (Guided vs Advanced mode), visual design system, and the user's mental model for ROM and game management.

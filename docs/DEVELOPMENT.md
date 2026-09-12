@@ -32,6 +32,17 @@ runs `tsc -b` in the container. Idempotent; re-run to repair. Note `references/`
 and does not exist inside a worktree, so the reference-oracle commands below only run from the
 main clone.
 
+**A worktree resolves `@gnw/*` to its OWN `packages/*`**, not the main clone's: by an alias in
+`apps/web/vite.config.ts`, a `paths` entry in `apps/web/tsconfig.json`, and
+`apps/web/test/gnwResolve.mjs` for the esbuild suites. The symlinked `node_modules` supplies
+third-party deps only. Without that, a worktree silently tests the MAIN clone's `dist/` and a
+green run means nothing. A new suite needs BOTH `gnwResolveFor(import.meta.url)` (for the
+bundle) and `gnwImport(import.meta.url, pkg)` for its own top-level workspace imports; a bare
+`import("@gnw/...")` goes through node's resolver and breaks `instanceof` across the boundary.
+
+The browser resolves the patcher's `@gnw/thumb-asm` import via an **import map** in
+`frontend/index.html`; keep it in sync if package paths change.
+
 ## Building and Testing (TypeScript)
 
 ### Build Packages
@@ -78,6 +89,7 @@ docker compose exec dev node packages/fs-builders/test/frogfsParse.mjs  # parser
 docker compose exec dev node packages/fs-builders/test/staging.mjs      # staging xforms
 docker compose exec dev node packages/fs-builders/test/rom_lzma.mjs     # ROM .lzma sidecars
 docker compose exec dev node packages/fs-builders/test/littlefs.mjs     # round-trip + lfs_oracle.py
+docker compose exec dev node packages/fs-builders/test/lfsWrite.mjs     # LittleFS write-in-place: lazy-fetch retry, dirty-block bound (a rebuild fails it), device offset mapping
 docker compose exec dev node packages/fs-builders/test/flashImage.mjs   # flash-install orchestrator
 ```
 
@@ -188,7 +200,9 @@ MSX/Coleco/SG-1000 cheats are a completely different mechanism: whole `.mcf` fil
 ## Dependencies & Gotchas
 
 - **Stale `node_modules` anon volume:** Fix missing symlinks via `docker compose up -d --force-recreate --renew-anon-volumes`.
-- **Stale `tsconfig.tsbuildinfo`:** Fix via `tsc -b --force`.
+- **Stale `tsconfig.tsbuildinfo`:** `tsc -b` writes buildinfo next to each tsconfig, so if
+  `dist/` was wiped (anon volume) while buildinfo persisted, tsc skips emitting. Fix via
+  `tsc -b --force`. Buildinfo is `.dockerignore`d, so it never enters the image.
 - **Root ownership of generated files:** Fix via `docker compose exec -u root dev chown -R "$(id -u):$(id -g)" <path>`.
 - **GitHub Pages deploy (`.github/workflows/deploy-pages.yml`)** is written to publish two
   builds in one artifact: production at `/` and a testing build at `/wip/`. **`/wip/` is not
