@@ -1,0 +1,50 @@
+{
+  "name": "@gnw/desktop",
+  "version": "2.0.0-alpha",
+  "private": true,
+  "description": "Electron shell for GNW Web Builder",
+  "main": "src/main.js",
+  "scripts": {
+    "stage": "node scripts/stage-web.mjs",
+    "pack": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "io.github.slashproc.gnwwebbuilder",
+    "productName": "GNW Web Builder",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "build/web/**/*"
+    ],
+    "artifactName": "gnw-web-builder-${version}-${arch}.${ext}",
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["universal"] }
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64", "arm64"] }
+      ],
+      "category": "Utility"
+    }
+  }
+}

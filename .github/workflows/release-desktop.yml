@@ -1,0 +1,177 @@
+name: Release desktop app
+
+# Packages the Electron shell for Windows, macOS and Linux and attaches the artifacts to a
+# DRAFT GitHub Release. Never runs on a push to a branch -- this is a release pipeline, not CI,
+# and `deploy-pages.yml` remains the only thing a push to `main` triggers.
+#
+# WHAT SHIPS, AND WHY EACH SHAPE:
+#
+# - Windows: TWO direct assets, an NSIS per-user installer and a portable .exe. The installer is
+#   what most people want; the portable exe matters for a tool people run once against a device
+#   they are repairing, on a machine they may not want to install to.
+# - macOS: ONE universal .dmg (arm64 + x64 in one bundle). Two per-arch DMGs would be smaller,
+#   but picking the wrong one on Apple Silicon yields an app that will not launch, and this is a
+#   hobbyist tool whose users should not have to know their own CPU. Electron ships prebuilt
+#   binaries per arch, so the universal merge here is a repack, not a cross-compile.
+# - Linux: ONE AppImage PER ARCH. Single executable file, no install, no distro packaging
+#   matrix -- the same call `qemu-gnw` made for the same reasons.
+#
+# CODE SIGNING: NOTHING HERE IS SIGNED, on both platforms, by decision rather than by omission.
+# macOS: the owner has no Apple Developer Program membership. Windows: he declined a certificate
+# at a recurring cost, which rules out Azure Trusted Signing (the $9.99/month route) and the
+# yearly OV/EV certificates, which cost several times more. Signing is therefore absent rather
+# than half-wired. `CSC_IDENTITY_AUTO_DISCOVERY: false` below makes that deterministic instead of
+# letting electron-builder pick up whatever identity happens to be in a runner keychain.
+#
+#   What a user actually sees today:
+#   - macOS: the download is blocked with "cannot be opened because the developer cannot be
+#     verified". On Sequoia and later the old right-click-Open path is gone; the working
+#     instruction is System Settings > Privacy & Security > Open Anyway, after a first attempt
+#     to open the app.
+#   - Windows: SmartScreen shows "Windows protected your PC" and hides the run button behind
+#     "More info" > "Run anyway".
+#   - Linux: nothing, AppImages are unsigned by convention. `chmod +x` and run.
+#
+#   Adding signing later is adding secrets and one step per platform, not restructuring this
+#   file: macOS needs a Developer ID Application certificate (CSC_LINK + CSC_KEY_PASSWORD) and
+#   notarytool credentials (Apple ID, an app-specific password, and the team ID), applied in the
+#   build-macos job; Windows needs a code-signing certificate in the same CSC_LINK pair, applied
+#   in build-windows. No disabled steps are scaffolded here, because a step that looks active and
+#   silently no-ops is worse than one that is honestly absent.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  # Vite emits absolute asset URLs by default; the shell loads index.html over file://, where an
+  # absolute URL resolves to the filesystem root and the app opens as a blank page.
+  # `desktop/scripts/stage-web.mjs` asserts this rather than trusting it.
+  PUBLIC_BASE: "./"
+  # No signing identity exists. Say so explicitly so electron-builder does not go looking.
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+jobs:
+  build:
+    # Independent legs. A Windows failure must not cancel the macOS leg's real pass/fail signal,
+    # which is the trap `qemu-gnw` documents hitting during CI debugging.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: win
+            arch: x64
+            artifact: desktop-win-x64
+          # BOTH macOS arches build on the arm64 runner. Electron downloads prebuilt binaries per
+          # target arch, so no cross-compilation toolchain is involved -- and `qemu-gnw` records
+          # macos-13 (Intel) runners sitting queued for 6+ hours without ever being picked up, a
+          # known scarcity problem worth designing around rather than waiting on.
+          - runner: macos-14
+            platform: mac
+            arch: universal
+            artifact: desktop-macos-universal
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+            artifact: desktop-linux-x64
+          # Native arm64 runner, no emulation and no cross-build. `qemu-gnw` builds its aarch64
+          # leg on this same runner image.
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            artifact: desktop-linux-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # webstlink lives in a submodule the web build needs
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Build workspace packages
+        run: node packages/gnw-restool/scripts/buildZip.mjs && npx tsc -b packages/builder-core packages/fs-builders packages/gnw-flasher packages/gnw-patch packages/swd-transport packages/thumb-asm packages/gnw-restool
+
+      - name: Build the web app
+        run: npm run build --workspace @gnw/web
+
+      # `artifactName` interpolates ${version} from desktop/package.json, which is 0.0.0 in the
+      # repo. Without this every release would ship assets called gnw-web-builder-0.0.0-*, and a
+      # tester could not tell two downloads apart. A manual dispatch keeps 0.0.0, which is
+      # honest: it is not a release.
+      - name: Take the version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e '
+            const fs = require("node:fs");
+            const p = "desktop/package.json";
+            const d = JSON.parse(fs.readFileSync(p, "utf8"));
+            d.version = process.argv[1];
+            fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
+          ' "$VERSION"
+          echo "packaging version $VERSION"
+
+      - name: Stage the web build into the desktop package
+        run: node desktop/scripts/stage-web.mjs
+
+      # `desktop/` sits OUTSIDE the root workspace globs on purpose: Electron's prebuilt binaries
+      # are ~150 MB per platform, and nothing in the web build or the dev container needs them.
+      # Keeping it out means `npm ci` above, the Pages deploy and every local gate run stay
+      # exactly as fast as they are today.
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Package
+        working-directory: desktop
+        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.dmg
+            desktop/release/*.AppImage
+
+  publish-release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # upload-artifact@v4 round-trips through its own zip and DROPS permission bits, so an
+      # AppImage arrives here non-executable and is dead on arrival for anyone who downloads it
+      # from the release page. Restore the bit before publishing.
+      - name: Restore executable bits
+        run: |
+          set -euo pipefail
+          find artifacts -name '*.AppImage' -exec chmod +x {} +
+          find artifacts -type f | sort
+
+      - name: Draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          # DRAFT. Publishing is a deliberate act taken by hand in the GitHub UI, never a side
+          # effect of pushing a tag.
+          draft: true
+          generate_release_notes: true
