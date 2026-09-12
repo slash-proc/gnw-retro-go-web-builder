@@ -2,8 +2,109 @@
 
 Findings from a full audit (2026-07-02) covering apps/web's state/UI/engine layers (#1-#11)
 plus a follow-up deep-dive into packages/ internals and the component/CSS layer beyond modals
-(#12-#13). Items #1-#4 are fixed; #5-#13 are documented with a batched execution plan at
-`/home/doug/.claude/plans/jaunty-squishing-marble.md`.
+(#12-#13), extended 2026-07-03 with owner-reported findings (#14-#19). The original batched
+execution plan lived at `/home/doug/.claude/plans/jaunty-squishing-marble.md`.
+
+## Re-verification pass (2026-09-07, statuses re-checked 2026-09-08)
+
+**The pre-2026-09-07 header ("items #1-#4 are fixed; #5-#13 documented, not yet fixed") is no
+longer accurate and has been replaced by this section.** The UI redesign landed in between
+(notably `cd590c8`, "UX overhaul: ROMs/Overview/Firmware Setup redesign, connection
+reliability, i18n") and deleted or rewrote several components this document audits by name:
+`DeviceInfoTab.svelte` (-> `views/OverviewTab.svelte`), `ConnectAdapterModal.svelte` (->
+`ui/ConnectGateModal.svelte`), `AccordionSection.svelte`, and `lib/idb.ts`. `RomManagementTab`
+and `GameDetailsPanel` moved from `lib/advanced/` to `lib/views/`. **Every line number cited in
+items #1-#13 below predates that move and is stale**; the per-item
+`**Re-verified (2026-09-07):**` notes carry current `file:line` citations.
+
+This pass changed no application code — only this document.
+
+**On line numbers and counts (added 2026-09-08).** The `file:line` citations and the
+"N sites / N writers" figures in the re-verified blocks below were accurate on the date next to
+them and drift within days — `apps/web/src/lib/views/RomManagementTab.svelte` and
+`device.svelte.ts` in particular move on almost every commit. Treat every one as a pointer, not
+a fact: re-run the grep the surrounding text names. Several were found stale on 2026-09-08 and
+either refreshed or replaced with the command that produces them; do the same rather than
+copying a number out of here into a brief.
+
+### Counts by status
+
+| Status | Items |
+|---|---|
+| FIXED (verified still holding, or fixed since the original write-up) | #1, #2, #3, #4, #7, #8, #9, #10, #11, #13, #14, #15, #17, #18, #19 — 15 |
+| PARTIALLY FIXED (a real remainder is still OPEN) | #5, #6, #12 — 3 |
+| OPEN (essentially untouched) | none — 0 |
+| OBSOLETE / superseded | #16 (its `firmware` half; the rest is still deferred) — 1 |
+| WRONG (finding itself mistaken) | none newly found this pass — the two false positives inside #13 (Card.svelte, Button.svelte adoption) were already recorded as such in 2026-07 |
+
+### OPEN work, in priority order
+
+1. **#12 `packages/` duplication** — the least-touched area. Its *test-coverage* half is
+   **DONE**: `swd-transport`, `gnw-flasher` and `builder-core` each have a `test/` directory
+   and a passing suite (`eb26fd0` `packages/swd-transport/test/transport.mjs`, `72ec441`
+   `packages/gnw-flasher/test/protocol.mjs`, `06b39d2`
+   `packages/builder-core/test/resolveBuild.mjs`; all three are listed in CLAUDE.md's Build &
+   test block and each prints its own pass count when run — read the count off the run, don't
+   quote one from here). The *duplication* half is still open, verified 2026-09-08:
+   `crc32`/`CRC_TABLE` still duplicated verbatim (line numbers re-derived 2026-09-10)
+   (`packages/gnw-patch/src/superblock.ts:129,139` vs `packages/fs-builders/src/frogfs.ts:346,356`);
+   `notImplemented` still triplicated (`gnw-flasher/src/index.ts:278`,
+   `builder-core/src/index.ts:88`, `fs-builders/src/index.ts:111`).
+   *Needs a decision*, not mechanical work: consolidating `crc32` requires either a new
+   dependency edge between two deliberately-independent packages or a new shared workspace
+   package (see #12's own deferral reasoning — unchanged and still correct).
+   *Safe mechanical work within it*: none — the dedup is the decision, and the smoke tests
+   this entry used to propose have since been written.
+2. **#5/#16 `utilLoaded` / `installedGames` single-owner consolidation** — `firmware` is now
+   solved (a pure derived getter off `deviceClass`), which removes the hardest third of the
+   problem, but `utilLoaded` and `installedGames` are unchanged — each still written from
+   several places in `device.svelte.ts` (enumerate with
+   `grep -n 'this\.utilLoaded = \|this\.installedGames = ' apps/web/src/lib/device.svelte.ts`
+   rather than trusting a count here; both counts quoted in this document have already drifted).
+   *Needs the use-case-scoping session #16 describes* — still not mechanical.
+   Still OPEN, re-verified 2026-09-08.
+3. **#13 dead `ui/Badge.svelte` / `ui/InfoTip.svelte` — DONE (`ef34572`, 2026-09-07).** Both
+   were deleted, along with `Badge`'s stale mention in `i18n/strings/shared.ts`'s component
+   list. Adoption in `Wizard.svelte`'s `.step-num` was again rejected for the 2026-07 reason
+   (3-state ancestor cascade), so deletion was the honest fix. A re-verification sweep
+   (2026-09-08) confirmed both files are gone and that nothing references them: the only
+   surviving `Badge` hits repo-wide were prose in `docs/audit-ui-conformance.md`
+   (describing the pre-redesign `OfficialFirmwareSection`) and an unrelated colour note —
+   all three since annotated or corrected in the dead-reference pass below; `InfoTip` has
+   zero hits anywhere. The same sweep found **three** further zero-importer files under
+   `apps/web/src/lib/**`: `ui/FilePick.svelte` was deleted (`863290c`, with its two
+   `shared.filePick.*` keys removed from all seven locales); `ui/InstallGeometry.svelte` and
+   `ui/Card.svelte` were deliberately kept — see #13's own status block for why.
+4. **#8 remaining un-namespaced localStorage keys** — **DONE** (`463165e`, call-site guards
+   added 2026-09-08). `theme` → `gnw:theme`, `locale` → `gnw:locale`, both via `persist.ts`'s
+   `loadRawMigrated()`/`saveRaw()` with a one-time adopt-and-delete migration. See item #8.
+5. **#6 `sdReady` adoption** — still OPEN, re-verified 2026-09-08. The getter exists on
+   `DeviceStore` but is used at far fewer sites than the spelled-out
+   `device.targetMedia === "sd"` (compare
+   `grep -rn 'sdReady' apps/web/src` against `grep -rn 'targetMedia === "sd"' apps/web/src`).
+   Most of the spelled-out sites are legitimate *mode* branches (not the "SD mode AND a handle
+   is granted" compound gate), so this is **not** a blanket find-and-replace; it needs per-site
+   judgement. Low value, low risk.
+6. **#4 remaining `alert()` calls** — still OPEN, re-verified 2026-09-08, and one fewer than
+   this list previously said: `advanced/FileBrowserSection.svelte`,
+   `views/GameDetailsPanel.svelte` (×4). The `OverviewTab.svelte` `startFlashUtil` call this
+   entry used to list is gone — `OverviewTab.svelte` has no `alert()` left. Enumerate the
+   current set with `grep -rn 'alert(' apps/web/src --include=*.svelte` rather than quoting
+   line numbers from here. The one the original audit actually named is gone with its file.
+   *Safe mechanical work* if the owner wants the state-var/inline-error treatment extended;
+   purely cosmetic otherwise.
+
+### Not determined
+
+- Whether the deliberate non-consolidations recorded in #1 (three remaining timeout shapes),
+  #10 (`roms.svelte.ts` console logging) and #13 (`tokens.css` dark-theme blocks, Card/Button
+  adoption) are still the *right* calls was not re-litigated — only that the code still matches
+  what those notes describe. CLAUDE.md has since hardened the #1 area further (120s stall
+  watchdog, poll-pause, auto-retry), which is consistent with leaving them separate.
+- #14's own "not yet investigated" follow-up (GameDetailsPanel's per-game buttons and
+  `ensureFolders`/`FolderGateModal` gating) was not examined in this pass either.
+- No runtime or visual verification was performed (no device operations, no `vite build`);
+  every status below rests on source reading and grep.
 
 ## 1. Timeout/retry sprawl (worst offender)
 
@@ -38,6 +139,17 @@ on hardware-timing-sensitive code:
 - `getContext`'s deadline loop (packages/gnw-flasher) — polls repeatedly with a 10ms interval
   until a 10s deadline, not a single race.
 
+**Re-verified (2026-09-07): FIXED as scoped — still accurate.** All five shapes still exist
+exactly as the 2026-07 status describes, with the same two consolidated: `raceWithFallback`
+(`apps/web/src/lib/engine/timeout.ts:14`) is now used at 4 sites
+(`device.svelte.ts:311,331,659`, `Wizard.svelte:666`); `withTimeoutAndRetry`
+(`apps/web/src/lib/engine/transport.ts:85`), `Wizard.svelte:323`'s `withTimeout`,
+`flasher.ts:118`'s `setInterval` watchdog and `gnw-flasher`'s deadline loops
+(`waitForIdle`, `packages/gnw-flasher/src/index.ts:309`) remain separate on purpose. The
+timeout *values* moved as CLAUDE.md documents: the flash stall watchdog is 120 s
+(`flasher.ts:119`) and Wizard's outer guards now match at three sites
+(`Wizard.svelte:291,696,855`) — the "both must stay >=" invariant CLAUDE.md states is
+actually **three** siblings now, not two.
 ## 2. Chunked-read pacing duplicated 3 ways
 
 The ST-Link pacing policy lives in three places with contradictory strategies:
@@ -59,6 +171,10 @@ shared helper: screenshot.ts needs large 64 KiB chunks to keep the serialTranspo
 `busy()` window open across the pacing delay; `BaseTransport.readMemory` IS the underlying
 primitive the other two are built on, not a duplicate of them.
 
+**Re-verified (2026-09-07): FIXED — holds.** `apps/web/src/lib/engine/chunkedRead.ts` still
+exports `readMemoryPaced`; `screenshot.ts` still uses its own 64 KiB path and
+`BaseTransport.readMemory` is still the primitive, both as documented and as CLAUDE.md now
+independently requires.
 ## 3. Untracked background work
 
 `_doScan` (`device.svelte.ts:~329`) fires FS-stat reads (`readFatUsedSpace`, `getLfsUsedSpace`)
@@ -68,6 +184,14 @@ screenshot). Errors go to `console.error` only.
 **Direction:** track background reads (a task registry or at minimum an in-flight flag +
 abort on disconnect/flash-start).
 
+**Re-verified (2026-09-07): FIXED (since the original write-up; not previously recorded
+here).** `_doScan`'s successor `runScan()` now takes a generation stamp
+(`apps/web/src/lib/device.svelte.ts:435` — `const gen = ++this._gen;`) and every background
+read checks it before writing back (`device.svelte.ts:508,514,526`, and `:539` for the SD
+path). `_gen` is bumped on disconnect (`:377`), teardown (`:773`) and on each new scan, so an
+in-flight FS-stat read for a stale device is a no-op instead of a race. Errors are no longer
+bare `console.error` either — they route through `dbg()` (`:509,515`). The `scanning` flag
+(`:101`) plus the new `busy` getter (`:199`) provide the in-flight signal the item asked for.
 ## 4. Error-handling style mix
 
 - `alert()` — DeviceInfoTab screenshot failure
@@ -94,6 +218,15 @@ effort, don't interrupt the user" paths (e.g. `connectSilent`'s auto-reconnect a
 startup, or a background FS-stat read that shouldn't block/alarm the user over a transient
 read failure); converting them to a visible error surface would be a UX regression, not a fix.
 
+**Re-verified (2026-09-07): FIXED as scoped; the named site is OBSOLETE.**
+`advanced/DeviceInfoTab.svelte` no longer exists (redesign, `cd590c8`); its screenshot flow
+now lives in `apps/web/src/lib/views/OverviewTab.svelte`. The specific `alert()` the audit
+named is gone with the file. The broader direction is still only partly met: `alert()`
+calls remain in `advanced/FileBrowserSection.svelte` and `views/GameDetailsPanel.svelte` (×4).
+Listed as low-priority OPEN work above. (Corrected 2026-09-08: this paragraph also listed
+`OverviewTab.svelte:301`, the `startFlashUtil` case — that call no longer exists;
+`OverviewTab.svelte` has no `alert()`. Enumerate with
+`grep -rn 'alert(' apps/web/src --include=*.svelte`.)
 ## 5. State layer
 
 `DeviceStore` (`apps/web/src/lib/device.svelte.ts`) and `RomStore`
@@ -139,6 +272,26 @@ stop the name collision with `DeviceStore.scanning`; delete `wantsConnection`.
 renamed to `folderScanning` (Batches 1-2). `firmware`/`utilLoaded`/`installedGames`
 consolidation attempt started 2026-07-03, deferred — see item #16.**
 
+**Re-verified (2026-09-07): PARTIALLY FIXED — most of it is done, including the hardest part.**
+- `wantsConnection`: **FIXED** — deleted; `grep -rn wantsConnection apps/web/src` returns
+  nothing. Removed in `cd590c8`.
+- `RomStore.scanning` name collision: **FIXED** — renamed to `folderScanning`
+  (`apps/web/src/lib/roms.svelte.ts:73,91,107,112,120,127,146,157`, read at
+  `lib/ui/FolderGateModal.svelte:55`). `DeviceStore.scanning` (`device.svelte.ts:101`) is now
+  unambiguous.
+- `firmware`: **FIXED, and more thoroughly than the Direction asked for** — it is no longer
+  `$state` at all. It is a derived getter over `deviceClass`
+  (`apps/web/src/lib/device.svelte.ts:167-173`) carrying an explicit comment ("`deviceClass`
+  … is the sole source of firmware classification. There is no independent 'firmware' fact to
+  race"). The three-writer problem is structurally gone; `pollTick`'s log-sniffing guess was
+  removed outright (`device.svelte.ts:694`).
+- `utilLoaded`: **OPEN** — still assigned from several sites in `device.svelte.ts`, same shape
+  as before. (The 2026-09-07 line numbers here were already stale by 2026-09-08; enumerate with
+  `grep -n 'this\.utilLoaded = ' apps/web/src/lib/device.svelte.ts` instead.)
+- `installedGames`: **OPEN** — still assigned from several sites, still split across the
+  flash-scan and SD-scan paths. (Same caveat; use
+  `grep -n 'this\.installedGames = ' apps/web/src/lib/device.svelte.ts`.)
+See #16 for why the remaining two are deferred rather than mechanical.
 ## 6. Gating patterns
 
 Every tab/view re-derives its own version of "connected" / "stub loaded" / "folder selected" /
@@ -190,6 +343,21 @@ re-deriving the AND-combination locally per component.
 
 **Status: documented, not yet fixed (2026-07-02).**
 
+**Re-verified (2026-09-07): PARTIALLY FIXED — the getters the Direction asked for now exist;
+adoption is incomplete.** `DeviceStore` gained exactly the compound gates this item proposed:
+`busy` (`apps/web/src/lib/device.svelte.ts:199`), `readyToOperate` (`:204`) and `sdReady`
+(`:210`), alongside the pre-existing `isConnected` (`:191`). Every file:line in the table above
+is stale — `DeviceInfoTab.svelte`, `RetroGoTab.svelte`'s audited blocks and
+`advanced/RomManagementTab.svelte` were all rewritten or moved by the redesign.
+Remaining gap: `device.targetMedia === "sd"` is still spelled out at many more sites across
+`apps/web/src/lib` than `sdReady` is used at (compare
+`grep -rn 'targetMedia === "sd"' apps/web/src` with `grep -rn 'sdReady' apps/web/src`; the
+ratio was 36:6 on 2026-09-07 and unchanged on 2026-09-08). Most of the spelled-out sites are genuine *mode*
+branches rather than the "SD mode AND handle granted" compound gate (e.g.
+`views/RomManagementTab.svelte:130,224,657,680`), so this is a per-site judgement call, not a
+mechanical replace. `device.utilLoaded` is still read directly in a dozen-plus components — consistently spelled,
+as before, just not hoisted. (The 2026-09-07 file list here was partial and its line numbers
+have since moved; use `grep -rn 'device.utilLoaded' apps/web/src`.)
 ## 7. Modal implementations
 
 Five distinct modal markups exist, none sharing a common shell component, with the exact same
@@ -233,13 +401,20 @@ correctly places it on the inner `role="dialog"` element). Verified via `svelte-
 (0 errors, 0 warnings — down from 1 warning). **Needs real-browser visual verification**: all
 5 modals' appearance, backdrop-click-to-cancel, and Escape-to-cancel.
 
+**Re-verified (2026-09-07): FIXED — holds, and the pattern propagated.** `.backdrop` CSS is
+now defined in exactly one file (`apps/web/src/lib/ui/ModalShell.svelte`); a repo-wide grep
+for a second `.backdrop` style block returns nothing. Eight consumers now wrap it — the
+original five plus three that did not exist at audit time: `InstallProgressModal.svelte`,
+`AddSourcesModal.svelte`, `FilePromptModal.svelte`. Note `ConnectAdapterModal.svelte` was
+renamed to `ui/ConnectGateModal.svelte` in the redesign, and `RomManagementTab.svelte`'s
+inline space-alert moved to `lib/views/` but still uses `ModalShell`.
 ## 8. localStorage/IndexedDB usage
 
 **`localStorage` keys** (`grep -rn "localStorage\." apps/web/src`):
 
 | Key | File:line | Naming style |
 |---|---|---|
-| `theme` | `apps/web/src/lib/theme.svelte.ts:6,17` | plain word |
+| ~~`theme`~~ → `gnw:theme`, ~~`locale`~~ → `gnw:locale` | `apps/web/src/lib/theme.svelte.ts`, `apps/web/src/lib/i18n/locale.svelte.ts` | **FIXED** — now on `gnw:` via `loadRawMigrated`/`saveRaw` (see below) |
 | `gnw:<key>` (namespaced via `persist.ts`'s `saveSel`/`loadSel`, `NS = "gnw:"`) | `apps/web/src/lib/persist.ts:8,13,23` — actual per-key names chosen by callers, e.g. `"ofwBootloader"` (`OfficialFirmwareSection.svelte:66`), `"installMode"` (`RetroGoTab.svelte:37`) | `gnw:` prefix + camelCase key |
 | `gnw-target-media` | `apps/web/src/lib/device.svelte.ts:38,43` | kebab-case, own `gnw-` prefix (different from `persist.ts`'s `gnw:` prefix) |
 | `gnw_skip_screenshot_confirm` | `apps/web/src/lib/advanced/DeviceInfoTab.svelte:165,370` | snake_case, no `gnw` prefix separator consistency (underscore instead of colon or dash) |
@@ -251,6 +426,33 @@ Four distinct prefixing conventions in active (non-vendored) app code: no-prefix
 `gnw:` (persist.ts helper), `gnw-` (device store), `gnw_` (DeviceInfoTab), plus bare unprefixed
 (`ssUsername` etc.) and a third-party dotted convention (`coverstudio.*`, presumably inherited
 from the vendored screenscraper code, out of scope to rename).
+
+### RESOLUTION — the two bare keys (`463165e`, guards extended 2026-09-08)
+
+`theme` → `gnw:theme` and `locale` → `gnw:locale`, and the `ss*` credential keys are on `gnw:`
+too. The rename is a **migration, not a rename**: `persist.ts`'s `loadRawMigrated(key, legacyKey)`
+returns the namespaced value if present (sweeping away any stale legacy leftover), otherwise
+adopts the legacy value, writes it forward under `gnw:` and deletes the old key — so an existing
+user keeps their theme and language, and once the namespaced key exists the fallback branch is
+unreachable. `saveRaw()` is the matching writer (raw string, no JSON — unlike `loadSel`/`saveSel`,
+these two values are bare strings). Neither key is a credential, so `localCrypt.ts`'s obfuscation
+deliberately does **not** apply; it stays reserved for `gnw:ssPassword`.
+
+There is no other reader of either bare key: `apps/web/index.html` has no inline pre-paint/FOUC
+script at all (the theme is stamped on `<html>` by `theme.svelte.ts` at module load), and the
+throwaway `frontend/`/`backend/` harnesses never touch them.
+
+`apps/web/test/storage-migration.mjs` now runs **10** checks. 1-5 are the helper contract (legacy
+only / new only / neither / `saveRaw` encoding / a throwing private-mode `localStorage`). 6-10 are
+**call-site guards**, added because the helpers being correct buys nothing if a consumer stops
+using them — and a direct `localStorage.getItem("theme")` type-checks perfectly, so no other gate
+in this repo can see it. They assert on source (the two consumers are `.svelte.ts` rune modules,
+not bundleable here) that each routes through `loadRawMigrated`/`saveRaw` with the right
+key/legacy-key pair and touches no `localStorage` directly, that no file anywhere under
+`apps/web` reads or writes a bare `theme`/`locale` key, and that `index.html` grows no inline
+storage-reading pre-paint guard. All five were mutation-tested (dropped write-forward; legacy
+preferred over namespaced; a bypassed consumer; an added FOUC guard) — every mutation failed at
+least two checks.
 
 **Security note (adjacent, worth flagging):** `GameDetailsPanel.svelte:634`
 (`localStorage.setItem('ssPassword', ssPassword)`) stores a ScreenScraper account password in
@@ -282,6 +484,24 @@ confirm whether `idb.ts`'s `gnw-web-builder` DB is dead and can be deleted in fa
 
 **Status: documented, not yet fixed (2026-07-02).**
 
+**Re-verified (2026-09-07): PARTIALLY FIXED — the two things actually worth fixing are done.**
+- The five bare `ss*` keys are now namespaced: `gnw:ssUsername` / `gnw:ssPassword` /
+  `gnw:ssRemember` / `gnw:ssPreferLocal` / `gnw:ssSaveLocal`
+  (`apps/web/src/lib/views/GameDetailsPanel.svelte`; note the file moved from `advanced/`).
+- The **plaintext-password security note is addressed**: the stored value now goes through
+  `apps/web/src/lib/localCrypt.ts` (`obfuscate`/`deobfuscate`, AES-GCM with a bundle-embedded
+  key). Per CLAUDE.md this is obfuscation, not real security — a deliberate, documented choice
+  for a credential that must stay recoverable to be re-sent.
+- `gnw-target-media` and `gnw_skip_screenshot_confirm` are both **gone** (the latter with
+  `DeviceInfoTab.svelte`).
+- Still OPEN: `theme` (`lib/theme.svelte.ts:6,17`) and `locale`
+  (`lib/i18n/locale.svelte.ts`) remain bare, unprefixed keys — `locale` is new since the
+  audit, i.e. the un-namespaced habit reappeared once. Renaming needs a read-old-key migration.
+- IndexedDB: `idb.ts`'s `gnw-web-builder` DB is **deleted** (see #9), so the duplication this
+  item flagged is resolved. Three DBs remain, but different ones: `gnw-handles`
+  (`lib/persist.ts:33,38`), `gnw-bundles` (`lib/sources/bundleStore.ts:34,53` — new since the
+  audit, a genuinely separate concern: cached firmware-bundle blobs), and the vendored
+  `cover-scraper-cache` (`lib/screenscraper/cache.js`). No consolidation needed.
 ## 9. Dead code
 
 **`apps/web/src/lib/idb.ts` is entirely dead** — 4 exports (`getDb`, `saveHandle`, `loadHandle`,
@@ -314,6 +534,18 @@ in case a build script or the throwaway `frontend/` harness references it, but n
 
 **Status: documented, not yet fixed (2026-07-02).**
 
+**Re-verified (2026-09-07): FIXED — both named items are gone.** `apps/web/src/lib/idb.ts` no
+longer exists (deleted in `cd590c8`, confirmed via
+`git log --diff-filter=D -- '*lib/idb.ts'`), and `wantsConnection` returns zero grep hits.
+`lib/persist.ts` is the sole handle-persistence path.
+
+**New dead code found this pass (was not dead in 2026-07):** `apps/web/src/lib/ui/Badge.svelte`
+and `apps/web/src/lib/ui/InfoTip.svelte` each have **zero** importers anywhere in
+`apps/web/src` (checked every `lib/ui/*.svelte` against the whole tree, `.svelte` + `.ts`).
+`Badge.svelte` was extracted in 2026-07 for `OfficialFirmwareSection`'s `.num`, which the
+redesign rewrote — the extraction outlived its only consumer. **Both were deleted in `ef34572`**
+(2026-09-07). (`ui/InstallGeometry.svelte` also has no live call site but is **deliberately parked**
+pending the redesign's free-space visual — do not delete that one.)
 ## 10. Engine layer inconsistencies
 
 **Address constant re-declaration.** `0x90000000` (extflash memory-map base) and
@@ -411,8 +643,14 @@ visibility into genuine problems, not improve consistency.
 
 Not attempted this pass (per plan, deferred as separate/larger efforts): consolidating
 `notImplemented()`/LE-codec helpers across `packages/`, unifying error-handling conventions,
-adding oracle/unit test coverage for `swd-transport`/`gnw-flasher`/`builder-core`.
+adding oracle/unit test coverage for `swd-transport`/`gnw-flasher`/`builder-core` (since done —
+`eb26fd0`/`72ec441`/`06b39d2`).
 
+**Re-verified (2026-09-07): FIXED — holds.** `apps/web/src/lib/engine/addr.ts` still exports
+`EXTBASE`/`BANK_BASE`/`MemReadFn` and is still the single home CLAUDE.md advertises as a
+reusable primitive. No re-introduced local `EXTBASE` declarations were found. The stray
+`console.error` in `device.svelte.ts` is still routed through `dbg()`; `roms.svelte.ts` still
+uses `console.warn`/`console.error` deliberately, as the 2026-07 note explains.
 ## 11. Download-blob helper duplication
 
 `grep -rn "createObjectURL" apps/web/src` finds 12 call sites. One is already a shared helper
@@ -464,6 +702,15 @@ uses `canvas.toDataURL()` (a data URI), not `createObjectURL`/Blob — a differe
 that wasn't one of the 7 originally-flagged sites; not folded in to avoid scope-creeping the
 helper's signature. Verified via `tsc -b` (full workspace, clean) and `svelte-check` (0 errors).
 
+**Re-verified (2026-09-07): FIXED — holds.** `grep -rn createObjectURL apps/web/src` now
+returns 8 hits and **none** is a duplicated download: `lib/util.ts:7` (the shared helper,
+`download(name, data: Uint8Array | Blob)` at `:5`), `lib/sources/bundle.ts:69` (in-page URL
+for a cached bundle, not a download), the two known in-page display sites
+(`views/GameDetailsPanel.svelte:314`, `views/RomManagementTab.svelte:439`), the vendored
+`lib/screenscraper/util.js:22`, and three in a Node test stub
+(`lib/sources/test/validate.mjs`). The seven hand-rolled copies are gone. One `a.download`
+remains outside the helper — `views/OverviewTab.svelte:378`, the canvas `toDataURL()`
+screenshot save, which is the different mechanism the 2026-07 note deliberately excluded.
 ## 12. packages/ layer internal audit
 
 **Cross-package duplicated logic:**
@@ -514,12 +761,15 @@ real pure function; `fetchManifest`/`fetchArtifacts`/`buildFilesystem`/`flash`/`
 `pushSaves` (index.ts:92-134) all still call the local `notImplemented()` stub exactly as
 CLAUDE.md's codebase map describes — no drift since CLAUDE.md was last updated.
 
-**Oracle/test coverage gaps:** `packages/swd-transport`, `packages/gnw-flasher`, and
-`packages/builder-core` have **no `test/` directory at all** — confirmed via
+**Oracle/test coverage gaps** — *as of 2026-07-02; the swd-transport/gnw-flasher/builder-core
+half of this is **no longer true**, see the 2026-09-08 correction in the re-verified block at
+the end of this item.* `packages/swd-transport`, `packages/gnw-flasher`, and
+`packages/builder-core` had **no `test/` directory at all** — confirmed at the time via
 `find packages -maxdepth 2 -name test`. This is non-trivial, hardware-protocol code
 (mailbox protocol, context handshake, chunk-retry logic in gnw-flasher; halt/resume/reset
 register sequences in swd-transport) with zero oracle/unit coverage, unlike gnw-patch/
-thumb-asm/fs-builders which each have oracle scripts cited in CLAUDE.md. Within gnw-patch,
+thumb-asm/fs-builders which each have oracle scripts cited in CLAUDE.md. (All three gaps
+have since been filled; CLAUDE.md now lists a suite for every package.) Within gnw-patch,
 `device.ts` and `aes.ts`/`lz77.ts` are not directly referenced by name in any test/*.mjs
 (only indirectly exercised via `engine.mjs`/`superblock.mjs` calling `patchFirmware`).
 
@@ -531,8 +781,9 @@ cross-package runtime deps without DI" rule is read strictly); pick one error co
 (typed error classes, matching gnw-patch/fs-builders/thumb-asm) and adopt it in
 swd-transport/gnw-flasher/builder-core; add at least a minimal oracle/smoke test for
 gnw-flasher's mailbox/context protocol and swd-transport's register mapping, given
-CLAUDE.md's "byte-exactness is verified, not assumed" rule currently has no enforcement
-mechanism for these two packages.
+CLAUDE.md's "byte-exactness is verified, not assumed" rule had no enforcement
+mechanism for these two packages. **This direction was carried out** — see the correction in
+the re-verified block below.
 
 **Status: partially fixed (2026-07-03).** Hoisted `ProgressFn` to `packages/swd-transport/src/index.ts`
 (its canonical home — the L1 base layer both `gnw-flasher` and `builder-core` already
@@ -555,8 +806,47 @@ decision rather than folded into this mechanical-dedup batch.
 
 Not attempted this pass (per plan, larger/separate efforts): unifying the error-handling
 convention across packages, adding oracle/unit test coverage for
-swd-transport/gnw-flasher/builder-core, consolidating `notImplemented()`/LE-codec helpers.
+swd-transport/gnw-flasher/builder-core (since done — `eb26fd0`/`72ec441`/`06b39d2`),
+consolidating `notImplemented()`/LE-codec helpers.
 
+**Re-verified (2026-09-07): OPEN — the most intact item in this document.** *(Superseded
+2026-09-08: PARTIALLY FIXED — the test-coverage bullet below was wrong; see the correction
+there and the status line that follows the list.)* `packages/`
+barely moved during the redesign and nearly every finding still stands verbatim:
+- `crc32`/`CRC_TABLE`: **still duplicated** — `packages/gnw-patch/src/superblock.ts:129,139` and
+  `packages/fs-builders/src/frogfs.ts:346,356` (superblock's pair re-derived 2026-09-10; the
+  2026-07 finding body above still quotes its original `:71,81`, which is the historical record). Still blocked on the dependency-edge decision
+  the 2026-07 deferral describes.
+- `ProgressFn`: **partial fix holds** — down to two declarations
+  (`packages/swd-transport/src/index.ts:20`, `packages/fs-builders/src/index.ts:75`);
+  `builder-core` imports and re-exports it from swd-transport
+  (`packages/builder-core/src/index.ts:9,12`), as does `gnw-flasher`. `fs-builders` remains
+  deliberately independent.
+- `notImplemented`: **still triplicated** verbatim (line numbers re-derived 2026-09-10) — `packages/gnw-flasher/src/index.ts:278`,
+  `packages/builder-core/src/index.ts:88`, `packages/fs-builders/src/index.ts:111`. Note this is
+  about the *helper* being copied three times, not about what still calls it: `gnw-flasher`'s
+  `unlock()` is now a real port and no longer among its callers, while `lock()` deliberately is.
+- Error-convention split: **unchanged** — typed classes in gnw-patch (`firmware.ts:15`,
+  `superblock.ts:36`), fs-builders (`frogfs.ts:88`, `littlefs.ts:12`, `frogfsParse.ts:28`) and
+  thumb-asm (`index.ts:30`); plain `Error` in swd-transport, gnw-flasher and builder-core.
+- builder-core stub state: **still accurate** — `notImplemented` at
+  `builder-core/src/index.ts:93,105,114,122,126,133`, matching CLAUDE.md's map.
+- Test-coverage gap: **~~unchanged~~ — CLOSED, and this bullet was wrong.** It claimed (as did
+  the priority list above, and the 2026-07 finding body) that `find packages -maxdepth 2 -name
+  test` returns only `thumb-asm`, `gnw-patch`, `fs-builders`. **Corrected 2026-09-08:** that
+  same command now returns all six packages. `packages/swd-transport/test/transport.mjs`
+  (`eb26fd0`, halt/resume/reset register sequences incl. the watchdog freeze bits),
+  `packages/gnw-flasher/test/protocol.mjs` (`72ec441`, the mailbox/context protocol against a
+  simulated RAM stub — `waitForIdle` ordering, verify defaults) and
+  `packages/builder-core/test/resolveBuild.mjs` (`06b39d2`, layout logic + scaffold-stub
+  guards) all exist and all pass. Run them the way CLAUDE.md lists them:
+  `docker compose exec dev node packages/<pkg>/test/<file>.mjs` — each prints its own pass
+  count, which is why no count is written down here.
+
+**Status (2026-09-08): PARTIALLY FIXED, not OPEN.** The test-coverage half of this item is
+done; the `crc32`/`notImplemented` duplication and the error-convention split are what remain,
+and they remain because they need a package-boundary *decision*, not because nobody has got to
+them.
 ## 13. Component/CSS layer beyond modals
 
 **Status-LED/badge color duplication (hardcoded hex, not tokens):** the exact same
@@ -566,7 +856,7 @@ and `apps/web/src/lib/ui/DeviceControls.svelte:99-102` (`.indicator.red/.yellow/
 plus a 4th `.gray: #7f8c8d`) — two separate LED-badge implementations, neither reading
 from a shared `--status-red`/`--status-yellow`/`--status-green` custom property (no such
 tokens exist in `apps/web/src/styles/tokens.css`). A third "dot" style,
-`apps/web/src/lib/advanced/AccordionSection.svelte:102-107`, uses a differently-styled
+`apps/web/src/lib/advanced/AccordionSection.svelte:102-107` (since the firmware rail landed, used only by the Library tab's `RomSection.svelte`), uses a differently-styled
 pulsing dot (`background: var(--model-accent)`) — not a duplicate of the red/yellow/green
 LED but the same `.dot` class name reused for an unrelated visual, a naming collision risk.
 
@@ -654,6 +944,55 @@ using CSS's native multi-selector grouping instead of copy-pasting the property 
 Verified via `svelte-check` (0 errors, 0 warnings). The LED-token and Badge changes are
 UI-visible and **need real-browser visual verification**.
 
+**Re-verified (2026-09-07): PARTIALLY FIXED; several audited files no longer exist.**
+- **LED colours: FIXED.** `--status-red/-yellow/-green/-gray` exist
+  (`apps/web/src/styles/tokens.css`, the `--status-*` block) and no LED reads the hex literals
+  any more — `DeviceControls.svelte` uses the tokens and `DeviceHeader.svelte`'s dot was
+  rewritten by the redesign to key off `device.connection`. (2026-09-08: the note that
+  `ui/GeometryBar.svelte`'s over-capacity fill was the last raw `#c0392b` is no longer true —
+  that literal is gone; `grep -rn '#c0392b' apps/web/src` now finds only the token declaration
+  itself and two prose comments.)
+- **`AccordionSection.svelte`'s `.dot` naming collision: OBSOLETE** — that file no longer
+  exists (redesign).
+- **Circular badge: OBSOLETE, and regressed into dead code.** `ui/Badge.svelte` exists but has
+  zero importers (see #9's new finding); `OfficialFirmwareSection`'s `.num` was rewritten.
+  `Wizard.svelte`'s `.step-num` (`:992`, styled at `:1270`) is unchanged and still the 3-state
+  ancestor-cascade case deliberately left alone.
+- **`tokens.css` dark-theme "duplicate": still WRONG as a finding, and now documented in
+  place** — the two blocks remain (`styles/tokens.css:164` and `:203`) with an explanatory
+  comment at `:154-158` recording exactly why they cannot merge. No action.
+- **`ui/Card.svelte` adoption: still a false positive**, and the count grew — 17 files now use
+  `var(--r-card)` directly, and `Card.svelte` has no importers at all. Same reasoning as
+  2026-07: a shared radius *token* is not duplicated component structure. If `Card.svelte` is
+  genuinely never going to be adopted it is a deletion candidate, but that is an owner
+  decision about intent, not cleanup — see the 2026-09-08 sweep below.
+- **`ui/Button.svelte` adoption: still a false positive**; the hold-outs are now
+  `views/OverviewTab.svelte` and `views/GameDetailsPanel.svelte` (successors of the
+  originally-named files), still with deliberately denser local `.btn` specs.
+- **Svelte 5 migration: still clean** — no `export let` / `on:click` hits.
+
+**Dead-component sweep (2026-09-08).** `Badge.svelte` and `InfoTip.svelte` were deleted in
+`ef34572`; a full re-sweep of `apps/web/src/lib/**` was run to find anything else with zero
+importers. Method: for every `.svelte`/`.ts` file under `lib/`, grep `apps/web/src`,
+`apps/web/test`, `frontend/` and `backend/` for an import specifier ending in that file's
+stem, then confirm each candidate by hand with a tag/import grep
+(`</?Name[ />]|import +Name |ui/Name`). Dynamic reachability was checked separately: `lib/`
+has no `<svelte:component>`, no `<svelte:element>`, and every `await import(...)` resolves to
+a `.ts` module (`device.svelte.ts:595,601,613,631`, `romScan.ts:351`,
+`sources/biosState.svelte.ts:215`) — no component is reached by a path a static grep misses.
+
+Three files have zero importers. **None were deleted**; each is deliberate or ambiguous, and
+the bar here is proof of deadness, not absence of a caller:
+
+| File | Evidence | Why it stays |
+|---|---|---|
+| `ui/InstallGeometry.svelte` | no `<InstallGeometry` / `import InstallGeometry` hit anywhere | **Parked, not dead** — held through the redesign for the free-space visual's reintroduction. Explicitly protected. |
+| `ui/Card.svelte` | no `<Card` / `import Card` hit anywhere (`Landing.svelte`, its last importer, was rewritten) | An **active design-system primitive**, restyled to the approved mockups in the redesign-foundation commit `f46b12a` and still the intended surface for the 17 `var(--r-card)` sites. Deleting it would fight the redesign in progress. Owner call, not cleanup. |
+| `ui/FilePick.svelte` | no `<FilePick` / `import FilePick` hit anywhere; no `<svelte:component>` or `{#snippet}` indirection under `lib/`; the only surviving mentions were a comment in `FilePromptModal.svelte:693` saying it is *not* reused there and the components list in `i18n/strings/shared.ts:5` | **DELETED 2026-09-08.** The blocker was that removing it orphans `shared.filePick.defaultLabel` / `.noFileChosen`, a seven-locale edit `i18n-locale-drift.mjs` could not check from a worktree — fixed in `6fbdef0`, so the guard now genuinely runs there. Component removed, both keys removed from all seven `strings/shared*.ts`, and the components comment corrected. Nothing else read either key. |
+
+Nothing else under `lib/` is unreferenced. `lib/engine/vendor.d.ts` shows as importer-less by
+construction (an ambient declaration file consumed by `tsc`, never imported) and is not a
+finding.
 ## 14. SD-mode ROM management leaked device-flash budget checks
 
 Found via targeted analysis (2026-07-03, owner-reported symptom), not the original 3-agent
@@ -697,6 +1036,15 @@ Not yet investigated (flagged, out of scope for this fix): whether `GameDetailsP
 per-game action buttons (rendered from the same shared table) have the same `validateFit`
 exposure, and whether `roms.ensureFolders`/`FolderGateModal`'s gating has a comparable leak.
 
+**Re-verified (2026-09-07, re-checked 2026-09-08): FIXED — holds through the redesign.** The
+file moved to `apps/web/src/lib/views/RomManagementTab.svelte` and all three early-outs
+survived the rewrite: the preview effect (`if (device.targetMedia === "sd" ||
+!device.isConnected || !baseInstalled) return;`), `fitsGap` and `validateFit`, with the
+`validateFit` call sites in the shared selection table still routing through it. Line numbers
+in this file move on almost every redesign commit — locate them with
+`grep -n 'fitsGap\|validateFit\|previewWanted' apps/web/src/lib/views/RomManagementTab.svelte`. The follow-up this item flagged as "not yet investigated" (GameDetailsPanel's per-game
+buttons, `ensureFolders` gating) was **not** re-examined in this pass — still an open
+question.
 ## 15. SD sync blanket-rewrote everything on every click (owner-reported regression)
 
 `RomManagementTab.svelte`'s `doSdSync()` unconditionally re-fetched the firmware bundle and
@@ -737,6 +1085,13 @@ folder + SD folder, sync once, then sync again with no changes — the second sy
 ~nothing (only cheats/homebrew, if any) and skip cores entirely unless the checkbox is
 checked; edit a cover or cheat and re-sync — only that file should be rewritten.
 
+**Re-verified (2026-09-07): FIXED — holds, and evolved.** `changedSdUserRoms`, `syncCores`
+and `roms.dirtyFiles`/`clearDirty` are all still present in
+`apps/web/src/lib/views/RomManagementTab.svelte` (re-confirmed 2026-09-08; locate with
+`grep -n 'changedSdUserRoms\|syncCores\|dirtyFiles' apps/web/src/lib/views/RomManagementTab.svelte`
+— the 2026-09-07 line numbers have all moved). The `syncCores` checkbox has since grown a
+version selector ("Upgrade Retro-Go and Emulators") and a bundle preview — i.e. the opt-in
+model held and was built on, not reverted.
 ## 16. `firmware`/`utilLoaded`/`installedGames` consolidation (item #5 continued) — attempted, deferred
 
 Batch 9 of the cleanup plan (`.claude/plans/jaunty-squishing-marble.md`) set out to give
@@ -796,6 +1151,17 @@ available to test with once implemented).
 
 **Status: deferred, needs a dedicated use-case-scoping session before implementation (2026-07-03).**
 
+**Re-verified (2026-09-07): PARTLY OBSOLETE — `firmware` was solved by a different route; the
+rest is still deferred.** The four-writer priority hazard this item painstakingly traces for
+`firmware` no longer exists: `firmware` is not stored state at all now, it is a derived getter
+over the scan's `deviceClass` (`apps/web/src/lib/device.svelte.ts:167-173`), and `pollTick`'s
+log-sniffing fallback — writer #4 in the analysis above — was deleted outright
+(`device.svelte.ts:694`). That happened as part of the redesign's connection-reliability work,
+not as an execution of this item's plan, so the "use-case-scoping session" it calls for never
+took place. `utilLoaded` and `installedGames` are unchanged (writer counts deliberately not
+recorded here — they have already drifted once; grep `device.svelte.ts`), and the
+scenario-table approach the owner asked for still applies to them. **Status remains: deferred,
+needs a dedicated scoping session — but the scope is now two fields, not three.**
 ## 17. Install-progress modal was component-local state — vanished mid-flash on any unmount
 
 `RomSection.svelte`'s "Flash install…" (and equivalently `Wizard.svelte`'s steps and
@@ -830,6 +1196,13 @@ blip is visibly explained instead of passing silently.
 
 **Status: fixed (2026-07-03), pending real-hardware repro of the original failure scenario.**
 
+**Re-verified (2026-09-07): FIXED — holds, and has become the codebase-wide pattern.**
+`apps/web/src/lib/installProgress.svelte.ts` still owns the state,
+`ui/InstallProgressModal.svelte` is still rendered exactly once at `App.svelte:82`, and
+`installProgress.run({...})` has grown well past the original 4 call sites and keeps growing —
+enumerate with `grep -rn 'installProgress.run' apps/web/src` rather than trusting a count here
+(the 2026-09-07 figure of 10 was already low by 2026-09-08). No component renders the modal
+locally.
 ## 18. `program()` never actually waited for the flash operation to finish
 
 A real, reproducible flash-stall ("Flash stalled for 15 seconds without progress (WebUSB
@@ -854,6 +1227,13 @@ targeted (not mass) sector erase identical to the reference implementation — n
 
 **Status: fixed (2026-07-03), pending real-hardware confirmation of actual flash timing.**
 
+**Re-verified (2026-09-07, line numbers refreshed 2026-09-08): FIXED — holds.** `waitForIdle`
+is still defined (`packages/gnw-flasher/src/index.ts:397`) and still actually invoked after a
+context completes (`:381`, and again at `:671`). Its default budget is 120 s of *no progress* —
+the deadline resets on every status change — matching the reference tool and CLAUDE.md's 120 s
+stall-watchdog note. This is now also covered by a suite:
+`packages/gnw-flasher/test/protocol.mjs` (`72ec441`) asserts the `waitForIdle`-after-`READY`
+ordering directly.
 ## 19. Flash auto-retry reintroduced with a closed race, phase/audit-log UI redesigned
 
 Auto-retry-on-stall (reboot the RAM stub + retry) had been deliberately removed per CLAUDE.md,
@@ -881,9 +1261,73 @@ On top of this, the progress modal went through several UX iterations (see STATU
 "Install/Flash Progress UI" section for the final shape): phases gained real named, collapsed-
 by-default sub-steps (auto-collapsing on completion) instead of raw free-text; a single shared,
 timestamped, collapsible audit log (persisted open/closed choice) replaced per-phase log boxes;
-FrogFS/LittleFS were relabeled "Games, BIOS, Languages"/"Emulators, Saves" in user-facing text;
+FrogFS/LittleFS were relabeled "Games, BIOS, Languages"/"Cores, Saves" in user-facing text;
 the flash phase's region writes (intflash/frogfs/littlefs) became named sub-steps matching the
 build phase's pattern, with intflash's sub-step entry omitted where a phase's own label already
 names it (e.g. Wizard step 2's "Flashing Retro-Go").
 
 **Status: fixed (2026-07-03), pending full real-hardware verification pass (see STATUS.md).**
+
+**Re-verified (2026-09-07): FIXED — holds.** The 3-attempt retry loop is still in
+`apps/web/src/lib/engine/flasher.ts` (`maxAttempts = 3` at `:83`, abort-aware at `:146`), the
+stall watchdog is still 120 s (`:119`), and `device.suspendPoll()`/`resumePoll()` still exist
+(`apps/web/src/lib/device.svelte.ts:709,716`).
+
+**Corrected 2026-09-08 — the consent fix took a different final shape than described above.**
+This paragraph used to say the call sites "ignore [the retry flag] and force silently". They do
+not, and must not: every flasher-getter below an already-confirmed `ensureStub()` is now
+`(force) => device.ensureStub(undefined, force, true)` — the retry flag from
+`flasherOrGetter(attempt > 1)` (`flasher.ts:87`) is *forwarded* as `force`, and it is the third
+argument (`silent`) that stops `StubLoadModal` re-asking for consent already given.
+Hardcoding `force = true`, as the 2026-09-07 wording implied, would reset the device on every
+per-chunk call instead of reusing the live cached stub. Enumerate the call sites with
+`grep -rn 'ensureStub(undefined' apps/web/src`; CLAUDE.md's Screenshot/flash section states the
+same rule. The standing footgun the 2026-09-07 note flagged is still real: the protection lives
+in every caller rather than in the signature.
+
+## 20. Design-token duplication pass (2026-09-08) — one token retired, three pairs documented
+
+A specimen board (`docs/design/mockups/Specimen.dc.html`) rendered every type and grey token at
+real size and surfaced four candidates. Each was re-counted with grep across `apps/web/src`
+before acting, and the pass was deliberately confined to `apps/web/src/styles/tokens.css` — a
+token that cannot be retired without editing components is a handoff, not a cleanup.
+
+**Retired: `--neutral-edge`.** Declared in all three theme blocks, and its only consumer in the
+entire codebase was `tokens.css` itself — the `--model-accent: var(--neutral-edge)` fallback for
+a device with no `[data-model]` on the root. Zero component references. Inlined as
+`--model-accent: #9a9a9e` (light) / `#565656` (both dark blocks) and the token removed. The
+literal is repeated per block rather than written once on purpose: the retired token was
+theme-flipped, and the fallback has to keep flipping identically. Zero visual change, provable.
+
+**Not merged: `--ink-dim` (#9a9a9a) and `--silver-edge` (#9a9aa0).** Six values out of 255 apart
+in light theme and visually one colour, but both are live — `--ink-dim` at 18 references,
+`--silver-edge` at 14 (including `--seg-saves`). They carry different meanings: `--silver-edge`
+is a device-face value (the silver button-cap edge, and by extension every neutral fill/border
+in that family — BankCard's occupant segments and empty-bank name, Progress/SplitButton/Carousel
+edges; the list said FilePick until that component was deleted in `863290c`), `--ink-dim` is a
+text value on the ink ramp. They already diverge in dark theme (#6b6b71
+vs #767676). Merging them would destroy that distinction and would require component edits.
+Instead each now carries a comment naming the other and stating what separates them, so the
+duplication is not "fixed" by accident later.
+
+**Not merged: `--fs-chip` and `--fs-micro`, both 12px.** Both live (14 and ~60 references). The
+split is weight, not size: `--fs-chip` is the 600-weight chip/pill/tag face (StatusChip,
+Sources' `.pill`), `--fs-micro` the 400-weight quiet-caption face (GeometryBar notes, StatPanel
+rows). Two names mean either can move without dragging the other. Documented at both
+declarations rather than collapsed.
+
+**Queued — now CLOSED (`51ac881`, 2026-09-08): `--fs-lg` (20px) had no design role left**
+since `--fs-title` (18px) took the modal/dialog titles. Exactly two consumers remain, both stray
+`h3`s: `apps/web/src/lib/views/GameDetailsPanel.svelte:2172` and
+`apps/web/src/lib/views/RomManagementTab.svelte:2370`. Moving both to `--fs-title` retires the
+token; a note to that effect sits at its declaration. Not acted on *in this pass* — component
+files were out of scope and the 20px→18px change is a real (if small) visual change.
+**Done in `51ac881`:** both consumers were moved to `--fs-title` and `--fs-lg` was removed from
+all three theme blocks. The only surviving mention is the explanatory line in the type-scale
+comment (`styles/tokens.css:166`), which records that `--fs-title` replaced it.
+
+**Queued (deliberately not folded in): `RomManagementTab.svelte`'s local `size()`** (~line 179)
+is a near-duplicate of `formatSize()` in `apps/web/src/lib/util.ts`, differing only in dropping
+to zero decimals below 1 MB, with five call sites around 2068-2162. Folding it into the shared
+helper would change the values rendered in the game table, so it stays until someone decides
+which formatting the table should show. This is a formatting decision, not a cleanup.

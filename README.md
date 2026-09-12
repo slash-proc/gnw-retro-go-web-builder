@@ -11,9 +11,13 @@ It is, in effect, a from-scratch browser reimplementation of the host side of
 patcher, with the heavy firmware/core binaries pre-built by CI and fetched on
 demand. See [`docs/`](./docs) for the core technical documentation.
 
-> Requires a Chromium browser (Chrome/Edge/Opera) — WebUSB is not available in
-> Firefox/Safari. Needs an SWD debug probe (ST-Link v2, or a Raspberry Pi
-> debugprobe/picoprobe on CMSIS-DAP **v2** firmware).
+> **Talking to the device** requires a Chromium browser (Chrome/Edge/Opera) —
+> WebUSB is not available in Firefox/Safari — plus an SWD debug probe (ST-Link v2,
+> or a Raspberry Pi debugprobe/picoprobe on CMSIS-DAP **v2** firmware).
+>
+> **Managing an SD card** needs neither. The Library and Sources tabs read your
+> ROM folders and write the card through the File System Access API, so that half
+> of the app works without a probe attached.
 
 ## Status
 
@@ -27,9 +31,15 @@ The engine works end-to-end and is hardware-tested. See [`STATUS.md`](./STATUS.m
 | **Dump** a region to a file | ✅ |
 | **Patch** stock Mario/Zelda firmware → retro-go dual-boot (byte-exact) | ✅ |
 | Byte-exact `liblzma` (WASM) for the patcher | ✅ |
-| retro-go ROM/asset management, FrogFS/LittleFS builders, CI matrix | ✅ |
+| retro-go ROM/asset management, FrogFS/LittleFS builders | ✅ |
 | Real UI (`apps/web`, Svelte 5 + Vite) — Setup / Manage flows | ✅ |
-| On-hardware LittleFS install, Covers/Cheats | ⏳ In-Progress |
+| Covers, cheats, saves browser, on-hardware LittleFS migration | ✅ |
+| **Sources**: third-party cores/homebrew from published manifests, with a sandboxed WASM converter host | ✅ |
+| SD-card content sync (no probe needed) | ✅ |
+| **SD card as a first-class source**: pick a card, see its contents by category against a stated capacity, migrate a legacy `roms/homebrew` folder | ✅ |
+| 15 languages, including right-to-left (Arabic) | ✅ |
+| UI redesign against the artboards in `docs/design/mockups/` | ⏳ In-Progress |
+| Desktop (Electron) build — a shell exists; real filesystem access is still the plan in `docs/ELECTRON.md` | ⏳ In-Progress |
 
 ## Quick start (Docker — nothing is installed on your host)
 
@@ -63,8 +73,10 @@ apps/web/         The real UI — Svelte 5 + Vite SPA (connect-first wizard + ad
 backend/          Dev-only Express server (legacy harness + /packages, /api)
 frontend/         Throwaway single-page test harness (served at /dev)
 docker/           Dockerfile and Nginx local proxy configurations
-references/        Pinned submodules (gnwmanager, retro-go) used as porting references
-docs/              Documentation (start at docs/README.md)
+external/         Submodules: sylverb's zelda3 / smw forks (homebrew sources)
+references/       Gitignored local clones (gnwmanager, retro-go-sd) used as porting
+                  references — NOT submodules, so a fresh clone has none
+docs/             Documentation (start at docs/README.md)
 ```
 
 The defining design idea: **OpenOCD/gnwmanager's "host" is just memory
@@ -87,13 +99,19 @@ Anything that must match an upstream tool byte-for-byte is validated against a
 
 ## Documentation
 
-Start at [`docs/README.md`](./docs/README.md). The documentation has been strictly consolidated into 5 core documents:
+Start at [`docs/README.md`](./docs/README.md), which maps the full set. The five
+technical core docs:
 
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — The layers, packages, design decisions, and the **Master Glossary**.
-- [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) — Build workflows, CI Artifact pipeline, and oracle testing.
+- [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) — Build workflows, the firmware distribution pipeline, and oracle testing.
 - [`docs/FILESYSTEMS.md`](./docs/FILESYSTEMS.md) — The definitive guide on FrogFS / LittleFS and data structures.
 - [`docs/PATCHING.md`](./docs/PATCHING.md) — How the firmware patcher works.
 - [`docs/UX_DESIGN.md`](./docs/UX_DESIGN.md) — The UI component structure and Svelte workflows.
+
+Alongside them: [`docs/ELECTRON.md`](./docs/ELECTRON.md) (the desktop filesystem
+plan), [`docs/CONFORMANCE.md`](./docs/CONFORMANCE.md) (the live artboard
+scoreboard), [`docs/design/`](./docs/design) (artboards and design proposals),
+and a set of dated audit and decision records.
 
 ## Licensing & ethics
 

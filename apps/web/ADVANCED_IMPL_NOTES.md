@@ -1,7 +1,19 @@
 # Advanced mode — implementation notes
 
+> **HISTORICAL — this is the build record of the ORIGINAL Advanced-mode landing, not a
+> description of the code as it stands.** The redesign has since deleted several of the
+> files named below. Verified gone as of 2026-09-08:
+> `lib/advanced/AccordionSection.svelte`, `FlashTab.svelte`, `DeferredSection.svelte`,
+> `ExpertCorner.svelte`, and `lib/views/Manage.svelte` (see "Files changed" item 6 and
+> "Uncertainties" item 6 — that deletion did happen). `lib/ui/FilePick.svelte` is also gone
+> (`863290c`). For the shape of the tab today read `lib/advanced/**` directly. Kept because
+> the §-references into `docs/UX_ADVANCED.md` and the reasoning in "Uncertainties" are still
+> the only record of why these choices were made.
+
 Implements `docs/UX_ADVANCED.md`. Svelte 5 runes throughout, mirroring existing
-components. No new tokens/colors; reuses Card/Button/ConfirmModal/Progress/FilePick.
+components. No new tokens/colors; reused Card/Button/ConfirmModal/Progress/FilePick.
+*(Today `lib/advanced/**` imports Button, Progress, SplitButton, BankCard and GeometryBar
+from `lib/ui/`; FilePick no longer exists and ConfirmModal is no longer used here.)*
 
 ## Files created
 
@@ -22,6 +34,10 @@ components. No new tokens/colors; reuses Card/Button/ConfirmModal/Progress/FileP
   FilePick, bank/offset, Transfer-options sub-disclosure (compress/verify), mono
   write-plan well, alignment + overrun validation pre-modal, bank-1 ack checkbox
   (gates the button), blocking `ConfirmModal`.
+  *(Superseded: the `FilePick` component was deleted in `863290c`; the file control is now
+  the artboard's 40px `.filefield` wrapping a visually-hidden native input, built in
+  `0bfd2db` at `FlashSection.svelte:199-206`, styled `:413-427`. `ConfirmModal` is no longer
+  imported by this file either.)*
 - `src/lib/advanced/FlashTab.svelte` — mounts Dump + Flash, wires open/running.
 - `src/lib/advanced/DeferredSection.svelte` — honest §5.4 deferred panel
   (will/needs copy + inert disabled control + "Coming soon" chip).

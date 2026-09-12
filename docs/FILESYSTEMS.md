@@ -13,6 +13,21 @@ The flash install writes the intflash firmware blob plus **two** extflash region
 
 The device serves `/cores/*` from LittleFS and `/roms`, `/bios`, `/fonts`, `/lang` from FrogFS via a unified Virtual Filesystem (VFS). Cores must be flashed into LittleFS, they do *not* go into FrogFS.
 
+> **This split is by DIRECTORY, and that is under review.** It mirrors upstream's
+> `gen_littlefs_image.py` (`DEFAULT_DIRS=("cores",)`) and `gen_frogfs_image.py` (bios/covers/
+> fonts/roms) and is correct for a core's *binary*, which is loaded into RAM. It does not
+> describe a core that carries read-only data (pico-8, GBA): that data has to be **contiguous
+> and XIP-able**, which means FrogFS, so such a core straddles both filesystems. The same
+> question applies to homebrew and its data. A directory cannot express this because the
+> deciding fact is the file's runtime role. See `docs/ARCHITECTURE.md`'s "Open: the flash-only
+> content split is not settled" before designing against the rule above.
+
+Two functions map a content key to its destination and must agree: `sdDestPath()`
+(`engine/devicePaths.ts`) for the card and `userDest()` (`fs-builders/src/flashImage.ts`) for the
+pack. A key already rooted at a known role passes through; anything else falls back under
+`paths.roms`. Both once lacked a `paths.cores` case, so a core supplied by a *source* rather than
+the firmware bundle became `roms/cores/<file>` — invisible to the firmware on either medium.
+
 ### SD Card Install
 
 When the user has the SD card hardware mod and selects "SD Card" as their target media, the pipeline is entirely different:
@@ -28,7 +43,7 @@ The content pipeline stages 3–7 below (LZMA compress, FrogFS/LittleFS build, s
 
 Cheat files live **directly next to the ROM they apply to** — `roms/<system>/<name>.<ext>` (`.ggcodes` for NES/GB Game Genie/GameShark codes, `.pceplus` for PCE hex patches, `.mcf` for MSX/Coleco/SG-1000 whole-file blueMSX cheats) — confirmed on real hardware for both flash and SD. This contradicts the upstream README/`odroid_system.c` path-helper naming (`ODROID_PATH_CHEAT_*`, which implies a separate `cheats/` directory) and cost real debugging time before a hardware test settled it; don't reintroduce a `cheats/` prefix. `classifyContentPath()` (`apps/web/src/lib/romSelection.svelte.ts`) recognizes a cheat file by **extension**, not directory, for exactly this reason — a cheat file is structurally indistinguishable from a ROM by path alone.
 
-**Device is the sole source of truth for what cheats currently exist — never scanned from the local folder.** `RomManagementTab.svelte`'s `loadCheatsBaseline()` reads cheat files back from the device itself (flash: filter `device.installedFrogfs.files` for the 3 extensions, read via `dumpRegion`; SD: `scanRomDirectory()` against `device.sdHandle`, same filter) as soon as the ROMs tab mounts. User edits (preset toggles, manual add/remove) live in a separate overlay (`configuredCheats`, keyed by game) seeded from that baseline once per game, never overwritten once touched. What actually needs writing is the diff between overlay and baseline (`changedCheatEntries()`), not "always rewrite everything" — this is why cheats participate in the same `SD_SYNC_POLICY`/`SD_WRITE_BUCK ET`-style category framework as games/covers rather than being a special case.
+**Device is the sole source of truth for what cheats currently exist — never scanned from the local folder.** `RomManagementTab.svelte`'s `loadCheatsBaseline()` reads cheat files back from the device itself (flash: filter `device.installedFrogfs.files` for the 3 extensions, read via `dumpRegion`; SD: `scanRomDirectory()` against `device.sdHandle`, same filter) as soon as the Library tab mounts. User edits (preset toggles, manual add/remove) live in a separate overlay (`configuredCheats`, keyed by game) seeded from that baseline once per game, never overwritten once touched. What actually needs writing is the diff between overlay and baseline (`changedCheatEntries()`), not "always rewrite everything" — this is why cheats participate in the same `SD_SYNC_POLICY`/`SD_WRITE_BUCK ET`-style category framework as games/covers rather than being a special case.
 
 **Two file formats, not one.** Line-based (NES/GB, `.ggcodes`) each entry is `"code, description"` — write the **whole line**, not just the code (a real regression: `cheatFileContent()` once dropped everything after the first comma, so the firmware's fallback-to-code-when-no-description behavior made every cheat display its own code instead of a description). MSX/Coleco/SG-1000 (`.mcf`) is a **whole file per game**, not a list of toggleable codes — copied wholesale from `cheat-codes/<system>/` (mirrored as static assets in `apps/web/public/cheat-codes/`), matched by the same `normalizeTitle()` convention used for NES/GB preset matching. PCE has no preset source at all (manual entry only).
 
@@ -75,7 +90,7 @@ To assemble the flash images, we merge the CI-provided default artifacts (`sd_co
 
 | Stage | Action | Component |
 |---|---|---|
-| **0. Default Bundle** | Fetch `web-artifacts.zip` CI artifact (contains cores, bios, fonts, lang). | `artifacts.ts` |
+| **0. Release bundle** | Fetch and hash-verify the release's bundle zip for this storage/bank (cores, bios, fonts, lang). | `artifacts.ts` over `firmwareDist/` |
 | **1. User ROM Scan** | Scan user's local ROM directory. | `romScan.ts` |
 | **2. Map & Merge** | Route cores to LittleFS tree. Route everything else + user ROMs to FrogFS tree. Merge `/bios`. | `planFlashImage` |
 | **3. Staging** | MD 16-bit byteswap; drop junk extensions / `.DS_Store`; drop MSX bios if no MSX games. | `staging.ts` |

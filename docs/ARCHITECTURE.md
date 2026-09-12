@@ -30,7 +30,10 @@ external-flash-loader engineering.
 
 ```
         ┌──────────────────────────────────────────────────────────┐
-  UI →  │  L3  builder-core   "endpoint" API (resolveBuild, …)      │
+        │  apps/web  THE REAL UI (Svelte 5 + Vite). lib/engine/ is   │
+        │      its own typed layer over L1/L2/gnw-patch/fs-builders  │
+        ├──────────────────────────────────────────────────────────┤
+        │  L3  builder-core   "endpoint" API (resolveBuild, …)      │
         ├──────────────────────────────────────────────────────────┤
         │  L2  gnw-flasher    gnwmanager mailbox protocol in JS     │
         │      startStub · info · flash · dump · clock · progress   │
@@ -53,8 +56,10 @@ webstlink `Stlinkv2`), so the package itself imports neither library.
 - `halt`/`resume`/`reset` are implemented against **generic ARMv7-M debug
   registers** (DHCSR/DEMCR/AIRCR), so they work on the STM32H7B0 even though
   neither library's chip table lists it.
-- SWD clock is driven conservatively (dapjs defaults to 10 MHz, which corrupts
-  transfers over flying leads; we set 2 MHz). ST-Link uses webstlink's 1.8 MHz.
+- SWD clock is driven conservatively: dapjs defaults to 10 MHz (which corrupts
+  transfers over flying leads) and webstlink to 1.8 MHz. `apps/web` overrides
+  **both** to one shared value — `SWD_CLOCK_HZ` in `lib/engine/transport.ts`,
+  the ST-Link table maximum. Lower it there if flying leads corrupt transfers.
 
 ### L2 — `packages/gnw-flasher`
 
@@ -78,8 +83,134 @@ completion is status polling.
 
 ### L3 — `packages/builder-core`
 
-The orchestrator the GUI will call. `resolveBuild()` (the Makefile-equivalent
-layout logic) orchestrates manifest checking, artifact fetching, filesystem packaging, and flash instructions.
+`resolveBuild()` — the Makefile-equivalent layout logic — is real and tested
+(`test/resolveBuild.mjs`). The rest of the "endpoint" API (`fetchManifest`,
+`fetchArtifacts`, `buildFilesystem`, `flash`, `pullSaves`/`pushSaves`) is still
+scaffold stubs that throw. **`apps/web` does not import this package at all** —
+it drives L1/L2, `gnw-patch` and `fs-builders` directly from its own
+`lib/engine/`, and fetches artifacts in `lib/artifacts.ts`. Treat L3 as an
+unfinished alternative front door, not as the path the app takes.
+
+### `apps/web` — the real UI
+
+A Svelte 5 + Vite SPA, and the only UI that ships. (`frontend/` is the throwaway
+`/dev` harness — see [DEVELOPMENT.md](./DEVELOPMENT.md).) Under `src/lib/`:
+
+- `engine/` — the typed layer over the packages: `transport`, `flasher`,
+  `flashInstall`, `patch`, `ofw`, `fsscan`/`intflashscan`/`classify`,
+  `screenshot`, `lfsBrowser`, `frogfsDevice`.
+- `device.svelte.ts` — the central store (connection, liveness poll, scan
+  results, classification). Read `.firmware`, never `.type`.
+- `views/` — the tabs; `advanced/` — the Advanced Firmware sections;
+  `sources/` — ROM/BIOS sourcing and conversion; `ui/` — shared components;
+  `i18n/` — one string file per area per locale.
+
+The page is a **fixed viewport**: `.app` is `height: 100vh; overflow: hidden` and
+`.tabpane` is the only general scroll container. No gate in this repo detects
+breaking that.
+
+### Cores and homebrew — what a core actually is
+
+A **core** is a program that teaches the Game & Watch to run a *category* of
+content. It ships a binary, and it declares one or more **systems**: for each,
+the `roms/<folder>/` directory its content lives in, the file extensions that
+count, the names to show, and how the launcher browses them. Install a core and
+the device gains a console it did not have; remove it and that console goes away
+along with its tab.
+
+A **homebrew app** is a program that *is* the content. It ships a binary and
+runs. It declares no systems, owns no folder, and adds no console. One entry in
+the launcher, one thing to play.
+
+That is the whole distinction, and it is a difference in kind rather than in
+degree: **a core is not a fancy homebrew app, and homebrew is not a core with
+nothing in it.** The two are separate first-class kinds in the manifest
+(`kind: "core"` / `kind: "homebrew"`), they install to separate directories
+(`coresDir()` / `homebrewDir()` in `sources/placement.ts`), and only one of them
+is allowed to create a console.
+
+**A core is not the same thing as an emulator.** An emulator is one *kind* of
+core — the kind that imitates real hardware, like the NES or Game Boy core. But
+DOOM is a core too: it declares a `doom/` folder and the `.wad` extension, it
+turns WADs into playable entries, and it emulates nothing whatsoever. It is a
+game engine. "Core" is the general word that covers both, which is why the
+distribution spec renamed the manifest field (`gwrg-dist-spec` commit `d6c24b0`,
+"Call a core a core") and why this app says *core* everywhere a user can see.
+
+#### How a core reaches the Library
+
+Nothing about the console list is hardcoded. The chain is one direction only:
+
+```
+an active source declares a system  (folder, names, extensions, browse mode)
+  -> a scan of the user's ROM folder(s) finds files matching that declaration
+    -> that console, and only that console, gets a button in the Library
+```
+
+So a console button requires **both halves**: an active core that declares the
+system, *and* files on disk that match it. A `gbc/` folder with no Game Boy Color
+core enabled produces no button; an enabled core whose folder is empty produces
+no button either. Deactivating a source removes its console, because the first
+half stopped being true.
+
+`sources/coreRegistry.ts` implements this and its header comment records the
+three hardcoded tables it replaced — `romScan.ts`'s `CONSOLE_DIRS`,
+`romSelection.svelte.ts`'s `CONSOLE_WHITELISTS`, and `engine/consoles.ts`'s
+`LABELS`, none of which ever consulted the user's Sources. **Those three still
+exist and must not be deleted**: they are the fallback for a user who has added
+no cores yet, and the name supply for a console that is already on the device
+whose core was later disabled. Do not add a fourth.
+
+One asymmetry worth knowing: whether a directory *is* a console directory is
+structural and does not depend on activation, but whether it gets a *button*
+does. `registryIsAuthoritative()` is the switch between the two regimes.
+
+#### Where a core's files land, and the two mappers that decide
+
+On **SD** every role is a directory on the card. On **flash** there are two
+filesystems and the role decides which one: upstream builds cores into the
+LittleFS image and FrogFS from bios/covers/fonts/roms
+(`gen_littlefs_image.py` `DEFAULT_DIRS=("cores",)` vs `gen_frogfs_image.py`).
+That split is upstream's to define; we mirror it.
+
+Two functions map a content key to a destination, and **they must agree**:
+
+| | mapper | used by |
+|---|---|---|
+| SD | `sdDestPath()` (`engine/devicePaths.ts`) | the card sync |
+| Flash | `userDest()` (`fs-builders/src/flashImage.ts`) | the FrogFS/LittleFS pack |
+
+Both pass a key already rooted at a known role through untouched and fall back
+to `under(paths.roms, key)` for anything else. **Neither had a case for
+`paths.cores`**, so a core supplied by a *source* (rather than by the firmware
+bundle) took the ROMs fallback and became `roms/cores/<file>` — on SD, a
+directory the firmware never reads; on flash, inside the FrogFS payload where a
+core is equally invisible. `test/devicepaths.mjs` now drives both live
+implementations and compares them, so the two cannot drift apart again.
+
+On flash there was a **second** defect behind the first: `flashImage.ts` split
+the *bundle* content into the cores tree but never split `userRoms`, so fixing
+the path alone would have shipped a correctly-named core into the wrong
+filesystem. Path and partition are two decisions; a check that pins only one
+passes while the other is broken.
+
+#### Open: the flash-only content split is not settled
+
+The rule above is **directory-based**, and that is at best partially right. A
+core's binary is loaded into RAM and belongs in LittleFS, but some cores carry
+read-only data (pico-8, GBA) that must be **contiguous and XIP-able**, which
+means FrogFS. The same question applies to homebrew and its data. A directory
+cannot express that, because the deciding fact is the file's role at runtime,
+not the folder it arrived in.
+
+A spec addition is under discussion upstream to make this expressible:
+`"mapped": { "base": <sentinel> }` on an artifact, where presence means the file
+must be placed somewhere directly addressable rather than in a filesystem, and
+`base` is the sentinel address it was linked at — so whoever places it can
+relocate every pointer into `[base, base+size)` by the delta. **Do not design
+against the current directory split as though it were settled.** See
+[RETRO_GO_EXTFLASH_WRITES.md](./RETRO_GO_EXTFLASH_WRITES.md) for what the
+firmware actually reserves and reads.
 
 ### Side packages
 
@@ -88,7 +219,10 @@ layout logic) orchestrates manifest checking, artifact fetching, filesystem pack
   port gnwmanager's pure-Python `thumb_asm.py`. See [PATCHING.md](./PATCHING.md).
 - **`gnw-patch`** — the firmware patcher: stock Mario/Zelda OFW → retro-go
   dual-boot build, **byte-exact** with gnwmanager. Its own doc: [PATCHING.md](./PATCHING.md).
-- **`fs-builders`** — FrogFS/LittleFS/SD image builders for packing ROMs. See [FILESYSTEMS.md](./FILESYSTEMS.md).
+- **`fs-builders`** — the FrogFS builder and parser, LittleFS builder, ROM
+  `.lzma` sidecars, staging transforms and the flash-install orchestrator. All
+  real and oracle-tested; only the SD endpoints in `index.ts` remain scaffold
+  stubs. See [FILESYSTEMS.md](./FILESYSTEMS.md).
 
 ## Device Scan & Classification (Host-Side)
 
@@ -117,21 +251,29 @@ On connect, the device is grouped into one of the following categories (`DeviceK
 - **`stock`**: Bank1 holds stock Nintendo OFW (Mario or Zelda). Bank1 overwrite *or* Bank2 install (keep stock, patch bank1 to chainload).
 - **`retrogo-sd`**: Retro-Go SD firmware detected — version string starts with "Retro-Go SD" or FrogFS is present in extflash. Current install; Reinstall / ROM Management offered.
 - **`retrogo-old`**: Older Retro-Go install — LittleFS/app present but no SD version string. Upgrade to the SD-capable build offered.
-- **`locked`**: RDP lock active. Unlock-first path.
+- **`locked`**: RDP lock active. Any flow that writes unlocks first, automatically
+  (`engine/unlockGate.ts`). Note the ordering is *not* back-up-then-unlock: RDP 1 makes internal
+  flash unreadable over SWD, so a locked device cannot be backed up first, and clearing RDP
+  mass-erases internal flash. Backup flows therefore do not auto-unlock. See UX_DESIGN 2.2.
 - **`unknown`**: Unrecognized flash contents. Read-only backup fallback.
 
 ## Key Decisions
 
 **No OpenOCD.** The SWD primitives are all that's needed, and the browser libraries provide them.
 
-**Dependency injection, no bundler.** The frontend loads plain ES modules. Packages stay zero-dependency and the environment-specific glue is injected from the frontend.
+**Dependency injection, no bundler *in the packages*.** Every `packages/*` has
+zero third-party dependencies — the environment-specific glue (a dapjs `CortexM`,
+a webstlink `Stlinkv2`) is injected by the caller. The `frontend/` harness loads
+the built `dist/*.js` as plain ES modules via an import map; `apps/web` is a Vite
+app and resolves `@gnw/*` through an alias, but the packages themselves stay
+bundler-agnostic either way.
 
 **LZMA implementations.**
 For performance and byte-exact compatibility, we use two separate LZMA implementations. See [PATCHING.md](./PATCHING.md) and [FILESYSTEMS.md](./FILESYSTEMS.md) for details.
 
 **Bank swapping: dropped.** The STM32 dual-bank `SWAP_BANK` option byte is not part of this product. No swap UI, logic, or awareness — except one build guard: never flash a bank1-built image into bank2.
 
-**Firmware blobs come from upstream CI, not this repo.** This repo's CI only builds and deploys the web frontend. The intflash firmware blobs (`1`, `2`, `sd_1`, `sd_2`) and `sdContent` (cores, bios, fonts) are built by the upstream `game-and-watch-retro-go` / `game-and-watch-retro-go-sd` CI pipelines and shipped in a `web-artifacts.zip` attached to each GitHub release. The web app fetches this zip at runtime from `artifacts.ts`.
+**Firmware blobs come from upstream CI, not this repo.** This repo's CI only builds and deploys the web frontend. The intflash firmware blobs and the content trees (cores, bios, fonts, languages) are built by the upstream `game-and-watch-retro-go-sd` pipeline and published to **GitHub Pages** as `dist/versions.json` plus a per-release `manifest.json` and four bundle zips (`flash-bank1`, `flash-bank2`, `sd-bank1`, `sd-bank2`). The contract is `docs/FIRMWARE_DIST.md` in that repo; the client is `apps/web/src/lib/firmwareDist/`, with `artifacts.ts` as a thin adapter over it. Bundle bytes are refused before the archive is opened unless `bundle.sha256` matches, and every extracted entry is hash-checked afterwards. See [DEVELOPMENT.md](./DEVELOPMENT.md#firmware-distribution-ci--consumption).
 
 **A folder scan whitelist can silently break something years later.** `romScan.ts`'s local-folder walker only keeps whitelisted filenames (`HOMEBREW_DEVICE_FILES`/`HOMEBREW_SOURCE_ROMS`) inside a `homebrew/` folder — added to keep stray junk out of the scan, it also silently dropped homebrew cover art (`.png`/`.jpg`/`.img`), since a cover matches neither list. This broke cover loading for both flash and SD, for both manually-placed and UI-set covers, and looked like a device/sync bug for a while before the actual cause (the scan itself, upstream of everything else) was found. Lesson: a whitelist filter needs to be re-examined whenever a new content *type* (not just new content) is added to a directory it covers.
 
@@ -163,6 +305,7 @@ Domain terms used across this project:
 
 ### Firmware & Filesystems
 - **retro-go**: The homebrew multi-emulator firmware.
-- **core**: A single emulator (NES, GB) built as a separate binary.
+- **core**: A separately-built binary that adds a whole console to the device by declaring its folder, extensions and names. An **emulator** (NES, GB) is one kind of core; DOOM is a core that emulates nothing. Not a kind of homebrew — see "Cores and homebrew" above.
+- **homebrew**: A standalone app that *is* the content. Declares no systems and adds no console.
 - **FrogFS**: Read-only packed filesystem for ROMs/assets.
 - **LittleFS**: Writable flash filesystem for cores and saves.
