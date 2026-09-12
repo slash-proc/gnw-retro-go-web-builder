@@ -30,6 +30,45 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../../..");
 const DIR = "docs/design/mockups";
 
+// The two conformance surveys. A board that appears in neither has never been walked, and
+// because the scoreboard counts ROWS, an unwalked board contributes nothing to it and cannot
+// lower it -- it is invisible rather than pending. That is how the denominator sat at 57 while
+// the canvas grew to 85 and 28 screens went unsurveyed without any guard noticing.
+const SURVEYS = [
+  "docs/audit-artboard-conformance-a.md",
+  "docs/audit-artboard-conformance-b.md",
+];
+
+// Boards that legitimately have no implementation to walk, so "unsurveyed" is the right and
+// permanent answer for them. Keep this SHORT and give every entry a reason: it is the one way
+// to make this check pass without doing the work, so an entry added to silence a failure is
+// the failure. Adding a screen here is a lie; adding a type specimen is not.
+const NOT_A_SCREEN = new Map([
+  ["Specimen", "a type specimen, not a screen: no implementation exists to walk it against"],
+]);
+
+// THE UNWALKED BACKLOG, as it stood on 2026-09-12 when this check was written.
+//
+// These 28 boards were drawn after both conformance surveys and have never been walked. They
+// are a real gap, not an exemption: each one still needs a survey pass. They are listed so the
+// check can fail on the NEXT board to arrive unwalked instead of drowning in this backlog --
+// the same shape as i18n-locale-drift's BASELINE, and for the same reason.
+//
+// THIS LIST ONLY EVER SHRINKS. Walking a board means deleting its line here. Adding a line is
+// how this check stops meaning anything, so a new board belongs in a survey, never here. The
+// check below fails if a name here is already walked, so a stale entry cannot linger either.
+const UNWALKED_BACKLOG = new Set([
+  "FirmwareUpgrade", "GuidedLocked", "Landing2Unsupported",
+  "LibraryComposed", "LibraryComposedOptions", "LibraryComposedOptionsCheats",
+  "LibraryComposedOptionsSaves", "LibraryComposedSummary",
+  "ModalFilesFolder", "ModalFolderSdUnreadable", "ModalNameCollision",
+  "RomsActivityLog", "RomsLoading", "RomsNotice", "RomsPrepare",
+  "SourcesAddHomebrewDir", "SourcesAddRoms", "SourcesCache",
+  "SourcesConfigureHomebrewDir", "SourcesConfigureRoms", "SourcesCuratedUnreadable",
+  "SourcesEmulatorConfig", "SourcesFilesSupplied", "SourcesHomebrewConfig",
+  "SourcesLocalHomebrew", "SourcesRail", "SourcesRomFolders", "SourcesUpdateAll",
+]);
+
 function splitCells(line) {
   const out = [];
   let cur = "";
@@ -130,8 +169,57 @@ function main() {
   list("named by the README index but NO such .dc.html file", [...indexed].filter((n) => !have.has(n)), "stale index row — remove or rename it");
   list("named by canvas.json but NO such .dc.html file", [...onCanvas].filter((n) => !have.has(n)), "stale canvas entry — remove or rename it");
 
+  // Coverage: every board must be walked by at least one survey, or declared not-a-screen.
+  // Read the surveys as plain text and look for the bare board name on a word boundary: the
+  // surveys cite boards both as `Name.dc.html` and as bare `Name`, and a suffix-only match
+  // would report a walked board as unwalked.
+  let surveyText = "";
+  for (const rel of SURVEYS) {
+    const p = path.join(REPO, rel);
+    if (!fs.existsSync(p)) {
+      console.error(`artboard-index: FAIL — survey ${rel} is missing; coverage could not be checked.`);
+      return 1;
+    }
+    surveyText += fs.readFileSync(p, "utf8");
+  }
+  if (surveyText.trim().length === 0) {
+    console.error("artboard-index: FAIL — the conformance surveys are empty; coverage could not be checked.");
+    return 1;
+  }
+  const walked = (name) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(surveyText);
+  const unwalked = files.filter((f) => !NOT_A_SCREEN.has(f) && !walked(f));
+  list(
+    "drawn but walked by NEITHER conformance survey",
+    unwalked.filter((f) => !UNWALKED_BACKLOG.has(f)),
+    "walk it into survey A or B, or add it to NOT_A_SCREEN with a reason if it has no implementation",
+  );
+  // The backlog only shrinks. A name that is now walked must leave it, or the list stops
+  // describing anything and quietly grants a future board the same pass.
+  list(
+    "listed in UNWALKED_BACKLOG but now walked by a survey",
+    [...UNWALKED_BACKLOG].filter((n) => have.has(n) && walked(n)),
+    "walked — delete its line from UNWALKED_BACKLOG",
+  );
+  list(
+    "listed in UNWALKED_BACKLOG but NO such .dc.html file",
+    [...UNWALKED_BACKLOG].filter((n) => !have.has(n)),
+    "stale backlog entry — remove it",
+  );
+  // A stale exemption is its own drift: it makes a board look deliberately skipped when it is
+  // simply gone, and it would quietly excuse a future board that reused the name.
+  list(
+    "named by NOT_A_SCREEN but NO such .dc.html file",
+    [...NOT_A_SCREEN.keys()].filter((n) => !have.has(n)),
+    "stale exemption — remove it",
+  );
+
   if (!problems.length) {
-    console.log(`artboard-index: OK — ${files.length} artboard(s), all present in the README index and canvas.json, neither naming a board that does not exist`);
+    const walkedCount = files.length - NOT_A_SCREEN.size - UNWALKED_BACKLOG.size;
+    console.log(
+      `artboard-index: OK — ${files.length} artboard(s), all present in the README index and canvas.json, ` +
+      `neither naming a board that does not exist; ${walkedCount} walked by a survey, ` +
+      `${UNWALKED_BACKLOG.size} in the unwalked backlog, ${NOT_A_SCREEN.size} not a screen`,
+    );
     return 0;
   }
 

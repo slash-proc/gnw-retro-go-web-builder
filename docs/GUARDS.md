@@ -17,7 +17,19 @@ that prompted it, so a differently-named instance of the same mistake still fail
   anything by hand. It covers the live scoreboard table only, not the dated prose figures.
 - `apps/web/test/artboard-index.mjs` — every `docs/design/mockups/*.dc.html` must appear in the
   README index table and in `canvas.json`, and neither may name a board that does not exist
-  (an audit once found 23 of 57 boards unindexed after a nine-name spot check declared it fine).
+  (an audit in 2026-07 found 23 of the 57 boards that existed **then** unindexed, after a
+  nine-name spot check had declared the index fine).
+  It also polices **survey coverage**: a board walked by neither conformance survey fails the
+  guard. That was added 2026-09-12 after the denominator in `docs/CONFORMANCE.md` sat at 57
+  while the canvas grew to 85, leaving 28 screens unsurveyed with nothing to notice. The
+  scoreboard counts **rows**, so a board nobody walked contributes none and cannot lower a
+  percentage: it is invisible rather than pending, which is why a row-counting guard could
+  never have caught this and a board-counting one had to.
+  Those 28 sit in `UNWALKED_BACKLOG` so the check fails on the *next* board to arrive unwalked
+  rather than drowning in the existing gap, the same baseline shape as `i18n-locale-drift`.
+  **That list only ever shrinks**, and the guard enforces it in both directions: an entry that
+  is now walked fails, and so does one naming a board that no longer exists. Adding a name to
+  it is how this check stops meaning anything.
 - Both exit non-zero if they cannot actually run (missing file, unparseable table, zero rows
   parsed) rather than printing a green line. Do not "fix" a survey status cell to make a count
   guard pass — the header is the thing that is wrong.

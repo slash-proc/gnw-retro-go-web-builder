@@ -70,7 +70,13 @@ acting on any of them**.
 - `references/` — **gitignored local clones**, not submodules, so a fresh clone
   or an agent worktree has none and the reference-oracle tests only run from the
   main clone:
-  - `gnwmanager` (branch `remove-keystone-engine`) — the host tool + patcher.
+  - `gnwmanager`, the host tool and patcher. **The patch oracle needs this clone on
+    `remove-keystone-engine`**, the branch without the keystone assembler, because that is what
+    `packages/gnw-patch/test/oracle.py` regenerates its reference from. The working clone is
+    normally on another branch (`autodetect-lfs-partition-geometry` as of 2026-09-12), so
+    `git -C references/gnwmanager switch remove-keystone-engine` before running that oracle and
+    switch back afterwards. Checking the branch is part of running the test, not a precondition
+    someone else has arranged: the oracle will happily regenerate against the wrong source.
   - `game-and-watch-retro-go-sd` — the firmware (layout constants, Python tools).
 - `external/` — real submodules: sylverb's `zelda3` and `smw` forks, the sources
   for those two homebrew titles.

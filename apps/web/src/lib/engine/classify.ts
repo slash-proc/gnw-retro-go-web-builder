@@ -1,7 +1,7 @@
 /**
  * Device classification + geometry-bar segments, from the scan results.
  * The scan runs on connect and this turns it into "what is this device, and what
- * are we looking at" — which drives the UI. See docs/DEVICE_SCAN.md.
+ * are we looking at" — which drives the UI. See docs/ARCHITECTURE.md "Device Scan & Classification".
  */
 import type { DeviceInfo } from "@gnw/gnw-flasher";
 import type { ExtPartition } from "./fsscan.js";

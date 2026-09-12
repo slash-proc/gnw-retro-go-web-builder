@@ -829,7 +829,7 @@
 
     report.start("rescan");
     report.log("rescan", msg((t) => t.romSection.logRescanning));
-    await device.runScan("after firmware install"); // big change → rescan the device geometry (docs/DEVICE_SCAN.md)
+    await device.runScan("after firmware install"); // big change → rescan the device geometry (docs/ARCHITECTURE.md "Device Scan & Classification")
     report.finish("rescan");
 
     // SD mode also writes the bundle's cores/bios/fonts content to the SD card — mirrors

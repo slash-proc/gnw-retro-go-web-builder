@@ -5,7 +5,18 @@
  *  - SD-card mode: mostly file layout (staging /roms/<system>, core selection).
  *  - Flash mode: the real work — FrogFS image + LittleFS image + per-ROM LZMA.
  *
- * See PLAN.md §"L-FS". Scaffold stubs only.
+ * See PLAN.md §"L-FS".
+ *
+ * **This package is real; only the façade at the bottom of this file is not.** The re-exports
+ * below are the working implementations: FrogFS builder and parser, LittleFS builder and
+ * in-place writer, staging transforms, ROM LZMA, the `flashImage` orchestrator and
+ * `installPaths`: roughly 2,500 lines, each with its own byte-exact oracle test in `test/`.
+ *
+ * The three `notImplemented` functions at the end (`buildSdLayout`, `buildFlashImages` and the
+ * `buildFilesystem` that dispatches to them) are an unfinished alternative front door. **Both
+ * modes are stubbed there, not just SD**, and a shorthand saying otherwise has misled before.
+ * Nothing calls them: `apps/web` composes the real exports directly through
+ * `engine/flashInstall.ts`. Grep `notImplemented` to find every stub in `packages/`.
  */
 
 export {

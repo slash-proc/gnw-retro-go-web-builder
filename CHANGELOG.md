@@ -10,7 +10,8 @@ of how it was built, and is not repeated here.
 ## [2.0.0-alpha]: unreleased
 
 A rewrite of the app around a new UI, plus device, library and SD card handling that the
-previous version did not have. The 1.x app remains available at `/legacy/`.
+previous version did not have. It replaces the 1.x app, whose source is kept at the
+`v1-legacy` tag.
 
 ### Added
 
@@ -81,7 +82,9 @@ previous version did not have. The 1.x app remains available at `/legacy/`.
   README's licensing section for how it combines with the MIT and Apache-2.0 components it
   builds on.
 
-## [1.x]: `/legacy/`
+## [1.x]
 
-The previous app, kept deployed so existing users are not cut off. It has no changelog; its
-history is the `main` branch before the 2.0 work landed.
+The previous app. It has no changelog; its history is the `main` branch before the 2.0 work
+landed, kept at the `v1-legacy` tag. It is not deployed anywhere, and republishing it is
+deferred: see `STATUS.md`, "Known open". The tag predates the AGPL-3.0 licensing, so the
+1.x source carries no licence of its own.

@@ -21,10 +21,24 @@ that was never built.
 
 ## The actual measurement, and where it now stands
 
-**56 of the canvas's 57 artboards** have been walked element by element against their
-implementation — 48 approved, plus the eight drawn 2026-09-08 for surfaces that had no board.
-The one exception is `Specimen.dc.html`, a type specimen rather than a screen; it has no
-implementation to walk.
+**56 artboards have been walked** element by element against their implementation: 48 approved,
+plus the eight drawn 2026-09-08 for surfaces that had no board.
+
+**The canvas now holds 85, so 28 screens have never been surveyed at all** (plus
+`Specimen.dc.html`, a type specimen rather than a screen, which has no implementation to walk
+and never counts). The numerator above is correct and the old denominator of 57 was not: boards
+were added after both surveys and the figure was never re-derived. **The scoreboard below counts
+rows, not boards, so an unsurveyed board contributes nothing to it and cannot lower it**. A
+board with no rows is invisible to a row count, which is exactly how this drifted unnoticed.
+Read the percentages as a measure of the boards that were walked, never as coverage of the set.
+
+The 28 cluster in two places, and both arrived after the last pass: the Sources surfaces
+(`SourcesRail`, `SourcesCache`, `SourcesAddRoms`, `SourcesRomFolders`, the configure and
+supplied-files boards, and the rest of that family) and the composed Library
+(`LibraryComposed` and its four options and summary boards). `FirmwareUpgrade`, `GuidedLocked`,
+`Landing2Unsupported`, the three `Modal*` boards and the four `Roms*` boards make up the
+remainder. `apps/web/test/artboard-index.mjs` now fails when a board exists in no survey and is
+not declared exempt, so the next one cannot arrive silently.
 As of **2026-09-08 (merge sweep)** every status cell in both surveys has been counted
 mechanically — every cell parsed, none inferred from a header — and the counts below are that
 count, not a carried-forward figure. The sweep's own changes are set out in *Rows closed by
@@ -485,6 +499,18 @@ Two corrections to what this section previously said:
   `AbortController` for a user. **That is the owner's open question**, not an agent's to build.
 - The behaviour gap is real but smaller than "of a different size from anything else": the engine
   half already exists.
+
+**A third correction, 2026-09-12: the Cancel control was built, and the two paragraphs above are
+now history rather than status.** The owner asked for it by name after a run hung at 0% with no
+way out but a page reload. `installProgress` constructs an `AbortController` per run and hands
+its signal to `exec`; `apps/web/test/flashcancel.mjs` asserts the abort at the far end, so a
+control that only set a flag would fail it. The verdicts in survey A were re-walked the same day,
+which is why the counts in the paragraph above no longer match the table: **for these three
+boards the live rows are FIXED 15, CONFIRMED 7, BLOCKED 7, OPEN 4**, not the FIXED 3 / OPEN 2 /
+BLOCKED 19 / CONFIRMED 6 recorded when the pass was written. One half of the question genuinely
+remains, and it is the half this section called the hard one: **what a half-written bank leaves
+the user with**, unestablished against hardware, keeping `FCC5` BLOCKED. See
+[`BLOCKED-AUDIT.md`](./BLOCKED-AUDIT.md) Q20, which records the same answer.
 
 Built by that pass, and only this — all of it paint that decides nothing (`ee63de2`): the failure
 modal's footer becomes the full-bleed ruled band `FlashFailure.dc.html:85` draws, and the dialog's

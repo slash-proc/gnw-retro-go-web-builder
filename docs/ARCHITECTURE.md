@@ -41,10 +41,13 @@ packages/gnw-patch          firmware patcher (patchFirmware): Device/firmware/ma
                             aes, lz77, sha1; vendor/{lzma-wasm,symbols_*,novel_*}; wasm/ build
 packages/builder-core    L3: resolveBuild (real) + manifest/artifact/flash (stubs)
 packages/fs-builders    L-FS: FrogFS (builder+parser), LittleFS, staging, ROM .lzma,
-                            flash-install orchestrator — real; index.ts keeps SD scaffold stubs
+                            flash-install orchestrator, installPaths: all real. index.ts's
+                            buildSdLayout/buildFlashImages/buildFilesystem façade is stubbed
+                            (BOTH modes, not just SD) and nothing calls it
 apps/web/                THE REAL UI — Svelte 5 + Vite SPA: device.svelte.ts (store), ui/, views/,
-                            advanced/, sources/, i18n/, engine/ = typed connect/info/flash/
-                            dump/patch over the @gnw packages
+                            advanced/, sources/, i18n/, engine/ (transport.ts connects;
+                            flasher.ts does info/flash/dump; flashInstall.ts, fsscan.ts,
+                            intflashscan.ts, classify.ts, devicePaths.ts, screenshot.ts…)
   firmwareDist/             client for the firmware distribution contract (versions.json ->
                             manifest.json -> hash-verified bundles); artifacts.ts adapts it
   sources/                  third-party cores/homebrew: manifest client, core registry, the

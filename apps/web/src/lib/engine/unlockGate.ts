@@ -28,7 +28,7 @@
  * flashing an XOR-obfuscated payload that dumps internal flash to SRAM across a user-performed
  * power cycle, and only then clearing RDP. Porting that -- it needs `blobs/unlock.bin`, which
  * is already vendored -- would turn most of these prompts into automatic backups. It is not
- * built; see docs/DEVICE_SCAN.md.)
+ * built; see docs/ARCHITECTURE.md "Device Scan & Classification".)
  */
 
 /** What `ensureUnlocked` did, for the caller's audit-log line. */

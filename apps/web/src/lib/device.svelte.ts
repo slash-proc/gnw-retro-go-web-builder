@@ -213,7 +213,7 @@ class DeviceStore {
    *  root, so no unrelated `{#if}` elsewhere in the tree can unmount it mid-question. */
   unlockPrompt = $state<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
 
-  // Flash scan (docs/DEVICE_SCAN.md) — populated on connect, non-blocking; re-run
+  // Flash scan (docs/ARCHITECTURE.md "Device Scan & Classification") — populated on connect, non-blocking; re-run
   // after any big change.
   scanning = $state(false);
   scanProgress = $state(0); // 0..1
@@ -837,7 +837,7 @@ class DeviceStore {
   /**
    * Scan flash geometry over SWD (non-blocking; updates reactive state). intflash is a
    * direct read (fast), extflash is the gnwmanager-style stride walk via the stub's
-   * memory-mapped extflash. Re-runnable after a big change. See docs/DEVICE_SCAN.md.
+   * memory-mapped extflash. Re-runnable after a big change. See docs/ARCHITECTURE.md "Device Scan & Classification".
    */
   private _scanPromise: Promise<void> | null = null;
   /** How many scans this session has run, and when the last one finished. Instrumentation only:
