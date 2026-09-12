@@ -1,5 +1,5 @@
 /**
- * Shared "which build is this core from" logic — used to validate that installed emulator
+ * Shared "which build is this core from" logic — used to validate that installed
  * cores agree with the installed retro-go firmware/each other (Flash-mode LittleFS cores,
  * SD-mode SD-card cores). See references/game-and-watch-retro-go-sd Makefile.common's
  * EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER: every core .bin is built with a fixed header

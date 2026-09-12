@@ -72,7 +72,10 @@ export async function scanExtflashPartitions(
   // 32-byte read cache (lfs neighbour probes hit ±4096; the walk re-reads anchors).
   const cache = new Map<number, Uint8Array>();
   const readCached = async (off: number, len: number): Promise<Uint8Array | null> => {
-    if (off < 0 || off + len > flashSize) return null;
+    // Invariant: `off` is never negative. Every call site derives it from the walk's
+    // `addr` (which starts at 0 and only increases) — `addr`, `addr + 4096`,
+    // `addr + 131068`, and `addr - 4096` behind an explicit `addr >= 4096` guard.
+    if (off + len > flashSize) return null;
     const key = off * 8 + len;
     let v = cache.get(key);
     if (!v) {
@@ -92,7 +95,10 @@ export async function scanExtflashPartitions(
   };
 
   const strides = [1 << 20, 512 << 10, 256 << 10, 128 << 10];
-  // Probe-point count (after geometric skip) for progress.
+  // Probe-point count (after geometric skip) for progress. The walk cannot overshoot it:
+  // the 1 MiB sweep visits floor(F/1M)+1 points, and each finer stride adds only the points
+  // the next-coarser one skipped, so the per-stride counts telescope to exactly
+  // floor(F/128K)+1 probes in total — three below this ceiling for every flashSize.
   const total = Math.floor(flashSize / strides[strides.length - 1]) + strides.length;
   let done = 0;
 
@@ -101,7 +107,7 @@ export async function scanExtflashPartitions(
     for (let addr = 0; addr <= flashSize; addr += stride) {
       // Geometric skip: addresses already visited by a 2× larger stride.
       if (stride < 1 << 20 && addr % (stride * 2) === 0) continue;
-      onProgress?.(Math.min(++done, total), total);
+      onProgress?.(++done, total);
 
       // --- LittleFS (forward: superblock at addr; or +4096 anchor) ---
       let isLfs = false;
@@ -185,7 +191,11 @@ function addLfsPartition(
   const bsize = u32(block, 24);
   const bcount = u32(block, 28);
   const pSize = bsize * bcount;
-  if (pSize > 0 && bsize > 0 && pSize <= flashSize && anchorOff + bsize >= pSize) {
+  // `block` has always passed isLfsSuperblock, so 128 <= bsize <= 8192 and bcount > 0 —
+  // pSize is therefore positive (JS multiplies in doubles, so it cannot wrap to 0).
+  // pSize <= flashSize needs no test either: the two bounds below give pStart >= 0 and
+  // pStart + pSize <= flashSize, which together imply it.
+  if (anchorOff + bsize >= pSize) {
     const pStart = anchorOff + bsize - pSize;
     if (pStart + pSize <= flashSize && pStart % 4096 === 0)
       add({ offset: pStart, size: pSize, type: "LittleFS", fs: "littlefs", meta: { blockSize: bsize, blockCount: bcount } });
@@ -205,8 +215,10 @@ export async function readFrogfsState(
   
   if (!ascii(raw, 0, "FROG")) return { order: [], dataStart: 0 };
   const numFiles = u16(raw, 6);
-  if (numFiles === 0 || numFiles > 10000) return { order: [], dataStart: 0 };
 
+  // No separate numFiles === 0 / > 10000 rejection is needed: 0 files walks the normal path
+  // to the same empty result, and any count above 8190 already overruns the 64 KiB buffer
+  // on the hash-table bound below.
   const hashDataOffs = 12;
   const hashSize = numFiles * 8;
   if (hashDataOffs + hashSize > raw.length) return { order: [], dataStart: 0 }; // Exceeded buffer

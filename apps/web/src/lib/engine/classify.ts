@@ -9,6 +9,7 @@ import type { IntflashBank } from "./intflashscan.js";
 import { INT_BANK_BASES } from "./intflashscan.js";
 import { EXTBASE } from "./addr.js";
 import { locale } from "../i18n/locale.svelte.js";
+import { formatSize } from "../util.js";
 
 export type DeviceKind = "stock" | "retrogo-sd" | "retrogo-old" | "unknown" | "locked";
 
@@ -115,7 +116,7 @@ export function classifyDevice(
     if (littlefs || hasApp)
       return {
         kind: "retrogo-old",
-        label: "Retro-Go (older)",
+        label: `Retro-Go ${locale.t.deviceHeader.retroGoOlderSuffix}`,
         ofw: ofw ? { ...ofw, patched: true } : null,
         retroGoVersion: undefined,
         hasGames: false,
@@ -139,6 +140,19 @@ export interface GeoSegment {
   pct: number;
   /** CSS kind: littlefs | frogfs | fat | ofw | assets | data | free | bank | bank-empty. */
   kind: string;
+  /**
+   * An explicit fill, for a caller whose segments are not device-partition kinds.
+   *
+   * `GeometryBar`'s palette is a CLOSED set: `.frogfs`, `.littlefs`, `.free` and friends each
+   * hardcode a `--seg-*` token in that component's own style block. The SD card pane draws nine
+   * CONTENT buckets (BIOS, Covers, Fonts, …), which are not partitions and have no business
+   * adding nine rules to a primitive every Advanced pane shares. So a caller outside that
+   * vocabulary passes its own token reference here instead, keeping its palette in
+   * `tokens.css` where `--sd-seg-*` already lives.
+   *
+   * Absent for every partition caller, which is what leaves them byte-identical.
+   */
+  color?: string;
   label: string;
   bank?: 0 | 1 | 2;
   offset?: number;
@@ -148,8 +162,12 @@ export interface GeoSegment {
 }
 
 const hex = (n: number) => "0x" + (n >>> 0).toString(16);
-const mib = (n: number) => (n / 1048576).toFixed(2) + " MiB";
-const kib = (n: number) => (n / 1024).toFixed(0) + " KiB";
+// Byte sizes in these tooltips go through `formatSize` — the shared helper. It picks MB/KB/B
+// by magnitude and takes its unit labels from the active locale, so French reads `Ko`/`Mo`.
+// Two earlier hand-rolled versions were wrong in opposite directions: `(n/1048576).toFixed(2)
+// + " MB"` forced two decimals onto everything (a 50 MB free run read `50.00 MB`, 40 KB read
+// `0.04 MB`), and its replacement `(n/1024).toFixed(0) + " KB"` pinned everything to KB and
+// hardcoded an English unit. Don't hand-roll a third.
 
 function partKind(p: ExtPartition): string {
   if (p.fs) return p.fs; // littlefs | frogfs | fat
@@ -169,7 +187,7 @@ export function extflashSegments(parts: ExtPartition[], extSize: number): GeoSeg
   const free = (from: number, to: number, inheritDetail?: string[] | null) => {
     if (to - from <= 0) return;
     const freeLabel = locale.t.shared.geometry.freeSpace;
-    segs.push({ pct: ((to - from) / extSize) * 100, kind: "free", label: freeLabel, detail: inheritDetail || [freeLabel, `${mib(to - from)}`], offset: from, size: to - from, bank: 0 });
+    segs.push({ pct: ((to - from) / extSize) * 100, kind: "free", label: freeLabel, detail: inheritDetail || [freeLabel, `${formatSize(to - from)}`], offset: from, size: to - from, bank: 0 });
   };
   for (const p of sorted) {
     if (p.offset < cursor) continue; // overlap (shouldn't happen) — skip
@@ -177,7 +195,7 @@ export function extflashSegments(parts: ExtPartition[], extSize: number): GeoSeg
     let label = p.type;
     if (p.fs === "frogfs") label = locale.t.shared.geometry.games;
     if (p.fs === "littlefs") label = locale.t.shared.geometry.coresAndSaves;
-    const detail = [label, `${mib(p.size)}`];
+    const detail = [label, `${formatSize(p.size)}`];
     segs.push({ pct: (p.size / extSize) * 100, kind: partKind(p), label, offset: p.offset, size: p.size, detail, bank: 0 });
     
     if (p.fs === "frogfs") {
@@ -203,13 +221,37 @@ export function intflashSegments(banks: IntflashBank[]): GeoSegment[] {
     const usedPct = (used / BANK_SPAN) * 50; // each bank is 50% of the bar
     const detail = [
       `${locale.t.shared.geometry.bankLabel(i + 1)}: ${b?.type ?? locale.t.shared.geometry.bankUnknown}`,
-      `${kib(used)} ${locale.t.shared.geometry.used}`,
+      `${formatSize(used)} ${locale.t.shared.geometry.used}`,
       ...(b?.retroGoVersion ? [b.retroGoVersion] : []),
     ];
     if (used > 0)
       segs.push({ pct: usedPct, kind: b?.type === "empty" ? "bank-empty" : "bank", label: b?.type ?? "", offset: 0, size: BANK_SPAN, detail, bank: (i + 1) as 1 | 2 });
     if (50 - usedPct > 0.01)
-      segs.push({ pct: 50 - usedPct, kind: "free", label: used ? "" : locale.t.shared.geometry.empty, offset: 0, size: BANK_SPAN, detail: [locale.t.shared.geometry.bankFree(i + 1), `${kib(BANK_SPAN - used)} ${locale.t.shared.geometry.free}`], bank: (i + 1) as 1 | 2 });
+      segs.push({ pct: 50 - usedPct, kind: "free", label: used ? "" : locale.t.shared.geometry.empty, offset: 0, size: BANK_SPAN, detail: [locale.t.shared.geometry.bankFree(i + 1), `${formatSize(BANK_SPAN - used)} ${locale.t.shared.geometry.free}`], bank: (i + 1) as 1 | 2 });
   }
   return segs;
+}
+
+/**
+ * Human region label for a failed flash block (gnw-flasher's `FlashBlockRef`).
+ *
+ * The engine deliberately carries only block identity — bank/offset/address — and
+ * leaves naming to the app, so this reuses the SAME already-localized segment
+ * labels the geometry bars draw (`extflashSegments` / `intflashSegments`) rather
+ * than introducing a second naming scheme. Returns null when nothing covers the
+ * block (e.g. the partition scan is unavailable), so callers can fall back to the
+ * bare address.
+ */
+export function regionLabelForBlock(segs: GeoSegment[], block: { bank: number; offset: number }): string | null {
+  const hit = segs.filter(
+    (s) =>
+      s.bank === block.bank &&
+      s.offset !== undefined &&
+      s.size !== undefined &&
+      block.offset >= s.offset &&
+      block.offset < s.offset + s.size,
+  );
+  // A named partition wins over the "Free Space" filler when both cover the offset.
+  const named = hit.find((s) => s.kind !== "free" && s.label) ?? hit.find((s) => s.label);
+  return named?.label || null;
 }

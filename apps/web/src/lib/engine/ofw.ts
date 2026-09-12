@@ -132,6 +132,16 @@ export async function patchAndFlash(
   abortSignal?: AbortSignal,
   extFlashBytes = 0,
 ): Promise<void> {
+  // Abort is checked HERE as well as downstream, for the same reason restoreStock does it:
+  // `flashImage` forwards the signal and GnwFlasher.flash()/program() refuse an aborted
+  // operation before touching the bus, but this is a destructive write and must not rely
+  // solely on a precondition owned by another package. Same error shape as that precondition
+  // (packages/gnw-flasher/src/index.ts) so callers keep matching one message. Checked before
+  // patching too: patchModel is pure CPU work on the dumps with no device or filesystem side
+  // effects, so there is nothing to skip except seconds of wasted work on an already-cancelled
+  // operation.
+  if (abortSignal?.aborted) throw new Error("Operation aborted");
+
   const res = await patchModel(model, internal, external, options);
   // Hard capacity guard: the patched external image must fit the device's external flash chip
   // (e.g. a Zelda 4 MB external can't be flashed onto a 1 MB Mario chip).
@@ -179,6 +189,9 @@ export async function patchAndFlash(
     dbgLog("ofw-flash"),
     { abortSignal }
   );
+  // Between the two writes: an abort raised during the (long) internal write must not be
+  // followed by starting the external one.
+  if (abortSignal?.aborted) throw new Error("Operation aborted");
   if (res.external.length) {
     await flashImage(flasherOrGetter, 0, 0, res.external, (d, t) =>
       report(intLen + d, total, { value: d, max: t, label: "external → bank 0" }),
@@ -237,31 +250,126 @@ export interface FoundBackup {
   externalOk: boolean;
 }
 
-/** Scan a folder's TOP LEVEL for EVERY `{internal,flash}_flash_backup_{model}.bin` pair present
- *  (a folder commonly holds both Mario and Zelda) and validate each. Returns one entry per model
- *  found, in `DEVICES` order; empty if none. */
-export async function scanBackupFolder(dir: BackupDir): Promise<FoundBackup[]> {
+/** The dated subfolder `writeBackup` creates when the picked folder is not empty. */
+const BACKUP_SUBDIR_PREFIX = "backups-";
+
+/**
+ * Every directory a backup pair could be in, NEWEST FIRST: the dated `backups-*` subfolders in
+ * descending name order, then the picked folder itself.
+ *
+ * WHY THIS EXISTS. `writeBackup` puts the pair in the picked folder when that folder is empty
+ * and in a `backups-<stamp>/` subfolder when it is not, but the scan only ever looked at the
+ * top level. So a user who picked a folder with ANYTHING already in it had their very first
+ * backup written somewhere the scan could never see, and was told they had none. Later backups
+ * into an already-used folder had the same problem. The top level comes last because it is
+ * where the OLDEST backup lives (it is the one written while the folder was still empty).
+ *
+ * The stamp sorts lexicographically exactly as it sorts chronologically (`backupStamp` is
+ * zero-padded, most-significant-first), so ordering these needs no file reads at all.
+ */
+async function backupDirs(dir: BackupDir): Promise<BackupDir[]> {
+  const subs: BackupDir[] = [];
+  for await (const [name, handle] of dir.entries()) {
+    if (handle.kind === "directory" && name.startsWith(BACKUP_SUBDIR_PREFIX)) subs.push(handle);
+  }
+  subs.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+  return [...subs, dir];
+}
+
+/** The two file handles of one model's pair in ONE directory, or null if either is absent. */
+async function pairHandles(
+  dir: BackupDir,
+  model: OfwModel,
+): Promise<{ internal: FsFileHandle; external: FsFileHandle } | null> {
   const files = new Map<string, FsFileHandle>();
   for await (const [name, handle] of dir.entries()) {
     if (handle.kind === "file") files.set(name, handle);
   }
+  const internal = files.get(intBackupName(model));
+  const external = files.get(extBackupName(model));
+  return internal && external ? { internal, external } : null;
+}
+
+/** Scan a folder (and its dated `backups-*` subfolders) for EVERY
+ *  `{internal,flash}_flash_backup_{model}.bin` pair present -- a folder commonly holds both
+ *  Mario and Zelda -- and validate each. Returns one entry per model found, in `DEVICES` order;
+ *  empty if none. */
+export async function scanBackupFolder(dir: BackupDir): Promise<FoundBackup[]> {
+  const dirs = await backupDirs(dir);
   const found: FoundBackup[] = [];
   for (const model of Object.keys(DEVICES) as OfwModel[]) {
-    const ih = files.get(intBackupName(model));
-    const eh = files.get(extBackupName(model));
-    if (!ih || !eh) continue;
-    const internal = new Uint8Array(await (await ih.getFile()).arrayBuffer());
-    const external = new Uint8Array(await (await eh.getFile()).arrayBuffer());
-    const det = await detectDevice(internal, external);
-    found.push({
-      model,
-      internal,
-      external,
-      internalOk: det.model === model && det.internalOk,
-      externalOk: det.externalOk,
-    });
+    let best: FoundBackup | null = null;
+    for (const d of dirs) {
+      const handles = await pairHandles(d, model);
+      if (!handles) continue;
+      const internal = new Uint8Array(await (await handles.internal.getFile()).arrayBuffer());
+      const external = new Uint8Array(await (await handles.external.getFile()).arrayBuffer());
+      const det = await detectDevice(internal, external);
+      const entry: FoundBackup = {
+        model,
+        internal,
+        external,
+        internalOk: det.model === model && det.internalOk,
+        externalOk: det.externalOk,
+      };
+      // Newest wins, and the first VALID pair ends the walk -- a folder holding many backups
+      // does not get every one of them read. An invalid pair is kept only as a fallback, so a
+      // corrupt newest backup can neither hide a good older one nor vanish silently when it is
+      // the only thing there (the UI still has something to report as broken).
+      if (entry.internalOk && entry.externalOk) {
+        best = entry;
+        break;
+      }
+      if (!best) best = entry;
+    }
+    if (best) found.push(best);
   }
   return found;
+}
+
+/**
+ * A CHEAP "is there a backup here" probe: filenames and sizes only, no file contents.
+ *
+ * `scanBackupFolder` above reads every candidate in full (128 KiB internal plus up to 16 MiB
+ * external) because it hash-validates against the stock SHA-1s. That is the right thing for the
+ * patch flow, which is about to write those exact bytes to a device, and the wrong thing for a
+ * status row that just wants to know whether the user has a backup at all. `getFile()` returns
+ * a lazy `File`: `size` and `lastModified` come from the directory entry, and nothing is read
+ * until something asks for the bytes.
+ *
+ * Returned newest first, by the same folder ordering `scanBackupFolder` uses.
+ */
+export interface BackupProbeHit {
+  model: OfwModel;
+  /** Newest `lastModified` of the pair, epoch ms. The real file date, not a local record. */
+  at: number;
+  /** The folder the pair actually sits in (the picked folder, or a dated subfolder). */
+  dirName: string;
+}
+
+export async function probeBackupFolder(dir: BackupDir): Promise<BackupProbeHit[]> {
+  const dirs = await backupDirs(dir);
+  const hits: BackupProbeHit[] = [];
+  for (const d of dirs) {
+    for (const model of Object.keys(DEVICES) as OfwModel[]) {
+      if (hits.some((h) => h.model === model)) continue; // newest already found
+      const handles = await pairHandles(d, model);
+      if (!handles) continue;
+      const internal = await handles.internal.getFile();
+      const external = await handles.external.getFile();
+      // Size is the only cheap validity signal there is. A pair that cannot possibly contain a
+      // stock image is not a backup, however it is named -- this is what stops a zero-byte or
+      // half-written file from reading as "you are covered".
+      if (internal.size < INTERNAL_STOCK_LEN) continue;
+      if (external.size < DEVICES[model].externalSizeMiB * 1024 * 1024) continue;
+      hits.push({
+        model,
+        at: Math.max(internal.lastModified, external.lastModified),
+        dirName: d.name,
+      });
+    }
+  }
+  return hits;
 }
 
 /** Pick which scanned backup to pre-select: the one matching the connected hardware, else Zelda
@@ -310,4 +418,73 @@ export async function writeBackup(
   await writeFile(target, intBackupName(model), dumps.internal);
   await writeFile(target, extBackupName(model), dumps.external);
   return target;
+}
+
+// --- Restore to stock -----------------------------------------------------------------
+/**
+ * Write a validated stock backup back onto the device VERBATIM — the exact inverse of
+ * `dumpBackup`, and the direct equivalent of gnwmanager's two `flash bank1 …` /
+ * `flash ext …` invocations against the backup files.
+ *
+ * Nothing is patched, computed or re-derived here: whatever bytes came out of the device
+ * (and hash-validated as genuine stock in `detectDevice`) go straight back in. The internal
+ * dump is the 128 KiB stock image at bank 1 offset 0 — writing it puts the stock reset
+ * vector/SP back at 0x08000000, which is what actually makes the device boot the original
+ * firmware again. The external dump goes to bank 0 offset 0.
+ *
+ * Deliberately NOT done here (see the wizard's Restore step for the user-facing rationale):
+ *  - Anything above the stock image inside bank 1 (e.g. a dual-boot bootloader at
+ *    0x08032000) is left untouched. It is unreachable once the stock vector table is back —
+ *    the same thing gnwmanager's restore leaves behind — and erasing it would mean a second
+ *    erase/program pass of bank 1 for no functional gain.
+ *  - Anything above `external.length` on a larger external flash chip (leftover Retro-Go
+ *    FrogFS/LittleFS content) is left untouched. Stock firmware never reads past its own
+ *    region, so those bytes are inert, and blanking up to 16 MB would multiply the length of
+ *    an already-destructive write window.
+ *
+ * Progress mirrors `patchAndFlash`: one overall total across both images, with a per-bank
+ * sub-bar whose labels ("internal → bank 1" / "external → bank 0") the callers already map
+ * onto their flash phases.
+ */
+export async function restoreStock(
+  flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
+  internal: Uint8Array,
+  external: Uint8Array,
+  report: ProgressReport,
+  abortSignal?: AbortSignal,
+  extFlashBytes = 0,
+): Promise<void> {
+  // Hard capacity guard, same shape as patchAndFlash's: a 4 MB Zelda external backup cannot
+  // be written onto a 1 MB Mario chip. Checked here as well as in the UI so no caller can
+  // start a partial write that would leave the device with neither firmware intact.
+  if (extFlashBytes > 0 && external.length > extFlashBytes) {
+    throw new Error(
+      `Backup's external image is ${(external.length / 1048576).toFixed(2)} MB but this device's ` +
+        `external flash is only ${(extFlashBytes / 1048576).toFixed(2)} MB — it won't fit.`,
+    );
+  }
+
+  // Abort is checked HERE as well as downstream. `flashImage` forwards the signal and
+  // GnwFlasher.flash()/program() refuse an aborted operation before touching the bus — but
+  // this is the most destructive write in the app, so it does not rely solely on a
+  // precondition owned by another package. Same error shape as that precondition
+  // (packages/gnw-flasher/src/index.ts) so callers keep matching one message.
+  if (abortSignal?.aborted) throw new Error("Operation aborted");
+
+  const total = internal.length + external.length;
+  await flashImage(flasherOrGetter, 1, 0, internal, (d, t) =>
+    report(d, total, { value: d, max: t, label: "internal → bank 1" }),
+    dbgLog("ofw-restore"),
+    { abortSignal },
+  );
+  // Between the two writes: an abort raised during the (long) internal write must not be
+  // followed by starting the external one.
+  if (abortSignal?.aborted) throw new Error("Operation aborted");
+  if (external.length) {
+    await flashImage(flasherOrGetter, 0, 0, external, (d, t) =>
+      report(internal.length + d, total, { value: d, max: t, label: "external → bank 0" }),
+      dbgLog("ofw-restore"),
+      { abortSignal },
+    );
+  }
 }

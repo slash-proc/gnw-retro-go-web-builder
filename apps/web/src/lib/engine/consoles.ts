@@ -2,6 +2,13 @@
  * Console display names for retro-go's `roms/<system>/` folder names. The scan + the
  * on-device FrogFS read both surface the raw folder key (e.g. "gbc"); the UI shows the
  * friendly label (e.g. "Game Boy Color"). Unknown systems fall back to the uppercased key.
+ *
+ * NOT THE SOURCE OF TRUTH ANY MORE. A console's name comes from the core that declares it —
+ * `systems[].shortName` in its manifest, via `sources/coreRegistry.ts`. This table answers
+ * only for a system the registry does not name, which in practice means a game already on the
+ * DEVICE whose core the user has since disabled (`romSelection.svelte.ts`'s
+ * `parseDeviceGamePath`): it is still listed and still removable, so it still needs a name.
+ * Do not add a console here — add a source.
  */
 const LABELS: Record<string, string> = {
   nes: "NES",

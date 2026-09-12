@@ -6,19 +6,57 @@ import { connectProbe, getKnownProbes, serialTransport, type ProbeHandle, type S
 import { bootStub, readInfo, dumpRegion, attachFlasher, isStubAlive, pingTarget } from "./engine/flasher.js";
 import { scanExtflashPartitions, type ExtPartition } from "./engine/fsscan.js";
 import { scanIntflashBanks, type IntflashBank } from "./engine/intflashscan.js";
+import type { FirmwareAbi } from "./engine/firmwareAbi.js";
 import { classifyDevice, type DeviceClass } from "./engine/classify.js";
 import { captureScreenshot as _captureScreenshot } from "./engine/screenshot.js";
 import { readInstalledFrogfs, type InstalledGame, type InstalledFrogfs } from "./engine/frogfsDevice.js";
+import { classifySdScanKey, homebrewScanPrefixes, shadowedLegacyHomebrewKeys } from "./engine/devicePaths.js";
 import { dbg, dbgLog } from "./debug.js";
 import { readLogFromTransport } from "./engine/devicelog.js";
 import { raceWithFallback } from "./engine/timeout.js";
-import { loadSel, saveSel } from "./persist.js";
-import { installProgress } from "./installProgress.svelte.js";
+import { loadSel, saveSel, saveDir, loadDir, deleteDir } from "./persist.js";
+
+/**
+ * The SD card's key in the `gnw-handles` store, beside `romDir` and `ofwBackupDir`.
+ *
+ * A key INSIDE that store, not a new store: `persist.ts` already scopes the database name
+ * through `scoped()` and `test/storagescope.mjs` inventories it there, exactly as the other
+ * two handle keys ride it without an inventory entry of their own.
+ */
+const SD_DIR_KEY = "sdDir";
+import { installProgress, deviceSafety } from "./installProgress.svelte.js";
+import { lipProgress } from "./lipProgress.svelte.js";
 import type { CoreVersionCheck } from "./engine/coreVersion.js";
+import { ensureUnlocked as runUnlockGate, type UnlockOutcome } from "./engine/unlockGate.js";
+import { auditLog } from "./auditLog.svelte.js";
+import { msg } from "./logEntry.js";
 
 export type Connection = "disconnected" | "connecting" | "connected" | "attention" | "lost";
 export type Model = "mario" | "zelda" | "unknown";
 export type Firmware = "stock-ofw" | "retro-go" | "unknown";
+
+/** Thrown by `ensureStub()` when the user dismissed `StubLoadModal` themselves. Distinct from
+ *  every other failure so a caller can stay silent about a deliberate cancel while still
+ *  surfacing real errors (see ui/DeviceControls.svelte's Recovery Mode item). */
+export class StubLoadCancelled extends Error {}
+
+/**
+ * THE USER CLOSED THE BROWSER'S DEVICE CHOOSER. `navigator.usb.requestDevice()` rejects with a
+ * `NotFoundError` DOMException both when no device matches AND when the person simply dismisses
+ * the picker, and the two are indistinguishable from here. Treating it as a failure would ring
+ * the bell every time someone opened Change Adapter and thought better of it, which is the way
+ * an error channel gets trained out of the reader. The bell is errors only, so a cancel must
+ * not reach it.
+ */
+function isPickerDismissal(e: unknown): boolean {
+  return e instanceof DOMException && e.name === "NotFoundError";
+}
+
+/** Thrown by `ensureUnlocked()` when the user declined the one prompt that survives — the
+ *  device is locked and has no backup, so unlocking would destroy the original firmware for
+ *  good. Distinct from a hardware failure so a caller can stay silent about a deliberate
+ *  decline while still surfacing real errors, exactly like `StubLoadCancelled`. */
+export class UnlockDeclined extends Error {}
 
 class DeviceStore {
   connection = $state<Connection>("disconnected");
@@ -43,7 +81,116 @@ class DeviceStore {
     saveSel("target-media", val);
   }
   
-  sdHandle = $state<any>(null); // FileSystemDirectoryHandle (any to avoid ts complaints if not in lib)
+  /**
+   * THE PICKED SD CARD, AND THE ONE PLACE THAT REMEMBERS IT.
+   *
+   * `FileSystemDirectoryHandle` (typed `any` to avoid ts complaints if not in lib).
+   *
+   * WHY THIS IS A SETTER AND NOT A BARE FIELD. It was a bare `$state(null)`, and nothing
+   * anywhere persisted it: `saveDir` had four callers (`romDir`, `ofwBackupDir`, the backup
+   * folder, and `localFolders`' per-row keys) and none of them was the card. So a picked card
+   * lived exactly as long as the tab, while `targetMedia` (above) and the stated capacity
+   * (`sdCapacity.ts`) both persisted -- leaving a reload in SD mode with no card, which is
+   * what made the folder gate ask again and the Sources SD page show nothing.
+   *
+   * Persisting on ASSIGNMENT rather than at the picker is deliberate. Both ways in already
+   * converge on `pickSdCardFolder()` (the gate modal's SD row and the Sources pane both call
+   * it), but a third caller that only assigns the field would silently do two thirds of the
+   * job -- which is how the Sources pane itself arrived, setting the handle without setting
+   * `targetMedia`. Writing through the setter is the registration; it cannot be bypassed.
+   *
+   * Only a native FSAA handle is stored. The `<input webkitdirectory>` shim is not
+   * structured-cloneable (`library.svelte.ts` records the same rule for `romDir`), so
+   * IndexedDB would reject it; the duck-type is `dirSupportsWriteBack`'s, inlined rather than
+   * imported because `romScan.ts` reaches for `device` through a DYNAMIC import and a static
+   * edge back would close that loop.
+   */
+  private _sdHandle = $state<any>(null);
+  get sdHandle() { return this._sdHandle; }
+  set sdHandle(val: any) {
+    this._sdHandle = val;
+    if (val && typeof val.getDirectoryHandle === "function") void saveDir(SD_DIR_KEY, val);
+    else if (!val) void deleteDir(SD_DIR_KEY);
+  }
+
+  /**
+   * Restoring it, EAGERLY and exactly once, started here at construction.
+   *
+   * Not lazy, and not from a getter. A lazy restore in this codebase has already produced the
+   * bug twice: `localFolders` set its `loaded` flag before the awaits that load, and
+   * `favorites` called its loader from a `$derived`, where assigning `$state` throws
+   * `state_unsafe_mutation` -- so the store stayed empty for the life of the page and the next
+   * write persisted that emptiness. A constructor is not a reactive context, which is what
+   * makes this safe.
+   *
+   * IndexedDB is async, so the promise is the contract: `whenSdRestored()` is what a reader
+   * awaits before concluding there is no card. `library.ensureFolders()` does exactly that --
+   * without it the folder gate races the restore and asks for a card we already hold.
+   *
+   * A card picked while the read was in flight wins: the guard below never overwrites a
+   * handle that arrived first.
+   */
+  private _sdRestored: Promise<void> = this._restoreSdHandle();
+  private async _restoreSdHandle(): Promise<void> {
+    try {
+      const stored = await loadDir(SD_DIR_KEY);
+      // Assign the FIELD, not the setter: this came from storage, and writing it back would
+      // be a pointless round trip.
+      if (stored && this._sdHandle === null) this._sdHandle = stored;
+    } catch (e) {
+      // Never fatal: a browser with IndexedDB blocked simply starts with no card. Through
+      // `dbg()` so a deployed build can show it -- a console-only report is what
+      // `errorsurface.mjs` now fails the build on.
+      dbg(`[sd] restoring the remembered card failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  /** Resolves once the remembered card has been read back (or found absent). */
+  whenSdRestored(): Promise<void> { return this._sdRestored; }
+
+  /** Which sub-mode the Firmware Setup tab is showing: the Guided Setup wizard or the
+   *  Advanced rail. Store-level singleton state (like `stubPrompt`/`connectGatePrompt`) rather
+   *  than component-local `$state`, because it is *cross-view*: OverviewTab's "set up this
+   *  device" prompt and App.svelte's post-scan auto-route both need to REQUEST Guided Setup,
+   *  and neither is an ancestor of Advanced.svelte. Advanced.svelte mirrors it into the
+   *  `#guided` / `#firmware` hash segments. */
+  firmwareMode = $state<"wizard" | "advanced">("advanced");
+
+  /** STM32 96-bit unique device ID, hex — read once per connection (see `_readDeviceUid`).
+   *  This is the only per-UNIT identity we have: `model`/`extSizeMB`/`detectedStockFirmware`
+   *  identify a device *class*, so two Marios would share them. null until read. */
+  deviceUid = $state<string | null>(null);
+
+  /** Reactive mirror of the persisted "the user has taken a backup of this unit's stock
+   *  firmware" fact (localStorage, keyed by `deviceUid` — see `markBackupTaken`). */
+  private _backupTaken = $state(false);
+  /** When that backup was taken, epoch ms, or null when we don't know. The Overview Status
+   *  pane prints a DATE in this row, never a verb, so the fact had to widen from a boolean.
+   *  Older installs stored a bare `true` under the same key; those load as taken-with-no-date
+   *  and the row says so rather than inventing one. */
+  private _backupAt = $state<number | null>(null);
+  /** True if a stock-firmware backup has been recorded for THIS unit (this session or an
+   *  earlier one). False whenever the UID is unknown — never guess in the optimistic
+   *  direction, since a wrong "already backed up" would hide the backup step. */
+  get backupTaken(): boolean {
+    return this._backupTaken;
+  }
+  /** Record that a stock-firmware backup of this unit now exists on the user's disk. Durable
+   *  across reloads, and scoped to the unit by UID so a different Game & Watch does not
+   *  inherit it. Plaintext on purpose: this is a boolean fact about the user's own device,
+   *  not a secret — localCrypt.ts is for values that shouldn't sit around readable. */
+  /** Epoch ms of this unit's stock-firmware backup, or null (never backed up, or backed up
+   *  before this fact carried a date). */
+  get backupAt(): number | null {
+    return this._backupAt;
+  }
+  markBackupTaken(): void {
+    this._backupTaken = true;
+    this._backupAt = Date.now();
+    if (this.deviceUid) saveSel(DeviceStore.backupKey(this.deviceUid), this._backupAt);
+  }
+  private static backupKey(uid: string): string {
+    return `backup-taken:${uid}`;
+  }
 
 
   // Non-reactive engine handles (held across operations while connected).
@@ -61,6 +208,11 @@ class DeviceStore {
   /** When set, a confirmation modal is asking the user to load the RAM flash utility. */
   stubPrompt = $state<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
 
+  /** Set while `UnlockConfirmModal` is asking whether to unlock a device with no backup.
+   *  Store-level singleton for the same reason `stubPrompt` is: it is rendered at the App
+   *  root, so no unrelated `{#if}` elsewhere in the tree can unmount it mid-question. */
+  unlockPrompt = $state<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
+
   // Flash scan (docs/DEVICE_SCAN.md) — populated on connect, non-blocking; re-run
   // after any big change.
   scanning = $state(false);
@@ -76,9 +228,13 @@ class DeviceStore {
   installedLfsTree = $state<LittlefsTreeNode | null>(null);
   /** Block cache for fast lazy LFS access */
   lfsBlockCache = new Map<number, Uint8Array>();
+  /** Device SHA-256 per 256 KiB chunk, as it was when the cached blocks in that chunk were
+   *  read. Lets a later mount PROVE a cached block is still what the device holds instead of
+   *  discarding everything: see `engine/lfsWrite.ts`. Cleared with the block cache. */
+  lfsChunkHashes = new Map<number, string>();
   /** Async computed FS statistics keyed by partition offset */
   fsStats = $state<Record<number, { usedBytes: number; freeBytes: number }>>({});
-  /** Do installed emulator cores agree with the installed retro-go version (and each other)?
+  /** Do installed cores agree with the installed retro-go version (and each other)?
    *  Populated in the background, after the scan's UI-critical results are already in — see
    *  `_doScan()`'s tail (Flash/LittleFS) and `scanSdCardGames()` (SD-card files). Null until
    *  the first check completes; best-effort, never blocks or fails a scan. */
@@ -87,6 +243,23 @@ class DeviceStore {
    *  generation they started in and drop their result if it's stale by the time they
    *  resolve (device gone, or a newer scan superseded them) — see [[swd-connection-model]]. */
   private _gen = 0;
+  /** Reference count of ensureStub() stub boots that are CURRENTLY WRITING through
+   *  `this.transport` — i.e. that still own the live USBDevice handle underneath it.
+   *
+   *  bootStub()'s target reset makes the probe re-enumerate, which fires the USB `disconnect`
+   *  event → handleLost() → _teardownConnection() → probe.dispose() *while the boot is still
+   *  mid-write*. bootStub captured the transport by value, so its next writeMemory() then hit
+   *  a handle we had just closed ourselves: "InvalidStateError: The device must be opened
+   *  first". _teardownConnection() therefore defers the dispose() (only the dispose — the
+   *  handles are still nulled and the poll still stops) while this is non-zero. */
+  private _stubBootDepth = 0;
+  /** Set when a reconnect was suppressed because a stub boot owned the link (see connect()).
+   *  Drained by _flushDeferredDispose() once the boot settles, so the link is re-established
+   *  exactly once instead of by several racing callers. */
+  private _reconnectAfterBoot = false;
+  /** Probe handles whose dispose() a teardown deferred because a stub boot still owned them.
+   *  Flushed when the last boot settles (see _flushDeferredDispose). */
+  private _deferredDispose: ProbeHandle[] = [];
   /** Wall-clock time of the last successful intflash bank scan (Tier 1), 0 = never this
    *  connection. Used only to skip a redundant Tier-1 re-scan when a Tier-2 (deep) scan runs
    *  shortly after — e.g. ensureStub() boots the stub ~1 min after an intflash-only scan and
@@ -137,6 +310,22 @@ class DeviceStore {
     return "unknown";
   }
 
+  /** The firmware ABI table the connected device publishes, or null when we do not know:
+   *  nothing connected, no scan yet, stock OFW, or a Retro-Go predating the table. Read
+   *  during Tier 1 (the intflash bank scan) out of a buffer that scan already downloaded —
+   *  no extra SWD traffic, and no Tier-2/stub dependency, so it is known as early as the
+   *  firmware classification itself is.
+   *
+   *  Callers MUST treat null as "no claim". Unknown is not incompatible. */
+  get firmwareAbi(): FirmwareAbi | null {
+    if (!this.isConnected) return null;
+    // Only one bank runs; the OFW/empty bank never carries a table, so "the bank that has
+    // one" is unambiguous. Prefer the Retro-Go bank if both somehow answered.
+    const banks = this.banks.filter((b) => b.abi);
+    const rg = banks.find((b) => b.retroGoVersion);
+    return (rg ?? banks[0])?.abi ?? null;
+  }
+
   get isConnected(): boolean {
     return this.connection === "connected" || this.connection === "attention";
   }
@@ -177,7 +366,30 @@ class DeviceStore {
 
   /** Attach to a probe ONLY — the RAM util loads later, on demand (see ensureStub). */
   connect(log?: (m: string) => void, opts?: { forcePicker?: boolean }): Promise<void> {
-    if (this.connection === "connecting" && this._connectPromise) return this._connectPromise;
+    // Dedupe by the in-flight promise ALONE, not by `connection === "connecting"`. A lost link
+    // starts reconnectLoop() while the USB `connect` event independently fires connectSilent();
+    // connectSilent's "am I still lost?" guard is checked BEFORE its own await of
+    // getKnownProbes(), so both could get past it and attach twice (two `DEVICE:` lines per
+    // reconnect). `_connectPromise` is non-null for exactly the duration of one attempt.
+    // forcePicker is excluded: "Change Adapter" must never be answered by an in-flight
+    // pickerless attach.
+    if (this._connectPromise && !opts?.forcePicker) return this._connectPromise;
+    // A stub boot owns the USBDevice right now. bootStub()'s SWD target reset makes the probe
+    // re-enumerate, which fires the USB `disconnect` event MID-BOOT — and the automatic
+    // responses to that (handleLost's reconnectLoop, connectSilent, the USB `connect`
+    // listener) would otherwise attach a SECOND WebStlink to the same physical device while
+    // the first is still writing. Two handles, two independent serialTransport queues, one
+    // USBDevice: the second one's halt/reset races the first's and WebUSB rejects it with
+    // "An operation that changes the device state is in progress", after which whichever
+    // handle is disposed first closes the device under the other ("The device must be opened
+    // first"). Reported twice from the field as Recovery Mode flapping wildly between
+    // connected and disconnected. `_stubBootDepth` already deferred the *dispose*; this is
+    // the other half — nobody re-attaches until the boot that owns the link has finished.
+    // An explicit forcePicker ("Change Adapter") is the user overriding deliberately.
+    if (this._stubBootDepth > 0 && !opts?.forcePicker) {
+      this._reconnectAfterBoot = true;
+      return Promise.resolve();
+    }
     // An explicit connect() call re-enables auto-retry (a manual disconnect suppresses it
     // until the user reconnects by hand — this is that reconnect).
     this._suppressAutoRetry = false;
@@ -219,9 +431,18 @@ class DeviceStore {
         this.connection = "connected";
         this.everConnected = true;
         this.startPoll();
-        void this.runScan(); // we can always scan intflash
+        // AUTO: a reconnect can land mid-install (a stub boot re-enumerates the probe by
+        // design), and a scan must never compete with the write that is already running.
+        void this.runScan("connect", { auto: true }); // we can always scan intflash
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e);
+        // INTO THE LOG TOO. `this.error` is write-only (no component reads it), and every
+        // caller of connect() swallows the rethrow, so without this a failed connect left no
+        // trace anywhere the user or a bug report could reach. A dismissed chooser is not a
+        // failure and goes to the debug channel instead, where it costs nothing and cannot
+        // ring the bell.
+        if (isPickerDismissal(e)) dbg(`[connect] the device chooser was dismissed`);
+        else auditLog.add("error", "device", msg((t) => t.shared.auditLog.connectFailed, this.error));
         // Plain teardown — NOT the public disconnect(): a failed connect attempt (bad probe,
         // WebUSB error) is not a "manual disconnect" and must not suppress auto-retry for a
         // caller (e.g. the reconnect loop below) that's about to try again.
@@ -242,6 +463,14 @@ class DeviceStore {
     try {
       const known = await getKnownProbes();
       if (known.length !== 1) return; // 0 = nothing to auto-attach; 2+ = ambiguous
+      // Re-check the guard AFTER the await. This is the second half of the "adapter reconnects
+      // two or three times" report: the USB `connect` event fires connectSilent() at the same
+      // moment handleLost()'s reconnectLoop is retrying. connectSilent passed its guard while
+      // the link was still "lost", then getKnownProbes() awaited long enough for the loop to
+      // finish attaching — so without this it would attach a SECOND time on top of a healthy
+      // session (a second `DEVICE:` line, a second probe handle).
+      if (this.connection !== "disconnected" && this.connection !== "lost") return;
+      if (this._suppressAutoRetry) return;
       await this.connect();
     } catch {
       // auto-connect failure is non-fatal
@@ -255,9 +484,14 @@ class DeviceStore {
    */
   /** Is the cached stub actually alive on-device (mailbox == IDLE)? RAM read, safe; time-boxed. */
   private async stubAlive(): Promise<boolean> {
-    if (!this.transport) return false;
+    // The CACHED FLASHER's transport, not `this.transport`. They are not always the same
+    // object, and the flasher is what the caller gets back: pinging through the store's
+    // (possibly freshly reattached) transport answers "is a stub running on the target",
+    // which is not the question. The question is "can THIS flasher still transfer".
+    const transport = this.flasher?.transport ?? this.transport;
+    if (!transport) return false;
     try {
-      return await raceWithFallback(isStubAlive(this.transport), 2500, false);
+      return await raceWithFallback(isStubAlive(transport), 2500, false);
     } catch {
       return false;
     }
@@ -296,13 +530,63 @@ class DeviceStore {
    *   mid-operation to recover from a stale/dead stub should happen silently, not re-prompt). */
   async ensureStub(log?: (m: string) => void, forceReboot = false, silent = false): Promise<GnwFlasher> {
     if (!this.probe || !this.transport) throw new Error("Not connected.");
+    // THE POLL MUST NOT RUN DURING A STUB BOOT, and this is the chokepoint that guarantees it.
+    //
+    // Seven call sites already wrap their own stub-booting flows in suspendPoll()/resumePoll()
+    // (Wizard x3, FlashSection, EraseSection, RomSection, OfficialFirmwareSection,
+    // RomManagementTab x2). The header's "Start Recovery Mode" did not -- it calls
+    // startRecoveryMode() -> ensureStub() straight from DeviceControls with nothing silencing
+    // the poll, which is why recovery mode was the one boot that intermittently failed.
+    //
+    // Why it matters: startStub() is nine SEPARATE awaited transport operations (reset, the
+    // verified firmware load, two status writes, msp, pc, the pc read-back, resume, waitForIdle).
+    // Between them the serial queue drains and `transport.busy()` is FALSE, so pollTick()'s
+    // busy() guard passes and it issues a ping into the middle of the boot. That ping is
+    // time-boxed at 300 ms by raceWithFallback but NOT cancelled, so if it lands behind one of
+    // the load's chunks it blows the box, reports `false`, and calls handleLost() -- which sets
+    // _reconnectAfterBoot, and from there any throw out of bootStub tears the connection down
+    // and declares it lost. The device is left reset (black screen) with no stub. Same class of
+    // interleaving the screenshot path documents in CLAUDE.md, and the same cure.
+    //
+    // Counted, so nesting under those seven existing suspensions is a no-op, which is exactly
+    // what the counted design exists for. Wrapped over the WHOLE method (not just bootStub) so
+    // the cached-flasher probes and readInfo are covered too.
+    this.suspendPoll();
+    try {
+      return await this._ensureStubInner(log, forceReboot, silent);
+    } finally {
+      this.resumePoll();
+    }
+  }
+
+  private async _ensureStubInner(log?: (m: string) => void, forceReboot = false, silent = false): Promise<GnwFlasher> {
+    if (!this.probe || !this.transport) throw new Error("Not connected.");
     // Reuse the cached stub ONLY if it's alive AND has a free context. A wedged stub (after a failed
     // flash), dirty contexts, or a power-cycled device → re-boot a clean stub (clears contexts +
     // resets the context counter), otherwise the next flash hangs forever in getContext.
     let reboot = forceReboot;
     if (this.flasher && !forceReboot) {
       await new Promise(r => setTimeout(r, 100)); // USB settle delay
-      if ((await this.stubAlive()) && (await this.contextsFree())) {
+      // Identity first, and it is not redundant with the two liveness probes below. A cached
+      // flasher captured its transport by value at boot time (`bootTransport`); a teardown +
+      // reconnect in between builds a NEW ProbeHandle and a NEW transport and leaves the old
+      // USBDevice handle closed. Every transfer through the stale flasher then throws
+      // "InvalidStateError: The device must be opened first" forever, and the retry loops
+      // above this call spend their whole budget -- one device-resetting stub reboot per
+      // attempt -- on it. That is the observed failure. See isDeadHandleError (swd-transport).
+      // Two questions, and the second is the one the owner's log answered. Identity: is the
+      // cached flasher bound to the transport the store still uses. Openness: is the USBDevice
+      // underneath actually open RIGHT NOW. `stubAlive()` and `contextsFree()` can both come
+      // back true and the very next `transferOut` still throw "The device must be opened
+      // first", because the probes read through the serial queue while something else (a
+      // background scan racing the install) closed and reopened the handle. `USBDevice.opened`
+      // is the browser's own answer and costs nothing.
+      const sameHandle =
+        this.flasher.transport === this.transport && this.probe.device.opened !== false;
+      if (!sameHandle) {
+        dbg("[ensureStub] cached flasher holds a superseded transport -> re-booting a fresh stub");
+      }
+      if (sameHandle && (await this.stubAlive()) && (await this.contextsFree())) {
         dbg("[ensureStub] reusing cached flasher (alive + context free)");
         return this.flasher;
       }
@@ -323,8 +607,55 @@ class DeviceStore {
     // USBDevice handle. Bump _gen so any in-flight background reads (core-version check, FS
     // stats, …) started before this reboot know to abandon their read loop rather than keep
     // issuing transferOut calls against a transport that's about to close out from under them.
-    this._gen++;
-    this.flasher = await bootStub(this.transport, dbgLog("stub", log));
+    const gen = ++this._gen;
+    // Booting the RAM stub resets the target and leaves it running our loader instead of its
+    // own firmware — an unplug in this window is exactly as bad as one mid-flash. Held here as
+    // well as in installProgress.confirm() because this path is also reachable straight from
+    // the header's device menu ("Start Recovery Mode"), with no progress modal involved.
+    // Reference-counted, so a nested call inside an in-flight install is a no-op.
+    deviceSafety.hold();
+    // Own the handle for the whole write (see _stubBootDepth): a teardown triggered by this
+    // very boot's re-enumeration must not close the USBDevice under us. Transport captured by
+    // value because _teardownConnection() nulls the field.
+    this._stubBootDepth++;
+    const bootTransport = this.transport;
+    try {
+      this.flasher = await bootStub(bootTransport, dbgLog("stub", log));
+    } catch (e) {
+      // A teardown/rescan bumped `_gen` under us — the link really did go away mid-boot, so
+      // whatever the transport threw is a symptom. Report the cause instead.
+      // The boot failed AND a drop was seen while it ran: the link really did go away
+      // mid-write, so start the reconnect handleLost() deliberately did not.
+      if (this._reconnectAfterBoot) {
+        this._reconnectAfterBoot = false;
+        await this._teardownConnection();
+        this.connection = "lost";
+        deviceSafety.linkGone();
+    lipProgress.reset();
+        void this.reconnectLoop("lost");
+        throw DeviceStore._bootInterrupted();
+      }
+      if (gen !== this._gen) throw DeviceStore._bootInterrupted();
+      throw e;
+    } finally {
+      this._stubBootDepth--;
+      this._flushDeferredDispose();
+      deviceSafety.release();
+    }
+    // Boot "succeeded" but the link was superseded meanwhile: the flasher we just built points
+    // at a dead transport, so fail here rather than letting readInfo() below throw obscurely.
+    if (gen !== this._gen) {
+      this.flasher = null;
+      this.utilLoaded = false;
+      throw DeviceStore._bootInterrupted();
+    }
+    // The boot wrote through this handle successfully, so the drop handleLost() deferred was
+    // the expected re-enumeration and the link is demonstrably fine. Resume the poll it
+    // silenced; there is nothing to reconnect.
+    if (this._reconnectAfterBoot) {
+      this._reconnectAfterBoot = false;
+      this.startPoll();
+    }
     this.utilLoaded = true;
     // Fresh-boot path (Tier 0/2): the stub is now definitely alive, so both `locked`
     // (Tier 0) and `extSizeMB` (Tier 2) can be read off the same info struct.
@@ -334,8 +665,159 @@ class DeviceStore {
     // A reboot invalidates any "banks already scanned this connection" freshness — force a
     // real re-scan of intflash on the next runScan() rather than trusting cached banks.
     this._banksScannedAt = 0;
+    // THE DEVICE HAS ATTESTED. `readInfo` above is a completed exchange with no write in
+    // flight -- the same class of evidence the liveness poll's ping provides, which is the only
+    // other thing that clears the header's post-write warning.
+    //
+    // Without this the warning outlives the operation by however long the NEXT thing on the
+    // link takes, because `pollTick` returns early while `transport.busy()` and so cannot
+    // attest anything until the link is idle. Booting into Recovery Mode now rescans every
+    // time, so "Finishing up. Do not disconnect" sat there for the whole walk of the chip.
+    // A no-op when a hold is still outstanding (`markQuiet` checks), so a boot nested inside
+    // an install cannot pull the warning down mid-flash.
+    deviceSafety.markQuiet();
     dbg("[ensureStub] stub booted + info read");
     return this.flasher;
+  }
+
+  /**
+   * The header's "Start Recovery Mode", and the ONE path that always re-reads the device.
+   *
+   * When the app opens, Retro-Go is usually running: the scan on connect describes the device
+   * as it could be read THEN. Booting the RAM stub resets the target and changes what is
+   * readable -- `locked` and the external flash size come off the stub's own info struct, the
+   * bank scan's cached freshness is dropped (`_banksScannedAt = 0` in `ensureStub`), and the
+   * partition walk is only meaningful with the stub up. Dropping the freshness only means the
+   * NEXT scan will be real; it does not cause one, and nothing here was asking for one, so the
+   * UI kept describing the pre-reset device until something else happened to trigger a scan.
+   *
+   * So this rescans every time, deliberately (not `auto`): the user asked for recovery mode,
+   * the device is idle by definition once the boot returns, and a stale panel after an explicit
+   * mode change is worse than the seconds a scan costs.
+   *
+   * A scan already in flight was started BEFORE this boot and describes the old state, so it is
+   * awaited and discarded rather than joined -- `runScan` coalesces onto an in-flight promise,
+   * which would otherwise hand back exactly the stale answer this exists to replace.
+   *
+   * Throws what `ensureStub` throws, including the user's own Cancel on `StubLoadModal`; the
+   * rescan is skipped in that case because no boot happened.
+   */
+  async startRecoveryMode(): Promise<void> {
+    // One structured line per attempt, in the shape of the `[summary]` and `[bios]`
+    // diagnostics: a whole question answered by one entry. The owner reported this failing
+    // intermittently with a black screen and no error, and it was undiagnosable from the
+    // outside for two reasons that this line fixes together.
+    //
+    // First, a FAILED recovery boot is completely silent: DeviceControls catches the throw
+    // into `device.error`, and `device.error` has NO renderer anywhere in the app (its own
+    // comment records this, verified 2026-09-07). So the only difference between "the boot
+    // failed" and "the click did nothing" was invisible, which is why the reported cure was
+    // pressing the button again.
+    //
+    // Second, the interesting facts are spread across three objects. `drop` says whether
+    // handleLost() fired during the boot (the poll race), `pollDepth` says whether the poll
+    // was actually silenced, and `ms` says which step was slow. A failure that reports
+    // drop:true is the race; one that reports drop:false with an error is something else.
+    //
+    // `dbg()` is safe here: this runs from a click handler, not from a `$derived` or an
+    // `$effect` (see test/effectloop.mjs for why that distinction is load-bearing).
+    const t0 = Date.now();
+    let bootMs = 0;
+    let outcome = "ok";
+    // Deliberately untyped and empty-string rather than `string | null`: test/recoveryrescan.mjs
+    // lifts this method's TEXT and compiles it on its own, stripping only the return annotation.
+    // A type annotation in here makes that lift throw, and its armed guard then fails the whole
+    // suite rather than silently testing nothing. Keep this body free of TS syntax.
+    let err = "";
+    try {
+      await this.ensureStub(undefined, true);
+      bootMs = Date.now() - t0;
+      if (this._scanPromise) await this._scanPromise.catch(() => {});
+      await this.runScan("recovery mode");
+    } catch (e) {
+      bootMs = bootMs || Date.now() - t0;
+      outcome = e instanceof StubLoadCancelled ? "cancelled" : "failed";
+      err = e instanceof Error ? e.message : String(e);
+      throw e;
+    } finally {
+      dbg(
+        `[recovery] ${JSON.stringify({
+          outcome,
+          err: err || null,
+          bootMs,
+          totalMs: Date.now() - t0,
+          drop: this._reconnectAfterBoot,
+          pollDepth: this.pollSuspendDepth,
+          connection: this.connection,
+          utilLoaded: this.utilLoaded,
+        })}`,
+      );
+    }
+  }
+
+  /**
+   * Make this device writable before a flow writes to it. Call at the TOP of any flow that
+   * changes the device; it is a no-op on an already-unlocked one.
+   *
+   * The owner: "the device should be unlocked if they're using this tool to change anything on
+   * the device. It should just automatically happen. We don't care about locking because
+   * there's no benefit to it." So there is no opt-in and no dead end — either this returns and
+   * the flow proceeds, or it throws and the flow stops.
+   *
+   * The ordering (backup exists -> unlock -> proceed) and the single surviving prompt live in
+   * `engine/unlockGate.ts`, which is where they are tested. This method is the wiring: real
+   * flasher, real modal, real rescan, real audit log.
+   *
+   * @throws {UnlockDeclined} the user declined the destructive prompt.
+   */
+  async ensureUnlocked(): Promise<UnlockOutcome> {
+    return runUnlockGate({
+      locked: this.locked,
+      backupTaken: this.backupTaken,
+      confirmDestructive: () =>
+        new Promise<void>((resolve, reject) => {
+          this.unlockPrompt = { resolve, reject };
+        }),
+      unlock: async () => {
+        const flasher = await this.ensureStub();
+        // Unlocking resets the target and mass-erases both flashes, so the stub we just
+        // booted does not survive it — drop the cached handle rather than letting the next
+        // call reuse a flasher pointing at a device that has been wiped under it.
+        try {
+          await flasher.unlock();
+        } finally {
+          this.flasher = null;
+          this.utilLoaded = false;
+        }
+      },
+      // Everything the UI knows about this device described a locked, populated device; after
+      // the mass erase none of it is true. Re-scan rather than patching `locked` to false.
+      afterUnlock: async () => {
+        await this.runScan("stub ready");
+      },
+      note: (n) => {
+        if (n.kind === "unlocking")
+          auditLog.add("warning", "device", msg((t) => t.officialFirmware.unlockErasing));
+        else if (n.kind === "unlocked")
+          auditLog.add("info", "device", msg((t) => t.officialFirmware.unlockDone));
+        else if (n.kind === "declined")
+          auditLog.add("info", "device", msg((t) => t.officialFirmware.unlockDeclined));
+      },
+    });
+  }
+
+  /** The unlock modal's "Unlock and erase". */
+  confirmUnlock(): void {
+    const p = this.unlockPrompt;
+    this.unlockPrompt = null;
+    p?.resolve();
+  }
+
+  /** The unlock modal's "Cancel". */
+  cancelUnlock(): void {
+    const p = this.unlockPrompt;
+    this.unlockPrompt = null;
+    p?.reject(new UnlockDeclined("Unlocking was cancelled."));
   }
 
   /** The stub-load modal's "Continue". */
@@ -349,7 +831,7 @@ class DeviceStore {
   cancelStubLoad(): void {
     const p = this.stubPrompt;
     this.stubPrompt = null;
-    p?.reject(new Error("Loading the flash utility was cancelled."));
+    p?.reject(new StubLoadCancelled("Loading the flash utility was cancelled."));
   }
 
   /**
@@ -358,15 +840,93 @@ class DeviceStore {
    * memory-mapped extflash. Re-runnable after a big change. See docs/DEVICE_SCAN.md.
    */
   private _scanPromise: Promise<void> | null = null;
-  async runScan(): Promise<void> {
-    if (this._scanPromise) return this._scanPromise;
+  /** How many scans this session has run, and when the last one finished. Instrumentation only:
+   *  `runScan` coalesces CONCURRENT callers, never back-to-back ones, and there are eight call
+   *  sites. Three firing in sequence is three full walks of the chip, which is indistinguishable
+   *  from one slow scan unless something counts them. */
+  private _scanSeq = 0;
+  private _lastScanEndedAt = 0;
+  /**
+   * @param reason WHO asked. Untranslated and diagnostic, like the flasher's device lines: it
+   *  goes to the device log so a slow rescan can be attributed to its trigger rather than
+   *  guessed at. Every call site passes one.
+   */
+  async runScan(reason = "unknown", opts: { auto?: boolean } = {}): Promise<void> {
+    // AN AUTOMATIC SCAN WAITS FOR THE WRITE TO FINISH. Two logical operations on one link is
+    // the bug the owner hit: an install parked at 0% with a scan frozen part-way through the
+    // extflash walk. A USB re-enumeration -- which a mid-flash stub reboot causes by design --
+    // fires `connect()`, and `connect()` fired this. The two then shared one `GnwFlasher`, both
+    // claimed the same mailbox context, and the device stopped picking up contexts at all.
+    // `packages/gnw-flasher`'s `claimContext` now keeps that from wedging the mailbox, but a
+    // scan competing with a flash for the link is still pure cost with nothing to gain: the
+    // flow that owns the device rescans when it is done.
+    //
+    // DELIBERATE scans are not gated. `runInstall` awaits `runScan("after ROM install")` from
+    // INSIDE the install, where `deviceSafety` is still "writing" by construction -- gating on
+    // the flag alone would deadlock the post-install rescan against the install that asked for
+    // it. The distinction is who asked, which is why `auto` is passed rather than inferred.
+    if (opts.auto && !(await this._awaitLinkIdle(reason))) return;
+    if (this._scanPromise) {
+      dbg(`[scan] ${reason}: joined the scan already running`);
+      return this._scanPromise;
+    }
+    const seq = ++this._scanSeq;
+    const sinceLast = this._lastScanEndedAt ? Date.now() - this._lastScanEndedAt : -1;
+    // A scan that starts moments after one finished is the pattern worth seeing: it means two
+    // triggers fired in sequence, and the user experiences it as one long scan.
+    if (sinceLast >= 0 && sinceLast < 5000) {
+      dbg(`[scan] #${seq} ${reason}: starting ${sinceLast} ms after scan #${seq - 1} ended`);
+    }
+    const t0 = Date.now();
     this._scanPromise = this._doScan();
     try {
       await this._scanPromise;
     } finally {
       this._scanPromise = null;
+      this._lastScanEndedAt = Date.now();
+      // A scan is a long series of completed device reads, so finishing one attests liveness
+      // exactly as `readInfo` does -- and it is the thing most likely to be holding the link
+      // immediately after a write (every install ends by rescanning). Same no-op-under-a-hold
+      // rule: an install's own post-write scan runs while `deviceSafety` is still "writing",
+      // and this must not clear the warning before that install releases it.
+      deviceSafety.markQuiet();
+      dbg(
+        `[scan] #${seq} ${reason}: ${Date.now() - t0} ms, ` +
+          `${this._scanReads} reads, ${this._scanBytes} B, ${this.partitions.length} partition(s)` +
+          // The one fact that separates "the walk is slow" from "the walk was fighting a flash".
+          (this._scanSawWrite ? ", OVERLAPPED A DEVICE WRITE" : ""),
+      );
     }
   }
+  /**
+   * Hold an automatic scan until nothing is writing to the device.
+   *
+   * Same shape and budget as `_doScan`'s own `linkIdle()`, which already makes the background
+   * FS-stat reads wait for exactly this. The scan itself was simply never given the same rule.
+   * Returns false when the caller should drop the scan entirely rather than run it late.
+   */
+  private async _awaitLinkIdle(reason: string): Promise<boolean> {
+    if (deviceSafety.state !== "writing") return true;
+    const t0 = Date.now();
+    for (let i = 0; i < 120 && deviceSafety.state === "writing"; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    if (deviceSafety.state === "writing") {
+      // 30 s of continuous writing is a long flash, not a stuck one, and the operation that
+      // owns the link rescans when it finishes. Say so: a scan that silently never happened is
+      // how stale geometry gets blamed on the scanner.
+      dbg(`[scan] ${reason}: dropped, the device has been writing for ${Date.now() - t0} ms`);
+      return false;
+    }
+    dbg(`[scan] ${reason}: waited ${Date.now() - t0} ms for the write to finish`);
+    return true;
+  }
+
+  /** Reads and bytes the CURRENT scan has issued. Reset per scan by `_doScan`. */
+  private _scanReads = 0;
+  private _scanBytes = 0;
+  /** Did a device WRITE overlap this scan? See the sampling note in `_doScan`'s `counted`. */
+  private _scanSawWrite = false;
   private async _doScan(): Promise<void> {
     if (!this.transport) return;
     const flasher = this.flasher;
@@ -374,8 +934,45 @@ class DeviceStore {
     const gen = ++this._gen; // supersede any in-flight background reads from a prior scan
     this.scanning = true;
     this.scanProgress = 0;
+    // CLAIM THE LIP for the whole scan, here, not at the first progress callback: the UID and
+    // bank reads come first, and until something claims it every one of them is drawn as its
+    // own 0-to-100 sweep. That is what a scan of ~1400 reads looked like.
+    lipProgress.operationProgress("scan", 0);
+    this._scanReads = 0;
+    this._scanBytes = 0;
+    this._scanSawWrite = deviceSafety.state === "writing";
+    // Every read the scan issues, counted at the one place they all pass through. A count is
+    // the difference between "the walk is slow" and "the walk ran three times".
+    const counted = <T extends (off: number, len: number) => Promise<Uint8Array>>(fn: T): T =>
+      (async (off: number, len: number) => {
+        this._scanReads++;
+        this._scanBytes += len;
+        // OVERLAP WITNESS. A scan and a device write sharing the link is the shape of the
+        // "install stuck at 0%, scan frozen part-way" report, and from the log alone the two
+        // were indistinguishable from one slow scan. Sampled on every read because a write can
+        // start at any point during the walk, not only before it.
+        if (deviceSafety.state === "writing") this._scanSawWrite = true;
+        return fn(off, len);
+      }) as T;
+    // ONE denominator for the whole scan, so the bar moves from the first read to the last.
+    //
+    // Only the partition walk used to report, so the bar sat at 0 through the UID and bank reads
+    // -- which is what "the first scan is not shown" was: the lip claimed at 0 with nothing
+    // moving it, i.e. invisible, until the walk started. The weights are how long each phase
+    // takes RELATIVE to the others, not how much work it is in the abstract: the walk dominates
+    // because it is the only phase whose cost scales with the chip.
+    const W = { uid: 0.04, banks: 0.16, partitions: 0.64, games: 0.16 } as const;
+    const before = { uid: 0, banks: W.uid, partitions: W.uid + W.banks, games: W.uid + W.banks + W.partitions };
+    /** "Everything before this phase, plus this much of it." Monotonic: the bar never goes back. */
+    const phase = (name: keyof typeof W, fraction: number): void => {
+      const next = before[name] + W[name] * Math.max(0, Math.min(1, fraction));
+      if (next > this.scanProgress) this.scanProgress = next;
+      lipProgress.operationProgress("scan", this.scanProgress);
+    };
     this.scanError = null;
     try {
+      await this._readDeviceUid(transport);
+      phase("uid", 1);
       // Tier 1 (safe, intflash-only) — skip re-scanning the banks if we scanned them very
       // recently in this same connection (see `_banksScannedAt`'s doc comment above); Tier 2
       // (below) still runs in full regardless.
@@ -384,16 +981,46 @@ class DeviceStore {
         this._banksScannedAt > 0 &&
         Date.now() - this._banksScannedAt < DeviceStore.BANK_RESCAN_SKIP_WINDOW_MS;
       if (!banksFresh) {
-        this.banks = await scanIntflashBanks((addr, len) => transport.readMemory(addr, len));
+        // The bank scan has no progress of its own and is not quick: an unrecognised bank is
+        // DOWNLOADED IN FULL to search it for Retro-Go strings (intflashscan.ts's
+        // `read(base, len)`), so two banks can be half a megabyte over SWD. Reported at 4% with
+        // nothing moving for a second or two, which is the stall the owner saw after the jump.
+        //
+        // There is no honest total here -- whether a bank is downloaded depends on what it turns
+        // out to hold -- so the budget is the worst case, both banks in full. The bar therefore
+        // advances truthfully and simply arrives early when a bank is recognised without a full
+        // read, which `phase`'s monotonic clamp absorbs.
+        const bankBudget = 2 * (256 << 10);
+        let bankBytes = 0;
+        this.banks = await scanIntflashBanks(
+          counted(async (addr, len) => {
+            // The transport reports its own chunk progress, which matters here because the big
+            // read is ONE call of up to 256 KiB: without this the bar would only move between
+            // reads, and the longest read is exactly the stretch that looked frozen.
+            const data = await transport.readMemory(addr, len, (done) =>
+              phase("banks", (bankBytes + done) / bankBudget),
+            );
+            bankBytes += len;
+            phase("banks", bankBytes / bankBudget);
+            return data;
+          }),
+        );
         this._banksScannedAt = Date.now();
       }
+      phase("banks", 1);
       // Tier 2 (deep, needs the stub) — extflash partitions + installed games.
       const extSize = this.info?.externalFlashSizeBytes ?? 0;
       if (flasher) {
+        // A rescan is the app's only signal that the extflash may have been rewritten (every
+        // install ends with one). The LittleFS block cache is not keyed to anything, so it has
+        // to be dropped here or a later write mounts a partition layout that no longer exists.
+        this.lfsBlockCache.clear();
+        this.lfsChunkHashes.clear();
+        this.installedLfsTree = null;
         this.partitions = await scanExtflashPartitions(
-          (off, len) => dumpRegion(flasher, 0, off, len),
+          counted((off, len) => dumpRegion(flasher, 0, off, len)),
           extSize,
-          (done, total) => (this.scanProgress = total ? done / total : 0),
+          (done, total) => phase("partitions", total ? done / total : 0),
         );
       } else {
         this.partitions = [];
@@ -416,11 +1043,20 @@ class DeviceStore {
         // no frogfs partition or an unreadable image → empty list, not a scan failure.
         const frogfs = this.partitions.find((p) => p.fs === "frogfs");
         if (frogfs) {
+          // The installed-games read is the last thing the scan does and it is not instant: it
+          // pulls the FrogFS metadata region. Move the bar into the phase before it starts, so
+          // the last stretch is not a freeze at whatever the walk ended on.
+          phase("games", 0.1);
           try {
             const res = await readInstalledFrogfs((off, len) => dumpRegion(flasher!, 0, off, len), frogfs.offset);
             this.installedFrogfs = res;
             this.installedGames = res.games;
-          } catch {
+          } catch (e) {
+            // NOT SILENT ANY MORE. A failed parse leaves `installedFrogfs` null, and null is
+            // not "no games" -- it is "we do not know", which the Library's install projection
+            // reads as an empty before-side and reports as a removal of everything on the
+            // device. That state cost a long diagnosis while this catch said nothing at all.
+            dbg(`[scan] installed FrogFS parse failed: ${e instanceof Error ? e.message : String(e)}`);
             this.installedFrogfs = null;
             this.installedGames = [];
           }
@@ -430,28 +1066,85 @@ class DeviceStore {
       }
     } catch (e) {
       this.scanError = e instanceof Error ? e.message : String(e);
+      // `scanError` is drawn by exactly ONE surface (RomSection's advanced view), so a scan
+      // that failed while the user was anywhere else in the app said nothing. Everything
+      // downstream reads a half-filled device model without being told why.
+      auditLog.add("error", "device", msg((t) => t.shared.auditLog.scanFailed, this.scanError));
     } finally {
+      // Arrive. A scan that stops at 0.84 because its last phase threw looks like a hang.
+      phase("games", 1);
       this.scanning = false;
       this._lastFullScanAt = Date.now();
+      // Hand the lip back, whether the scan finished or threw. The background FS-stat reads
+      // that follow are not part of what the user asked for, and they go back to sweeping
+      // per transfer like any other read.
+      lipProgress.operationProgress("scan", null);
     }
 
     // Background fetch of FS stats so we don't block the UI. Each read checks `gen`
     // before writing back — a disconnect or a newer scan bumps `_gen` and makes any
     // still-running read a no-op instead of racing a flash/screenshot or writing
     // stats for a device that's no longer connected.
+    //
+    // `gen` is checked when a read RETURNS, which is too late to stop it issuing transfers in
+    // the meantime. A rescan runs at the end of every install, so these reads were still in
+    // flight when the NEXT install started programming, and the owner's log is full of what
+    // that costs: "An operation that changes the device state is in progress", then "The
+    // device must be opened first", then a stub reboot, on a link that was fine. They are
+    // never urgent, so they wait for the link to be idle instead of competing for it.
+    const writing = (): boolean => deviceSafety.state === "writing";
+    const linkIdle = async (): Promise<boolean> => {
+      for (let i = 0; i < 120 && writing(); i++) {
+        await new Promise((r) => setTimeout(r, 250));
+        if (gen !== this._gen) return false;
+      }
+      return gen === this._gen && !writing();
+    };
+    void (async () => {
+      if (!(await linkIdle())) {
+        dbg("[scan] FS stats skipped: the link was busy or superseded");
+        return;
+      }
+      this._startFsStatReads(gen);
+    })();
+  }
+
+  /** The background FS-stat + core-version reads, once the link is idle. See `runScan`. */
+  private _startFsStatReads(gen: number): void {
+    // The lip stays dark for these. They are hundreds of block reads for numbers that appear
+    // quietly in a panel -- the user did not ask for them and cannot act on them, so drawing
+    // each read as its own sweep is strobing rather than feedback. Released when the last
+    // reader settles, however it settles.
+    lipProgress.setQuiet(true);
+    let outstanding = 0;
+    const started = <T>(pr: Promise<T>): Promise<T> => {
+      outstanding++;
+      return pr.finally(() => {
+        outstanding--;
+        if (outstanding === 0) lipProgress.setQuiet(false);
+      });
+    };
     for (const p of this.partitions) {
       if (p.fs === "fat") {
-        import("./engine/fsscan.js").then(({ readFatUsedSpace }) => {
-          readFatUsedSpace((off: number, len: number) => dumpRegion(this.flasher!, 0, off, len), p.offset, p.size).then((res) => {
-            if (res && gen === this._gen) this.fsStats[p.offset] = res;
-          }).catch((e) => dbg(`[scan] FAT usedSpace read failed: ${e}`));
-        });
+        void started(
+          import("./engine/fsscan.js")
+            .then(({ readFatUsedSpace }) =>
+              readFatUsedSpace((off: number, len: number) => dumpRegion(this.flasher!, 0, off, len), p.offset, p.size),
+            )
+            .then((res) => {
+              if (res && gen === this._gen) this.fsStats[p.offset] = res;
+            })
+            .catch((e) => dbg(`[scan] FAT usedSpace read failed: ${e}`)),
+        );
       } else if (p.fs === "littlefs") {
-        import("./engine/lfsBrowser.js").then(({ getLfsUsedSpace }) => {
-          getLfsUsedSpace().then(res => {
-            if (res && gen === this._gen) this.fsStats[p.offset] = res;
-          }).catch((e) => dbg(`[scan] LittleFS usedSpace read failed: ${e}`));
-        });
+        void started(
+          import("./engine/lfsBrowser.js")
+            .then(({ getLfsUsedSpace }) => getLfsUsedSpace())
+            .then((res) => {
+              if (res && gen === this._gen) this.fsStats[p.offset] = res;
+            })
+            .catch((e) => dbg(`[scan] LittleFS usedSpace read failed: ${e}`)),
+        );
         // Core-version validation (Flash mode only — SD-mode's own equivalent runs from
         // scanSdCardGames()). Deliberately kicked off here, AFTER scanning=false and the
         // UI-critical partition/deviceClass results are already set, since it pulls every
@@ -459,14 +1152,19 @@ class DeviceStore {
         // the results the UI is waiting on.
         if (this.targetMedia !== "sd") {
           const firmwareVersion = this.banks.map((b) => b.retroGoVersion).find(Boolean) ?? null;
-          import("./engine/lfsBrowser.js").then(({ checkCoreVersions }) => {
-            checkCoreVersions(firmwareVersion, () => gen !== this._gen).then((res) => {
-              if (gen === this._gen) this.coreVersionCheck = res;
-            }).catch((e) => dbg(`[scan] Core version check failed: ${e}`));
-          });
+          void started(
+            import("./engine/lfsBrowser.js")
+              .then(({ checkCoreVersions }) => checkCoreVersions(firmwareVersion, () => gen !== this._gen))
+              .then((res) => {
+                if (gen === this._gen) this.coreVersionCheck = res;
+              })
+              .catch((e) => dbg(`[scan] Core version check failed: ${e}`)),
+          );
         }
       }
     }
+    // Nothing to wait for: release immediately rather than leaving the lip silenced forever.
+    if (outstanding === 0) lipProgress.setQuiet(false);
   }
 
   async scanSdCardGames(): Promise<void> {
@@ -480,25 +1178,33 @@ class DeviceStore {
       const { scanRomDirectory, getValidRoot, checkSdCoreVersions } = await import("./romScan.js");
       const root = await getValidRoot(this.sdHandle);
       if (root) {
-        const scan = await scanRomDirectory(root);
+        // The card's homebrew directory is the manifest's (`/homebrews`); romScan deliberately
+        // does not know that -- see LEGACY_HOMEBREW_PREFIXES for why it must not import it.
+        const scan = await scanRomDirectory(root, null, homebrewScanPrefixes());
         const games: InstalledGame[] = [];
+        // Classification is `devicePaths.ts`'s job, not this loop's: the directories are the
+        // firmware's (manifest `paths`), and the asset skips and the system/name split have to
+        // match what an SD sync WROTE. This used to read the key's top segment verbatim, which
+        // made homebrew installed at the manifest's `/homebrews` arrive as system "homebrews"
+        // and vanish from every "is it installed" check.
+        // One title, one row: a legacy homebrew copy of something the manifest's directory
+        // already holds is not listed. Computed over the whole key set because a single key
+        // cannot know what the other directory holds, which is why this is not in
+        // `classifySdScanKey`. See its comment for why nothing downstream reads it as a delete.
+        const shadowed = shadowedLegacyHomebrewKeys(scan.userRoms.keys());
         for (const [path, data] of scan.userRoms.entries()) {
-           if (path.startsWith("covers/")) continue;
-           if (path.startsWith("cheats/")) continue;
-           if (path.startsWith("bios/")) continue;
-           
-           const parts = path.split("/");
-           if (parts.length >= 2) {
-             const system = parts[0];
-             const name = parts.slice(1).join("/");
-             games.push({
-               path: "roms/" + path,
-               system,
-               name,
-               size: data instanceof Uint8Array ? data.length : (data as File).size,
-               dataOffs: 0
-             });
-           }
+          if (shadowed.has(path)) continue;
+          const g = classifySdScanKey(path);
+          if (!g) continue;
+          games.push({
+            path: g.path,
+            system: g.system,
+            name: g.name,
+            // Both a Uint8Array and an un-inflated zip entry report `length`; the zip entry's is
+            // its UNCOMPRESSED size, which is what an installed-games listing means by size.
+            size: data.length,
+            dataOffs: 0,
+          });
         }
         this.installedGames = games;
         // Core-version validation — background/non-blocking, like the Flash-mode equivalent in
@@ -602,7 +1308,14 @@ class DeviceStore {
         return;
       }
       
-      // Target is still attached. Check what is running to update UI state:
+      // Target answered while the link was idle, with no operation holding it. This is the
+      // app's only device-attested "the write path is quiet and the device is alive" moment,
+      // so it is what clears the header's post-write "still unsafe" warning. Note it can only
+      // ever fire once the poll is running again — suspendPoll() keeps it silent for the whole
+      // duration of a flash, which is precisely the behaviour we want.
+      deviceSafety.markQuiet();
+
+      // Check what is running to update UI state:
       const utilAlive = await isStubAlive(this.transport);
       if (this.utilLoaded !== utilAlive) {
         // Newly discovered the util already running (e.g. left over from a prior session,
@@ -619,7 +1332,7 @@ class DeviceStore {
         // this passive/automatic trigger only — deliberate calls to runScan() elsewhere (after
         // an install, an explicit Scan button, etc.) always run regardless.
         const scanIsFresh = Date.now() - this._lastFullScanAt < DeviceStore.AUTO_SCAN_FRESHNESS_WINDOW_MS;
-        if (utilAlive && !this.utilLoaded && !scanIsFresh) void this.runScan();
+        if (utilAlive && !this.utilLoaded && !scanIsFresh) void this.runScan("liveness poll", { auto: true });
         this.utilLoaded = utilAlive;
       }
       // NOTE: deliberately no isRetroGoRunning-based firmware guess here anymore. The
@@ -639,7 +1352,35 @@ class DeviceStore {
 
   /** Reset the displayable device facts to "unknown / not scanned". Used on a fresh connect
    *  and on a manual disconnect — NOT on a lost link (those freeze the last-known info). */
+  /**
+   * Read the STM32H7's 96-bit unique device ID (RM0455 §60.1, UID base 0x1FF1E800) once per
+   * connection. ONE 12-byte read of always-readable system memory — safe while the target is
+   * running (same class of read as the liveness poll's CPUID word), and explicitly not a
+   * per-item read loop, so it doesn't feed the ST-Link-clone saturation problem.
+   *
+   * Best-effort: a failure just leaves `deviceUid` null, which degrades every UID-scoped fact
+   * (currently only `backupTaken`) to "unknown", never to a wrong device's value.
+   */
+  private async _readDeviceUid(transport: SerialTransport): Promise<void> {
+    if (this.deviceUid) return;
+    try {
+      const raw = await transport.readMemory(0x1ff1e800, 12);
+      const uid = Array.from(raw, (b) => b.toString(16).padStart(2, "0")).join("");
+      if (/^0*$/.test(uid) || /^f*$/.test(uid)) return; // all-zero/all-ones → bad read, not an ID
+      this.deviceUid = uid;
+      // Legacy value is `true`; current value is an epoch-ms number. Both mean "taken".
+      const rec = loadSel<boolean | number>(DeviceStore.backupKey(uid), false);
+      this._backupTaken = rec !== false;
+      this._backupAt = typeof rec === "number" ? rec : null;
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   private clearInfo(): void {
+    this.deviceUid = null;
+    this._backupTaken = false;
+    this._backupAt = null;
     this.info = null;
     this.model = "unknown";
     this.locked = null;
@@ -648,6 +1389,9 @@ class DeviceStore {
     this.partitions = [];
     this.banks = [];
     this.installedGames = [];
+    this.installedLfsTree = null;
+    this.lfsBlockCache.clear();
+    this.lfsChunkHashes.clear();
     this.scanProgress = 0;
     this.scanError = null;
     this._banksScannedAt = 0;
@@ -667,10 +1411,19 @@ class DeviceStore {
     if (typeof navigator !== "undefined" && navigator.usb) {
       navigator.usb.removeEventListener("disconnect", this.onUsbDisconnect);
     }
-    try {
-      await this.probe?.dispose();
-    } catch {
-      /* already gone */
+    const probe = this.probe;
+    if (probe) {
+      if (this._stubBootDepth > 0) {
+        // An ensureStub() boot is still writing through this handle. Closing it now is the
+        // documented race (see _stubBootDepth) — hand it to the boot's own finally instead.
+        this._deferredDispose.push(probe);
+      } else {
+        try {
+          await probe.dispose();
+        } catch {
+          /* already gone */
+        }
+      }
     }
     this.probe = null;
     this.transport = null;
@@ -678,6 +1431,34 @@ class DeviceStore {
     this.utilLoaded = false;
     this.scanning = false;
     this._gen++; // supersede any in-flight background FS-stat reads
+  }
+
+  /** Close any probe handles a teardown deferred while a stub boot owned them. Never closes
+   *  the handle that is live NOW — by the time a boot settles, the reconnect cadence may
+   *  already have attached, and disposing that would kill the fresh session. */
+  private _flushDeferredDispose(): void {
+    if (this._stubBootDepth > 0) return;
+    const probes = this._deferredDispose;
+    this._deferredDispose = [];
+    for (const p of probes) {
+      // Identity is not enough: the reconnect cadence attaches a NEW ProbeHandle wrapping the
+      // SAME USBDevice, and disposing that closes the device out from under the live session
+      // ("The device must be opened first" on its next write).
+      if (p === this.probe || (this.probe && p.device === this.probe.device)) continue;
+      void Promise.resolve()
+        .then(() => p.dispose())
+        .catch(() => {
+          /* already gone */
+        });
+    }
+  }
+
+  /** The one error ensureStub() reports when its boot was cut short by a link drop. */
+  private static _bootInterrupted(): Error {
+    return new Error(
+      "Recovery Mode boot was interrupted — the adapter's USB link dropped while the loader " +
+        "was being written. Reconnecting…",
+    );
   }
 
   /** Shared reconnect cadence (connection policy: "Two distinct disconnect states"): 10
@@ -709,17 +1490,48 @@ class DeviceStore {
    *  current view (everConnected). */
   private async handleLost(): Promise<void> {
     if (this.connection === "disconnected" || this.connection === "lost") return;
+    // A stub boot owns the link, so this `disconnect` IS that boot's own re-enumeration
+    // (bootStub resets the target; the ST-Link re-enumerates; WebUSB fires the event). The
+    // handle the boot captured is still open and still working — recovery.mjs check 1 pins
+    // exactly that. Tearing the connection down here is what produced the owner-reported
+    // flapping: teardown bumps `_gen` (failing an otherwise healthy boot as "interrupted"),
+    // nulls the transport, and starts a reconnect cadence that attaches a SECOND handle to
+    // the same adapter while the first is mid-write — WebUSB then rejects one of them with
+    // "An operation that changes the device state is in progress". So: quiet the poll,
+    // remember the drop, and let the boot decide. It holds the only evidence that matters —
+    // whether its own writes still land.
+    if (this._stubBootDepth > 0) {
+      this.stopPoll();
+      this._reconnectAfterBoot = true;
+      installProgress.logActive("Link dropped (expected during Recovery Mode boot), continuing…");
+      return;
+    }
     if (this.stubPrompt) {
       this.stubPrompt.reject(new Error("Connection lost."));
       this.stubPrompt = null;
     }
+    if (this.unlockPrompt) {
+      this.unlockPrompt.reject(new Error("Connection lost."));
+      this.unlockPrompt = null;
+    }
     await this._teardownConnection();
     this.connection = "lost";
+    deviceSafety.linkGone();
+    lipProgress.reset();
     this.error = "Connection lost — the adapter was unplugged. Reconnecting…";
-    // If an install/SD-sync operation is actively running, this is very likely the expected
-    // stub-boot reset (ensureStub()'s SWD-level target reset briefly drops the USB link) —
-    // surface it inside the still-visible progress modal instead of leaving it silent.
-    installProgress.logActive("Link dropped (expected during Recovery Mode boot), reconnecting…");
+    // Say which drop this is. The branch above handles a stub boot's own re-enumeration and
+    // returns; reaching here means NO boot owned the link, so calling it "expected during
+    // Recovery Mode boot" was wrong whenever it mattered most -- it printed that mid-FrogFS
+    // write, where the truth is an unexpected drop, and sent the reader looking for a stub boot
+    // that never happened.
+    installProgress.logActive(
+      deviceSafety.state === "writing"
+        ? "Link dropped mid-write, reconnecting…"
+        : "Link dropped, reconnecting…",
+    );
+    // If a stub boot owns the link, this drop IS that boot's own re-enumeration. Starting the
+    // cadence here is what produced the competing-handle race described in connect() above,
+    // so defer it: ensureStub()'s finally starts exactly one reconnect once the boot settles.
     void this.reconnectLoop("lost");
   }
 
@@ -732,10 +1544,16 @@ class DeviceStore {
       this.stubPrompt.reject(new Error("Disconnected."));
       this.stubPrompt = null;
     }
+    if (this.unlockPrompt) {
+      this.unlockPrompt.reject(new Error("Disconnected."));
+      this.unlockPrompt = null;
+    }
     await this._teardownConnection();
     this.probeName = null;
     this.clearInfo();
     this.connection = "disconnected";
+    deviceSafety.linkGone();
+    lipProgress.reset();
   }
 
   async resetDevice(): Promise<void> {
@@ -754,6 +1572,10 @@ class DeviceStore {
     if (this.stubPrompt) {
       this.stubPrompt.reject(new Error("Device reset."));
       this.stubPrompt = null;
+    }
+    if (this.unlockPrompt) {
+      this.unlockPrompt.reject(new Error("Device reset."));
+      this.unlockPrompt = null;
     }
     await this._teardownConnection();
     this.connection = "connecting";
@@ -782,7 +1604,7 @@ class DeviceStore {
   }
 
   /** When set, ConnectGateModal is asking the user to connect before proceeding (e.g. "Install
-   *  ROMs" clicked in Flash mode while disconnected). Mirrors roms.folderGatePrompt's
+   *  ROMs" clicked in Flash mode while disconnected). Mirrors library.folderGatePrompt's
    *  promise-gate shape/pattern. */
   connectGatePrompt = $state<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
 
@@ -822,6 +1644,13 @@ class DeviceStore {
 }
 
 export const device = new DeviceStore();
+
+// The disconnect-safety warning lives in installProgress.svelte.ts (which must not import this
+// module — see that file's header), so the "is there even a link to corrupt?" question is
+// answered by injection rather than an import. Used when a hold is released: with nothing
+// connected (e.g. an SD-card-only sync), there will never be a liveness ping to attest that
+// the device settled, so the warning would otherwise hang on "settling" forever.
+deviceSafety.setNoLinkProbe(() => !device.isConnected);
 
 // Auto-reconnect when a USB device (re-)connects and we have a lost or idle link.
 // Handles the common case: device resets mid-flash → ST-Link USB briefly drops →

@@ -1,4 +1,5 @@
 import type { SwdTransport } from "@gnw/swd-transport";
+import { dbg } from "../debug.js";
 
 // LTDC layer-1 registers (STM32H7B0).
 const LTDC_BASE = 0x50001000;
@@ -346,7 +347,7 @@ export async function captureScreenshot(
           `count=${scan.count}; entries: ${pal}`,
         );
       } else {
-        console.warn("[screenshot L8] no palette found in RAM dumps — grayscale fallback");
+        dbg("[screenshot L8] no palette found in RAM dumps, using the grayscale fallback");
       }
     }
 

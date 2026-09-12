@@ -9,6 +9,7 @@
 import { BANK_BASE } from "./addr.js";
 import type { MemReadFn as IntReadFn } from "./addr.js";
 import { locateSuperblock, readSuperblock, FLAG_LITTLEFS_LENGTH } from "@gnw/gnw-patch";
+import { parseFirmwareAbi, type FirmwareAbi } from "./firmwareAbi.js";
 export type { IntReadFn };
 
 export const INT_BANK_BASES = [BANK_BASE[1], BANK_BASE[2]] as const;
@@ -44,6 +45,10 @@ export interface IntflashBank {
    *  far more reliable flash-vs-sd signal than probing extflash for a real LittleFS partition
    *  superblock — that scan can miss it even on a genuine Flash-mode device. */
   layoutSuperblockHasLittlefs?: boolean;
+  /** The firmware ABI table this bank's firmware publishes at bank base + 0x400, when it
+   *  publishes a recognisable one (see engine/firmwareAbi.ts). Absent for stock OFW, for a
+   *  pre-ABI Retro-Go, and for an empty bank — absent means UNKNOWN, never "incompatible". */
+  abi?: FirmwareAbi;
 }
 
 const u32 = (b: Uint8Array, i: number) =>
@@ -199,6 +204,7 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
     let hasRetroGo = false;
     let layoutSuperblockPresent = false;
     let layoutSuperblockHasLittlefs = false;
+    let abi: FirmwareAbi | undefined;
 
     // Orchestration optimization: If this bank is already confirmed to be Mario/Zelda OFW,
     // we absolutely do not need to download its payload to do a deep search for Retro-Go strings.
@@ -220,6 +226,9 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
         } catch {
           layoutSuperblockPresent = false;
         }
+        // Same buffer again, still no extra device read: the firmware ABI table the cores and
+        // homebrew declare `requiresAbi` against (engine/firmwareAbi.ts).
+        abi = parseFirmwareAbi(data) ?? undefined;
       } catch (e) {
         // Just fail the Retro-Go search, keep the size.
       }
@@ -239,6 +248,7 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
       ofw,
       layoutSuperblockPresent,
       layoutSuperblockHasLittlefs,
+      abi,
     });
   }
   return banks;
