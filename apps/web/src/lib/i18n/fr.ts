@@ -6,6 +6,7 @@ import { deviceHeaderFr } from "./strings/deviceHeader.fr.js";
 import { landingFr } from "./strings/landing.fr.js";
 import { sharedFr } from "./strings/shared.fr.js";
 import { overviewFr } from "./strings/overview.fr.js";
+import { overviewRailFr } from "./strings/overviewRail.fr.js";
 import { wizardFr } from "./strings/wizard.fr.js";
 import { romsFr } from "./strings/roms.fr.js";
 import {
@@ -17,9 +18,8 @@ import {
   eraseSectionFr,
   fileBrowserSectionFr,
   retroGoTabFr,
-  expertCornerFr,
-  deferredSectionFr,
 } from "./strings/firmwareSetup.fr.js";
+import { sourcesFr } from "./strings/sources.fr.js";
 import { registerLocale } from "./locale.svelte.js";
 
 registerLocale("fr", {
@@ -28,6 +28,7 @@ registerLocale("fr", {
   landing: landingFr,
   officialFirmware: officialFirmwareFr,
   overview: overviewFr,
+  overviewRail: overviewRailFr,
   roms: romsFr,
   romSection: romSectionFr,
   dumpSection: dumpSectionFr,
@@ -35,8 +36,7 @@ registerLocale("fr", {
   eraseSection: eraseSectionFr,
   fileBrowserSection: fileBrowserSectionFr,
   retroGoTab: retroGoTabFr,
-  expertCorner: expertCornerFr,
-  deferredSection: deferredSectionFr,
   shared: sharedFr,
+  sources: sourcesFr,
   wizard: wizardFr,
 });

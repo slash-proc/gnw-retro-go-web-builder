@@ -2,8 +2,6 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderKo: DeviceHeaderStrings = {
   changeInstallationMethod: "설치 방식 변경",
-  sdCard: "💾 SD 카드",
-  internalFlash: "⚡ 내장 플래시",
   connectionLost: "연결 끊김",
   noConnection: "연결 없음",
   connectedRecoveryMode: "연결됨 (복구 모드)",
@@ -30,4 +28,8 @@ export const deviceHeaderKo: DeviceHeaderStrings = {
   changeMethodConfirm: "방식 변경",
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "공식 펌웨어",
+  unsafeWritingStatus: "플래시에 쓰는 중입니다. 분리하지 마세요",
+  unsafeSettlingStatus: "마무리 중입니다. 분리하지 마세요",
+  retroGoOlderSuffix: "(구버전)",
+  unsafeAria: "기기를 분리하지 마세요",
 } as const;

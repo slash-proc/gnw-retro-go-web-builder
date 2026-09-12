@@ -2,8 +2,6 @@ import type { Widen } from "../widen.js";
 
 export const deviceHeaderEn = {
   changeInstallationMethod: "Change Installation Method",
-  sdCard: "💾 SD Card",
-  internalFlash: "⚡ Internal Flash",
   connectionLost: "Connection lost",
   noConnection: "No connection",
   connectedRecoveryMode: "Connected (Recovery Mode)",
@@ -30,38 +28,10 @@ export const deviceHeaderEn = {
   changeMethodConfirm: "Change Method",
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "Official Firmware",
+  unsafeWritingStatus: "Writing flash. Do not disconnect",
+  unsafeSettlingStatus: "Finishing up. Do not disconnect",
+  retroGoOlderSuffix: "(older)",
+  unsafeAria: "Do not disconnect the device",
 } as const;
 
 export type DeviceHeaderStrings = Widen<typeof deviceHeaderEn>;
-
-export const deviceHeaderDe: DeviceHeaderStrings = {
-  changeInstallationMethod: "Installationsmethode ändern",
-  sdCard: "💾 SD-Karte",
-  internalFlash: "⚡ Interner Flash-Speicher",
-  connectionLost: "Verbindung unterbrochen",
-  noConnection: "Keine Verbindung",
-  connectedRecoveryMode: "Verbunden (Recovery-Modus)",
-  connectedRetroGo: "Verbunden (Retro-Go)",
-  connectedAs: (label: string) => `Verbunden (${label})`,
-  connected: "Verbunden",
-  scanning: "Wird gescannt…",
-  dash: "—",
-  patchMissing: "Patch fehlt",
-  notInstalled: "Nicht installiert",
-  none: "Keine",
-  mario: "Mario",
-  zelda: "Zelda",
-  patched: "Gepatcht",
-  stock: "Original",
-  ofwLabel: (model: string, status: string) => `${model} (${status})`,
-  toggleTheme: "Hell-/Dunkelmodus umschalten",
-  toggleThemeAria: "Darstellung umschalten",
-  toggleLanguage: "Sprache umschalten",
-  toggleLanguageAria: "Sprache umschalten",
-  changeMethodTitle: "Installationsmethode ändern?",
-  changeMethodBody:
-    "Wirklich eine andere Installationsmethode wählen? Die Verbindung zum Gerät wird dabei getrennt und du gelangst zurück zur Startseite.",
-  changeMethodConfirm: "Methode ändern",
-  logoRgoAlt: "Retro-Go",
-  logoOfwAlt: "Offizielle Firmware",
-};

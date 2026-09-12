@@ -1,6 +1,7 @@
-// German string table. Thin assembler over per-feature-area files in ./strings/ — each area
-// file's `Strings`-like type keeps its own DE export checked against its own slice's shape.
-import { deviceHeaderDe } from "./strings/deviceHeader.js";
+// German locale assembler. Mirrors en.ts's shape, built from strings/*.de.ts (one language
+// per file, exactly like es/fr/ja/ko/pl) — the English source files own the shared
+// `Widen<...>` types each DE export is structurally checked against.
+import { deviceHeaderDe } from "./strings/deviceHeader.de.js";
 import {
   advancedDe,
   officialFirmwareDe,
@@ -10,14 +11,14 @@ import {
   eraseSectionDe,
   fileBrowserSectionDe,
   retroGoTabDe,
-  expertCornerDe,
-  deferredSectionDe,
-} from "./strings/firmwareSetup.js";
-import { landingDe } from "./strings/landing.js";
-import { overviewDe } from "./strings/overview.js";
-import { romsDe } from "./strings/roms.js";
-import { sharedDe } from "./strings/shared.js";
-import { wizardDe } from "./strings/wizard.js";
+} from "./strings/firmwareSetup.de.js";
+import { landingDe } from "./strings/landing.de.js";
+import { overviewDe } from "./strings/overview.de.js";
+import { overviewRailDe } from "./strings/overviewRail.de.js";
+import { romsDe } from "./strings/roms.de.js";
+import { sharedDe } from "./strings/shared.de.js";
+import { sourcesDe } from "./strings/sources.de.js";
+import { wizardDe } from "./strings/wizard.de.js";
 import type { Strings } from "./en.js";
 
 export const de: Strings = {
@@ -26,6 +27,7 @@ export const de: Strings = {
   landing: landingDe,
   officialFirmware: officialFirmwareDe,
   overview: overviewDe,
+  overviewRail: overviewRailDe,
   roms: romsDe,
   romSection: romSectionDe,
   dumpSection: dumpSectionDe,
@@ -33,8 +35,7 @@ export const de: Strings = {
   eraseSection: eraseSectionDe,
   fileBrowserSection: fileBrowserSectionDe,
   retroGoTab: retroGoTabDe,
-  expertCorner: expertCornerDe,
-  deferredSection: deferredSectionDe,
   shared: sharedDe,
+  sources: sourcesDe,
   wizard: wizardDe,
 };

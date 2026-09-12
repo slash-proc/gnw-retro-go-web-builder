@@ -16,124 +16,125 @@ export const wizardPl: WizardStrings = {
     phaseFlashInternal: "Flashuj pamięć wewnętrzną (bank 1)",
     phaseFlashExternal: "Flashuj pamięć zewnętrzną",
     phaseRescan: "Skanuj urządzenie ponownie",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logReusingBackup: (model: string) => `Valid backup found for model "${model}" — reusing it (no device read needed).`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logNoBackupBroken: "No usable backup on disk and the device's assets are missing — cannot repair without one.",
+    logReusingBackup: (model: string, intBytes: number, extBytes: number) => `backup: użycie kopii z dysku dla ${model}, wewnętrzna ${intBytes} B, zewnętrzna ${extBytes} B, bez odczytu urządzenia`,
+    logNoBackupBroken: `backup: brak użytecznej kopii na dysku i brak zasobów urządzenia, naprawa niemożliwa`,
     errMustSelectBackup:
       "Brakuje zasobów urządzenia. MUSISZ wybrać folder zawierający poprzednią prawidłową kopię zapasową, aby je naprawić.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logNoBackupReadingDevice: (model: string) => `No usable backup on disk — reading stock firmware directly from the device (model: ${model}).`,
-    logBackingUp: (done: string, total: string) => `Tworzenie kopii zapasowej: ${done} / ${total} MB`,
+    logNoBackupReadingDevice: (model: string, extBytes: number) => `backup: brak użytecznej kopii na dysku, zrzut oryginalnego firmware z urządzenia (model ${model}, zewnętrzna ${extBytes} B)`,
     errDumpedFirmwareMismatch: "Odczytany firmware nie odpowiada żadnemu znanemu fabrycznemu ROM-owi.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logDetectedModel: (model: string) => `Detected model: ${model}.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logSavingBackup: "Saving backup…",
-    heading: (isBroken: boolean) => (isBroken ? "Patchuj" : "Kopia zapasowa i patch"),
-    body: (isBroken: boolean) =>
-      isBroken
-        ? "Urządzenie jest spatchowane, ale brakuje na nim zasobów fabrycznych. Wybierz folder kopii zapasowej, aby spatchować urządzenie i przywrócić jego zasoby."
-        : "Bezpiecznie wykonaj kopię zapasową fabrycznego firmware'u i odblokuj urządzenie na potrzeby własnego firmware'u.",
+    logDetectedModel: (model: string, intBytes: number, extBytes: number) => `backup: zrzut zgodny z oryginałem ${model} (wewnętrzna ${intBytes} B, zewnętrzna ${extBytes} B)`,
+    logSavingBackup: `backup: zapis wewnętrznego i zewnętrznego pliku kopii do wybranego folderu`,
     buttonAction: (isBroken: boolean) => (isBroken ? "Patchuj" : "Kopia zapasowa i patch"),
-    skipped: "Pominięto",
-    patched: "✓ Spatchowano",
-    skipEllipsis: "Pomiń…",
+    skip: "Pomiń",
+    titleBackupOnly: "Kopia oryginalnego firmware'u",
+    bodyBackupOnly:
+      "Zostaniesz poproszony o wybranie folderu na komputerze, w którym zostanie zapisana kopia oryginalnego firmware'u urządzenia. Zachowaj te pliki, ponieważ nie da się ich pobrać ponownie. Na urządzeniu nic nie jest zapisywane: Retro-Go zastąpi oryginalny firmware w następnym kroku.",
+    buttonBackupOnly: "Wykonaj kopię",
   },
   step2: {
     title: "Zainstaluj Retro-Go",
-    body: "Zainstaluj system dual-boot Retro-Go.",
     bodyReinstall: "Ponowna instalacja nadpisze Retro-Go na urządzeniu.",
     bodyUpgrade: (tag: string) => `Aktualizacja do ${tag} nadpisze Retro-Go na urządzeniu.`,
     bodyEraseWarning: "Uwaga: spowoduje to usunięcie istniejących gier i danych.",
     confirmInstall: "Zainstaluj",
+    confirmUpgrade: "Zaktualizuj",
+    confirmDowngrade: "Cofnij wersję",
     checkboxMigrateGames: "Przenieś gry",
     checkboxMigrateSaves: "Przenieś zapisy",
     confirmGateSelectSdCard: "Wybierz kartę SD",
-    phaseReadExistingState: "Odczytaj obecny stan urządzenia",
+    phaseReadExistingState: "Odczytaj obecny stan",
     subReadPreviousGameState: "Odczytaj poprzedni stan gier",
-    subExtractEmulatorsSaves: "Wyodrębnij dane emulatorów/zapisów",
+    subExtractCoresSaves: "Wyodrębnij rdzenie, zapisy",
     subMigrateInstalledGames: "Przenieś zainstalowane gry",
     phaseDownloadFirmware: "Pobierz firmware",
     phasePrepareInstallImage: "Przygotuj obraz instalacyjny",
     subSetSdCacheBoundary: "Ustaw granicę zarezerwowanego offsetu pamięci podręcznej SD",
     phaseBuildInstallImage: "Zbuduj obraz instalacyjny",
-    subBuildGamesBiosLanguages: "Zbuduj obraz gier, BIOS-u i języków",
-    subBuildEmulatorsSaves: "Zbuduj obraz emulatorów/zapisów",
+    subBuildGamesBiosLanguages: "Gry, BIOS, języki",
+    subBuildCoresSaves: "Rdzenie, zapisy",
     subPatchSuperblock: "Patchuj superblok",
     phaseFlashingRetroGo: "Flashowanie Retro-Go",
     phaseRescan: "Skanuj urządzenie ponownie",
-    phaseSyncSdCores: "Synchronizuj emulatory na karcie SD",
+    phaseSyncSdCores: "Synchronizuj rdzenie na karcie SD",
     regionInternalFirmware: "Firmware wewnętrzny",
     regionGamesBiosLanguages: "Gry, BIOS, języki",
-    regionEmulatorsSaves: "Emulatory, zapisy",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logMigrateSummary: (kind: string, migrateGames: boolean, migrateSaves: boolean) =>
-      `${kind} — migrate games: ${migrateGames}, migrate saves/settings: ${migrateSaves}.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logMigrateKindReinstall: "Reinstall of the currently-installed version",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logMigrateKindUpgrade: "Upgrade",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logReadPreviousGameState: "Read previous game state.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logCouldNotReadPreviousGameState: "Could not read previous game state (continuing).",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logExtractedSavesSettings: (count: number) => `Extracted saves/settings (${count} entries).`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logCouldNotExtractSavesSettings: "Could not extract saves/settings (continuing).",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logMigratedGames: (count: number) => `Migrated ${count} installed game(s).`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logSkippingGameMigration: "Skipping game migration (not requested or none installed).",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logTargetVersion: (tag: string) => `Target version: ${tag}.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logNoVersion: "(none)",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logBundleDownloaded: (mib: string) => `Bundle downloaded (${mib} MiB).`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logGamesBiosLanguagesBuilt: "Games, BIOS, languages image built.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logEmulatorsSavesBuilt: "Emulators/saves image built.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logSuperblockPatched: "Superblock patched into intflash blob.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logSdCacheBoundarySet: (offset: number) =>
-      `SD cache reserved-offset set to ${offset} bytes (keeps the round-robin ROM cache clear of existing reserved/OFW data).`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logConfirmingLinkResponsive: "Confirming link is responsive…",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logSdSyncStarting: "Starting SD Card sync for cores…",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logSdSyncFoundItems: (count: number) => `Found ${count} items in sdContent bundle.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logSdSyncCopyingFile: (path: string) => `Copying core file: ${path}`,
-    progressFilesLabel: (done: number, total: number) => {
-      const form =
-        total === 1
-          ? "plik"
-          : total % 10 >= 2 && total % 10 <= 4 && !(total % 100 >= 12 && total % 100 <= 14)
-            ? "pliki"
-            : "plików";
-      return `${done} / ${total} ${form}`;
-    },
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logSdSyncGeneratingZip: "Generating ZIP fallback…",
+    regionCoresSaves: "Rdzenie, zapisy",
+    logMigrateSummary: (kind: string, migrateGames: boolean, migrateSaves: boolean) => `migrate: ${kind}, gry=${migrateGames}, zapisy=${migrateSaves}`,
+    logMigrateKindReinstall: `ponowna instalacja zainstalowanej wersji`,
+    logMigrateKindUpgrade: `aktualizacja`,
+    logReadPreviousGameState: (hexOffset: string, length: number) => `gamestate: odczytano stan frogfs pod ${hexOffset}, okno ${length} B`,
+    logCouldNotReadPreviousGameState: (hexOffset: string, length: number, message: string) => `gamestate: odczyt pod ${hexOffset} nieudany, okno ${length} B, kontynuacja bez poprzedniego stanu: ${message}`,
+    logExtractedSavesSettings: (count: number, bytes: number) => `saves: wyodrębniono ${count} wpisów littlefs, ${bytes} B`,
+    logCouldNotExtractSavesSettings: (message: string) => `saves: wyodrębnianie littlefs nieudane, kontynuacja bez zapisów i ustawień: ${message}`,
+    logMigratedGames: (count: number, bytes: number) => `games: odczytano ${count} zainstalowanych gier z frogfs, ${bytes} B`,
+    logSkippingGameMigration: (requested: boolean, installed: number) => `games: migracja pominięta, żądana=${requested}, zainstalowane=${installed}`,
+    logTargetVersion: (tag: string) => `bundle: wersja docelowa ${tag}`,
+    logNoVersion: `(brak)`,
+    logBundleDownloaded: (tag: string, bytes: number, ms: number) => `bundle: pobrano ${tag}, ${bytes} B w ${ms} ms`,
+    logGamesBiosLanguagesBuilt: `frogfs: zbudowano obraz gier, BIOS-u i języków`,
+    logCoresSavesBuilt: `littlefs: zbudowano obraz rdzeni i zapisów`,
+    logSuperblockPatched: `superblock: wstawiony do bloba intflash`,
+    logSdCacheBoundarySet: (offset: number) => `sdcache: zarezerwowany offset ustawiony na ${offset} B, utrzymuje cache ROM round-robin z dala od danych zarezerwowanych/OFW`,
+    logConfirmingLinkResponsive: (alive: boolean, ms: number) => `device: skrzynka stuba alive=${alive}, ${ms} ms`,
+    logSdSyncStarting: `sd: synchronizacja plików rdzeni na kartę`,
+    logSdSyncFoundItems: (count: number, bytes: number) => `sd: ${count} plików w zawartości SD paczki, ${bytes} B`,
+    logSdSyncCopyingFile: (path: string, bytes: number) => `sd: zapis ${path}, ${bytes} B`,
+    logSdSyncGeneratingZip: (count: number) => `sd: brak uchwytu katalogu, tworzenie zipa z ${count} plików`,
     sdSyncZipFilename: "retro-go-sd-cores.zip",
     upgradeButtonLabel: (tag: string) => `Zaktualizuj do ${tag}`,
-    installedLabel: "✓ Zainstalowano",
     reinstallButtonLabel: "Zainstaluj ponownie",
-    installButtonLabel: "Zainstaluj Retro-Go",
+    installButtonLabel: "Zainstaluj",
+    versionLatest: "(najnowsza)",
   },
   step3: {
-    title: "Zarządzaj ROM-ami",
-    body: "Przejdź do zakładki ROM-y, aby zainstalować swoje gry.",
-    continueButtonLabel: "Przejdź do zarządzania ROM-ami →",
+    continueButtonLabel: "Przejdź do biblioteki →",
+  },
+  // Step 1 of the two-step Guided Setup: the intent chooser ("what do you want on the
+  // device?"), its three cards, and the small grey escape hatch beneath them.
+  chooser: {
+    title: "Co ma działać na tym urządzeniu?",
+    whatIsRetroGo: "Retro-Go to alternatywne oprogramowanie, które uruchamia na tym urządzeniu gry z innych konsol.",
+    dualBoot: "Podwójny rozruch",
+    onlyRetroGo: "Tylko Retro-Go",
+    returnToStock: "Powrót do oryginału",
+    escapePrompt: "Coś innego?",
+    escapeAction: "Skorzystaj z zakładki Zaawansowane",
+    tooSmallForRetroGo: (mb: number) => `Retro-Go wymaga 8 MB. To urządzenie ma ${mb} MB.`,
+    tooSmallForDualBoot: (mb: number) => `Podwójny rozruch wymaga 16 MB. To urządzenie ma ${mb} MB.`,
+  },
+  // Step 2: the spine, whose step titles are specialised per chosen path. Titles and
+  // controls only - the steps deliberately carry no descriptive subtitle.
+  spine: {
+    backupAndPatchOriginal: "Kopia zapasowa i łatanie oryginalnego firmware'u",
+    backUpOriginal: "Kopia zapasowa oryginalnego firmware'u",
+    installRetroGo: "Zainstaluj Retro-Go",
+    addSources: "Dodaj źródła oprogramowania",
+    addRoms: "Dodaj do biblioteki",
+    selectBackup: "Wybierz kopię zapasową oryginalnego firmware'u",
+    restoreOriginal: "Przywróć oryginalny firmware",
+    restoreButtonLabel: "Przywróć",
+    removeRetroGo: "Usuń Retro-Go",
+    skipCaution: "Tej operacji nie da się cofnąć, a pobranie oryginalnego firmware'u jest prawdopodobnie nielegalne w Twojej jurysdykcji.",
+    skipAnyway: "Mimo to pomiń",
+    chipOptional: "Opcjonalnie",
+    runAgain: "Uruchom ponownie",
+    sourcesButtonLabel: "Dodaj źródła",
+    selectFolderButtonLabel: "Wybierz folder",
+    backupFound: (model: string) => `Znaleziono kopię zapasową: ${model}`,
+  },
+  restore: {
+    modalBody: "Oryginalne oprogramowanie urządzenia zostanie zapisane dokładnie w takiej postaci, w jakiej je zarchiwizowano. Usunie to Retro-Go i wszystko, co zostało z nim zainstalowane. Gry, zapisy i ustawienia nie zostaną przeniesione i nie będzie można ich odzyskać. Nie odłączaj urządzenia, dopóki operacja się nie zakończy.",
+    confirm: "Przywróć",
+    needBackup: "Najpierw wybierz prawidłową kopię oryginalnego oprogramowania tego urządzenia.",
+    noneFound: "W tym folderze nie znaleziono kopii oryginalnego oprogramowania nadającej się do użycia. Musi on zawierać parę plików kopii zapisanych podczas odblokowywania urządzenia.",
+    wrongHardware: (backup: string, hardware: string) =>
+      `To kopia oprogramowania ${backup}, a to urządzenie to sprzęt ${hardware}. Zapis uczyniłby je bezużytecznym, więc nie można go tu przywrócić.`,
+    tooBig: (mb: string, capMb: string) =>
+      `Ta kopia wymaga ${mb} MB pamięci zewnętrznej, a to urządzenie ma tylko ${capMb} MB.`,
+    logRestoring: (model: string, intBytes: number, extBytes: number) => `flash: przywracanie oryginału ${model} bez zmian, wewnętrzna ${intBytes} B → bank 1, zewnętrzna ${extBytes} B → bank 0`,
   },
   common: {
-    errOperationTimedOut: "Przekroczono czas operacji (urządzenie mogło się zawiesić). Uruchom urządzenie ponownie i spróbuj jeszcze raz.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    rescanningDeviceGeometry: "Rescanning device geometry…",
+    errOperationTimedOut: "Przekroczono czas operacji (urządzenie mogło się zawiesić). Zrestartuj urządzenie i spróbuj ponownie.",
+    rescanningDeviceGeometry: `device: ponowne skanowanie geometrii`,
   },
 };

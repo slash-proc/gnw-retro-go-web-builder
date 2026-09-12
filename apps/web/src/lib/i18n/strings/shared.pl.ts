@@ -6,8 +6,8 @@ export const sharedPl: SharedStrings = {
     close: "Zamknij",
     connect: "Połącz",
     connecting: "Łączenie…",
-    workingNotePre: "Trwa operacja — ",
-    workingNoteBold: "nie odłączaj urządzenia",
+    workingNotePre: "Trwa operacja. ",
+    workingNoteBold: "Nie odłączaj urządzenia",
     workingNotePost: ".",
     done: "✓ Gotowe.",
     changeEllipsis: "Zmień…",
@@ -16,13 +16,6 @@ export const sharedPl: SharedStrings = {
   },
   confirmModal: {
     defaultConfirmText: "Potwierdź",
-  },
-  accordionSection: {
-    operationInProgress: "Operacja w toku",
-  },
-  filePick: {
-    defaultLabel: "Wybierz plik",
-    noFileChosen: "Nie wybrano pliku",
   },
   splitButton: {
     moreOptions: "Więcej opcji",
@@ -37,7 +30,7 @@ export const sharedPl: SharedStrings = {
   },
   stubLoadModal: {
     title: "Uruchomić tryb odzyskiwania?",
-    body1Pre: "Aby wykonać tę czynność (np. odczyt pamięci flash, tworzenie kopii zapasowej lub instalację firmware'u), urządzenie musi przejść w ",
+    body1Pre: "Aby wykonać tę czynność (np. odczyt pamięci flash, tworzenie kopii zapasowej lub instalację firmware’u), urządzenie musi przejść w ",
     body1Bold: "Tryb odzyskiwania",
     body1Post: ". Spowoduje to tymczasowe zatrzymanie działającej aplikacji.",
     body2Pre: "Przytrzymaj ",
@@ -56,8 +49,6 @@ export const sharedPl: SharedStrings = {
   },
   folderGateModal: {
     title: "Wymagane foldery",
-    subtitlePlural: "Wybierz poniższe foldery, aby kontynuować.",
-    subtitleSingular: "Wybierz poniższy folder, aby kontynuować.",
     romFolderTitle: "Folder ROM-ów",
     selectedFallback: "Wybrano",
     romFolderHint: "Twoja lokalna kolekcja plików ROM",
@@ -65,24 +56,86 @@ export const sharedPl: SharedStrings = {
     scanning: "Skanowanie…",
     sdCardFolderTitle: "Folder karty SD",
     sdCardFolderHint: "Katalog główny woluminu karty SD",
+    errRead: "Nie udało się odczytać tego folderu.",
     continue: "Kontynuuj",
+  },
+  auditLog: {
+    title: "Aktywność",
+    empty: "Nie ma jeszcze nic do zgłoszenia.",
+    reloaded: "Przeładowano",
+    sessions: "Sesje",
+    sevAll: "Wszystko",
+    sevDebug: "Debugowanie",
+    sevInfo: "Informacja",
+    sevWarning: "Ostrzeżenie",
+    sevError: "Błąd",
+    srcConverter: "Konwerter",
+    srcDevice: "Urządzenie",
+    srcSources: "Źródła",
+    filterPlaceholder: "Filtruj",
+    showing: (shown: number, total: number) => `Wyświetlanie ${shown} z ${total}`,
+    copy: "Kopiuj",
+    save: "Zapisz",
+    saveFilename: "gnw-activity.txt",
+    notificationsTitle: "Powiadomienia",
+    noneWaiting: "Brak aktywności",
+    openActivity: "Otwórz Aktywność",
+    clearNotifications: "Wyczyść",
+    dismissNotification: "Odrzuć",
+    recoveryFailed: (reason: string) => `Tryb odzyskiwania nie wystartował: ${reason}`,
+    connectFailed: (reason: string) => `Nie udało się połączyć: ${reason}`,
+    scanFailed: (reason: string) => `Skanowanie nie zakończyło się: ${reason}`,
+    foldersFailed: (reason: string) => `Nie udało się odczytać folderów: ${reason}`,
+    cheatsFailed: (reason: string) => `Nie udało się wczytać cheatów: ${reason}`,
   },
   installProgressModal: {
     logLabel: (count: number) => `Dziennik (${count})`,
+    saveLog: "Zapisz dziennik",
+    copyLog: "Kopiuj dziennik",
+    blocksFailed: "Bloki, które zawiodły",
+    blockLabel: (n: number) => `Blok ${n}`,
+    // Polish plural: 1 "blok", 2-4 "bloki", 5+ "bloków" (with the teens taking the 5+ form).
+    verifyHeadline: (blocks: number, retries: number) => {
+      const t = blocks % 10;
+      const h = blocks % 100;
+      const noun = blocks === 1 ? "blok" : t >= 2 && t <= 4 && (h < 12 || h > 14) ? "bloki" : "bloków";
+      const verb = blocks === 1 ? "nie pasował" : "nie pasowało";
+      return `${blocks} ${noun} ${verb} po ${retries === 1 ? "jednej próbie" : `${retries} próbach`}.`;
+    },
+    partlyWrittenBank: (bank: number) => `Bank ${bank} jest zapisany częściowo i nie uruchomi się.`,
+    partlyWrittenExt: "Zewnętrzna pamięć flash jest zapisana częściowo.",
+    wiringAdvice:
+      "Powtarzające się błędy bloków niemal zawsze wynikają z okablowania programatora. Podłącz go ponownie i spróbuj jeszcze raz.",
+    cancelCaption: "Zatrzyma się po bieżącym bloku",
+    cancelPending: "Zatrzymywanie",
+    cancelTitle: "Zatrzymać zapis?",
+    cancelBody: "To, co już zapisano, pozostaje zapisane. Instalacja jest niekompletna, dopóki nie uruchomisz jej ponownie.",
+    cancelKeep: "Kontynuuj zapis",
+    cancelStop: "Zatrzymaj",
+    cancelledNote: "Zatrzymano. Instalacja jest niekompletna.",
+    logStopping: "Zatrzymanie na następnej granicy bloku.",
+    logStopped: "Zatrzymano.",
   },
   geometry: {
     freeSpace: "Wolne miejsce",
-    games: "Gry",
-    coresAndSaves: "Emulatory i zapisy",
+    games: "Gry i homebrew",
+    coresAndSaves: "Rdzenie i zapisy",
     bankLabel: (n: number) => `Bank ${n}`,
     bankUnknown: "—",
     used: "zajęte",
     free: "wolne",
     bankFree: (n: number) => `Bank ${n} wolny`,
     empty: "pusty",
+    externalFlash: "flash zewnętrzny",
+    reservedSdCache: "Zarezerwowane (pamięć podręczna SD)",
   },
-  bankSelect: {
-    external: (addr: string) => `Zewnętrzna · bank0 (${addr})`,
-    internal: (bank: number, addr: string) => `Wewnętrzna · bank${bank} (${addr})`,
+  // Polski: jednostką jest bajt, skróty B/KB/MB/GB jak w angielskim; spacja między
+  // liczbą a jednostką.
+  units: {
+    b: "B",
+    kb: "KB",
+    mb: "MB",
+    gb: "GB",
+    space: " ",
   },
 };

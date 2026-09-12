@@ -8,15 +8,19 @@
 // listed in SUPPORTED_LOCALES but not yet present in `registry` transparently falls back to
 // English (see `t` below) rather than crashing, so this file can list the full target locale
 // set before every translation has actually landed.
+// Stored as `gnw:locale`; the pre-namespace `locale` key is adopted once and removed.
+import { loadRawMigrated, saveRaw } from "../persist.js";
 import { en } from "./en.js";
 import { de } from "./de.js";
 import type { Strings } from "./en.js";
 
 export type Locale =
+  | "ar"
   | "en"
   | "de"
   | "fr"
   | "es"
+  | "it"
   | "pl"
   | "nl"
   | "pt"
@@ -28,24 +32,35 @@ export type Locale =
   | "uk"
   | "no";
 
-/** Every locale the UI offers a switcher option for, in display order. Label is the
- *  language's own native name (never English), so a user looking for their language can
- *  always find it regardless of what locale is currently active. */
+/**
+ * Every locale the UI offers a switcher option for, ORDERED BY CODE.
+ *
+ * The trigger button shows the code ("EN", "ZH-HANS"), not the name, so the code is what a user
+ * has in hand when they open the menu -- ordering by it makes the list scannable by the same
+ * token the control already shows. It also removes the question a hand-picked order invites,
+ * which is why English no longer leads: there is no editorial ranking of languages here, and a
+ * new locale drops into its own place instead of wherever it was appended.
+ *
+ * The label is the language's own native name, never English, so a user can find their language
+ * whatever locale is currently active. `zh-Hans` sorts before `zh-Hant` on the script subtag.
+ */
 export const SUPPORTED_LOCALES: { code: Locale; label: string }[] = [
-  { code: "en", label: "English" },
+  { code: "ar", label: "العربية" },
   { code: "de", label: "Deutsch" },
-  { code: "fr", label: "Français" },
+  { code: "en", label: "English" },
   { code: "es", label: "Español" },
-  { code: "pl", label: "Polski" },
-  { code: "nl", label: "Nederlands" },
-  { code: "pt", label: "Português" },
+  { code: "fr", label: "Français" },
+  { code: "it", label: "Italiano" },
   { code: "ja", label: "日本語" },
   { code: "ko", label: "한국어" },
-  { code: "zh-Hans", label: "简体中文" },
-  { code: "zh-Hant", label: "繁體中文" },
+  { code: "nl", label: "Nederlands" },
+  { code: "no", label: "Norsk" },
+  { code: "pl", label: "Polski" },
+  { code: "pt", label: "Português" },
   { code: "ru", label: "Русский" },
   { code: "uk", label: "Українська" },
-  { code: "no", label: "Norsk" },
+  { code: "zh-Hans", label: "简体中文" },
+  { code: "zh-Hant", label: "繁體中文" },
 ];
 
 // Populated incrementally as each locale's assembler file (apps/web/src/lib/i18n/<locale>.ts)
@@ -75,7 +90,10 @@ function isLocale(v: string | null): v is Locale {
 }
 
 function matchBrowserLocale(): Locale {
-  const nav = navigator.language; // e.g. "en-US", "zh-TW", "pt-BR"
+  // Guarded rather than a bare `navigator.language`: since util.ts's formatSize() reads this
+  // store for its unit suffixes, this module is now pulled into every offline node test that
+  // bundles anything importing util.ts (test/safety.mjs, …), where there is no navigator.
+  const nav = (typeof navigator === "undefined" ? "" : navigator.language) || "en"; // e.g. "en-US", "zh-TW", "pt-BR"
   const lower = nav.toLowerCase();
   if (lower.startsWith("zh")) {
     // Traditional in Taiwan/Hong Kong/Macau, Simplified everywhere else zh is reported.
@@ -87,7 +105,7 @@ function matchBrowserLocale(): Locale {
 }
 
 function initial(): Locale {
-  const saved = localStorage.getItem("locale");
+  const saved = loadRawMigrated("locale", "locale");
   if (isLocale(saved)) return saved;
   return matchBrowserLocale();
 }
@@ -97,7 +115,7 @@ class LocaleStore {
 
   set(l: Locale): void {
     this.current = l;
-    localStorage.setItem("locale", l);
+    saveRaw("locale", l);
   }
   toggle(): void {
     // Legacy EN/DE quick-toggle, kept only for any call site still using it — the header UI

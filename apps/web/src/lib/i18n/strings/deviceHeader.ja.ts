@@ -2,8 +2,6 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderJa: DeviceHeaderStrings = {
   changeInstallationMethod: "インストール方法を変更",
-  sdCard: "💾 SDカード",
-  internalFlash: "⚡ 内蔵フラッシュ",
   connectionLost: "接続が切断されました",
   noConnection: "未接続",
   connectedRecoveryMode: "接続済み（リカバリーモード）",
@@ -30,4 +28,8 @@ export const deviceHeaderJa: DeviceHeaderStrings = {
   changeMethodConfirm: "方法を変更",
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "純正ファームウェア",
+  unsafeWritingStatus: "フラッシュ書き込み中。抜かないでください",
+  unsafeSettlingStatus: "処理を完了中。抜かないでください",
+  retroGoOlderSuffix: "（旧版）",
+  unsafeAria: "本体を取り外さないでください",
 };

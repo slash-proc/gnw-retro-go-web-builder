@@ -6,37 +6,67 @@ import type { Widen } from "../widen.js";
 // type strings, device labels) stay as function args — only literal surrounding copy lives here.
 export const overviewEn = {
   waitingForConnection: "Waiting for a device connection…",
+  // The Overview is the default tab of "Manage Device", so this is the first thing many people
+  // meet. Three states shared one grey wait line until now, and only one of them is a wait:
+  // this browser can NEVER reach a device (no WebUSB, so no adapter and no patience helps),
+  // a connection is in flight, or nothing is attached yet. The adapter requirement is
+  // irreducible — the device has to be opened and wired — so the copy names that wall rather
+  // than implying a cable would do. `shared.common.connect` is the action; no string here.
+  noDevice: {
+    title: "No device connected",
+    body: "Backups, patching and firmware need an ST-Link v2 (or compatible) adapter wired to the device.",
+    browserTitle: "This browser cannot reach the device",
+    browserBody:
+      "Device access needs WebUSB. Chrome, Edge and Opera have it; Library and Sources work in any browser.",
+  },
   info: {
-    title: "Info",
-    running: "Running",
-    gameAndWatch: "Game & Watch",
-    retroGo: "Retro-Go",
-    storageExtflash: "Storage (extflash)",
     readProtection: "Read protection",
-    runningFlashUtility: "Flash Utility",
-    runningRetroGo: "Retro-Go",
-    runningUnknown: "Unknown / not scanned",
-    ofwLabel: (model: string, patched: boolean) => `${model} (${patched ? "Patched" : "Stock"})`,
-    ofwNone: "None",
-    retroGoNotInstalled: "Not installed / broken",
-    retroGoNotScanned: "Not scanned yet",
-    storageValue: (mb: number) => `${mb} MB`,
     unknownValue: "—",
     lockLocked: "Locked",
     lockUnlocked: "Unlocked",
   },
+  // The Overview Status pane (ui/StatusPane.svelte), whose board is
+  // docs/design/proposals/overview-v2/Status.dc.html. Labels and values only: a value stands
+  // alone in its column — a date, or "None" — and never restates its own label as a verb, so
+  // there is no "Taken" here and never will be. The needs-attention states are the SAME rows
+  // with different values, which is why they are keys in this one block and not a second one.
+  status: {
+    title: "Status",
+    layoutLabel: "Layout",
+    layoutDual: "Dual boot",
+    layoutRetroGo: "Only Retro-Go",
+    layoutStock: "Only stock",
+    layoutOther: "Not recognised",
+    bank: (n: number) => `Bank ${n}`,
+    needAttention: (n: number) => (n === 1 ? "1 needs attention" : `${n} need attention`),
+    debugProbe: "Debug probe",
+    firmwareBackup: "Firmware backup",
+    backupNone: "None",
+    backUpNow: "Back up now",
+    backupNotConnected: "Folder not connected",
+    backupNotThisDevice: "No backup for the connected console",
+    connectFolder: "Connect folder",
+    storage: "Storage",
+    storageSdCard: "SD card",
+    storageInternal: "Internal flash",
+    storageNoCard: "No card selected",
+    installedFirmware: "Installed firmware",
+    firmwareNone: "None",
+    latestLabel: "Latest",
+    upgradeAction: "Upgrade Retro-Go",
+    rescan: "Rescan",
+  },
   controls: {
-    title: "Controls",
-    startFlashUtil: "Start Flash Util",
-    restartFlashUtil: "Restart Flash Util",
-    captureScreenshot: "Capture Screenshot",
+    captureScreenshot: "Capture screenshot",
     capturingPercent: (pct: number) => `Capturing (${pct}%)`,
-    startFlashUtilFailed: (err: string) => `Failed to start flash utility: ${err}`,
   },
   screenshot: {
+    // Main.dc.html: the span-5 column's section label, sharing a baseline row with the
+    // capture action.
+    sectionLabel: "Screen",
     alt: "Screenshot",
     clickToDownload: "Click to download screenshot",
-    noScreenshotCaptured: "No screenshot captured",
+    noScreenshotCaptured: "Nothing captured yet",
     modalTitle: "Capture Screenshot",
     modalBody: "This will briefly halt the device to read the display buffer.",
     modalConfirm: "Capture",
@@ -44,21 +74,23 @@ export const overviewEn = {
     phaseCapturing: "Capturing screenshot",
   },
   banks: {
-    heading: "Internal Flash",
+    heading: "Internal flash",
+  },
+  // Each bank offers the step that fits ITS OWN state, never a generic "Install" and never one
+  // device-wide value broadcast to both (see OverviewTab.svelte's bankPrompt). When the state
+  // can't be told apart, no prompt is shown at all rather than a made-up one.
+  bankEmpty: {
+    guidedSetup: "Start guided setup",
+    installStock: "Install stock firmware",
+    patchStock: "Patch stock firmware",
+    installRetroGo: "Install Retro-Go",
   },
   extFlash: {
     title: "External Flash",
     scanningPleaseWait: "Scanning… Please wait",
     scan: "Scan",
     enterRecoveryToScan: "Enter Recovery Mode to Scan",
-    headingGames: "Games",
-    headingCoresAndSaves: "Cores & Saves",
-    typeLabel: "Type",
-    usedLabel: "Used",
-    totalLabel: "Total",
-    freeLabel: "Free",
-    dataValue: "Data",
-    calculating: "Calculating...",
+    freeOfTotal: (total: string) => `free of ${total}`,
   },
   bootModal: {
     title: "Boot Image",
@@ -67,7 +99,7 @@ export const overviewEn = {
     bankFallbackLabel: (n: number) => `Bank ${n}`,
   },
   bankButton: {
-    startFirmware: (model: string) => `Start ${model} Firmware`,
+    startFirmware: (model: string) => `Start ${model} firmware`,
     startRetroGo: "Start Retro-Go",
     startType: (type: string) => `Start ${type}`,
   },
@@ -80,78 +112,3 @@ export const overviewEn = {
 } as const;
 
 export type OverviewStrings = Widen<typeof overviewEn>;
-
-export const overviewDe: OverviewStrings = {
-  waitingForConnection: "Warten auf eine Geräteverbindung…",
-  info: {
-    title: "Info",
-    running: "Aktiv",
-    gameAndWatch: "Game & Watch",
-    retroGo: "Retro-Go",
-    storageExtflash: "Speicher (extflash)",
-    readProtection: "Leseschutz",
-    runningFlashUtility: "Flash-Dienstprogramm",
-    runningRetroGo: "Retro-Go",
-    runningUnknown: "Unbekannt / nicht gescannt",
-    ofwLabel: (model: string, patched: boolean) => `${model} (${patched ? "Gepatcht" : "Original"})`,
-    ofwNone: "Keine",
-    retroGoNotInstalled: "Nicht installiert / defekt",
-    retroGoNotScanned: "Noch nicht gescannt",
-    storageValue: (mb: number) => `${mb} MB`,
-    unknownValue: "—",
-    lockLocked: "Gesperrt",
-    lockUnlocked: "Entsperrt",
-  },
-  controls: {
-    title: "Steuerung",
-    startFlashUtil: "Recovery-Modus starten",
-    restartFlashUtil: "Recovery-Modus neu starten",
-    captureScreenshot: "Screenshot aufnehmen",
-    capturingPercent: (pct: number) => `Wird aufgenommen (${pct} %)`,
-    startFlashUtilFailed: (err: string) => `Recovery-Modus konnte nicht gestartet werden: ${err}`,
-  },
-  screenshot: {
-    alt: "Screenshot",
-    clickToDownload: "Klicken, um den Screenshot herunterzuladen",
-    noScreenshotCaptured: "Kein Screenshot aufgenommen",
-    modalTitle: "Screenshot aufnehmen",
-    modalBody: "Das Gerät wird dafür kurz angehalten, um den Bildpuffer auszulesen.",
-    modalConfirm: "Aufnehmen",
-    rememberCheckbox: "Nicht erneut fragen",
-    phaseCapturing: "Screenshot wird aufgenommen",
-  },
-  banks: {
-    heading: "Interner Flash-Speicher",
-  },
-  extFlash: {
-    title: "Externer Flash-Speicher",
-    scanningPleaseWait: "Wird gescannt… Bitte warten",
-    scan: "Scannen",
-    enterRecoveryToScan: "Für den Scan in den Recovery-Modus wechseln",
-    headingGames: "Spiele",
-    headingCoresAndSaves: "Emulatoren & Spielstände",
-    typeLabel: "Typ",
-    usedLabel: "Belegt",
-    totalLabel: "Gesamt",
-    freeLabel: "Frei",
-    dataValue: "Daten",
-    calculating: "Wird berechnet …",
-  },
-  bootModal: {
-    title: "Firmware starten",
-    body: (name: string, addr: string) => `Das Gerät wird neu gestartet, um ${name} von ${addr} zu booten.`,
-    confirm: "Starten",
-    bankFallbackLabel: (n: number) => `Bank ${n}`,
-  },
-  bankButton: {
-    startFirmware: (model: string) => `${model}-Firmware starten`,
-    startRetroGo: "Retro-Go starten",
-    startType: (type: string) => `${type} starten`,
-  },
-  log: {
-    heading: "Geräteprotokoll",
-    readLog: "Geräteprotokoll auslesen",
-    reading: "Wird gelesen…",
-    download: "Herunterladen",
-  },
-};

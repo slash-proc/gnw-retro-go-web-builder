@@ -1,33 +1,25 @@
 import type { Widen } from "../widen.js";
 
+// Landing (views/Landing.svelte): the two-step entry — pick the mod your device has, then
+// pick what you came to do. Copy is lifted verbatim from the Landing1 / Landing2 artboards
+// (docs/design/mockups): a 34px title, a 15px grey rubric under it, and a title + 14px
+// description on each card.
 export const landingEn = {
-  title: "Game & Watch",
-  mediaPrompt: "Flash or SD card modded device?",
+  title1: "Game & Watch web builder",
+  mediaPrompt: "How is your device modded?",
   flashMemory: "Flash Memory",
+  flashMemoryDesc: "Games live on the internal flash chip.",
   sdCard: "SD Card",
-  actionPrompt: "Which would you like to manage?",
+  sdCardDesc: "Games live on an SD Card mod.",
+  title2: "What would you like to do?",
+  actionPrompt: "You can switch at any time once you are in.",
   manageDevice: "Manage Device",
-  unsupportedBrowser: "(Unsupported Browser)",
-  requiresAdapter: "(Requires Adapter)",
-  manageDeviceAdvanced: "Manage Device (Advanced)",
-  manageGames: "Manage Games",
-  romsCollection: "(ROMs Collection)",
+  manageDeviceDesc: "Backup, patch, install firmware. Requires an adapter.",
+  unsupportedBrowser: "Needs Chromium, Chrome, or Edge.",
+  manageDeviceAdvanced: "Manage Device (advanced) →",
+  manageLibrary: "Manage Library",
+  manageLibraryDesc: "Build and install your library.",
   back: "← Back",
 } as const;
 
 export type LandingStrings = Widen<typeof landingEn>;
-
-export const landingDe: LandingStrings = {
-  title: "Game & Watch",
-  mediaPrompt: "Gerät mit Flash-Speicher oder SD-Karten-Mod?",
-  flashMemory: "Flash-Speicher",
-  sdCard: "SD-Karte",
-  actionPrompt: "Was möchtest du verwalten?",
-  manageDevice: "Gerät verwalten",
-  unsupportedBrowser: "(Nicht unterstützter Browser)",
-  requiresAdapter: "(Adapter erforderlich)",
-  manageDeviceAdvanced: "Gerät verwalten (Erweitert)",
-  manageGames: "Spiele verwalten",
-  romsCollection: "(ROM-Sammlung)",
-  back: "← Zurück",
-};

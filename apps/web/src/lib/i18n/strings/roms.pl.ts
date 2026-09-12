@@ -4,19 +4,28 @@ export const romsPl: RomsStrings = {
   firefoxWarning: {
     dismissAriaLabel: "Odrzuć ostrzeżenie",
     boldLead: "Firefox jest obsługiwany tylko częściowo.",
-    body: " Firefox nie pozwala łatwo zapisywać okładek obok plików ROM, więc jedyną opcją jest wyeksportowanie wszystkich okładek do pliku ZIP. Aby zapisywać pobrane/zaimportowane okładki bezpośrednio, użyj zamiast tego Chromium, Chrome, Edge itp.",
+    body: " Firefox nie może zapisywać okładek obok plików ROM, więc wyeksportuj je do pliku ZIP. Aby zapisywać bezpośrednio, użyj Chromium, Chrome lub Edge.",
   },
   selectGames: {
     gateBody: "Skonfiguruj folder ROM-ów, aby zarządzać grami.",
     gateButton: "Skonfiguruj foldery…",
     allFilterLabel: (count: number) => `Wszystkie (${count})`,
     homebrewFilterLabel: (count: number) => `Homebrew (${count})`,
-    gamesHeading: "Gry",
-    expandListTitle: "Rozwiń listę",
-    collapseListTitle: "Zwiń listę",
+    favoritesFilterLabel: (count: number) => `Ulubione (${count})`,
+    searchPlaceholder: "Szukaj",
+    refreshLibrary: "Odśwież bibliotekę",
+    favoriteOn: "Ulubione",
+    favoriteOff: "Nie w ulubionych",
     changeFoldersTitle: "Zmień foldery",
+    selectedCount: (n: number) => {
+      // Polish has three plural forms: 1 → "wybrana", 2-4 → "wybrane",
+      // 5+ (and 12-14, and 0) → "wybranych".
+      const d = n % 10, h = n % 100;
+      if (n === 1) return "1 wybrana";
+      if (d >= 2 && d <= 4 && !(h >= 12 && h <= 14)) return `${n} wybrane`;
+      return `${n} wybranych`;
+    },
     selectAll: "Zaznacz wszystkie",
-    unselectAll: "Odznacz wszystkie",
     noFilterMatch: "Żadna gra nie pasuje do tego filtra.",
     removeButton: "usuń",
     errorPrefix: (message: string) => `Błąd: ${message}`,
@@ -24,6 +33,13 @@ export const romsPl: RomsStrings = {
     homebrewTag: "HOMEBREW",
     homebrewChip: "HB",
     infoEmpty: "Wybierz grę, aby zobaczyć szczegóły",
+    sortLabel: "Sortuj",
+    sortBySystem: "System",
+    sortByName: "Nazwa pliku",
+    sortBySize: "Rozmiar",
+    sortByAction: "Akcja",
+    sortAscending: "Rosnąco",
+    sortDescending: "Malejąco",
     actionInstalled: "zainstalowano",
     actionUninstall: "odinstaluj",
     actionPrepare: "przygotuj",
@@ -31,70 +47,57 @@ export const romsPl: RomsStrings = {
     actionMissingRom: "brak pliku ROM",
     actionInstall: "zainstaluj",
     actionNotInstalled: "nie zainstalowano",
+    convertFailed: (reason: string) => `Nie udało się przygotować: ${reason}`,
+    convertUnrecognised: (filename: string) => `Nie rozpoznano pliku ${filename}, użyto go mimo to.`,
   },
   spaceAlert: {
     title: "Osiągnięto limit miejsca",
     ok: "OK",
     notEnoughSpace: (requiredMiB: string, availableMiB: string) =>
-      `Za mało miejsca na urządzeniu! Wymagane: ${requiredMiB} MiB, dostępne: ${availableMiB} MiB`,
+      `Za mało miejsca na urządzeniu! Wymagane: ${requiredMiB} MB, dostępne: ${availableMiB} MB`,
   },
   install: {
-    connectPrompt: "Połącz urządzenie, aby zainstalować ROM-y.",
+    connectPrompt: "Połącz urządzenie, aby zainstalować swoją bibliotekę.",
     scanningDevice: "Skanowanie urządzenia…",
     scanDevicePrompt: "Zeskanuj urządzenie, aby wykryć jego partycje.",
-    installFirstPrompt: "Najpierw zainstaluj Retro-Go — na tym urządzeniu nie znaleziono partycji emulatorów/zapisów.",
+    installFirstPrompt: "To urządzenie nie ma partycji rdzeni/zapisów, więc najpierw zainstaluj Retro-Go.",
     calculatingLayout: "Obliczanie układu…",
     lzmaCheckboxLabel: "Kompresuj ROM-y algorytmem LZMA ",
     lzmaSoon: "na razie bez kompresji",
-    installButton: "Zainstaluj ROM-y",
-    installTitle: "Zainstalować ROM-y?",
-    installConfirm: "Zainstaluj",
-    installBody: (hexOffset: string) =>
-      `Przepakowuje gry, BIOS i języki pod adresem ${hexOffset} na podstawie Twojego wyboru. Emulatory i zapisy NIE zostaną naruszone. Nie odłączaj urządzenia, dopóki operacja się nie zakończy.`,
+    syncLibraryButton: "Synchronizuj bibliotekę",
+    installTitle: "Instalacja",
+    installBody: "Gry, BIOS i języki zostaną zainstalowane na urządzeniu.",
     phasePrepare: "Przygotuj urządzenie",
     phaseBudget: "Sprawdź budżet miejsca",
-    phaseBuild: "Zbuduj obraz gier, BIOS-u i języków",
+    phaseBuild: "Zbuduj obraz instalacyjny",
     subRetain: "Odczytaj ponownie zachowane gry na urządzeniu",
     subPack: "Spakuj obraz gier, BIOS-u i języków",
     phaseFlash: "Flashowanie gier, BIOS-u i języków",
+    subFlashImage: "Gry, BIOS, języki",
+    subFlashCores: "Rdzenie",
     phaseRescan: "Skanuj urządzenie ponownie",
-    flashProgressLabel: "Gry, BIOS, języki → zewn.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logConnecting: "Connecting to device and starting the flash utility…",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logFlashUtilReady: (hexOffset: string, eraseBlock: number) =>
-      `Flash utility ready — FrogFS offset ${hexOffset}, erase block ${eraseBlock} B.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logBudgetBlocked: (sizeMiB: string) => `${sizeMiB} MiB selected exceeds the available gap — blocked.`,
-    errBudgetBlocked: "Wybór nie mieści się w dostępnym miejscu na tym urządzeniu — odznacz kilka gier.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logBudgetFits: (sizeMiB: string, gapMiB: string) => `${sizeMiB} MiB selected — fits the available ${gapMiB} MiB gap.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logRetainedGames: (retainedCount: number, homebrewCount: number) =>
-      `Re-read ${retainedCount} retained game(s) and ${homebrewCount} homebrew file(s) from device.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logBuildingImage: "Building games, BIOS, languages image from selection…",
+    logConnecting: `device: łączenie, ładowanie narzędzia flashowania`,
+    logFlashUtilReady: (hexOffset: string, eraseBlock: number, extBytes: number) => `device: narzędzie flashowania gotowe, frogfs @ ${hexOffset}, blok kasowania ${eraseBlock} B, zewnętrzna ${extBytes} B`,
+    logBudgetBlocked: (bytes: number, gapBytes: string) => `budget: wybrane ${bytes} B przekracza lukę ${gapBytes} B, zablokowano`,
+    errBudgetBlocked: "Wybór nie mieści się w dostępnym miejscu na tym urządzeniu. Odznacz kilka gier.",
+    logBudgetFits: (bytes: number, gapBytes: string) => `budget: wybrane ${bytes} B mieści się w luce ${gapBytes} B`,
+    logRetainedGames: (retainedCount: number, homebrewCount: number, bytes: number) => `frogfs: ponownie odczytano ${retainedCount} zachowanych gier i ${homebrewCount} plików homebrew z urządzenia, ${bytes} B`,
+    logBuildingImage: (fileCount: number) => `frogfs: pakowanie ${fileCount} plików z zaznaczenia`,
     errNoFirmwareVersions: "Nie opublikowano jeszcze żadnych wersji firmware'u.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logReusingPreview: "Reusing prepared games, BIOS, languages preview (selection unchanged since last preview).",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logImageReady: (sizeMiB: string, hexOffset: string) =>
-      `Games, BIOS, languages image ready: ${sizeMiB} MiB → flashing @ ${hexOffset}.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logConfirmingLinkResponsive: "Confirming link is responsive…",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logRescanning: "Rescanning device geometry and installed games…",
-    wontFitDetail: "Nie mieści się w dostępnym miejscu — odznacz kilka gier.",
+    logReusingPreview: (bytes: number) => `frogfs: użycie zbuforowanego podglądu, ${bytes} B, zaznaczenie bez zmian`,
+    logImageReady: (bytes: number, hexOffset: string) => `frogfs: obraz ${bytes} B, flashowanie pod ${hexOffset}`,
+    logConfirmingLinkResponsive: (alive: boolean, ms: number) => `device: skrzynka stuba alive=${alive}, ${ms} ms`,
+    logRescanning: `device: ponowne skanowanie geometrii i zainstalowanych gier`,
+    wontFitDetail: "Nie mieści się w dostępnym miejscu. Odznacz kilka gier.",
   },
   sdSync: {
-    upgradeLabelPre: "Zaktualizuj Retro-Go i emulatory do",
+    upgradeLabelPre: "Zaktualizuj Retro-Go i rdzenie do",
     updatesWhenBoots: "(zaktualizuje się przy następnym uruchomieniu G&W)",
-    syncButton: "Synchronizuj kartę SD",
     downloadZipButton: "Pobierz ZIP karty SD",
-    nothingToSyncTitle: "Nic do synchronizacji — żadne gry, rdzenie, okładki ani cheaty się nie zmieniły.",
-    syncTitle: "Zsynchronizować kartę SD?",
-    syncBody: "Zapisuje wybrane gry, okładki i cheaty (a także rdzenie/pliki systemowe, jeśli zaznaczono) na kartę SD. Zapisywane są tylko nowe lub zmienione pliki, a odznaczone gry są usuwane.",
-    syncConfirm: "Synchronizuj",
+    nothingToSyncTitle: "Żadne gry, rdzenie, okładki ani cheaty się nie zmieniły, więc nie ma nic do synchronizacji.",
+    chooseCardPrompt: "Wybierz kartę SD, aby zainstalować",
+    syncTitle: "Instalacja",
+    syncBody: "Gry, BIOS i języki zostaną zainstalowane na karcie SD.",
     phaseScan: "Skanuj w poszukiwaniu zmian",
     subGames: "Dodane/usunięte gry",
     subCovers: "Zmienione okładki",
@@ -104,71 +107,47 @@ export const romsPl: RomsStrings = {
     writeSubCovers: "Okładki",
     writeSubCheats: "Kody cheatów",
     writeSubRemove: "Usuń odznaczone gry",
-    writeSubCores: "Emulatory",
+    writeSubFavorites: "Ulubione",
+    writeSubCores: "Rdzenie",
     writeSubFwUpdate: "Aktualizacja firmware'u w katalogu głównym SD",
     phaseRescan: "Skanuj kartę SD ponownie",
     phaseDone: "Gotowe",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logGamesScanned: (changedCount: number, removedCount: number, freshSuffix: string) =>
-      `${changedCount} game/bios file(s) new or changed, ${removedCount} game(s) to remove${freshSuffix}.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    freshTargetSuffix: " (fresh SD target — writing everything selected)",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logCoversScanned: (count: number) => `${count} cover art file(s) new or changed.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logCheatsScanned: (count: number) => `${count} cheat file(s) new or changed.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
+    logGamesScanned: (changedCount: number, removedCount: number, freshSuffix: string) => `sd: ${changedCount} plików gry/bios nowych lub zmienionych, ${removedCount} do usunięcia${freshSuffix}`,
+    freshTargetSuffix: ` (nowa karta, zapis wszystkiego, co zaznaczone)`,
+    logCoversScanned: (count: number) => `covers: ${count} plików nowych lub zmienionych`,
+    logCheatsScanned: (count: number) => `cheats: ${count} plików nowych lub zmienionych`,
     logCoresWillResync: (withFwUpdate: boolean) =>
-      withFwUpdate ? "Cores/system files WILL be re-synced (firmware update included)." : "Cores/system files WILL be re-synced.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logCoresSkipped: "Cores/system files skipped (unchanged).",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logFetchingBundle: (tag: string) => `Fetching bundle (${tag})…`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logWritingGames: (count: number) => `Writing ${count} game/bios file(s)…`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logNoGameChanges: "No game/bios changes to sync.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logWritingCovers: (count: number) => `Writing ${count} cover art file(s)…`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logNoCoverChanges: "No cover art changes to sync.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logWritingCheats: (count: number) => `Writing ${count} cheat file(s)…`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logNoCheatChanges: "No cheat changes to sync.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logRemoving: (count: number) => `Removing ${count} de-selected game(s)…`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logRemoved: (path: string) => `Removed ${path}.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logCouldNotRemove: (path: string, message: string) => `Could not remove ${path}: ${message}`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logNoGamesToRemove: "No de-selected games to remove.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logRemovedClearedCheat: (path: string) => `Removed cleared cheat file ${path}.`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logWritingCores: (count: number) => `Writing ${count} core files…`,
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logCoresSkippedWrite: "Cores/system files skipped.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logWritingFwUpdate: "Writing update_bank2.bin…",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logFwUpdateSkipped: "Firmware update not requested — skipped.",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logNoSdHandleZip: "No SD card handle (Firefox) — building ZIP for download…",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logRescanning: "Rescanning SD card for installed games and core versions…",
-    // report.log() audit-trail text — deliberately English-only in every locale, see owner feedback
-    logNoSdHandleRescan: "No SD card handle (Firefox) — nothing to rescan.",
+      withFwUpdate ? `cores: ponowna synchronizacja plików rdzeni i systemu, w tym update_bank2.bin` : `cores: ponowna synchronizacja plików rdzeni i systemu`,
+    logCoresSkipped: `cores: pominięte, bez zmian`,
+    logFetchingBundle: (tag: string) => `bundle: pobieranie ${tag}`,
+    logWritingGames: (count: number) => `sd: zapis ${count} plików gry/bios`,
+    logNoGameChanges: `sd: brak zmian gry/bios`,
+    logWritingCovers: (count: number) => `sd: zapis ${count} plików okładek`,
+    logNoCoverChanges: `sd: brak zmian okładek`,
+    logWritingCheats: (count: number) => `sd: zapis ${count} plików kodów`,
+    logNoCheatChanges: `sd: brak zmian kodów`,
+    logWritingFavorites: `sd: zapisywanie ulubionych`,
+    logRemoving: (count: number) => `sd: usuwanie ${count} odznaczonych gier`,
+    logRemoved: (path: string) => `sd: usunięto ${path}`,
+    logCouldNotRemove: (path: string, message: string) => `sd: nie udało się usunąć ${path}: ${message}`,
+    logNoGamesToRemove: `sd: brak odznaczonych gier do usunięcia`,
+    logRemovedClearedCheat: (path: string) => `cheats: usunięto opróżniony plik kodów ${path}`,
+    logWritingCores: (count: number, bytes: number) => `cores: zapis ${count} plików rdzeni, ${bytes} B`,
+    logCoresSkippedWrite: `cores: pominięte`,
+    logWritingFwUpdate: (bytes: number) => `sd: zapis update_bank2.bin, ${bytes} B`,
+    logFwUpdateSkipped: `sd: aktualizacja firmware niezażądana, pominięto`,
+    logNoSdHandleZip: `sd: brak uchwytu katalogu (firefox), tworzenie zipa do pobrania`,
+    logRescanning: `sd: ponowne skanowanie karty pod kątem gier i wersji rdzeni`,
+    logNoSdHandleRescan: `sd: brak uchwytu katalogu (firefox), nic do przeskanowania`,
     zipDownloadName: "retro-go-sd-card.zip",
   },
   summary: {
-    romsLabel: "ROM-y",
+    romsLabel: "Gry",
     homebrewLabel: "Homebrew",
     coverArtLabel: "Okładki",
     cheatsLabel: "Cheaty",
-    coresLabel: "Emulatory / pliki systemowe",
-    totalProjectedSizeLabel: "Szacowany rozmiar łączny",
+    coresLabel: "Rdzenie",
+    totalProjectedSizeLabel: "Razem",
     selectedCount: (count: number) => {
       const form =
         count === 1
@@ -194,22 +173,29 @@ export const romsPl: RomsStrings = {
     willBeResynced: "Zostanie ponownie zsynchronizowane",
     errorFetchingVersionInfo: "Błąd podczas pobierania informacji o wersji",
     includesFirmwareUpdate: "Zawiera aktualizację firmware'u bank2",
-    emulatorsAndFiles: (emulatorCount: number, fileCount: number, tag: string) => {
-      const emulatorForm =
-        emulatorCount === 1
-          ? "emulator"
-          : emulatorCount % 10 >= 2 && emulatorCount % 10 <= 4 && !(emulatorCount % 100 >= 12 && emulatorCount % 100 <= 14)
-            ? "emulatory"
-            : "emulatorów";
+    coresAndFiles: (coreCount: number, fileCount: number, tag: string) => {
+      const coreForm =
+        coreCount === 1
+          ? "rdzeń"
+          : coreCount % 10 >= 2 && coreCount % 10 <= 4 && !(coreCount % 100 >= 12 && coreCount % 100 <= 14)
+            ? "rdzenie"
+            : "rdzeni";
       const fileForm =
         fileCount === 1
           ? "plik"
           : fileCount % 10 >= 2 && fileCount % 10 <= 4 && !(fileCount % 100 >= 12 && fileCount % 100 <= 14)
             ? "pliki"
             : "plików";
-      return `${emulatorCount} ${emulatorForm}, ${fileCount} ${fileForm} (${tag})`;
+      return `${coreCount} ${coreForm}, ${fileCount} ${fileForm} (${tag})`;
     },
-    netChange: (sign: string, amountMiB: string) => `${sign}${amountMiB} MiB zmiany netto`,
+    netChange: (sign: string, amountMiB: string) => `${sign}${amountMiB} MB zmiany netto`,
+    projected: (usedMiB: string, totalMiB: string) => `${usedMiB} MB z ${totalMiB} MB przewidywane`,
+    additionalOptions: "Dodatkowe opcje",
+    summaryTab: "Podsumowanie",
+    summaryDrawerTitle: "Podsumowanie instalacji",
+    colAfter: "Po",
+    colChange: "Zmiana",
+    installHeading: "Instalacja",
   },
   gameDetailsPanel: {
     additionalOptions: "Dodatkowe opcje",
@@ -217,10 +203,10 @@ export const romsPl: RomsStrings = {
       heading: "Okładka",
       importTitle: "Import",
       settingsTitle: "Ustawienia",
-      sourceLabel: "Źródło:",
+      sourceLabel: "Źródło",
       sourceFile: "Plik",
       sourceScraper: "Scraper",
-      variantLabel: "Wariant:",
+      variantLabel: "Wariant",
       variantBoxart: "Boxart",
       variantScreenshot: "Zrzut ekranu",
       variantMulti3: "Multi-3",
@@ -230,13 +216,15 @@ export const romsPl: RomsStrings = {
       configureToPreview: "Skonfiguruj ustawienia, aby zobaczyć podgląd",
       apply: "Zastosuj",
       dragDropOverride: "Przeciągnij i upuść lub kliknij, aby zastąpić okładkę",
-      requestsPerDay: "Zapytania/dzień",
+      requestsToday: "Zapytania dzisiaj",
       downloadConvertedCovers: "Pobierz przekonwertowane okładki (.img)",
       downloadScrapedCovers: "Pobierz zescrapowane okładki (obrazy)",
       alertNoConvertedCovers: "Nie znaleziono przekonwertowanych okładek.",
       alertNoFullsizeCovers: "Nie znaleziono okładek w pełnym rozmiarze.",
       errRomNotFound: "Nie znaleziono pliku ROM.",
       errCoverNotFound: "Nie znaleziono okładki.",
+      errNoOriginalSystem: "Nie podano systemu źródłowego.",
+      guessNotice: "Dopasowano tylko po nazwie. Sprawdź, czy to właściwa gra.",
       errPrefix: (message: string) => `Błąd: ${message}`,
       coverPreviewAlt: "Podgląd okładki",
     },
@@ -270,7 +258,7 @@ export const romsPl: RomsStrings = {
       detectedGameHeading: "Wykryta gra",
       noMatchOption: "Brak dopasowania",
       autoDetectedSuffix: " (wykryto automatycznie)",
-      noPresetMatch: "Brak dopasowania ustawienia predefiniowanego dla tytułu tej gry — wybierz jedno powyżej, jeśli znajduje się na liście.",
+      noPresetMatch: "Brak ustawienia predefiniowanego pasującego do tytułu tej gry. Wybierz jedno powyżej.",
       presetsHeading: "Ustawienia predefiniowane",
       defaultCheatName: "Cheat",
       manualEntryHeading: "Wprowadzanie ręczne",
@@ -321,7 +309,7 @@ export const romsPl: RomsStrings = {
     gamesUnchanged: "Gry (bez zmian)",
     gamesProjected: "Gry (szacowane)",
     freeSpace: "Wolne miejsce",
-    coresAndSaves: "Emulatory i zapisy",
+    coresAndSaves: "Rdzenie i zapisy",
     games: "Gry",
     capacity: "Pojemność",
     freeProjected: "Wolne (szacowane)",
@@ -332,5 +320,19 @@ export const romsPl: RomsStrings = {
     bankTitle: (bankNum: number) => `Bank ${bankNum}`,
     kbSuffix: (kb: number) => `${kb} KB`,
     bankTotalLabel: "256 KB",
+    /** BothEmpty.dc.html: a bank holding nothing names its occupant `Empty` with an
+     *  em dash where a filled card shows a size. */
+    empty: "Pusty",
   },
+  sdHomebrewMove: {
+    title: "Migruj folder Homebrew",
+    body: (count: number) => `W starym roms/homebrew jest ${count} plików Homebrew. Czy chcesz go przenieść do homebrews/ na karcie SD?`,
+    confirm: "Przenieś",
+    phaseMove: "Przenoszenie Homebrew",
+    logMoved: (path: string) => `przeniesiono ${path}`,
+    logSkipped: (path: string) => `pominięto ${path}, jest tam już inny plik`,
+    logFailed: (path: string, message: string) => `niepowodzenie ${path}: ${message}`,
+    logSummary: (moved: number, left: number) => `przeniesiono ${moved}, pozostawiono ${left}`,
+  },
+
 };

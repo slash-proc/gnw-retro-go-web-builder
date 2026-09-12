@@ -1,16 +1,19 @@
 import type { LandingStrings } from "./landing.js";
 
 export const landingJa: LandingStrings = {
-  title: "Game & Watch",
-  mediaPrompt: "フラッシュ版とSDカード改造版、どちらのデバイスですか？",
+  title1: "Game & Watch ウェブビルダー",
+  mediaPrompt: "デバイスはどのように改造されていますか？",
   flashMemory: "フラッシュメモリ",
+  flashMemoryDesc: "ゲームは内蔵フラッシュチップに保存されます。",
   sdCard: "SDカード",
-  actionPrompt: "何を管理しますか？",
+  sdCardDesc: "ゲームはSDカード改造に保存されます。",
+  title2: "何をしますか？",
+  actionPrompt: "開始後はいつでも切り替えられます。",
   manageDevice: "デバイスを管理",
-  unsupportedBrowser: "（非対応ブラウザ）",
-  requiresAdapter: "（アダプターが必要）",
-  manageDeviceAdvanced: "デバイスを管理（詳細設定）",
-  manageGames: "ゲームを管理",
-  romsCollection: "（ROMコレクション）",
+  manageDeviceDesc: "バックアップ、パッチ、ファームウェアのインストール。アダプターが必要です。",
+  unsupportedBrowser: "Chromium、Chrome、Edge が必要です。",
+  manageDeviceAdvanced: "デバイスを管理（詳細設定）→",
+  manageLibrary: "ライブラリを管理",
+  manageLibraryDesc: "ライブラリを作成してインストールします。",
   back: "← 戻る",
 };

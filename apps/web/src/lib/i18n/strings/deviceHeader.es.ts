@@ -2,8 +2,6 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderEs: DeviceHeaderStrings = {
   changeInstallationMethod: "Cambiar método de instalación",
-  sdCard: "💾 Tarjeta SD",
-  internalFlash: "⚡ Flash interno",
   connectionLost: "Conexión perdida",
   noConnection: "Sin conexión",
   connectedRecoveryMode: "Conectado (Modo de recuperación)",
@@ -30,4 +28,8 @@ export const deviceHeaderEs: DeviceHeaderStrings = {
   changeMethodConfirm: "Cambiar método",
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "Firmware oficial",
+  unsafeWritingStatus: "Escribiendo en la flash. No desconectes",
+  unsafeSettlingStatus: "Finalizando. No desconectes",
+  retroGoOlderSuffix: "(anterior)",
+  unsafeAria: "No desconectes el dispositivo",
 };

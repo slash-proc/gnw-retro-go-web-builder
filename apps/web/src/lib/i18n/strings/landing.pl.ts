@@ -1,16 +1,19 @@
 import type { LandingStrings } from "./landing.js";
 
 export const landingPl: LandingStrings = {
-  title: "Game & Watch",
-  mediaPrompt: "Urządzenie z pamięcią flash czy z modem karty SD?",
-  flashMemory: "Pamięć Flash",
+  title1: "Kreator internetowy Game & Watch",
+  mediaPrompt: "Jak zmodyfikowano twoje urządzenie?",
+  flashMemory: "Pamięć flash",
+  flashMemoryDesc: "Gry znajdują się na wewnętrznym układzie flash.",
   sdCard: "Karta SD",
-  actionPrompt: "Czym chcesz zarządzać?",
+  sdCardDesc: "Gry znajdują się na modzie karty SD.",
+  title2: "Co chcesz zrobić?",
+  actionPrompt: "Po wejściu możesz przełączyć się w dowolnej chwili.",
   manageDevice: "Zarządzaj urządzeniem",
-  unsupportedBrowser: "(Nieobsługiwana przeglądarka)",
-  requiresAdapter: "(Wymaga adaptera)",
-  manageDeviceAdvanced: "Zarządzaj urządzeniem (Zaawansowane)",
-  manageGames: "Zarządzaj grami",
-  romsCollection: "(Kolekcja ROM-ów)",
+  manageDeviceDesc: "Kopia zapasowa, patchowanie, instalacja firmware'u. Wymaga adaptera.",
+  unsupportedBrowser: "Wymaga przeglądarki Chromium, Chrome lub Edge.",
+  manageDeviceAdvanced: "Zarządzaj urządzeniem (zaawansowane) →",
+  manageLibrary: "Zarządzaj biblioteką",
+  manageLibraryDesc: "Zbuduj i zainstaluj swoją bibliotekę.",
   back: "← Wstecz",
 };

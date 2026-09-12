@@ -6,6 +6,7 @@ import { deviceHeaderKo } from "./strings/deviceHeader.ko.js";
 import { landingKo } from "./strings/landing.ko.js";
 import { sharedKo } from "./strings/shared.ko.js";
 import { overviewKo } from "./strings/overview.ko.js";
+import { overviewRailKo } from "./strings/overviewRail.ko.js";
 import { wizardKo } from "./strings/wizard.ko.js";
 import { romsKo } from "./strings/roms.ko.js";
 import {
@@ -17,9 +18,8 @@ import {
   eraseSectionKo,
   fileBrowserSectionKo,
   retroGoTabKo,
-  expertCornerKo,
-  deferredSectionKo,
 } from "./strings/firmwareSetup.ko.js";
+import { sourcesKo } from "./strings/sources.ko.js";
 import { registerLocale } from "./locale.svelte.js";
 
 registerLocale("ko", {
@@ -28,6 +28,7 @@ registerLocale("ko", {
   landing: landingKo,
   officialFirmware: officialFirmwareKo,
   overview: overviewKo,
+  overviewRail: overviewRailKo,
   roms: romsKo,
   romSection: romSectionKo,
   dumpSection: dumpSectionKo,
@@ -35,8 +36,7 @@ registerLocale("ko", {
   eraseSection: eraseSectionKo,
   fileBrowserSection: fileBrowserSectionKo,
   retroGoTab: retroGoTabKo,
-  expertCorner: expertCornerKo,
-  deferredSection: deferredSectionKo,
   shared: sharedKo,
+  sources: sourcesKo,
   wizard: wizardKo,
 });
