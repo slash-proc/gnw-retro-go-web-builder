@@ -1,27 +1,26 @@
 <script lang="ts">
-  // The "Flash Memory" glyph — an SOIC-8/SOP-8 package (the real form factor of the on-device
-  // SPI flash chip): a body with 4 gull-wing leads per long edge (8 total), a die-window
-  // cutout, and a pin-1 dot near the top-left corner. Same flat single-tone silhouette +
-  // var(--surface) cutout technique as Landing.svelte's SD card icon. Shared between
-  // Landing.svelte (the media-type choice) and DeviceHeader.svelte (the home/change-method
-  // button) so the two stay pixel-identical instead of two hand-maintained copies.
-  let { size = 48 }: { size?: number } = $props();
+  // The "Flash Memory" glyph — the stroked outline package drawn by every artboard that shows
+  // it: Landing1/Landing2's media card (26px, stroke-width 1.2) and the header home button in
+  // Main / RomsNewSystem / RomsSdNoCard / HeaderBusy (19px, stroke-width 1.3). All five draw
+  // the identical path, so this one component covers every call site.
+  //
+  // It is a 12-lead outline, not the SOIC-8 the real chip is — the artboard's call, taken
+  // verbatim under "artboard wins on pure paint". Shared between Landing.svelte and
+  // DeviceHeader.svelte so the two stay pixel-identical.
+  let { size = 48, strokeWidth = 1.2 }: { size?: number; strokeWidth?: number } = $props();
 </script>
 
-<svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor">
-  <!-- Body height matches the SD card icon's ~18-unit (y=3..21) vertical extent, so the two
-       read as the same size at a glance despite sharing one square viewBox — a flatter, more
-       "realistic" SOIC-8 silhouette looked visibly smaller next to the card at equal render
-       size, even though the bounding boxes were identical. -->
-  <rect x="6" y="4" width="12" height="16" />
-  <rect x="3" y="5" width="3" height="2" />
-  <rect x="3" y="9" width="3" height="2" />
-  <rect x="3" y="13" width="3" height="2" />
-  <rect x="3" y="17" width="3" height="2" />
-  <rect x="18" y="5" width="3" height="2" />
-  <rect x="18" y="9" width="3" height="2" />
-  <rect x="18" y="13" width="3" height="2" />
-  <rect x="18" y="17" width="3" height="2" />
-  <rect x="8" y="8" width="8" height="8" fill="var(--surface)" />
-  <circle cx="7" cy="5.2" r="0.55" fill="var(--surface)" />
+<svg
+  viewBox="0 0 20 20"
+  width={size}
+  height={size}
+  fill="none"
+  stroke="currentColor"
+  stroke-width={strokeWidth}
+  stroke-linecap="round"
+>
+  <rect x="5" y="5" width="10" height="10" rx="1.2" />
+  <path
+    d="M7.5 5V3M10 5V3M12.5 5V3M7.5 17v-2M10 17v-2M12.5 17v-2M5 7.5H3M5 10H3M5 12.5H3M17 7.5h-2M17 10h-2M17 12.5h-2"
+  />
 </svg>

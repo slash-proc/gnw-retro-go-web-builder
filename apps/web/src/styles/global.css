@@ -10,9 +10,26 @@ body {
   padding: 0;
 }
 
-html {
-  overflow-y: scroll;
-  scrollbar-gutter: stable;
+/* The page frame is fixed to the viewport (App.svelte's `.app`: `height: 100vh;
+   overflow: hidden`) and scrolls inside `.tabpane`, matching Roms.dc.html:17/:89. The document
+   itself therefore can NEVER scroll, which settles both properties here:
+
+   - `overflow: hidden` states that directly. It cannot clip anything reachable — `.app` is the
+     only child of `body` and is already exactly one viewport tall with its own `overflow:
+     hidden` — and it guarantees no document scrollbar track ever paints, which is what the old
+     `overflow-y: scroll` (removed with the fixed-viewport change) used to cause.
+   - `scrollbar-gutter: stable` is GONE. It reserved scrollbar width on the right of the
+     initial containing block for a scrollbar that can no longer appear, so `.app` — and with it
+     the header band, the nav band and every footer bar — was narrower than the viewport and
+     stopped short of the right edge by exactly that width. Nothing needs the reservation: the
+     only scrollbar in the app belongs to `.tabpane`, and it is taken from inside the pane, so
+     the full-bleed chrome above and below the pane does not move when it appears or disappears.
+
+   `height: 100%` matches the artboards' own `html, body { height: 100% }`. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -35,6 +52,15 @@ h3 {
 code,
 .mono {
   font-family: var(--font-mono);
+  /* LTR ISLANDS. A hex offset, a path, a filename and a version tag are left-to-right content
+     whatever the page's language: `0x08100000` must not reverse, and `roms/nes/mario.nes` must
+     not have its slashes drift to the other end. `isolate` keeps the run from disturbing the
+     bidi resolution of the Arabic around it, and vice versa.
+     This is the app's one monospace hook, so it covers every such value in one place rather
+     than per component. Deliberately NOT applied to `.log`: a log line is a whole sentence of
+     prose behind an English channel prefix, so its base direction follows the reader. */
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 :focus-visible {
@@ -68,9 +94,36 @@ code,
 .stack > * + * {
   margin-top: 1rem;
 }
+/* The one 12-column page grid (audit S0.2). Applied by each screen's body
+   container; column widths come from --grid-cols/--grid-gap so every screen's
+   column edges land in the same places. Children take `grid-column: span N`
+   from the screen's own artboard. */
+.grid12 {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-cols), minmax(0, 1fr));
+  gap: var(--grid-gap);
+  align-items: start;
+}
+
 .row {
   display: flex;
   gap: 0.6rem;
   align-items: center;
   flex-wrap: wrap;
+}
+
+/* The one page container: the --maxw cap plus the artboards' 40px sides.
+   It lives here rather than on App.svelte's <main> because two things are
+   FULL-BLEED in the artboards and must sit outside it — the nav band
+   (Main.dc.html:65) and the Firmware rail (Firmware.dc.html:75). So the class
+   is applied per pane by views/Advanced.svelte, not once around the whole app.
+   Vertical padding is still per-screen (see --page-pad-top* in tokens.css).
+   NAME: `.page-body`, not `.body` — an unscoped global class matches every element
+   in the app carrying that class, and `body` is a generic enough word that
+   unrelated components already use it (e.g. FilePromptModal). */
+.page-body {
+  width: 100%;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 var(--page-pad-x);
 }

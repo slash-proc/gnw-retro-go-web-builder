@@ -353,7 +353,7 @@
                       style="
                         transform: scale({Math.max(0.5, 1.5 - dist)});
                         opacity: {Math.max(0.2, 1 - dist / 2.5)};
-                        color: {dist < 0.5 ? 'var(--brand-gold, #f39c12)' : '#fff'};
+                        color: {dist < 0.5 ? 'var(--gold)' : '#fff'};
                       "
                     >
                       {letter}
@@ -370,14 +370,24 @@
 </div>
 
 <style>
+  /* Every Library artboard (Roms / RomsNewSystem / RomsSdNoCard / RomsOptions /
+     LibrarySummary) draws the coverflow bare on the page ground: the only surfaces on the
+     screen are the game list's white plate and the dock. No card, no radius, no inset. */
   .carousel-container {
     display: flex;
     flex-direction: column;
     height: 100%;
     position: relative;
-    background: var(--surface);
-    border-radius: 8px;
-    padding: 1rem 0;
+    /* The coverflow orders its slides with a computed `20 - a` per item (see the template),
+       and the scrubber lifts its handle over its track. Those numbers are relative to each
+       other and mean nothing against the app's scale, so this root isolates them: without a
+       stacking context here they competed with real app layers, which is how the Library's
+       dock ended up underneath the carousel. `isolation` and not `overflow`/`transform`,
+       which would clip or re-parent as a side effect. See --z-raised in tokens.css. */
+    isolation: isolate;
+    background: none;
+    border-radius: 0;
+    padding: 0;
   }
   
   .coverflow-stage {
@@ -417,7 +427,7 @@
     will-change: transform, opacity;
   }
   .coverflow-item--selected img {
-    filter: drop-shadow(0 0 15px #007bff) drop-shadow(0 0 5px #007bff);
+    filter: drop-shadow(0 0 15px var(--info-blue)) drop-shadow(0 0 5px var(--info-blue));
   }
   .coverflow-item img {
     width: 100%;
@@ -426,29 +436,34 @@
     filter: drop-shadow(0 10px 20px rgba(0,0,0,0.3));
     transition: filter 0.2s ease-out;
   }
+  /* Artboard: a coverless card is a flat grey plate with a soft cast shadow — no border and
+     no inset vignette — and its title sits bottom-left in 12px/600 sentence case, not
+     centred bold caps. */
   .coverflow-item__placeholder {
     width: 100%;
     height: 100%;
     background: var(--surface-sunk);
     border-radius: 4px;
-    border: 2px solid var(--hairline);
-    box-shadow: inset 0 0 15px rgba(0,0,0,0.8), 0 10px 20px rgba(0,0,0,0.3);
+    border: none;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.2);
     position: relative;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: flex-end;
+    justify-content: flex-start;
     color: var(--ink-soft);
-    font-size: 1rem;
-    font-weight: bold;
-    text-transform: uppercase;
-    text-align: center;
-    padding: 1rem;
+    font-size: var(--fs-chip);
+    font-weight: 600;
+    text-transform: none;
+    text-align: start;
+    padding: 12px;
     box-sizing: border-box;
   }
+  /* Artboard: the scrubber row is inset 60px from each side of the coverflow column and
+     sits 22px below the stage. */
   .alphabet-scrubber-container {
-    width: 66%;
+    width: calc(100% - 120px);
     max-width: none;
-    margin: 1.5rem auto 0;
+    margin: 22px auto 0;
   }
   .alphabet-scrubber {
     position: relative;
@@ -462,22 +477,23 @@
     top: 50%;
     left: 0;
     right: 0;
-    height: 4px;
+    /* Artboard (RomsNewSystem): 6px track, 3px radius, --surface-sunk fill. */
+    height: 6px;
     background: var(--surface-sunk);
-    border-radius: 2px;
+    border-radius: 3px;
     transform: translateY(-50%);
-    z-index: 0;
   }
   .scrubber-handle {
     position: absolute;
     top: 50%;
-    width: 32px;
+    /* Artboard: a 46px x 14px pill in --silver-edge, not the darker soft ink. */
+    width: 46px;
     height: 14px;
-    background: var(--ink-soft);
+    background: var(--silver-edge);
     border-radius: 7px;
     transform: translate(-50%, -50%);
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    z-index: 2;
+    z-index: var(--z-raised);
     transition: background 0.1s;
     cursor: ew-resize;
   }

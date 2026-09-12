@@ -33,7 +33,7 @@
   } = $props();
 
   const hex = (n: number): string => "0x" + (n >>> 0).toString(16);
-  const mib = (n: number): string => (n / 1048576).toFixed(2) + " MiB";
+  const mib = (n: number): string => (n / 1048576).toFixed(2) + " MB";
 
   function kindOf(p: ExtPartition): string {
     if (p.fs) return p.fs;
@@ -155,6 +155,7 @@
     {/if}
     <div class="bank-body ext-body">
       <GeometryBar
+        size="tall"
         {segments}
         onClick={(s) => {
           let p: any = partitions.find(x => x.offset === s.offset);

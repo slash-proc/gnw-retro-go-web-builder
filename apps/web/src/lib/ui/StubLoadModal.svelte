@@ -8,10 +8,10 @@
 </script>
 
 {#if device.stubPrompt}
-  <!-- Explicit zIndex above InstallProgressModal's default 100: while a flash/SD-sync is
+  <!-- --z-modal-prompt, above ModalShell's default --z-modal: while a flash/SD-sync is
        running, ensureStub() can prompt for Recovery Mode confirmation — that confirmation must
        render on top of (not behind) the still-visible progress modal. -->
-  <ModalShell zIndex={110} onDismiss={() => device.cancelStubLoad()}>
+  <ModalShell zIndex="var(--z-modal-prompt)" onDismiss={() => device.cancelStubLoad()}>
     {#snippet children()}
       <h3>{locale.t.shared.stubLoadModal.title}</h3>
       <p class="muted">
@@ -21,7 +21,7 @@
         {locale.t.shared.stubLoadModal.body2Pre}<strong>{locale.t.shared.stubLoadModal.body2Bold}</strong>{locale.t.shared.stubLoadModal.body2Post}
       </p>
       <div class="actions">
-        <Button onclick={() => device.cancelStubLoad()}>{locale.t.shared.common.cancel}</Button>
+        <Button variant="cancel" onclick={() => device.cancelStubLoad()}>{locale.t.shared.common.cancel}</Button>
         <Button variant="action" onclick={() => device.confirmStubLoad()}>{locale.t.shared.stubLoadModal.continue}</Button>
       </div>
     {/snippet}
@@ -30,7 +30,9 @@
 
 <style>
   h3 {
-    font-size: var(--fs-lg);
+    font-size: var(--fs-title);
+    font-weight: 600;
+    letter-spacing: -0.01em;
     margin-bottom: 0.5rem;
   }
   .muted {
@@ -38,9 +40,17 @@
     font-size: var(--fs-caption);
     margin-bottom: 0.5rem;
   }
+  /* ModalRecoveryMode.dc.html:94 sets both emphasised runs to
+     `color: #1b1b1b` — full ink, a step UP from the paragraph's muted grey.
+     --ink is that exact hex (tokens.css:10) and carries dark-theme overrides
+     (tokens.css:256, :295); without this rule the <strong> inherits
+     --ink-soft and reads as no emphasis at all. */
+  .muted strong {
+    color: var(--ink);
+  }
   .actions {
     display: flex;
-    gap: 0.6rem;
+    gap: 1.25rem;
     justify-content: flex-end;
     margin-top: 1.25rem;
   }

@@ -3,7 +3,7 @@
   import Button from "./Button.svelte";
   import Progress from "./Progress.svelte";
   import ModalShell from "./ModalShell.svelte";
-  import { kb } from "../util.js";
+  import { formatSizePair } from "../util.js";
   import { locale } from "../i18n/locale.svelte.js";
 
   let {
@@ -65,8 +65,8 @@
   }
 
   // The dialog cannot be dismissed (backdrop click / Escape) while a write is in flight —
-  // ModalShell's onDismiss is omitted entirely in that phase, matching its own contract for
-  // "non-dismissible that way."
+  // ModalShell's onDismiss is passed `null` in that phase, its documented value for
+  // "not dismissible that way."
 </script>
 
 {#if open}
@@ -78,13 +78,13 @@
         {#if summary}<div class="summary">{@render summary()}</div>{/if}
         {#if body}<p class="muted">{body}</p>{/if}
         <div class="actions">
-          <Button onclick={onClose}>{locale.t.shared.common.cancel}</Button>
+          <Button variant="cancel" onclick={onClose}>{locale.t.shared.common.cancel}</Button>
           <Button variant={danger ? "destructive" : "action"} onclick={confirm}>{confirmText}</Button>
         </div>
       {:else if phase === "running"}
         <p class="muted">{locale.t.shared.common.workingNotePre}<strong>{locale.t.shared.common.workingNoteBold}</strong>{locale.t.shared.common.workingNotePost}</p>
         {#if total > 0}
-          <Progress value={done} max={total} label={`${kb(done)} / ${kb(total)} KB`} />
+          <Progress value={done} max={total} label={formatSizePair(done, total, " / ")} />
         {:else}
           <div class="indet"></div>
         {/if}
@@ -107,12 +107,14 @@
 
 <style>
   h3 {
-    font-size: var(--fs-lg);
+    font-size: var(--fs-title);
+    font-weight: 600;
+    letter-spacing: -0.01em;
     margin-bottom: 0.5rem;
   }
   .actions {
     display: flex;
-    gap: 0.6rem;
+    gap: 1.25rem;
     justify-content: flex-end;
     margin-top: 1.25rem;
   }
@@ -121,6 +123,14 @@
   }
   .ok {
     color: var(--zelda-green);
+    font-weight: 600;
+  }
+  /* MK9. `ModalConfirmRunning`/`ModalConfirmProgress` draw this emphasis at `font-weight: 600`;
+     a bare `<strong>` takes the UA's 700 and there is no global `strong` rule to supply it.
+     Scoped here deliberately: `InstallProgressModal` composes the identical fragment, but ITS
+     boards (`GuidedFlashing`, `FlashingCancel`, `FlashingCancelConfirm`) draw a bare `<strong>`
+     with no weight override, so 700 is correct there. The two dialogs genuinely differ. */
+  .muted strong {
     font-weight: 600;
   }
   .indet {

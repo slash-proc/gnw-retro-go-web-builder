@@ -14,9 +14,37 @@
   --gold: #c9a23c;
   --gold-deep: #a8842a;
   --grad-gold: linear-gradient(180deg, #d9bc5e 0%, #c09a32 100%);
+  /* The busy face-plate lip: the SAME 3px row as --grad-gold, swapped for a diagonal caution
+     stripe while a write is in flight (App.svelte). Matches the HeaderBusy artboard's stripe;
+     it needs its own token because the light stop is not --gold and the pair has to flip with
+     the theme exactly as --grad-gold does. */
+  --grad-hazard: repeating-linear-gradient(115deg, #b8860b 0 14px, #e8c25a 14px 28px);
 
   --silver: #c9c9cd;
+  /* NOT a duplicate of --ink-dim (#9a9a9a), which it sits 6/255 away from in light theme.
+     --silver-edge is a DEVICE-FACE value: the edge/shade of the silver button caps, and by
+     extension every neutral FILL and BORDER drawn in that family (--seg-saves, BankCard's
+     occupant segments and empty-bank name, Progress/SplitButton/Carousel edges).
+     (This list named FilePick until 2026-09-08; that component was deleted in 863290c.
+     Verified consumers today: BankCard, Carousel, Progress, SplitButton, RomSection,
+     OfficialFirmwareSection, RomManagementTab, and --seg-saves in this file.)
+     --ink-dim is a TEXT value on the ink ramp. They diverge in dark theme (#6b6b71 vs
+     #767676) and are free to diverge further; do not merge them because the light hexes
+     nearly match. */
   --silver-edge: #9a9aa0;
+  /* The black legend printed on the device's own faces — the silver button caps, the header
+     caret chip, the amber chips. Every artboard uses #161616 for these regardless of theme
+     (e.g. Main/HeaderBusy's caret `fill="#161616"` on the #c9c9cd chip), because those faces
+     are silver/amber in BOTH themes and never flip. Deliberately NOT redefined in the dark
+     blocks: this is ink-on-a-coloured-face, not ink-on-surface (that is --ink). */
+  --ink-on-face: #161616;
+
+  /* The busy header band (HeaderBusy.dc.html): while a write is in flight the band itself goes
+     from #ffffff to #fdf8ec and the status line to #8a6508/700 — the header changes state, it
+     does not grow an extra strip. Dark values are the existing dark caution family (a wash
+     lifted off --surface, and the light gold ink), same rule as --tint-caution. */
+  --band-busy: #fdf8ec;
+  --band-busy-ink: #8a6508;
 
   --action-red: #c8372b;
   --action-red-deep: #9e2a20;
@@ -25,11 +53,48 @@
 
   --mario-red: #ce3526;
   --zelda-green: #3e9e4e;
-  --neutral-edge: #9a9a9e;
 
-  --model-accent: var(--neutral-edge);
+  /* Fallback accent for a device whose model is unknown (no [data-model] on the root).
+     This was a --neutral-edge token whose ONLY consumer in the whole codebase was this
+     one line — no component ever referenced it — so it is inlined here and in both dark
+     blocks (2026-09-08). The literal has to be repeated per theme block rather than
+     written once, because the retired token was theme-flipped and this fallback must
+     keep flipping exactly as it did. */
+  --model-accent: #9a9a9e;
 
-  /* Device connection-status LED/badge colors (DeviceHeader's .dot, DeviceControls'
+  /* Storage-bar segment fills. Main.dc.html:167-181 draws the Overview bar as exactly two
+     fills over the --surface-sunk track: Games in #3e9e4e (--zelda-green) and "Cores & saves"
+     in #9a9aa0 (--silver-edge), with free space left as bare track. That is the whole palette
+     this design uses for filled data, so the three storage categories take it directly:
+       Games & Homebrew  -> --seg-games  (the green)
+       Emulators & Saves -> --seg-saves  (the silver)
+       Free Space        -> --seg-free   (the sunk track)
+     The previous #c0392b for FrogFS is dropped: it belonged to no artboard and no token, and
+     red means destructive everywhere else in this app (--action-red / --danger). Occupied
+     space is not a warning. Aliases rather than raw hex so both themes follow automatically.
+     OverviewTab's legend reads its swatches off the rendered bar, so it follows for free. */
+  --seg-games: var(--zelda-green);
+  --seg-saves: var(--silver-edge);
+  --seg-free: var(--surface-sunk);
+
+  /* SD card contents-bar fills, one per bucket (ui/SdCardPane.svelte). Nine rather than the
+     three above because the card page draws nine buckets, and they are TOKENS rather than hex
+     in the component for the same reason every other fill here is: one place to retune, and
+     both themes follow. Values are the ones docs/design/proposals/sd-source/ draws, kept
+     desaturated so ROMs (the shared green) and Other (the shared muted grey) stay the two the
+     eye lands on; the rest are deliberately quiet because seven of the nine are drawn at the
+     bar's sub-pixel floor and their widths carry no information to compare. */
+  --sd-seg-bios: #8a7fa8;
+  --sd-seg-covers: #7a8fa6;
+  --sd-seg-fonts: #8fa898;
+  --sd-seg-homebrew: #6ab469;
+  --sd-seg-language: #b08fa0;
+  --sd-seg-roms: var(--seg-games);
+  --sd-seg-saves: #c08a5e;
+  --sd-seg-screenshots: #9a9aa0;
+  --sd-seg-other: var(--seg-saves);
+
+  /* Device connection-status LED/badge colors (DeviceControls'
      .indicator) — previously hardcoded identically in both files. Distinct from
      --danger/--caution, which are for error/warning text and borders, not this LED. */
   --status-red: #c0392b;
@@ -39,18 +104,200 @@
 
   --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "Commit Mono", "SF Mono", Menlo, monospace;
-  --fs-micro: 0.75rem;
+  --fs-micro: 0.75rem; /* 12px, 400-weight quiet captions. See --fs-chip (also 12px, 600). */
   --fs-caption: 0.875rem;
   --fs-body: 1rem;
-  --fs-lg: 1.25rem;
   --fs-display: 1.5rem;
-  --fs-display-lg: 2rem;
+  /* 34px, Landing1/2's title — the artboard value, and this token's only consumer
+     (Landing.svelte's h1). Was 2rem/32px, which was 2px short of every board. */
+  --fs-display-lg: 34px;
+
+
+  /* --- UI redesign (phase 1) primitives -------------------------------------
+     Exact values from the approved mockups. `--rule` is the THIRD divider level:
+     --hairline (#d8d8d8) = structural edges (header, nav, footer, rail),
+     --rule (#ededed) = rules INSIDE a white surface, and the grey page ground
+     (--bg) gets no divider at all — separate with space there. */
+  --rule: #ededed;
+  /* Off-ramp greys settled (2026-09-08, revised 2026-09-08 after counting the artboards).
+     The boards draw two more greys near this span: #e0e0e0 and #f0f0f0.
+
+     #e0e0e0 appears in TWO roles and is a near-miss on an existing token in each, so it
+     gets no token of its own — it snaps by role, within 8-13/255 either way:
+       as the list header underline `1px solid #e0e0e0` (Roms/RomsOptions/RomsNewSystem/
+         RomsSdNoCard/LibrarySummary/ModalInstallConfirm(Sd)/ModalFilesConvert)
+                                                            -> --rule (#ededed), which is
+         exactly the "divider inside a white surface" role the sibling row rules use.
+       as the disabled submit fill `background: #e0e0e0` (ModalFilesBios(Error))
+                                                            -> --surface-sunk (#e8e8e8).
+
+     #f0f0f0 is different: it appears 13 times across six boards (Repos, ReposDetail,
+     ReposDetailReady, ModalFilesBios, ModalFilesBiosError, ModalFilesConvert) and EVERY
+     one is `background: #f0f0f0` on a badge or a chip — one value, one role, repeated.
+     That is a token, so it is minted as --chip-fill rather than snapped to --surface-sunk
+     (#e8e8e8), which is the SUNKEN-TRACK grey: bar tracks, disabled caps, inset wells.
+     A chip on a white surface is a raised token, not a well, and #e8e8e8 reads a step too
+     heavy for it. Consumers: Sources' `.kind`/`.itype`, FilePromptModal's `.tag`/`.chip`.
+     Dark counterpart is lifted UP off --surface (#212121) the way the tints are, landing
+     between --rule (#2b2b2b) and --hairline (#323232) — a chip is a fill, not a line, so
+     it does not collide with either. */
+  --chip-fill: #f0f0f0;
+  --info-blue: #007bff;
+
+  /* --- Ink ramp (continues --ink / --ink-soft) -------------------------------
+     --ink        #1b1b1b  primary text
+     --ink-soft   #5c5c5c  secondary text, rail headings
+     --ink-mute   #6e6e6e  inactive nav tab, "back" links, unfilled-but-visible marks
+     --ink-dim    #9a9a9a  de-emphasised captions ("or press Escape"). Near-identical
+                           to --silver-edge (#9a9aa0) in light theme and deliberately
+                           NOT merged with it — that one is a device-face fill/border,
+                           this is text. See --silver-edge.
+     --ink-faint  #c8c8c8  near-invisible marks — the "no change" dash in the
+                           summary grid; NOT for anything that must be read. */
+  --ink-mute: #6e6e6e;
+  --ink-dim: #9a9a9a;
+  --ink-faint: #c8c8c8;
+
+  /* --- Semantic tints --------------------------------------------------------
+     Very low-saturation panel/row fills. Each pairs with an existing ink token
+     of the same role and is only ever used BEHIND it:
+       --tint-select   pairs with --zelda-green (selected row, Sources list)
+       --tint-success  pairs with --zelda-green (success chip)
+       --tint-caution  pairs with --caution     (caution panel)
+       --tint-danger   pairs with --danger      (error panel)
+       --tint-required pairs with --danger      (required badge)
+     In dark theme these become dark washes lifted off --surface, not the light
+     hexes — a light tint under a dark-theme --danger/--caution would be unreadable.
+     --tint-caution-ink is the caution panel's own body text: it must flip with
+     the tint (a dark brown on a dark wash is invisible). */
+  --tint-select: #f6f8f6;
+  --tint-success: #e9f4ec;
+  --tint-caution: #fbf3e2;
+  --tint-caution-ink: #4a3a12;
+  --tint-danger: #fbf1ef;
+  --tint-required: #f6e9e7;
+  --chip-inset: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  --chip-inset-soft: inset 0 -1px 0 rgba(0, 0, 0, 0.06);
+
+  /* --- Redesign type sizes (px, artboard-literal like --fs-chip/--fs-btn) -----
+     --fs-title  18px  every modal/dialog title (ModalConnect, ModalFolder,
+                       ModalSources(Empty), ModalInstallConfirm(Sd),
+                       ModalFilesBios(Error)/Convert, GuidedFlashing) and the
+                       Landing rubric heading. The retired --fs-lg (20px) was
+                       standing in; its last two consumers (the GameDetailsPanel
+                       import-modal title and RomManagementTab's space-alert
+                       dialog title) are both modal titles and now read this.
+     --fs-lede   15px  the Landing rubric line and Repos.dc.html's row name —
+                       one step above --fs-body, below --fs-title.
+     --fs-badge  10px  the required/optional badges, the ReposDetail kind chips
+                       and the Roms system tag — smaller than --fs-chip (12px). */
+  --fs-title: 18px;
+  --fs-lede: 15px;
+  --fs-badge: 10px;
+  /* --fs-chip and --fs-micro are BOTH 12px and are both live; the split is weight, not
+     size. --fs-chip is the 600-weight chip/pill/tag face (StatusChip, Sources' .pill,
+     the Roms system tags); --fs-micro is the 400-weight quiet-caption face (GeometryBar
+     notes, StatPanel rows, file sizes). Keeping two names means either can move without
+     dragging the other. Do not collapse them on the grounds that the values match. */
+  --fs-chip: 12px;
+  --fs-btn: 14px;
+  --fs-btn-sm: 13px;
+  --fs-label: 11px;
+  --label-track: 0.11em;
+
+  --r-btn: 5px;
+  --pad-btn: 9px 22px;
+  --pad-btn-sm: 8px 18px;
 
   --r-control: 2px;
   --r-card: 6px;
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.12);
 
-  --maxw: 1200px;
+  /* 1360px = the artboards' own content width: every board in docs/design/mockups is a
+     1440px frame with 40px sides. This was 1200px, which made Overview/Sources/Library
+     160px narrower than the design at 1440 and worse on anything wider — while the
+     Firmware tab escaped the cap entirely via .tabpane.bleed, which is why that one tab
+     looked right and the others did not. */
+  --maxw: 1360px;
+
+  /* --- The page grid (audit S0.2) --------------------------------------------
+     Every artboard body is `padding: 36px 40px 40px; display: grid;
+     grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 32px`, and children
+     sit on `span 7` / `span 5` / `4 / span 7`. These tokens are that grid, so it
+     is declared once (`.grid12` in global.css) instead of per screen.
+     --maxw stays the outer page cap; the grid lives INSIDE it. */
+  --grid-cols: 12;
+  --grid-gap: 32px;
+  --page-pad-x: 40px;
+
+  /* The side padding is 40px on EVERY gridded artboard, but the VERTICAL padding
+     has four families, so it is a per-screen value, not a global one:
+       36 / 40  page      Main, BothEmpty, NoStockBank1/2, StockUnpatched,
+                          ModalConnect, ModalFolder, Repos, ReposDetail
+       22 / 32  library   Roms, RomsOptions, RomsNewSystem, RomsSdNoCard,
+                          LibrarySummary, ModalInstallConfirm(Sd), ModalFiles*
+        0 /  0  landing   Landing1, Landing2 (`padding: 0 40px; align-content: center`)
+        0 /  0  guided    Guided, GuidedLayout(Stock), GuidedRetroGoOnly, GuidedStockOnly,
+                          GuidedSkipBackup — `flex: 1; align-items: center;
+                          justify-content: center; padding: 0 40px`, i.e. CENTRED, no
+                          vertical pad. The `--page-pad-*-guided` (64/40) pair that used to
+                          live here was the older 12-column generation of Guided.dc.html,
+                          still visible in GuidedFlashing / FlashingCancel(Confirm) /
+                          FlashFailure; it had exactly one consumer (Advanced.svelte's
+                          `.tabpane.guided`) and was retired with it.
+     Advanced.svelte's `.tabpane` picks the family per tab. */
+  --page-pad-top: 36px;
+  --page-pad-bottom: 40px;
+  --page-pad-top-library: 22px;
+  --page-pad-bottom-library: 32px;
+
+  /* --- Stacking order (audit: the Library dock vs the coverflow) --------------
+     Every z-index in apps/web MUST be one of these tokens. Before this existed each
+     component picked its own number (0, 1, 2, 10, 30, 40, 100, 1000) and nothing recorded
+     which was meant to win, so the Library's bottom dock lost to the carousel: the dock was
+     a NON-POSITIONED flex sibling, and CSS paints non-positioned blocks (step 3 of the
+     painting order) BELOW positioned descendants (step 6), whichever came later in the DOM.
+     Adding a bigger number is not the fix; being on the scale is.
+
+     Choosing a layer: find the row that describes the ROLE, not the number you need.
+     Bottom to top —
+
+       --z-raised    lifted above its own siblings INSIDE one component (a hovered bank
+                     segment, a scrubber handle over its track). Only safe inside a root
+                     that isolates; see the note below.
+       --z-dock      the Library's bottom dock, which must cover page content that scrolls
+                     under it (RomManagementTab `.dock`).
+       --z-sticky    chrome pinned to the viewport while the pane scrolls (App `.app-header`).
+       --z-popover   a menu or panel anchored to a control: SplitButton's fixed menu,
+                     DeviceHeader's and DeviceControls' dropdowns.
+       --z-tooltip   InfoTip's bubble. Above popovers so a tip opened from inside one is
+                     still readable.
+       --z-modal     a modal backdrop (ModalShell's default, GameDetailsPanel's own).
+       --z-modal-prompt  a modal that must stay reachable while ANOTHER modal is running —
+                     StubLoadModal over a live InstallProgressModal.
+       --z-modal-alert   the space alert, which interrupts whatever is on screen.
+
+     Gaps of 100 between tiers leave room to slot a layer in without renumbering; the modal
+     family steps by 10 because its three members are ordered against each other, not against
+     the rest of the app.
+
+     INTRA-COMPONENT ORDERING (Carousel's `20 - a` per slide, its scrubber track/handle,
+     BankCard's hovered segment, GameDetailsPanel's cheats overlay) is exempt from the scale
+     because only the values' ORDER matters, never their height against the app. Such a
+     component MUST establish a stacking context at its root so those values cannot leak.
+     Use `isolation: isolate` for that, NOT `overflow`/`transform`/`filter`/`contain`: those
+     also create a context but bring clipping or a containing-block change with them, and an
+     `overflow` added to a pane or page clips the app's only scroll container with no gate to
+     catch it. `apps/web/test/zlayers.mjs` enforces both halves of this rule. */
+  --z-raised: 10;
+  --z-dock: 100;
+  --z-sticky: 200;
+  --z-popover: 300;
+  --z-tooltip: 400;
+  --z-modal: 500;
+  --z-modal-prompt: 510;
+  --z-modal-alert: 520;
+
   color-scheme: light;
 }
 
@@ -73,9 +320,24 @@
     --ink: #ececec;
     --ink-soft: #9b9b9b;
     --hairline: #323232;
+    --rule: #2b2b2b;
+    --chip-fill: #2e2e2e;
+    --info-blue: #3b95ff;
+    --ink-mute: #8a8a8a;
+    --ink-dim: #767676;
+    --ink-faint: #4e4e4e;
+    --tint-select: #253026;
+    --tint-success: #21372a;
+    --tint-caution: #3a2f16;
+    --tint-caution-ink: #e8d9a8;
+    --band-busy: #2c2411;
+    --band-busy-ink: #e8c25a;
+    --tint-danger: #35211e;
+    --tint-required: #3a2320;
     --gold: #d2ac44;
     --gold-deep: #b7912e;
     --grad-gold: linear-gradient(180deg, #d6b856 0%, #b7912e 100%);
+    --grad-hazard: repeating-linear-gradient(115deg, #b7912e 0 14px, #e8c25a 14px 28px);
     --silver: #9a9aa0;
     --silver-edge: #6b6b71;
     --action-red: #d2473b;
@@ -84,7 +346,7 @@
     --caution: #d8a82a;
     --mario-red: #e2493d;
     --zelda-green: #4fb163;
-    --neutral-edge: #565656;
+    --model-accent: #565656; /* see the light block: retired --neutral-edge, inlined */
     --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.5);
     color-scheme: dark;
   }
@@ -97,9 +359,24 @@
   --ink: #ececec;
   --ink-soft: #9b9b9b;
   --hairline: #323232;
+  --rule: #2b2b2b;
+  --chip-fill: #2e2e2e;
+  --info-blue: #3b95ff;
+  --ink-mute: #8a8a8a;
+  --ink-dim: #767676;
+  --ink-faint: #4e4e4e;
+  --tint-select: #253026;
+  --tint-success: #21372a;
+  --tint-caution: #3a2f16;
+  --tint-caution-ink: #e8d9a8;
+  --band-busy: #2c2411;
+  --band-busy-ink: #e8c25a;
+  --tint-danger: #35211e;
+  --tint-required: #3a2320;
   --gold: #d2ac44;
   --gold-deep: #b7912e;
   --grad-gold: linear-gradient(180deg, #d6b856 0%, #b7912e 100%);
+  --grad-hazard: repeating-linear-gradient(115deg, #b7912e 0 14px, #e8c25a 14px 28px);
   --silver: #9a9aa0;
   --silver-edge: #6b6b71;
   --action-red: #d2473b;
@@ -108,7 +385,7 @@
   --caution: #d8a82a;
   --mario-red: #e2493d;
   --zelda-green: #4fb163;
-  --neutral-edge: #565656;
+  --model-accent: #565656; /* see the light block: retired --neutral-edge, inlined */
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
 }

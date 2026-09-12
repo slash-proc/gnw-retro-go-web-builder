@@ -15,6 +15,9 @@
     /** Marks this as the trailing aggregate total row (StatRow's `total`) — divider above,
      *  bolder label/value, so it reads as "what the rows above add up to". */
     total?: boolean;
+    /** Inline caution note beside the label (StatRow's `note`) — the LibrarySummary
+     *  artboard's `BIOS  needs a file`. Grid variant only. */
+    note?: string;
   }
 </script>
 
@@ -25,11 +28,17 @@
   // nested inside another already-styled container (e.g. RomManagementTab's combined SD summary
   // card) — avoids a "box within a box" look. Every other call site is unaffected (defaults to
   // the normal boxed appearance).
-  let { items, bare = false }: { items: ChangeItem[]; bare?: boolean } = $props();
+  // `variant`: forwarded straight to StatPanel when a caller wants a specific shape (e.g. the
+  // Library tab's three-column "grid" install summary). Defaults to the `bare` behaviour above.
+  let {
+    items,
+    bare = false,
+    variant,
+  }: { items: ChangeItem[]; bare?: boolean; variant?: "card" | "bare" | "grid" } = $props();
 
   const rows = $derived<StatRow[]>(
-    items.map((it) => ({ label: it.label, value: it.status, tone: it.kind, detail: it.detail, delta: it.delta, total: it.total })),
+    items.map((it) => ({ label: it.label, value: it.status, tone: it.kind, detail: it.detail, delta: it.delta, total: it.total, note: it.note })),
   );
 </script>
 
-<StatPanel {rows} variant={bare ? "bare" : "card"} />
+<StatPanel {rows} variant={variant ?? (bare ? "bare" : "card")} />

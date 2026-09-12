@@ -52,30 +52,32 @@
 </script>
 
 {#if prompt}
-  <ModalShell onDismiss={() => device.cancelConnectGate()} maxWidth="28rem">
+  <ModalShell onDismiss={() => device.cancelConnectGate()} maxWidth="26rem">
     {#snippet children()}
     <div class="content">
       <h3>{locale.t.shared.connectGateModal.title}</h3>
       <p class="muted">{locale.t.shared.connectGateModal.subtitle}</p>
 
       <div class="items">
-        <div class="item" class:done={device.isConnected}>
+        <div class="item">
+          {#if device.isConnected}
+            <span class="mark done" aria-label={locale.t.shared.connectGateModal.connectedFallback}>
+              <svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 10.5l3.5 3.5 7.5-8"></path></svg>
+            </span>
+          {:else}
+            <span class="mark" aria-hidden="true"></span>
+          {/if}
           <div class="item-label">
             <span class="item-title">{locale.t.shared.connectGateModal.deviceConnectionTitle}</span>
+            <span class="item-sub">{locale.t.shared.connectGateModal.adapterHint}</span>
             {#if device.isConnected}
-              <span class="item-sub">{device.probeName ?? locale.t.shared.connectGateModal.connectedFallback}</span>
-            {:else}
-              <span class="item-sub">{locale.t.shared.connectGateModal.adapterHint}</span>
+              <span class="item-path">{device.probeName ?? locale.t.shared.connectGateModal.connectedFallback}</span>
             {/if}
           </div>
-          {#if device.isConnected}
-            <span class="check" aria-label="connected">✓</span>
-          {:else}
-            <div class="item-actions">
-              <button class="pick" disabled={connecting} onclick={chooseAdapter}>
-                {connecting ? locale.t.shared.common.connecting : locale.t.shared.connectGateModal.chooseAdapter}
-              </button>
-            </div>
+          {#if !device.isConnected}
+            <button class="pick" disabled={connecting} onclick={chooseAdapter}>
+              {connecting ? locale.t.shared.common.connecting : locale.t.shared.connectGateModal.chooseAdapter}
+            </button>
           {/if}
         </div>
       </div>
@@ -83,7 +85,7 @@
       {#if err}<p class="err">{err}</p>{/if}
 
       <div class="actions">
-        <Button onclick={() => device.cancelConnectGate()}>{locale.t.shared.common.cancel}</Button>
+        <Button variant="cancel" onclick={() => device.cancelConnectGate()}>{locale.t.shared.common.cancel}</Button>
         <Button variant="action" disabled={connecting} onclick={connect}>
           {connecting ? locale.t.shared.common.connecting : locale.t.shared.common.connect}
         </Button>
@@ -97,10 +99,12 @@
   .content {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 4px;
   }
   h3 {
-    font-size: var(--fs-lg);
+    font-size: var(--fs-title);
+    font-weight: 600;
+    letter-spacing: -0.01em;
     margin: 0;
   }
   .muted {
@@ -111,26 +115,33 @@
   .items {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    margin-top: 0.25rem;
+    padding-top: 12px;
   }
+  /* De-boxed checklist rows: a step is not an object — a single rule separates them. */
   .item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.75rem 1rem;
-    border: 1.5px solid var(--surface-sunk);
-    border-radius: var(--r-control);
-    transition: border-color 150ms ease;
+    gap: 13px;
+    padding: 0.875rem 0;
+    border-bottom: 1px solid var(--rule);
   }
-  .item.done {
-    border-color: var(--model-accent);
+  .mark {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mark.done {
+    border-radius: 50%;
+    background: var(--zelda-green);
   }
   .item-label {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 2px;
+    flex-grow: 1;
     min-width: 0;
   }
   .item-title {
@@ -139,47 +150,46 @@
     color: var(--ink);
   }
   .item-sub {
-    font-size: 0.75rem;
+    font-size: var(--fs-btn-sm);
     color: var(--ink-soft);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .item-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-shrink: 0;
+  .item-path {
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    color: var(--ink-soft);
+    padding-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .pick {
     font: inherit;
-    font-size: var(--fs-caption);
-    padding: 0.3rem 0.75rem;
-    border: 1.5px solid var(--model-accent);
-    border-radius: var(--r-control);
-    background: transparent;
-    color: var(--model-accent);
+    font-size: var(--fs-btn-sm);
+    font-weight: 600;
+    color: var(--zelda-green);
+    background: none;
+    border: none;
+    padding: 0;
     cursor: pointer;
     white-space: nowrap;
+    flex-shrink: 0;
   }
   .pick:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
-  .check {
-    font-size: 1rem;
-    color: var(--model-accent);
-    flex-shrink: 0;
-  }
   .err {
     font-size: var(--fs-caption);
-    color: var(--danger, #d32f2f);
+    color: var(--danger);
     margin: 0;
   }
   .actions {
     display: flex;
-    gap: 0.6rem;
+    gap: 20px;
     justify-content: flex-end;
-    margin-top: 0.5rem;
+    margin-top: 20px;
   }
 </style>
