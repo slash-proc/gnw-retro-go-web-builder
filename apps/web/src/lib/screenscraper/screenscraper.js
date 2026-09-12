@@ -113,25 +113,6 @@ export class ScreenScraperClient {
 
 // Pick a readable name from a system's `noms` block, with fallbacks (the exact
 // key names vary across ScreenScraper versions, so stay defensive).
-function systemName(sys) {
-  const n = sys.noms || {};
-  const pick =
-    n.nom_eu || n.nom_us || n.nom_jp || n.noms_commun || n.nom_recalbox ||
-    Object.values(n).find((v) => typeof v === "string" && v.trim());
-  return String(pick || sys.nom || `System ${sys.id}`).trim();
-}
-
-// Fetch the full list of systems from ScreenScraper -> [{id, name}] sorted by
-// name. `creds` = {devid, devpassword, softname, ssid?, sspassword?}.
-export async function fetchSystems(creds) {
-  const params = new URLSearchParams({ output: "json", ...creds });
-  const r = await fetch(API + "systemesListe.php?" + params);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const data = await r.json();
-  let list = data && data.response && data.response.systemes;
-  if (!Array.isArray(list)) list = list ? Object.values(list) : [];
-  return list
-    .map((s) => ({ id: parseInt(s.id, 10), name: systemName(s) }))
-    .filter((s) => s.id && s.name)
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
+// `systemName` and `fetchSystems` lived here and are gone: the systems list is owned by
+// screenscraper/systems.js now, which keeps the shortcode and type fields this pair discarded.
+// Discarding them is why the folder -> systemeid map had to be hand-written in the first place.

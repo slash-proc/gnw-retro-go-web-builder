@@ -1,0 +1,3885 @@
+[
+ {
+  "id": 1,
+  "name": "Megadrive",
+  "shortcodes": [
+   "megadrive",
+   "genesis"
+  ],
+  "extensions": [
+   "gen",
+   "md",
+   "smd",
+   "bin",
+   "sg"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 2,
+  "name": "Master System",
+  "shortcodes": [
+   "mastersystem"
+  ],
+  "extensions": [
+   "sms",
+   "bin"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 3,
+  "name": "NES",
+  "shortcodes": [
+   "nes"
+  ],
+  "extensions": [
+   "nes",
+   "fds",
+   "fig",
+   "bin",
+   "unf"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 4,
+  "name": "Super Nintendo",
+  "shortcodes": [
+   "snes"
+  ],
+  "extensions": [
+   "sfc",
+   "smc",
+   "fig",
+   "mgd",
+   "swc"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 6,
+  "name": "Capcom Play System",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Capcom"
+ },
+ {
+  "id": 7,
+  "name": "Capcom Play System 2",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Capcom"
+ },
+ {
+  "id": 8,
+  "name": "Capcom Play System 3",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "ccd",
+   "chd",
+   "img",
+   "sub"
+  ],
+  "type": "Arcade",
+  "company": "Capcom"
+ },
+ {
+  "id": 9,
+  "name": "Game Boy",
+  "shortcodes": [
+   "gb"
+  ],
+  "extensions": [
+   "gb",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "Nintendo"
+ },
+ {
+  "id": 10,
+  "name": "Game Boy Color",
+  "shortcodes": [
+   "gbc"
+  ],
+  "extensions": [
+   "gb",
+   "gbc",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "Nintendo"
+ },
+ {
+  "id": 11,
+  "name": "Virtual Boy",
+  "shortcodes": [
+   "virtualboy"
+  ],
+  "extensions": [
+   "vb",
+   "vboy",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "Nintendo"
+ },
+ {
+  "id": 12,
+  "name": "Game Boy Advance",
+  "shortcodes": [
+   "gba"
+  ],
+  "extensions": [
+   "gba",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "Nintendo"
+ },
+ {
+  "id": 13,
+  "name": "Gamecube",
+  "shortcodes": [
+   "gc"
+  ],
+  "extensions": [
+   "iso",
+   "gcz"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 14,
+  "name": "Nintendo 64",
+  "shortcodes": [
+   "n64"
+  ],
+  "extensions": [
+   "n64",
+   "v64",
+   "z64"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 15,
+  "name": "Nintendo DS",
+  "shortcodes": [
+   "nds"
+  ],
+  "extensions": [
+   "nds",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "Nintendo"
+ },
+ {
+  "id": 16,
+  "name": "Wii",
+  "shortcodes": [
+   "wii"
+  ],
+  "extensions": [
+   "iso",
+   "ciso",
+   "wad",
+   "wbfs"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 17,
+  "name": "Nintendo 3DS",
+  "shortcodes": [],
+  "extensions": [
+   "3ds"
+  ],
+  "type": "Handheld",
+  "company": "Nintendo"
+ },
+ {
+  "id": 18,
+  "name": "Wii U",
+  "shortcodes": [
+   "wiiu"
+  ],
+  "extensions": [
+   "iso",
+   "ciso",
+   "wbfs"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 19,
+  "name": "Megadrive 32X",
+  "shortcodes": [
+   "sega32x"
+  ],
+  "extensions": [
+   "32x",
+   "smd",
+   "md",
+   "bin",
+   "ccd",
+   "cue",
+   "img",
+   "iso",
+   "sub",
+   "wav"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 20,
+  "name": "Mega-CD",
+  "shortcodes": [
+   "segacd"
+  ],
+  "extensions": [
+   "bin",
+   "ccd",
+   "chd",
+   "cue",
+   "img",
+   "iso",
+   "sub",
+   "wav"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 21,
+  "name": "Game Gear",
+  "shortcodes": [
+   "gamegear"
+  ],
+  "extensions": [
+   "gg",
+   "sms",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "SEGA"
+ },
+ {
+  "id": 22,
+  "name": "Saturn",
+  "shortcodes": [
+   "saturn"
+  ],
+  "extensions": [
+   "chd",
+   "ccd",
+   "cue",
+   "bin",
+   "mdf",
+   "mds",
+   "iso",
+   "m3u"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 23,
+  "name": "Dreamcast",
+  "shortcodes": [
+   "dreamcast"
+  ],
+  "extensions": [
+   "cdi",
+   "chd",
+   "cue",
+   "gdi",
+   "bin",
+   "elf",
+   "img",
+   "nrg",
+   "raw",
+   "xpm",
+   "m3u",
+   "chd"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 25,
+  "name": "Neo-Geo Pocket",
+  "shortcodes": [
+   "ngp"
+  ],
+  "extensions": [
+   "ngp",
+   "ngc",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "SNK"
+ },
+ {
+  "id": 26,
+  "name": "Atari 2600",
+  "shortcodes": [
+   "atari2600"
+  ],
+  "extensions": [
+   "a26",
+   "bin",
+   "rom"
+  ],
+  "type": "Console",
+  "company": "Atari"
+ },
+ {
+  "id": 27,
+  "name": "Jaguar",
+  "shortcodes": [
+   "jaguar",
+   "atarijaguar"
+  ],
+  "extensions": [
+   "j64",
+   "jag",
+   "cof",
+   "bin",
+   "rom",
+   "abs"
+  ],
+  "type": "Console",
+  "company": "Atari"
+ },
+ {
+  "id": 28,
+  "name": "Lynx",
+  "shortcodes": [
+   "lynx",
+   "atarilynx"
+  ],
+  "extensions": [
+   "bin",
+   "lnx"
+  ],
+  "type": "Handheld",
+  "company": "Atari"
+ },
+ {
+  "id": 29,
+  "name": "3DO",
+  "shortcodes": [
+   "3do"
+  ],
+  "extensions": [
+   "bin",
+   "cue",
+   "iso",
+   "wav",
+   "chd"
+  ],
+  "type": "Console",
+  "company": "Panasonic"
+ },
+ {
+  "id": 30,
+  "name": "N-Gage",
+  "shortcodes": [
+   "n-gage"
+  ],
+  "extensions": [
+   "id"
+  ],
+  "type": "Handheld",
+  "company": "Nokia"
+ },
+ {
+  "id": 31,
+  "name": "PC Engine",
+  "shortcodes": [
+   "pcengine",
+   "tg16"
+  ],
+  "extensions": [
+   "pce",
+   "sgx"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 32,
+  "name": "Xbox",
+  "shortcodes": [
+   "xbox"
+  ],
+  "extensions": [
+   "iso"
+  ],
+  "type": "Console",
+  "company": "Microsoft"
+ },
+ {
+  "id": 33,
+  "name": "Xbox 360",
+  "shortcodes": [],
+  "extensions": [
+   "iso"
+  ],
+  "type": "Console",
+  "company": "Microsoft"
+ },
+ {
+  "id": 34,
+  "name": "Xbox One",
+  "shortcodes": [],
+  "extensions": [
+   "iso"
+  ],
+  "type": "Console",
+  "company": "Microsoft"
+ },
+ {
+  "id": 36,
+  "name": "Atom",
+  "shortcodes": [],
+  "extensions": [
+   "csw",
+   "dsk",
+   "tap",
+   "uef",
+   "wav"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 37,
+  "name": "BBC Micro",
+  "shortcodes": [
+   "bbcmicro"
+  ],
+  "extensions": [
+   "adf",
+   "adl",
+   "bin",
+   "dsd",
+   "ssd",
+   "uef",
+   "csw",
+   "zip",
+   "m3u"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 39,
+  "name": "Atari 2600 Supercharger",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Accessory",
+  "company": "Atari"
+ },
+ {
+  "id": 40,
+  "name": "Atari 5200",
+  "shortcodes": [
+   "atari5200"
+  ],
+  "extensions": [
+   "a52",
+   "bin",
+   "rom"
+  ],
+  "type": "Console",
+  "company": "Atari"
+ },
+ {
+  "id": 41,
+  "name": "Atari 7800",
+  "shortcodes": [
+   "atari7800"
+  ],
+  "extensions": [
+   "a78",
+   "bin",
+   "rom"
+  ],
+  "type": "Console",
+  "company": "Atari"
+ },
+ {
+  "id": 42,
+  "name": "Atari ST",
+  "shortcodes": [
+   "atarist"
+  ],
+  "extensions": [
+   "st",
+   "stx",
+   "ipf",
+   "ctr",
+   "img",
+   "raw",
+   "rom",
+   "msa",
+   "dim"
+  ],
+  "type": "Computer",
+  "company": "Atari"
+ },
+ {
+  "id": 43,
+  "name": "Atari 8bit",
+  "shortcodes": [
+   "atari800",
+   "Atari 800"
+  ],
+  "extensions": [
+   "a52",
+   "asm",
+   "atr",
+   "atr.gz",
+   "atx",
+   "bas",
+   "bin",
+   "car",
+   "cas",
+   "com",
+   "dcm",
+   "rom",
+   "xex",
+   "xfd"
+  ],
+  "type": "Computer",
+  "company": "Atari"
+ },
+ {
+  "id": 44,
+  "name": "Astrocade",
+  "shortcodes": [
+   "astrocade"
+  ],
+  "extensions": [
+   "bin",
+   "prg",
+   "wav"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 45,
+  "name": "WonderSwan",
+  "shortcodes": [
+   "wonderswan"
+  ],
+  "extensions": [
+   "ws",
+   "wsc",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": ""
+ },
+ {
+  "id": 46,
+  "name": "WonderSwan Color",
+  "shortcodes": [
+   "wonderswancolor"
+  ],
+  "extensions": [
+   "ws",
+   "wsc",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": ""
+ },
+ {
+  "id": 47,
+  "name": "Cave",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 48,
+  "name": "Colecovision",
+  "shortcodes": [
+   "colecovision"
+  ],
+  "extensions": [
+   "col",
+   "rom",
+   "bin"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 49,
+  "name": "Daphne",
+  "shortcodes": [
+   "daphne",
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "daphne(m2v|ogg)"
+  ],
+  "type": "Arcade emu",
+  "company": ""
+ },
+ {
+  "id": 50,
+  "name": "CoreGrafX",
+  "shortcodes": [
+   "pcengine",
+   "tg16"
+  ],
+  "extensions": [
+   "pce",
+   "sgx"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 52,
+  "name": "Game & Watch",
+  "shortcodes": [
+   "gw",
+   "gameandwatch"
+  ],
+  "extensions": [
+   "mgw"
+  ],
+  "type": "Handheld",
+  "company": "Nintendo"
+ },
+ {
+  "id": 53,
+  "name": "Atomiswave",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "atomiswave",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 54,
+  "name": "Model 2",
+  "shortcodes": [
+   "model2",
+   "arcade",
+   "fba",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mame",
+   "mess"
+  ],
+  "extensions": [
+   "chd",
+   "zip",
+   "7z"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 55,
+  "name": "Model 3",
+  "shortcodes": [
+   "model3",
+   "arcade",
+   "fba",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mame",
+   "mess"
+  ],
+  "extensions": [
+   "chd",
+   "zip",
+   "7z"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 56,
+  "name": "Naomi",
+  "shortcodes": [
+   "naomi",
+   "arcade",
+   "fba",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mame",
+   "mess"
+  ],
+  "extensions": [
+   "chd",
+   "bin",
+   "gdi",
+   "raw"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 57,
+  "name": "Playstation",
+  "shortcodes": [
+   "psx"
+  ],
+  "extensions": [
+   "iso",
+   "bin",
+   "ccd",
+   "cue",
+   "pbp",
+   "cbn",
+   "img",
+   "mdf",
+   "m3u",
+   "toc",
+   "znx",
+   "chd"
+  ],
+  "type": "Console",
+  "company": "Sony"
+ },
+ {
+  "id": 58,
+  "name": "Playstation 2",
+  "shortcodes": [
+   "ps2"
+  ],
+  "extensions": [
+   "iso",
+   "chd",
+   "img",
+   "cue",
+   "gz"
+  ],
+  "type": "Console",
+  "company": "Sony"
+ },
+ {
+  "id": 59,
+  "name": "Playstation 3",
+  "shortcodes": [
+   "ps3"
+  ],
+  "extensions": [
+   "iso"
+  ],
+  "type": "Console",
+  "company": "Sony"
+ },
+ {
+  "id": 60,
+  "name": "Playstation 4",
+  "shortcodes": [],
+  "extensions": [
+   "iso"
+  ],
+  "type": "Console",
+  "company": "Sony"
+ },
+ {
+  "id": 61,
+  "name": "PSP",
+  "shortcodes": [
+   "psp"
+  ],
+  "extensions": [
+   "img",
+   "pbp",
+   "bin",
+   "iso",
+   "cue",
+   "cso"
+  ],
+  "type": "Handheld",
+  "company": "Sony"
+ },
+ {
+  "id": 62,
+  "name": "PS Vita",
+  "shortcodes": [],
+  "extensions": [
+   "iso",
+   "vpk"
+  ],
+  "type": "Handheld",
+  "company": "Sony"
+ },
+ {
+  "id": 63,
+  "name": "Android",
+  "shortcodes": [],
+  "extensions": [
+   "apk"
+  ],
+  "type": "Smartphone",
+  "company": ""
+ },
+ {
+  "id": 64,
+  "name": "Amiga",
+  "shortcodes": [
+   "amiga600",
+   "amiga"
+  ],
+  "extensions": [
+   "adf",
+   "adz",
+   "ipf",
+   "uae",
+   "hdf",
+   "hdz",
+   "dms",
+   "exe",
+   "cpio",
+   "rom",
+   "lha",
+   "m3u",
+   "zip"
+  ],
+  "type": "Computer",
+  "company": "Commodore"
+ },
+ {
+  "id": 65,
+  "name": "CPC",
+  "shortcodes": [
+   "amstradcpc"
+  ],
+  "extensions": [
+   "bin",
+   "cpr",
+   "dsk",
+   "cpc"
+  ],
+  "type": "Computer",
+  "company": "Amstrad"
+ },
+ {
+  "id": 66,
+  "name": "Commodore 64",
+  "shortcodes": [
+   "c64"
+  ],
+  "extensions": [
+   "arc",
+   "ark",
+   "bin",
+   "c64",
+   "crt",
+   "d64",
+   "d71",
+   "d81",
+   "dmp",
+   "g64",
+   "lnx",
+   "nbz",
+   "nib",
+   "p00"
+  ],
+  "type": "Computer",
+  "company": "Commodore"
+ },
+ {
+  "id": 67,
+  "name": "Super Cassette Vision",
+  "shortcodes": [
+   "scv"
+  ],
+  "extensions": [
+   "bin",
+   "cart"
+  ],
+  "type": "Console",
+  "company": "Epoch"
+ },
+ {
+  "id": 68,
+  "name": "Neo-Geo MVS",
+  "shortcodes": [],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "SNK"
+ },
+ {
+  "id": 69,
+  "name": "Sega ST-V",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 70,
+  "name": "Neo-Geo CD",
+  "shortcodes": [
+   "neogeocd"
+  ],
+  "extensions": [
+   "bin",
+   "ccd",
+   "cue",
+   "img",
+   "iso",
+   "chd"
+  ],
+  "type": "Console",
+  "company": "SNK"
+ },
+ {
+  "id": 72,
+  "name": "PC-FX",
+  "shortcodes": [
+   "pcfx"
+  ],
+  "extensions": [
+   "bin",
+   "chd",
+   "ccd",
+   "img",
+   "sub",
+   "cue"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 73,
+  "name": "Vic-20",
+  "shortcodes": [
+   "vic20",
+   "c64"
+  ],
+  "extensions": [
+   "crt",
+   "d64",
+   "prg",
+   "t64",
+   "tap",
+   "d81"
+  ],
+  "type": "Computer",
+  "company": "Commodore"
+ },
+ {
+  "id": 74,
+  "name": "PV-1000",
+  "shortcodes": [
+   "pv1000"
+  ],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Console",
+  "company": "Casio"
+ },
+ {
+  "id": 75,
+  "name": "Mame",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "fbneo",
+   "dice",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade emu",
+  "company": ""
+ },
+ {
+  "id": 76,
+  "name": "ZX Spectrum",
+  "shortcodes": [
+   "zxspectrum"
+  ],
+  "extensions": [
+   "csw",
+   "dsk",
+   "fdi",
+   "img",
+   "ipf",
+   "mgt",
+   "rom",
+   "rzx",
+   "scl",
+   "slt",
+   "sp",
+   "tap",
+   "trd",
+   "tzx"
+  ],
+  "type": "Computer",
+  "company": "Sinclair"
+ },
+ {
+  "id": 77,
+  "name": "ZX81",
+  "shortcodes": [
+   "zx81"
+  ],
+  "extensions": [
+   "c",
+   "p",
+   "tzx"
+  ],
+  "type": "Computer",
+  "company": "Sinclair"
+ },
+ {
+  "id": 78,
+  "name": "Adventure Vision",
+  "shortcodes": [],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "Entex Industries, Inc"
+ },
+ {
+  "id": 79,
+  "name": "Sharp X68000",
+  "shortcodes": [
+   "x68000"
+  ],
+  "extensions": [
+   "dim",
+   "img",
+   "d88",
+   "88d",
+   "hdm",
+   "dup",
+   "2hd",
+   "xdf",
+   "hdf",
+   "cmd",
+   "m3u",
+   "zip",
+   "7z"
+  ],
+  "type": "Computer",
+  "company": "Sharp"
+ },
+ {
+  "id": 80,
+  "name": "Channel F",
+  "shortcodes": [
+   "channelf"
+  ],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 81,
+  "name": "Action Max",
+  "shortcodes": [],
+  "extensions": [
+   "singe"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 82,
+  "name": "Neo-Geo Pocket Color",
+  "shortcodes": [
+   "ngpc"
+  ],
+  "extensions": [
+   "ngp",
+   "ngc",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "SNK"
+ },
+ {
+  "id": 83,
+  "name": "Aamber Pegasus",
+  "shortcodes": [],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 84,
+  "name": "Archimedes",
+  "shortcodes": [
+   "archimedes"
+  ],
+  "extensions": [
+   "adf",
+   "arc",
+   "cue",
+   "iso",
+   "jfd",
+   "scp",
+   "zip"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 85,
+  "name": "Electron",
+  "shortcodes": [],
+  "extensions": [
+   "bin",
+   "sdd",
+   "uef"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 86,
+  "name": "Apple II",
+  "shortcodes": [
+   "apple2"
+  ],
+  "extensions": [
+   "dsk",
+   "do",
+   "po",
+   "nib"
+  ],
+  "type": "Computer",
+  "company": "Apple"
+ },
+ {
+  "id": 87,
+  "name": "GX4000",
+  "shortcodes": [
+   "gx4000"
+  ],
+  "extensions": [
+   "bin",
+   "cpr",
+   "dsk",
+   "cpc"
+  ],
+  "type": "Console",
+  "company": "Amstrad"
+ },
+ {
+  "id": 88,
+  "name": "Camputers Lynx",
+  "shortcodes": [],
+  "extensions": [
+   "ldf",
+   "tap"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 89,
+  "name": "Adam",
+  "shortcodes": [],
+  "extensions": [
+   "bas",
+   "com",
+   "ddp",
+   "dsk",
+   "img",
+   "lbr"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 90,
+  "name": "Mega Duck",
+  "shortcodes": [
+   "megaduck"
+  ],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": ""
+ },
+ {
+  "id": 91,
+  "name": "Dragon 32/64",
+  "shortcodes": [
+   "dragon",
+   "dragon32"
+  ],
+  "extensions": [
+   "asc",
+   "bas",
+   "cas",
+   "ccc",
+   "dmk",
+   "dsk",
+   "jvc",
+   "os9",
+   "rom",
+   "sna",
+   "vdk",
+   "wav"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 92,
+  "name": "EG2000 Colour Genie",
+  "shortcodes": [],
+  "extensions": [
+   "cas"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 93,
+  "name": "BK",
+  "shortcodes": [
+   "bk"
+  ],
+  "extensions": [
+   "bas",
+   "bin",
+   "cod",
+   "doc",
+   "exe",
+   "mus",
+   "pig",
+   "bkd",
+   "img"
+  ],
+  "type": "Computer",
+  "company": "Elektronika"
+ },
+ {
+  "id": 94,
+  "name": "Arcadia 2001",
+  "shortcodes": [],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 95,
+  "name": "Game Pocket Computer",
+  "shortcodes": [],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "Epoch"
+ },
+ {
+  "id": 96,
+  "name": "EXL 100",
+  "shortcodes": [
+   "exl100"
+  ],
+  "extensions": [
+   "bas",
+   "bin",
+   "fd",
+   "k7",
+   "rom",
+   "td0",
+   "wav"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 97,
+  "name": "FM-7",
+  "shortcodes": [
+   "fm7"
+  ],
+  "extensions": [
+   "d77",
+   "t77"
+  ],
+  "type": "Computer",
+  "company": "Fujitsu"
+ },
+ {
+  "id": 98,
+  "name": "Loopy",
+  "shortcodes": [
+   "loopy"
+  ],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Console",
+  "company": "Casio"
+ },
+ {
+  "id": 99,
+  "name": "Plus/4",
+  "shortcodes": [],
+  "extensions": [
+   "crt",
+   "d64",
+   "g64",
+   "lnx",
+   "prg",
+   "tap",
+   "z64"
+  ],
+  "type": "Computer",
+  "company": "Commodore"
+ },
+ {
+  "id": 100,
+  "name": "Super A'can",
+  "shortcodes": [
+   "superacan"
+  ],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 101,
+  "name": "GP32",
+  "shortcodes": [
+   "gp32"
+  ],
+  "extensions": [
+   "fpk",
+   "smc"
+  ],
+  "type": "Handheld",
+  "company": ""
+ },
+ {
+  "id": 102,
+  "name": "Vectrex",
+  "shortcodes": [
+   "vectrex"
+  ],
+  "extensions": [
+   "vec",
+   "bin",
+   "gam"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 103,
+  "name": "Game Master",
+  "shortcodes": [],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": ""
+ },
+ {
+  "id": 104,
+  "name": "Videopac G7000",
+  "shortcodes": [
+   "o2em",
+   "odyssey2",
+   "videopac"
+  ],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 105,
+  "name": "PC Engine SuperGrafx",
+  "shortcodes": [
+   "supergrafx"
+  ],
+  "extensions": [
+   "pce",
+   "cue",
+   "ccd",
+   "sgx"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 106,
+  "name": "Family Computer Disk System",
+  "shortcodes": [
+   "fds"
+  ],
+  "extensions": [
+   "fds",
+   "nes",
+   "bin"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 107,
+  "name": "Satellaview",
+  "shortcodes": [
+   "satellaview",
+   "snes"
+  ],
+  "extensions": [
+   "sfc"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 108,
+  "name": "Sufami Turbo",
+  "shortcodes": [
+   "sufami",
+   "snes"
+  ],
+  "extensions": [
+   "sfc",
+   "st",
+   "smc"
+  ],
+  "type": "Accessory",
+  "company": ""
+ },
+ {
+  "id": 109,
+  "name": "SG-1000",
+  "shortcodes": [
+   "sg1000",
+   "sg-1000"
+  ],
+  "extensions": [
+   "sg",
+   "bin"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 110,
+  "name": "Nintendo Power",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Other",
+  "company": ""
+ },
+ {
+  "id": 111,
+  "name": "Amiga (AGA)",
+  "shortcodes": [
+   "amiga1200",
+   "amiga"
+  ],
+  "extensions": [
+   "adf",
+   "adz",
+   "ipf",
+   "uae",
+   "hdf",
+   "hdz",
+   "dms",
+   "exe",
+   "cpio",
+   "rom",
+   "lha",
+   "m3u",
+   "zip"
+  ],
+  "type": "Computer",
+  "company": "Commodore"
+ },
+ {
+  "id": 112,
+  "name": "Type X",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Taito"
+ },
+ {
+  "id": 113,
+  "name": "MSX",
+  "shortcodes": [
+   "msx1",
+   "msx"
+  ],
+  "extensions": [
+   "mx1",
+   "rom",
+   "dsk",
+   "col",
+   "cas"
+  ],
+  "type": "Computer",
+  "company": "Microsoft"
+ },
+ {
+  "id": 114,
+  "name": "PC Engine CD-Rom",
+  "shortcodes": [
+   "pcenginecd",
+   "pce-cd",
+   "tg-cd"
+  ],
+  "extensions": [
+   "pce",
+   "cue",
+   "ccd",
+   "chd",
+   "iso",
+   "sgx"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 115,
+  "name": "Intellivision",
+  "shortcodes": [
+   "intellivision",
+   "Intellivision"
+  ],
+  "extensions": [
+   "bin",
+   "int",
+   "rom"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 116,
+  "name": "MSX2",
+  "shortcodes": [
+   "msx2",
+   "msx"
+  ],
+  "extensions": [
+   "mx2",
+   "rom",
+   "cas",
+   "dsk"
+  ],
+  "type": "Computer",
+  "company": "Microsoft"
+ },
+ {
+  "id": 117,
+  "name": "MSX2+",
+  "shortcodes": [
+   "msx",
+   "msx2"
+  ],
+  "extensions": [
+   "mx2",
+   "rom",
+   "cas",
+   "dsk"
+  ],
+  "type": "Computer",
+  "company": "Microsoft"
+ },
+ {
+  "id": 118,
+  "name": "MSX Turbo R",
+  "shortcodes": [
+   "msxturbor",
+   "msx"
+  ],
+  "extensions": [
+   "mx1",
+   "mx2",
+   "rom",
+   "dsk",
+   "col"
+  ],
+  "type": "Computer",
+  "company": "Microsoft"
+ },
+ {
+  "id": 119,
+  "name": "GBA e-Reader",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Accessory",
+  "company": "Nintendo"
+ },
+ {
+  "id": 120,
+  "name": "V.Smile",
+  "shortcodes": [
+   "vsmile"
+  ],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Console",
+  "company": "VTech"
+ },
+ {
+  "id": 121,
+  "name": "Game.com",
+  "shortcodes": [
+   "game.com"
+  ],
+  "extensions": [
+   "bin",
+   "tgc"
+  ],
+  "type": "Handheld",
+  "company": ""
+ },
+ {
+  "id": 122,
+  "name": "Nintendo 64DD",
+  "shortcodes": [
+   "64dd",
+   "n64"
+  ],
+  "extensions": [
+   "ndd"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 123,
+  "name": "ScummVM",
+  "shortcodes": [
+   "scummvm",
+   "residualvm"
+  ],
+  "extensions": [
+   "svm",
+   "scummvm(scummvm)",
+   "residualvm(residualvm)"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 124,
+  "name": "Mikrosha",
+  "shortcodes": [],
+  "extensions": [
+   "rkm"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 125,
+  "name": "Pecom 64",
+  "shortcodes": [],
+  "extensions": [
+   "wav"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 126,
+  "name": "Jupiter Ace",
+  "shortcodes": [],
+  "extensions": [
+   "a22",
+   "ace",
+   "asm",
+   "dsk",
+   "tap",
+   "wav"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 127,
+  "name": "Super Game Boy",
+  "shortcodes": [
+   "gb"
+  ],
+  "extensions": [],
+  "type": "Accessory",
+  "company": "Nintendo"
+ },
+ {
+  "id": 128,
+  "name": "Super Game Boy 2",
+  "shortcodes": [
+   "gb"
+  ],
+  "extensions": [
+   "gb",
+   "gbc"
+  ],
+  "type": "Accessory",
+  "company": "Nintendo"
+ },
+ {
+  "id": 129,
+  "name": "Amiga CDTV",
+  "shortcodes": [
+   "amigacdtv",
+   "amiga"
+  ],
+  "extensions": [
+   "bin",
+   "ccd",
+   "cue",
+   "img",
+   "iso",
+   "wav"
+  ],
+  "type": "Computer",
+  "company": "Commodore"
+ },
+ {
+  "id": 130,
+  "name": "Amiga CD32",
+  "shortcodes": [
+   "amigacd32",
+   "amiga"
+  ],
+  "extensions": [
+   "bin",
+   "ccd",
+   "cdt",
+   "cue",
+   "img",
+   "iso",
+   "nrg",
+   "sub"
+  ],
+  "type": "Console",
+  "company": "Commodore"
+ },
+ {
+  "id": 131,
+  "name": "Oric 1 / Atmos",
+  "shortcodes": [
+   "oric"
+  ],
+  "extensions": [
+   "bas",
+   "bin",
+   "dsk",
+   "tap"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 133,
+  "name": "CD-i",
+  "shortcodes": [
+   "cdi"
+  ],
+  "extensions": [
+   "bin",
+   "chd",
+   "cue",
+   "iso",
+   "nrg",
+   "wav"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 134,
+  "name": "Amiga CD",
+  "shortcodes": [
+   "amigacd32",
+   "amiga"
+  ],
+  "extensions": [
+   "cue",
+   "iso",
+   "wav"
+  ],
+  "type": "Accessory",
+  "company": "Commodore"
+ },
+ {
+  "id": 135,
+  "name": "PC Dos",
+  "shortcodes": [
+   "dos",
+   "pc"
+  ],
+  "extensions": [
+   "pc(exe|com|iso|bin|mdf|ima|img|gog|dsk|z5|z8|bas|dat)",
+   "dos(exe|com|iso|bin|mdf|ima|img|gog|dsk|z5|z8|bas|dat)",
+   "wad",
+   "game",
+   "zip"
+  ],
+  "type": "Computer",
+  "company": "Microsoft"
+ },
+ {
+  "id": 136,
+  "name": "PC Win3.xx",
+  "shortcodes": [],
+  "extensions": [
+   "pc(exe|dll|com|iso|bin|mdf|img)",
+   "dos(exe|dll|com|iso|bin|mdf|img)"
+  ],
+  "type": "Computer",
+  "company": "Microsoft"
+ },
+ {
+  "id": 137,
+  "name": "PC Win9X",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Computer",
+  "company": "Microsoft"
+ },
+ {
+  "id": 138,
+  "name": "PC Windows",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Computer",
+  "company": "Microsoft"
+ },
+ {
+  "id": 139,
+  "name": "Amiga CD32 (hack)",
+  "shortcodes": [
+   "amigacd32",
+   "amiga"
+  ],
+  "extensions": [
+   "bin",
+   "ccd",
+   "cdt",
+   "cue",
+   "img",
+   "iso",
+   "nrg",
+   "sub"
+  ],
+  "type": "Console",
+  "company": "Commodore"
+ },
+ {
+  "id": 141,
+  "name": "Thomson MO/TO",
+  "shortcodes": [
+   "to8"
+  ],
+  "extensions": [
+   "fd",
+   "k7",
+   "m7",
+   "qd",
+   "sap",
+   "m5",
+   "wav"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 142,
+  "name": "Neo-Geo",
+  "shortcodes": [
+   "neogeo"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Console + arcade",
+  "company": "SNK"
+ },
+ {
+  "id": 143,
+  "name": "Pinball FX2",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Pinball",
+  "company": "Zen"
+ },
+ {
+  "id": 144,
+  "name": "TRS-80 Color Computer",
+  "shortcodes": [
+   "trs80coco",
+   "coco"
+  ],
+  "extensions": [
+   "cas",
+   "wav",
+   "bas",
+   "asc",
+   "dmk",
+   "jvc",
+   "os9",
+   "dsk",
+   "vdk",
+   "rom",
+   "ccc",
+   "sna"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 145,
+  "name": "Linux",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Computer",
+  "company": "Public Domain"
+ },
+ {
+  "id": 146,
+  "name": "Mac OS",
+  "shortcodes": [
+   "macintosh"
+  ],
+  "extensions": [
+   "img",
+   "rom",
+   "dsk"
+  ],
+  "type": "Computer",
+  "company": "Apple"
+ },
+ {
+  "id": 147,
+  "name": "Sega Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 148,
+  "name": "Irem Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Irem"
+ },
+ {
+  "id": 149,
+  "name": "Seta",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 150,
+  "name": "Midway Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Midway"
+ },
+ {
+  "id": 151,
+  "name": "Capcom Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Capcom"
+ },
+ {
+  "id": 152,
+  "name": "Eighting / Raizing",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 153,
+  "name": "Tecmo",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Tecmo"
+ },
+ {
+  "id": 154,
+  "name": "SNK Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "SNK"
+ },
+ {
+  "id": 155,
+  "name": "Namco Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Namco"
+ },
+ {
+  "id": 156,
+  "name": "Namco System 22",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Namco"
+ },
+ {
+  "id": 157,
+  "name": "Taito Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Taito"
+ },
+ {
+  "id": 158,
+  "name": "Konami Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Konami"
+ },
+ {
+  "id": 159,
+  "name": "Jaleco",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Jaleco"
+ },
+ {
+  "id": 160,
+  "name": "Atari Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Atari"
+ },
+ {
+  "id": 161,
+  "name": "Nintendo Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Nintendo"
+ },
+ {
+  "id": 162,
+  "name": "Data East Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Data East"
+ },
+ {
+  "id": 163,
+  "name": "NMK",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "NMK"
+ },
+ {
+  "id": 164,
+  "name": "Sammy Classics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 165,
+  "name": "Exidy",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 166,
+  "name": "Acclaim",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Acclaim Entertainment"
+ },
+ {
+  "id": 167,
+  "name": "Psikyo",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Psikyo"
+ },
+ {
+  "id": 168,
+  "name": "non Jeu",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 169,
+  "name": "Technos",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 170,
+  "name": "American Laser Games",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd",
+   "cue",
+   "iso"
+  ],
+  "type": "Arcade",
+  "company": "American Laser Games"
+ },
+ {
+  "id": 171,
+  "name": "Jaguar CD",
+  "shortcodes": [],
+  "extensions": [
+   "bin",
+   "ccd",
+   "cdi",
+   "cue",
+   "img",
+   "nrg",
+   "sub"
+  ],
+  "type": "Console",
+  "company": "Atari"
+ },
+ {
+  "id": 172,
+  "name": "Playstation minis",
+  "shortcodes": [
+   "psp"
+  ],
+  "extensions": [
+   "iso",
+   "pbp",
+   "cso"
+  ],
+  "type": "Handheld",
+  "company": "Sony"
+ },
+ {
+  "id": 173,
+  "name": "Dynax",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Dynax"
+ },
+ {
+  "id": 174,
+  "name": "Kaneko",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Kaneko"
+ },
+ {
+  "id": 175,
+  "name": "Video System Co.",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 176,
+  "name": "IGS",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "IGS"
+ },
+ {
+  "id": 177,
+  "name": "Comad",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Comad"
+ },
+ {
+  "id": 178,
+  "name": "Amcoe",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Amcoe"
+ },
+ {
+  "id": 179,
+  "name": "Century Electronics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Century Electronics"
+ },
+ {
+  "id": 180,
+  "name": "Nichibutsu",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Nichibutsu"
+ },
+ {
+  "id": 181,
+  "name": "Visco",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Visco"
+ },
+ {
+  "id": 182,
+  "name": "Alpha Denshi Co.",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 183,
+  "name": "Coleco",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 184,
+  "name": "PlayChoice",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 185,
+  "name": "Atlus",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Atlus"
+ },
+ {
+  "id": 186,
+  "name": "Banpresto",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Banpresto"
+ },
+ {
+  "id": 187,
+  "name": "SemiCom",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "SemiCom"
+ },
+ {
+  "id": 188,
+  "name": "Universal",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 189,
+  "name": "Mitchell",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 190,
+  "name": "Seibu Kaihatsu",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Seibu Kaihatsu"
+ },
+ {
+  "id": 191,
+  "name": "Toaplan",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Toaplan"
+ },
+ {
+  "id": 192,
+  "name": "Cinematronics",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Cinematronics"
+ },
+ {
+  "id": 193,
+  "name": "Incredible Technologies",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": ""
+ },
+ {
+  "id": 194,
+  "name": "Gaelco",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Gaelco"
+ },
+ {
+  "id": 195,
+  "name": "Mega-Tech",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 196,
+  "name": "Mega-Play",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 197,
+  "name": "Flipper",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Pinball",
+  "company": ""
+ },
+ {
+  "id": 198,
+  "name": "Visual Pinball",
+  "shortcodes": [],
+  "extensions": [
+   "vpt",
+   "vpx"
+  ],
+  "type": "Pinball",
+  "company": ""
+ },
+ {
+  "id": 199,
+  "name": "Future Pinball",
+  "shortcodes": [],
+  "extensions": [
+   "ftp"
+  ],
+  "type": "Pinball",
+  "company": ""
+ },
+ {
+  "id": 200,
+  "name": "the Pinball Arcade",
+  "shortcodes": [],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Pinball",
+  "company": ""
+ },
+ {
+  "id": 201,
+  "name": "Pinball FX3",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Pinball",
+  "company": "Zen"
+ },
+ {
+  "id": 202,
+  "name": "Snes - Super Mario World Hacks",
+  "shortcodes": [
+   "snes"
+  ],
+  "extensions": [
+   "sfc",
+   "smc",
+   "fig",
+   "mgd",
+   "swc"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 203,
+  "name": "Megadrive - Sonic The Hedgehog 2 Hacks",
+  "shortcodes": [
+   "megadrive",
+   "genesis"
+  ],
+  "extensions": [
+   "gen",
+   "md",
+   "smd",
+   "bin",
+   "sg"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 205,
+  "name": "TI-99/4A",
+  "shortcodes": [
+   "ti994a",
+   "ti99"
+  ],
+  "extensions": [
+   "bin",
+   "c",
+   "dsk",
+   "g",
+   "ctg"
+  ],
+  "type": "Computer",
+  "company": "Texas Instruments"
+ },
+ {
+  "id": 206,
+  "name": "Lutro",
+  "shortcodes": [
+   "lutro"
+  ],
+  "extensions": [
+   "lutro",
+   "lua"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 207,
+  "name": "Watara Supervision",
+  "shortcodes": [
+   "supervision"
+  ],
+  "extensions": [
+   "sv",
+   "bin"
+  ],
+  "type": "Handheld",
+  "company": "Watara"
+ },
+ {
+  "id": 208,
+  "name": "NEC PC-9801",
+  "shortcodes": [
+   "pc98",
+   "Pc98"
+  ],
+  "extensions": [
+   "d98",
+   "98d",
+   "fdi",
+   "fdd",
+   "2hd",
+   "tfd",
+   "d88",
+   "88d",
+   "hdm",
+   "xdf",
+   "dup",
+   "cmd",
+   "hdi",
+   "thd"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 209,
+  "name": "Gottlieb",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Gottlieb"
+ },
+ {
+  "id": 210,
+  "name": "Super Nintendo MSU-1",
+  "shortcodes": [
+   "Super Nintendo MSU-1"
+  ],
+  "extensions": [
+   "sfc"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 211,
+  "name": "Pokémon mini",
+  "shortcodes": [
+   "pokemini"
+  ],
+  "extensions": [
+   "min"
+  ],
+  "type": "Handheld",
+  "company": "Nintendo"
+ },
+ {
+  "id": 213,
+  "name": "MGT SAM Coupé",
+  "shortcodes": [
+   "samcoupe"
+  ],
+  "extensions": [
+   "dsk",
+   "sad"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 214,
+  "name": "OpenBOR",
+  "shortcodes": [
+   "openbor",
+   "OpenBOR"
+  ],
+  "extensions": [
+   "pak"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 215,
+  "name": "Z-Machine",
+  "shortcodes": [
+   "zmachine"
+  ],
+  "extensions": [
+   "z1",
+   "z2",
+   "z3",
+   "z4",
+   "z5",
+   "z6",
+   "z7",
+   "z8"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 216,
+  "name": "Uzebox",
+  "shortcodes": [
+   "uzebox"
+  ],
+  "extensions": [
+   "uze"
+  ],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 217,
+  "name": "Apple IIGS",
+  "shortcodes": [
+   "apple2gs"
+  ],
+  "extensions": [
+   "2mg",
+   "po",
+   "nib",
+   "do",
+   "dsk",
+   "hdv",
+   "zip",
+   "gsplus"
+  ],
+  "type": "Computer",
+  "company": "Apple"
+ },
+ {
+  "id": 218,
+  "name": "Spectravideo",
+  "shortcodes": [
+   "spectravideo",
+   "Spectravideo"
+  ],
+  "extensions": [
+   "cas",
+   "bin",
+   "dsk",
+   "zip"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 219,
+  "name": "Palm OS",
+  "shortcodes": [
+   "palm"
+  ],
+  "extensions": [
+   "prc",
+   "pdb",
+   "pqa",
+   "img"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 220,
+  "name": "Sharp X1",
+  "shortcodes": [
+   "x1"
+  ],
+  "extensions": [
+   "dx1",
+   "2d",
+   "2hd",
+   "tfd",
+   "d88",
+   "88d",
+   "hdm",
+   "xdf",
+   "dup",
+   "cmd"
+  ],
+  "type": "Computer",
+  "company": "Sharp"
+ },
+ {
+  "id": 221,
+  "name": "NEC PC-8801",
+  "shortcodes": [
+   "pc88"
+  ],
+  "extensions": [
+   "d88",
+   "88d",
+   "m3u"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 222,
+  "name": "TIC-80",
+  "shortcodes": [
+   "tic80"
+  ],
+  "extensions": [
+   "tic"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 223,
+  "name": "Solarus",
+  "shortcodes": [
+   "solarus"
+  ],
+  "extensions": [
+   "solarus"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 225,
+  "name": "Switch",
+  "shortcodes": [],
+  "extensions": [
+   "."
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 227,
+  "name": "Naomi GD-ROM",
+  "shortcodes": [
+   "naomigd",
+   "arcade",
+   "fba",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mame",
+   "mess"
+  ],
+  "extensions": [
+   "chd",
+   "bin",
+   "gdi",
+   "raw"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 230,
+  "name": "Naomi 2",
+  "shortcodes": [
+   "naomi2",
+   "arcade",
+   "fba",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mame",
+   "mess"
+  ],
+  "extensions": [
+   "chd",
+   "bin",
+   "gdi",
+   "raw"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 231,
+  "name": "EasyRPG",
+  "shortcodes": [
+   "easyrpg"
+  ],
+  "extensions": [
+   "ini"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 234,
+  "name": "Pico-8",
+  "shortcodes": [
+   "pico8"
+  ],
+  "extensions": [
+   "p8",
+   "png"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 237,
+  "name": "Pocket Challenge V2",
+  "shortcodes": [
+   "pcv2"
+  ],
+  "extensions": [
+   "pc2"
+  ],
+  "type": "Handheld",
+  "company": ""
+ },
+ {
+  "id": 240,
+  "name": "PET",
+  "shortcodes": [],
+  "extensions": [
+   "a0",
+   "b0",
+   "crt",
+   "d64",
+   "d81",
+   "prg",
+   "tap",
+   "t64"
+  ],
+  "type": "Computer",
+  "company": "Commodore"
+ },
+ {
+  "id": 241,
+  "name": "CreatiVision",
+  "shortcodes": [
+   "creativision",
+   "crvision"
+  ],
+  "extensions": [
+   "bin",
+   "rom"
+  ],
+  "type": "Console",
+  "company": "VTech"
+ },
+ {
+  "id": 244,
+  "name": "LowRes NX",
+  "shortcodes": [
+   "lowresnx"
+  ],
+  "extensions": [
+   "nx"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 250,
+  "name": "Sega Pico",
+  "shortcodes": [
+   "pico"
+  ],
+  "extensions": [
+   "md"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 253,
+  "name": "FM Towns",
+  "shortcodes": [
+   "fmtowns",
+   "marty",
+   "fmtmarty"
+  ],
+  "extensions": [
+   "2hd",
+   "bin",
+   "ccd",
+   "chd",
+   "cue",
+   "d77",
+   "d88",
+   "h0",
+   "hdd",
+   "hdi",
+   "hdm",
+   "iso",
+   "m3u",
+   "mdf"
+  ],
+  "type": "Computer",
+  "company": "Fujitsu"
+ },
+ {
+  "id": 258,
+  "name": "Hikaru",
+  "shortcodes": [],
+  "extensions": [
+   "zip"
+  ],
+  "type": "Arcade",
+  "company": "SEGA"
+ },
+ {
+  "id": 261,
+  "name": "Philips VG 5000",
+  "shortcodes": [
+   "vg5000"
+  ],
+  "extensions": [
+   "k7"
+  ],
+  "type": "Computer",
+  "company": ""
+ },
+ {
+  "id": 262,
+  "name": "WASM-4",
+  "shortcodes": [
+   "wasm4"
+  ],
+  "extensions": [
+   "wasm"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 263,
+  "name": "Arduboy",
+  "shortcodes": [
+   "arduboy"
+  ],
+  "extensions": [
+   "hex"
+  ],
+  "type": "Handheld",
+  "company": ""
+ },
+ {
+  "id": 266,
+  "name": "Gamate",
+  "shortcodes": [
+   "gamate"
+  ],
+  "extensions": [
+   "bin",
+   "gam"
+  ],
+  "type": "Handheld",
+  "company": ""
+ },
+ {
+  "id": 269,
+  "name": "TeknoParrot",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Arcade emu",
+  "company": ""
+ },
+ {
+  "id": 272,
+  "name": "Vircon32",
+  "shortcodes": [
+   "vircon32"
+  ],
+  "extensions": [
+   "v32",
+   "zip"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 275,
+  "name": "Voxatron",
+  "shortcodes": [
+   "voxatron"
+  ],
+  "extensions": [
+   "vx",
+   "png"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 278,
+  "name": "Nes - Super Mario Bros. Hacks",
+  "shortcodes": [
+   "nes"
+  ],
+  "extensions": [
+   "nes"
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 281,
+  "name": "VC 4000",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Console",
+  "company": ""
+ },
+ {
+  "id": 284,
+  "name": "Playstation 5",
+  "shortcodes": [],
+  "extensions": [
+   "iso"
+  ],
+  "type": "Console",
+  "company": "Sony"
+ },
+ {
+  "id": 287,
+  "name": "P2000T",
+  "shortcodes": [
+   "p2000t"
+  ],
+  "extensions": [
+   "cas"
+  ],
+  "type": "Computer",
+  "company": "Philips"
+ },
+ {
+  "id": 290,
+  "name": "PrBoom",
+  "shortcodes": [
+   "Port"
+  ],
+  "extensions": [
+   "wad"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 293,
+  "name": "Tamagotchi",
+  "shortcodes": [
+   "b"
+  ],
+  "extensions": [
+   "b"
+  ],
+  "type": "Virtual machine",
+  "company": ""
+ },
+ {
+  "id": 296,
+  "name": "Switch 2",
+  "shortcodes": [],
+  "extensions": [
+   "."
+  ],
+  "type": "Console",
+  "company": "Nintendo"
+ },
+ {
+  "id": 299,
+  "name": "Taito G-Net",
+  "shortcodes": [
+   "arcade",
+   "mame",
+   "fba",
+   "fba_libretro",
+   "mame-advmame",
+   "mame-libretro",
+   "mame-mame4all",
+   "mess"
+  ],
+  "extensions": [
+   "chd"
+  ],
+  "type": "Arcade",
+  "company": "Taito"
+ },
+ {
+  "id": 300,
+  "name": "Cassette Vision",
+  "shortcodes": [
+   "cassettevision"
+  ],
+  "extensions": [
+   "bin777",
+   "cart",
+   "zip"
+  ],
+  "type": "Console",
+  "company": "Epoch"
+ },
+ {
+  "id": 301,
+  "name": "MSU-MD",
+  "shortcodes": [],
+  "extensions": [
+   "md"
+  ],
+  "type": "Console",
+  "company": "SEGA"
+ },
+ {
+  "id": 302,
+  "name": "J2ME",
+  "shortcodes": [
+   "j2me"
+  ],
+  "extensions": [
+   "jar"
+  ],
+  "type": "Smartphone",
+  "company": ""
+ },
+ {
+  "id": 305,
+  "name": "My Vision",
+  "shortcodes": [
+   "myvision"
+  ],
+  "extensions": [
+   "myv"
+  ],
+  "type": "Console",
+  "company": "Nichibutsu"
+ },
+ {
+  "id": 308,
+  "name": "V.Smile Pro",
+  "shortcodes": [],
+  "extensions": [
+   "bin"
+  ],
+  "type": "Console",
+  "company": "VTech"
+ },
+ {
+  "id": 311,
+  "name": "Alice",
+  "shortcodes": [
+   "alice"
+  ],
+  "extensions": [
+   "k7",
+   "c10",
+   "cas",
+   "rom",
+   "bin",
+   "fd",
+   "dsk"
+  ],
+  "type": "Computer",
+  "company": "Matra"
+ },
+ {
+  "id": 314,
+  "name": "Sharp MZ",
+  "shortcodes": [
+   "sharpmz"
+  ],
+  "extensions": [
+   "mzt",
+   "mzf",
+   "cas",
+   "m12",
+   "d88",
+   "dsk",
+   "2d",
+   "qdf",
+   "rom",
+   "bin"
+  ],
+  "type": "Computer",
+  "company": "Sharp"
+ },
+ {
+  "id": 317,
+  "name": "Tutor",
+  "shortcodes": [
+   "pyuta"
+  ],
+  "extensions": [
+   "bin",
+   "rom"
+  ],
+  "type": "Computer",
+  "company": "Tomy"
+ },
+ {
+  "id": 320,
+  "name": "VZ200 / Laser310",
+  "shortcodes": [],
+  "extensions": [],
+  "type": "Computer",
+  "company": "VTech"
+ },
+ {
+  "id": 323,
+  "name": "M5",
+  "shortcodes": [
+   "sordm5"
+  ],
+  "extensions": [
+   "bin",
+   "m5",
+   "rom",
+   "cas",
+   "wav",
+   "tap",
+   "t77"
+  ],
+  "type": "Computer",
+  "company": "Sord"
+ }
+]

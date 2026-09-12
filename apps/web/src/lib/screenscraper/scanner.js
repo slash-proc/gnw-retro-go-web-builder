@@ -1,5 +1,6 @@
 // scanner.js — turn a picked folder (FileList) into a ROM work list.
-import { NON_ROM, IMAGE_EXT, SS_SYSTEM_MAP, systemIdsFor } from "./config.js";
+import { NON_ROM, IMAGE_EXT } from "./config.js";
+import { isKnownSystemFolder, systemIdsFor } from "./systemMap.js";
 import { ext, stem } from "./util.js";
 
 // Detect the system from the folder path. We scan the folders from the
@@ -10,7 +11,7 @@ import { ext, stem } from "./util.js";
 function systemShortcode(parts) {
   for (let i = 0; i < parts.length - 1; i++) {
     const seg = parts[i].toLowerCase();
-    if (SS_SYSTEM_MAP[seg]) return seg;
+    if (isKnownSystemFolder(seg)) return seg;
   }
   return parts.length >= 2 ? parts[parts.length - 2].toLowerCase() : null;
 }
@@ -41,9 +42,14 @@ export function buildPlan(files, { skipExisting = true, forceSys = null } = {}) 
     const sysShort = systemShortcode(parts);
     // Ordered list of candidate systemeids to try (a folder like "gb" may hold
     // GBC games, "msx" may hold MSX2/2+ games…). forceSys overrides everything.
-    const systemeids = forceSys ? [forceSys] : systemIdsFor(sysShort);
+    // BOTH are kept, because the lookup is an ordered ladder and needs each rung's own list:
+    // `derivedIds` is what the FOLDER says, `systemeids` is what the run will actually try first
+    // (a forced system replaces the folder's guess for the manual picker, unchanged). Collapsing
+    // them here would leave rung 2 with nothing of its own to fall back to.
+    const derivedIds = systemIdsFor(sysShort);
+    const systemeids = forceSys ? [forceSys] : derivedIds;
     const systemeid = systemeids[0] ?? null; // primary, for cache/badge/display
-    roms.push({ file: f, parts, sysShort, systemeid, systemeids });
+    roms.push({ file: f, parts, sysShort, systemeid, systemeids, derivedIds });
   }
 
   // Process ROMs in alphabetical order within each directory (natural numeric

@@ -1,4 +1,5 @@
 // config.js — shared constants
+import { systems } from "./systems.js";
 
 export const API = "https://api.screenscraper.fr/api2/";
 
@@ -22,51 +23,22 @@ export const devCreds = () => ({ devid: _dec(_c[0]), devpassword: _dec(_c[1]) })
 export const REGION_PREF = ["wor", "eu", "us", "jp", "fr", "ss"];
 
 // Folder shortcode -> ScreenScraper systemeid.
-export const SS_SYSTEM_MAP = {
-  nes: 3, snes: 4, sfc: 4, gb: [9, 10], gbc: [10, 9], genesis: 1, megadrive: 1, md: 1,
-  sms: 2, gg: 21, sg1000: 109, sg: 109, pce: 31, tg16: 31, wswan: 45, wswanc: 46,
-  wsv: 207, a2600: 26, a7800: 41, amstrad: 65, col: 48, videopac: 104,
-  mini: 211, gw: 52, pico8: 234,
-  msx: [116, 113, 117, 118], msx2: 116, "msx2+": 117, msx2plus: 117,
-  msxturbor: 118, turbor: 118,
-};
+//
+// THE TABLE IS GONE. It was hand-written and inherited verbatim from CoverStudio, which is why
+// `gba` and `tama` were missing and no cover could ever be scraped for them. `screenscraper/
+// systems.js` derives the mapping from ScreenScraper's own `systemesListe.php` instead; what is
+// still hand-written there is an ALIAS table of Retro-Go's short names to ScreenScraper names,
+// never to ids. Re-exported here so every existing importer keeps working.
+export { systemIdsFor, isKnownSystemFolder, systemSourceFor, allSystems } from "./systemMap.js";
 
-// Normalize a folder shortcode to an ordered list of candidate systemeids
-// (tried in order until a game is found). Returns [] for unknown folders.
-export function systemIdsFor(shortcode) {
-  const v = SS_SYSTEM_MAP[shortcode];
-  if (v == null) return [];
-  return Array.isArray(v) ? v.slice() : [v];
-}
-
-// Systems for the manual picker (id = ScreenScraper systemeid). Same ids as
-// SS_SYSTEM_MAP, with readable names; alphabetical for easy scanning.
-export const SYSTEMS = [
-  { id: 65, name: "Amstrad CPC" },
-  { id: 26, name: "Atari 2600" },
-  { id: 41, name: "Atari 7800" },
-  { id: 48, name: "ColecoVision" },
-  { id: 52, name: "Game & Watch" },
-  { id: 9, name: "Game Boy" },
-  { id: 10, name: "Game Boy Color" },
-  { id: 113, name: "MSX" },
-  { id: 116, name: "MSX2" },
-  { id: 117, name: "MSX2+" },
-  { id: 118, name: "MSX Turbo R" },
-  { id: 104, name: "Magnavox Odyssey² / Videopac" },
-  { id: 3, name: "Nintendo (NES)" },
-  { id: 31, name: "PC Engine / TurboGrafx-16" },
-  { id: 234, name: "PICO-8" },
-  { id: 211, name: "Pokémon Mini" },
-  { id: 21, name: "Sega Game Gear" },
-  { id: 2, name: "Sega Master System" },
-  { id: 1, name: "Sega Megadrive / Genesis" },
-  { id: 109, name: "Sega SG-1000" },
-  { id: 4, name: "Super Nintendo (SNES)" },
-  { id: 45, name: "WonderSwan" },
-  { id: 46, name: "WonderSwan Color" },
-  { id: 207, name: "Watara Supervision" },
-];
+// Systems for the manual picker (id = ScreenScraper systemeid), from the checked-in snapshot of
+// the API's own list. Was a hand-curated 26 entries, which meant the offline picker showed a
+// different world from the online one (`loadSystems` in run.js already fetched all 250 when it
+// could). Now they are the same list.
+export const SYSTEMS = systems
+  .filter((s) => s.name)
+  .map((s) => ({ id: s.id, name: s.name }))
+  .sort((a, b) => a.name.localeCompare(b.name));
 
 // Extensions that are NOT ROMs (covers, saves, configs…).
 export const NON_ROM = new Set([

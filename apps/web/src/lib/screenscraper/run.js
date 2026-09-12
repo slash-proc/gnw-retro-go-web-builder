@@ -1,9 +1,11 @@
 // run.js — cover scraping orchestration (no DOM dependencies).
 import { stem, canvasToBlob, downloadBlob, formatBytes, ext } from "./util.js";
-import { SOFTNAME, SINGLE_MEDIA, devCreds, SYSTEMS, IMAGE_EXT } from "./config.js";
+import { SOFTNAME, SINGLE_MEDIA, devCreds, IMAGE_EXT } from "./config.js";
+import { systemById } from "./systems.js";
+import { allSystems } from "./systemMap.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { createHashers, hashFile } from "./hashing.js";
-import { ScreenScraperClient, FatalError, fetchSystems } from "./screenscraper.js";
+import { ScreenScraperClient, FatalError } from "./screenscraper.js";
 import { MixResolver, renderComposition, isValidMix, gameRegionsFor } from "./mix-engine.js";
 import { BUILTIN_MIXES } from "./mixes.js";
 import { buildPlan } from "./scanner.js";
@@ -11,7 +13,6 @@ import { cache } from "./cache.js";
 import { toGWCover, gwOutputName, MAX_BYTES as GW_MAX_BYTES } from "./gw.js";
 import { t } from "./i18n.js";
 
-const SYS_CACHE_KEY = "coverstudio.systems";
 
 function readCreds(ssid, sspassword) {
   const c = { ...devCreds(), softname: SOFTNAME };
@@ -20,6 +21,30 @@ function readCreds(ssid, sspassword) {
     c.sspassword = sspassword?.trim() || "";
   }
   return c;
+}
+
+/**
+ * The name to send as `romnom` for one system.
+ *
+ * ScreenScraper validates the filename's EXTENSION against the extensions that system declares,
+ * and 404s the whole lookup when it does not recognise it -- the same 404 it returns for a game
+ * it has never heard of, which is why this read as "no result". Game & Watch (52) declares only
+ * `mgw`, so every `.gw` file Retro-Go uses was refused, while `.gba` sailed through because 12
+ * declares `gba,bin`.
+ *
+ * So: send the full filename when the system claims that extension, and the bare stem when it
+ * does not. `Ball.gw` 404s; `Ball` is found. Sending the stem up front rather than retrying on
+ * the 404 costs no extra request, which matters on the anonymous rate.
+ *
+ * A system with no declared extensions at all (11 of the 250) gets the stem too: we cannot know
+ * what it accepts, and the stem is the form that works more often.
+ */
+function romnomFor(fileName, systemeid) {
+  const dot = fileName.lastIndexOf(".");
+  if (dot <= 0) return fileName;
+  const ext = fileName.slice(dot + 1).toLowerCase();
+  const declared = systemById(systemeid)?.extensions ?? [];
+  return declared.includes(ext) ? fileName : fileName.slice(0, dot);
 }
 
 async function fetchMediaBlob(client, url, useCache) {
@@ -149,6 +174,105 @@ export async function searchGames({ query, systemeid, ssid, sspassword }) {
     .filter((r) => r.gameId || (r.name && r.name !== "?"));
 }
 
+/**
+ * The lookup ladder: try in order, stop at the first hit, and say which rung answered.
+ *
+ * The owner: "that's the fallback. we'll expand the cover thing at some point but we just go
+ * down the list of reliability until we find something. if originalSystem and/or originalName
+ * are set, they take precedence."
+ *
+ *   1 DECLARED   the manifest's `originalSystem` / `originalName`. Either may be set without the
+ *                other, so each is applied independently: a declared NAME is looked up against
+ *                the folder's systems, a declared SYSTEM is looked up with the filename. Hashes
+ *                ride along, because ScreenScraper matches a known hash ahead of the name -- the
+ *                one place where "declared wins" and "a hash is stronger" do not conflict.
+ *   2 DERIVED    what the app has always done: the folder's systems, `romnomFor(filename)`, and
+ *                the hashes.
+ *   3 SCOPED     `jeuRecherche` inside ONE system: the declared one if there is one, else each
+ *                folder-derived candidate. A hit counts only for that system.
+ *   4 UNSCOPED   `jeuRecherche` with no system at all. This rung CAN BE CONFIDENTLY WRONG:
+ *                "mine sweeper" returns 15 hits across Master System, Atari 2600, Atari ST and
+ *                Atari 8bit, and none of them is the owner's Game & Watch homebrew. It is taken
+ *                rather than dead-ending, which is why every result carries the rung that found
+ *                it and why rung 4 is reported as a guess wherever the cover is shown.
+ *
+ * A SEARCH TERM IS NOT A FILENAME, so rungs 3 and 4 do not use `romnomFor` -- that helper strips
+ * an extension a system does not declare, which is meaningless for a search. They send the
+ * declared name if there is one, else the filename's stem.
+ *
+ * Returns `{ jeu, rung, httpError }`. `jeu` null with no `httpError` is an honest miss.
+ */
+async function lookupGame(client, rom, { h, forceSys, forceName, shouldCancel }) {
+  const derived = rom.derivedIds?.length ? rom.derivedIds : rom.systemeids;
+  const withHashes = (params) => {
+    if (h.size > 0) {
+      params.romtaille = h.size;
+      params.crc = h.crc;
+      params.md5 = h.md5;
+      params.sha1 = h.sha1;
+    }
+    return params;
+  };
+  let httpError = null;
+
+  /** One `jeuInfos` call. Returns the game, or null. Records a non-404 HTTP failure. */
+  const infos = async (systemeid, romnom) => {
+    const r = await client.jeuInfos(withHashes({ systemeid, romtype: "rom", romnom }));
+    if (r.ok) {
+      try { return (await r.json()).response.jeu ?? null; } catch { return null; }
+    }
+    if (r.status !== 404) httpError = r.status;
+    return null;
+  };
+
+  /** One `jeuRecherche`, then the full record by id -- search results are too thin to build a cover from. */
+  const search = async (recherche, systemeid) => {
+    const hits = await client.jeuRecherche({ recherche, ...(systemeid ? { systemeid } : {}) });
+    const first = hits && hits[0];
+    if (!first) return null;
+    const r = await client.jeuInfos({ gameid: first.id ?? first.jeuid });
+    if (!r.ok) return null;
+    try { return (await r.json()).response.jeu ?? null; } catch { return null; }
+  };
+
+  // 1. DECLARED. Skipped entirely when the manifest said nothing, which is the normal case.
+  if (forceSys || forceName) {
+    const ids = forceSys ? [forceSys] : derived;
+    for (const sid of ids) {
+      if (shouldCancel() || httpError) break;
+      const jeu = await infos(sid, forceName || romnomFor(rom.file.name, sid));
+      if (jeu) return { jeu, rung: "declared", httpError: null };
+    }
+  }
+
+  // 2. DERIVED. The folder's own answer, with the filename.
+  for (const sid of derived) {
+    if (shouldCancel() || httpError) break;
+    // Already asked exactly this on rung 1; do not spend the request twice.
+    if (forceSys === sid && !forceName) continue;
+    const jeu = await infos(sid, romnomFor(rom.file.name, sid));
+    if (jeu) return { jeu, rung: "derived", httpError: null };
+  }
+  if (httpError) return { jeu: null, rung: null, httpError };
+
+  const term = forceName || rom.file.name.replace(/\.[^/.]+$/, "");
+
+  // 3. SCOPED SEARCH. The declared system if there is one, else each folder candidate.
+  for (const sid of forceSys ? [forceSys] : derived) {
+    if (shouldCancel()) break;
+    const jeu = await search(term, sid);
+    if (jeu) return { jeu, rung: "scoped", httpError: null };
+  }
+
+  // 4. UNSCOPED SEARCH. The last rung, and the one that can be confidently wrong.
+  if (!shouldCancel()) {
+    const jeu = await search(term, null);
+    if (jeu) return { jeu, rung: "unscoped", httpError: null };
+  }
+
+  return { jeu: null, rung: null, httpError: null };
+}
+
 async function buildCoverFromJeu(client, jeu, { source, mixFile, useCache, fileName }) {
   if (source.startsWith("mix")) {
     const mixXml = source === "mixcustom" ? await mixFile.text() : BUILTIN_MIXES[source];
@@ -210,19 +334,11 @@ export async function fetchAccount(ssid, sspassword) {
 }
 
 export async function loadSystems() {
-  let list = SYSTEMS;
-  try {
-    const obj = JSON.parse(localStorage.getItem(SYS_CACHE_KEY) || "null");
-    if (obj && Array.isArray(obj.list) && obj.list.length) return obj.list;
-  } catch (e) {}
-  try {
-    const apiList = await fetchSystems({ ...devCreds(), softname: SOFTNAME });
-    if (apiList.length) {
-      localStorage.setItem(SYS_CACHE_KEY, JSON.stringify({ list: apiList }));
-      return apiList;
-    }
-  } catch (e) {}
-  return list;
+  // The committed snapshot answers this: no network, no quota, no cache. It used to keep its
+  // OWN `coverstudio.systems` localStorage key -- unscoped, so a /wip/ build wrote it into
+  // production's storage, and with no expiry, so the first fetch was final. Refreshing the
+  // snapshot is `scripts/fetch-ss-systems.mjs`, run deliberately, not per page load.
+  return allSystems();
 }
 
 /**
@@ -236,6 +352,7 @@ export async function loadSystems() {
  * @param {string} opts.sspassword
  * @param {boolean} opts.skipExisting
  * @param {number|null} opts.forceSys
+ * @param {string|null} [opts.forceName] The manifest's `originalName`, used AS GIVEN.
  * @param {object} cb
  * @param {(msg: string) => void} cb.onLog
  * @param {(done: number, total: number) => void} cb.onProgress
@@ -255,6 +372,7 @@ export async function runCovers(opts, cb) {
     sspassword,
     skipExisting,
     forceSys,
+    forceName,
   } = opts;
   const { onLog, onProgress, onStatus, onCover, onMiss, shouldCancel, signal, onAccount } = cb;
 
@@ -265,9 +383,23 @@ export async function runCovers(opts, cb) {
   const client = new ScreenScraperClient({ creds, limiter, signal });
   const fetchImage = makeImageFetcher(client, useCache);
 
-  const q = await client.userQuota();
+  let q = await client.userQuota();
   if (hasAccount && q.status === "bad") {
-    return { error: "badAccount" };
+    // DEGRADE TO ANONYMOUS, DO NOT ABORT. ScreenScraper authenticates on the DEVELOPER
+    // credentials; a user account only raises the quota and thread count. This returned
+    // `{ error: "badAccount" }` before a single ROM was touched, so one stale saved password
+    // stopped every cover for every console -- and because the panel renders any miss as
+    // "Cover not found.", nothing said the login was the reason. The owner hit exactly this:
+    // a username saved long ago, a password he no longer had, and no way to tell from the UI.
+    //
+    // A wrong password is not a reason to refuse work we can do without one. Say so plainly,
+    // drop the login, and carry on at the anonymous rate.
+    onLog(t("badAccount"));
+    onLog(t("anonFallback"));
+    delete creds.ssid;
+    delete creds.sspassword;
+    client.creds = creds;
+    q = await client.userQuota();
   }
   if (q?.perMin) {
     limiter.max = Math.max(1, q.perMin); // full per-minute rate, no safety margin
@@ -325,6 +457,9 @@ export async function runCovers(opts, cb) {
       outputPath: name,
       systemeid: rom.systemeid,
       sysShort: rom.sysShort,
+      // WHICH RUNG FOUND IT. A cover from the unscoped search is a guess; one from a hash match
+      // is not, and they must not look alike to whatever renders this.
+      rung: rom.rung ?? null,
     });
   }
 
@@ -361,45 +496,22 @@ export async function runCovers(opts, cb) {
         const gameKey = `game:${h.md5}`;
 
         let jeu = useCache ? await cache.getGame(gameKey).catch(() => null) : null;
+        // A cached game was found on some earlier run and we no longer know by which rung, so it
+        // is reported as cached rather than claimed to be a hash match.
+        let rung = jeu ? "cached" : null;
         if (!jeu) {
-          let httpError = null;
-          // Try each candidate systemeid in order (e.g. gb -> [9,10],
-          // msx -> [113,116,117]) until one returns a game.
-          for (const sid of rom.systemeids) {
-            if (shouldCancel()) break;
-            const params = {
-              systemeid: sid,
-              romtype: "rom",
-              romnom: rom.file.name,
-            };
-            if (h.size > 0) {
-              params.romtaille = h.size;
-              params.crc = h.crc;
-              params.md5 = h.md5;
-              params.sha1 = h.sha1;
-            }
-            const r = await client.jeuInfos(params);
-            if (r.ok) {
-              try { jeu = (await r.json()).response.jeu; } catch (e) { jeu = null; }
-            } else if (r.status === 404 && h.size === 0) {
-              // For 0-byte files (Homebrew preview), if jeuInfos strict filename match fails, fallback to search
-              const searchRes = await client.jeuRecherche({ recherche: rom.file.name, systemeid: sid });
-              if (searchRes && searchRes.length > 0) {
-                const searchJeu = searchRes[0];
-                const infoRes = await client.jeuInfos({ gameid: searchJeu.id ?? searchJeu.jeuid });
-                if (infoRes.ok) {
-                  try { jeu = (await infoRes.json()).response.jeu; } catch (e) { jeu = null; }
-                }
-              }
-            }
-            if (!r.ok && r.status !== 404) { httpError = r.status; break; }
-            if (jeu) break; // found
-          }
+          const found = await lookupGame(client, rom, { h, forceSys, forceName, shouldCancel });
+          jeu = found.jeu;
+          rung = found.rung;
           if (shouldCancel()) { onLog(t("stopped")); break; }
-          if (httpError) { onLog(t("httpErr", { status: httpError, name: rom.file.name })); reportMiss(rom, "http_error"); fail++; continue; }
+          if (found.httpError) { onLog(t("httpErr", { status: found.httpError, name: rom.file.name })); reportMiss(rom, "http_error"); fail++; continue; }
           if (!jeu) { onLog(t("noResult", { name: rom.file.name })); reportMiss(rom, "no_result"); miss++; continue; }
           if (useCache) await cache.setGame(gameKey, jeu).catch(() => {});
         }
+        // WHICH RUNG ANSWERED, always logged. A rung-4 cover is a guess and a guess that looks
+        // identical to a hash match is the failure this area kept producing.
+        rom.rung = rung;
+        onLog(t("rung_" + rung, { name: rom.file.name, game: gameDisplayName(jeu) }));
 
         // Reflect the game's actual system in the badge (a GB game found in the
         // "gbc" folder shows "Game Boy", not the folder's primary guess).
