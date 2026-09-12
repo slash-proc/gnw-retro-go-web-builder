@@ -16,9 +16,12 @@ export {
   readLittleFsTree,
   readLittleFsDir,
   readLittleFsFileLazy,
+  writeIntoLittleFs,
   type LittlefsModuleOpts,
   type LittlefsDirEntry,
   type LittlefsTreeNode,
+  type LittlefsDirtyBlock,
+  type LittlefsWriteResult,
 } from "./littlefs.js";
 
 export { FrogFsImage, FrogFsError } from "./frogfs.js";
@@ -32,6 +35,15 @@ export {
   type FrogfsHead,
   type FrogfsFile,
 } from "./frogfsParse.js";
+
+export {
+  relocateMappedInFrogfs,
+  relocateWords,
+  MappedRelocError,
+  EXTFLASH_BASE,
+  type MappedSpec,
+  type MappedResult,
+} from "./mappedReloc.js";
 
 export {
   byteswap16,
@@ -53,6 +65,15 @@ export {
 } from "./romLzma.js";
 
 export {
+  resolveInstallPaths,
+  DEFAULT_INSTALL_PATHS,
+  InstallPathError,
+  under,
+  type InstallPaths,
+} from "./installPaths.js";
+
+export {
+  userDest,
   planFlashImage,
   planFlashLayout,
   buildFrogfsFromPlan,

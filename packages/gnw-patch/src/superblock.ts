@@ -14,6 +14,9 @@
 export const GNW_LAYOUT_MAGIC = 0x424c5747; // "GWLB" (LE bytes 47 57 4C 42)
 export const GNW_LAYOUT_VERSION = 2;
 export const SUPERBLOCK_SIZE = 36;
+/** The magic as the manifest publishes it (`firmware.superblock.magic`): the four
+ *  little-endian bytes of GNW_LAYOUT_MAGIC read as ASCII. */
+export const GNW_LAYOUT_MAGIC_ASCII = "GWLB";
 
 export const FLAG_FROGFS_OFFSET = 1 << 0;
 export const FLAG_EXTFLASH_SIZE = 1 << 1;
@@ -53,6 +56,54 @@ export interface SuperblockFields {
   crc32: number;
 }
 
+/**
+ * The superblock contract as a firmware release *declares* it, verbatim from
+ * `manifest.json`'s `firmware.superblock` (docs/FIRMWARE_DIST.md). This is the only
+ * machine-readable statement of the field layout we are about to overwrite.
+ */
+export interface SuperblockDeclaration {
+  /** ASCII, e.g. "GWLB". */
+  magic: string;
+  version: number;
+  structSize: number;
+}
+
+/** What THIS build of the patcher is able to write. */
+export const SUPPORTED_DECLARATION: SuperblockDeclaration = {
+  magic: GNW_LAYOUT_MAGIC_ASCII,
+  version: GNW_LAYOUT_VERSION,
+  structSize: SUPERBLOCK_SIZE,
+};
+
+/**
+ * Refuse to patch a firmware whose manifest declares a superblock contract this patcher
+ * was not built to write. A GNW_LAYOUT_VERSION bump, a struct that grew a field, or a
+ * renamed magic all change where the bytes go — writing our field layout anyway would
+ * corrupt a user's firmware silently. This is a hard refusal, never a warning: there is
+ * no partial credit for writing most of a struct to the wrong offsets.
+ *
+ * Throws SuperblockError naming the exact field that disagrees.
+ */
+export function assertSuperblockDeclaration(decl: SuperblockDeclaration): void {
+  if (!decl || typeof decl !== "object")
+    throw new SuperblockError("firmware manifest declares no superblock contract");
+  if (decl.magic !== GNW_LAYOUT_MAGIC_ASCII)
+    throw new SuperblockError(
+      `unsupported superblock magic: manifest declares ${JSON.stringify(decl.magic)}, ` +
+        `this patcher writes "${GNW_LAYOUT_MAGIC_ASCII}"`,
+    );
+  if (decl.version !== GNW_LAYOUT_VERSION)
+    throw new SuperblockError(
+      `unsupported superblock version: manifest declares ${decl.version}, ` +
+        `this patcher writes v${GNW_LAYOUT_VERSION} — update the installer before flashing`,
+    );
+  if (decl.structSize !== SUPERBLOCK_SIZE)
+    throw new SuperblockError(
+      `unsupported superblock structSize: manifest declares ${decl.structSize} bytes, ` +
+        `this patcher writes ${SUPERBLOCK_SIZE} — update the installer before flashing`,
+    );
+}
+
 export interface SuperblockPatch {
   /** FrogFS base = 0x90000000 + frogfsOffset (4 KiB-aligned). Sets FLAG_FROGFS_OFFSET. */
   frogfsOffset: number;
@@ -65,6 +116,13 @@ export interface SuperblockPatch {
   /** LittleFS partition size (bytes); omit to let the device use linker defaults.
    * Host derives this from the detected chip size minus the FrogFS region. */
   littlefsLength?: number;
+  /**
+   * The firmware manifest's `firmware.superblock` declaration. When present it is asserted
+   * against this patcher BEFORE anything is located or written (see
+   * assertSuperblockDeclaration), and it also pins the candidate filter used to locate the
+   * struct. Omitted only by callers that have no manifest (tests, raw local blobs).
+   */
+  declared?: SuperblockDeclaration;
 }
 
 // ── standard reflected IEEE CRC-32 (== firmware crc32_le(0, …)) ───────────────
@@ -94,7 +152,17 @@ function u32(dv: DataView, off: number): number {
  * boundaries and validating version + struct_size. Returns its byte offset.
  * Throws if zero or more than one valid candidate is found.
  */
-export function locateSuperblock(image: Uint8Array): number {
+export function locateSuperblock(
+  image: Uint8Array,
+  declared: SuperblockDeclaration | undefined = undefined,
+): number {
+  // The magic alone is ambiguous: the same 4 bytes occur in the instruction stream
+  // (docs/FIRMWARE_DIST.md says so). A candidate only survives if it is 4-byte aligned,
+  // its `version` is one this patcher understands, and its `struct_size` is at least the
+  // struct we know how to write. With a manifest declaration in hand both are pinned to
+  // the declared values exactly, which is stricter still.
+  const wantVersion = declared?.version;
+  const wantStructSize = declared?.structSize;
   const hits: number[] = [];
   for (let i = 0; i + SUPERBLOCK_SIZE <= image.length; i += 4) {
     if (
@@ -106,9 +174,13 @@ export function locateSuperblock(image: Uint8Array): number {
       const dv = new DataView(image.buffer, image.byteOffset + i, SUPERBLOCK_SIZE);
       const version = dv.getUint16(OFF_VERSION, true);
       const structSize = dv.getUint16(OFF_STRUCT_SIZE, true);
-      if (version >= 1 && version <= GNW_LAYOUT_VERSION && structSize >= SUPERBLOCK_SIZE) {
-        hits.push(i);
-      }
+      const versionOk =
+        wantVersion !== undefined
+          ? version === wantVersion
+          : version >= 1 && version <= GNW_LAYOUT_VERSION;
+      const sizeOk =
+        wantStructSize !== undefined ? structSize === wantStructSize : structSize >= SUPERBLOCK_SIZE;
+      if (versionOk && sizeOk) hits.push(i);
     }
   }
   if (hits.length === 0) throw new SuperblockError("layout superblock not found (no GWLB magic)");
@@ -148,7 +220,9 @@ export function superblockCrcValid(image: Uint8Array, off = locateSuperblock(ima
  * does not mutate the input.
  */
 export function patchSuperblock(image: Uint8Array, patch: SuperblockPatch): Uint8Array {
-  const off = locateSuperblock(image);
+  // Assert the manifest's declared contract FIRST — before locating, before writing a byte.
+  if (patch.declared !== undefined) assertSuperblockDeclaration(patch.declared);
+  const off = locateSuperblock(image, patch.declared);
   const out = image.slice();
   const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
 

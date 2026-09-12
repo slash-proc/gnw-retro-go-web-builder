@@ -353,7 +353,7 @@ const CRC_TABLE = (() => {
   return t;
 })();
 
-function crc32(data: Uint8Array): number {
+export function crc32(data: Uint8Array): number {
   let c = 0xffffffff;
   for (let i = 0; i < data.length; i++)
     c = CRC_TABLE[(c ^ data[i]) & 0xff] ^ (c >>> 8);

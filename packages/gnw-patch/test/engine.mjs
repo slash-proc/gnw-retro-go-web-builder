@@ -32,11 +32,28 @@ function compress(bytes) {
 // (0x08032000.bin/elf, +73728 -> 200 KiB, leaving 0x08032000 free for the SD bootloader).
 // The bootloader case is the one that shipped broken — it was built from the DEFAULT blob
 // and symbol table (46-47 addresses differ, incl. read_buttons) and extended to 256 KiB.
+//
+// Each model also runs with every patch option ON as well as all OFF. The
+// options-on cases were missing, which left every `if (a.<flag>)` branch in
+// mario.ts/zelda.ts unpinned — their bodies could be deleted without any check
+// noticing. Keep these in sync with oracle.py's MODELS arg-sets.
+const OPTSETS = {
+  mario: {
+    "": {},
+    _opts: { disable_sleep: true, sleep_time: 120, no_save: true, no_mario_song: true, no_sleep_images: true, no_smb2: true },
+  },
+  zelda: {
+    "": {},
+    _opts: { no_la: true, no_sleep_images: true, no_second_beep: true, no_hour_tune: true },
+  },
+};
+
 let failed = 0;
 for (const model of ["mario", "zelda"]) {
+ for (const [optsuffix, opts] of Object.entries(OPTSETS[model])) {
   for (const [suffix, bootloader] of [["", false], ["_boot", true]]) {
   const vendor = path.join(REPO, "packages/gnw-patch/vendor");
-  const key = `${model}${suffix}`;
+  const key = `${model}${suffix}${optsuffix}`;
   const ref = JSON.parse(readFileSync(path.join(here, `ref/${key}_summary.json`)));
   const input = {
     model,
@@ -45,7 +62,7 @@ for (const model of ["mario", "zelda"]) {
     symbols: JSON.parse(readFileSync(path.join(vendor, `symbols_${model}${suffix}.json`))),
     novel: new Uint8Array(readFileSync(path.join(vendor, `novel_${model}${suffix}.bin`))),
     compress,
-    options: bootloader ? { bootloader: true } : undefined,
+    options: { ...opts, ...(bootloader ? { bootloader: true } : {}) },
   };
   const t0 = Date.now();
   let res;
@@ -66,6 +83,7 @@ for (const model of ["mario", "zelda"]) {
   );
   if (!intOk || !extOk || !freeOk) failed++;
   }
+ }
 }
 
 if (failed) {

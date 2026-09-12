@@ -59,10 +59,23 @@ fw_mod.lzma_compress = _recording_lzma
 BINARIES = GNW / "gnw_patch" / "binaries"
 BACKUPS = REPO / "backup"
 
+# Each model gets two arg-sets: everything OFF (the default patch) and everything
+# ON. Only the OFF set was covered originally, which left every `if (a.<flag>)`
+# branch in mario.ts/zelda.ts unexercised -- deleting any one of their bodies was
+# invisible to this suite. Keep both sets in sync with the TS side in engine.mjs.
 MODELS = {
-    "mario": (MarioGnW, Namespace(disable_sleep=False, sleep_time=None, no_save=False,
-              no_mario_song=False, no_sleep_images=False, no_smb2=False, compression_ratio=1.4)),
-    "zelda": (ZeldaGnW, Namespace(no_la=False, no_sleep_images=False, no_second_beep=False, no_hour_tune=False)),
+    "mario": (MarioGnW, {
+        "": Namespace(disable_sleep=False, sleep_time=None, no_save=False,
+                      no_mario_song=False, no_sleep_images=False, no_smb2=False,
+                      compression_ratio=1.4),
+        "_opts": Namespace(disable_sleep=True, sleep_time=120, no_save=True,
+                           no_mario_song=True, no_sleep_images=True, no_smb2=True,
+                           compression_ratio=1.4),
+    }),
+    "zelda": (ZeldaGnW, {
+        "": Namespace(no_la=False, no_sleep_images=False, no_second_beep=False, no_hour_tune=False),
+        "_opts": Namespace(no_la=True, no_sleep_images=True, no_second_beep=True, no_hour_tune=True),
+    }),
 }
 
 # BOTH build variants, mirroring gnwmanager's _common_prepare branch on `bootloader`:
@@ -78,7 +91,8 @@ VARIANTS = {
 }
 
 summary_all = {}
-for name, (cls, args) in MODELS.items():
+for name, (cls, argsets) in MODELS.items():
+  for optsuffix, args in argsets.items():
     for suffix, (variant, extend_len) in VARIANTS.items():
         bin_dir = BINARIES / name
         patch_data = (bin_dir / f"{variant}.bin").read_bytes()
@@ -97,7 +111,7 @@ for name, (cls, args) in MODELS.items():
 
         int_bytes = bytes(device.internal)
         ext_bytes = bytes(device.external)
-        key = f"{name}{suffix}"
+        key = f"{name}{suffix}{optsuffix}"
         (REF / f"{key}_internal.bin").write_bytes(int_bytes)
         (REF / f"{key}_external.bin").write_bytes(ext_bytes)
         summary = {

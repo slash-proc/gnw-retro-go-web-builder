@@ -18,9 +18,12 @@ export {
   locateSuperblock,
   readSuperblock,
   superblockCrcValid,
+  assertSuperblockDeclaration,
+  SUPPORTED_DECLARATION,
   crc32 as superblockCrc32,
   SuperblockError,
   GNW_LAYOUT_MAGIC,
+  GNW_LAYOUT_MAGIC_ASCII,
   GNW_LAYOUT_VERSION,
   SUPERBLOCK_SIZE,
   FLAG_FROGFS_OFFSET,
@@ -29,6 +32,7 @@ export {
   FLAG_LITTLEFS_LENGTH,
   type SuperblockFields,
   type SuperblockPatch,
+  type SuperblockDeclaration,
 } from "./superblock.js";
 
 export type PatchModel = "mario" | "zelda";

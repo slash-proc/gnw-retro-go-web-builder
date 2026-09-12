@@ -431,3 +431,193 @@ export async function readLittleFsFileLazy(
   M._lfs_w_unmount();
   return out;
 }
+
+/** One block of the partition whose bytes changed, in builder (block 0 first) numbering. */
+export interface LittlefsDirtyBlock {
+  block: number;
+  data: Uint8Array;
+}
+
+export interface LittlefsWriteResult {
+  /** Only the blocks littlefs actually rewrote. Everything else on the device is untouched. */
+  dirty: LittlefsDirtyBlock[];
+  /** Blocks pulled from the device to satisfy the mount and the writes. */
+  fetched: number[];
+  /** Files the device already held byte for byte, so they were not rewritten. See the skip
+   *  inside `writeIntoLittleFs`: a rewrite is copy-on-write and costs blocks even when the
+   *  content is identical. */
+  skipped: number;
+}
+
+/**
+ * Add files to an EXISTING littlefs partition without rebuilding it.
+ *
+ * The partition also holds the user's saves, so it cannot be reformatted to deliver a core
+ * that arrived after the firmware install. Instead we mount the device's own image lazily
+ * (the same missing-block protocol `readLittleFsTree` uses for reads), write into it, and
+ * report the blocks that changed. littlefs is copy-on-write, so that set is small: the
+ * metadata pair along each path plus the blocks holding the new data.
+ *
+ * `blockSize` is the device's erase block (`info().minEraseSizeBytes`), which is also what
+ * `lfsBrowser.ts` mounts with -- so one dirty block is exactly one erasable unit and every
+ * write-back offset is erase-aligned by construction. Erasing at an unaligned offset hangs
+ * the device mid-erase, which is why that identity is load-bearing rather than incidental.
+ *
+ * A block the device was never asked for stays at its `alloc_buf` fill (0xFF) in BOTH the
+ * baseline and the working image, so it cannot be mistaken for a change; a block fetched
+ * mid-write is folded into the baseline at fetch time for the same reason.
+ *
+ * Re-entrancy: a write that trips a missing block has already progged into the image, and
+ * littlefs's in-RAM state is mid-operation, so it is NOT resumed. The block is fetched and
+ * the whole batch is retried from a fresh `lfs_w_mount_retry()`, which re-reads the last
+ * committed superblock out of the same buffer. Every file write is `O_TRUNC`, so replaying
+ * the batch is idempotent, and each retry strictly grows the loaded set, so it terminates.
+ */
+export async function writeIntoLittleFs(
+  blockSize: number,
+  blockCount: number,
+  filesIn: Map<string, Uint8Array>,
+  fetchBlock: (block: number) => Promise<Uint8Array>,
+  opts?: LittlefsModuleOpts,
+): Promise<LittlefsWriteResult> {
+  const M = await getModule(opts);
+  check(M._lfs_w_init(blockSize, blockCount));
+
+  const loaded = new Set<number>();
+  let baseline = new Uint8Array(blockSize * blockCount).fill(0xff);
+
+  const load = async (block: number): Promise<void> => {
+    if (block < 0 || block >= blockCount) throw new LittleFsError(`Requested block ${block} out of bounds (${blockCount})`);
+    if (loaded.has(block)) throw new LittleFsError(`Block ${block} reported missing after it was loaded`);
+    const data = await fetchBlock(block);
+    if (data.length !== blockSize) throw new LittleFsError("Fetched block size mismatch.");
+    M.HEAPU8.set(data, M._lfs_w_image() + block * blockSize);
+    baseline.set(data, block * blockSize);
+    M._lfs_w_mark_loaded(block);
+    loaded.add(block);
+  };
+
+  // Take the missing block off a failed call, or rethrow if the failure was something else.
+  const missingOf = (err: number): number => {
+    const missing = M._lfs_w_missing_block();
+    if (missing < 0 || loaded.has(missing)) throw new LittleFsError(err);
+    return missing;
+  };
+
+  const mount = async (): Promise<void> => {
+    while (true) {
+      const err = M._lfs_w_mount_retry();
+      if (err >= 0) return;
+      await load(missingOf(err));
+    }
+  };
+
+  await mount();
+
+  // SKIP WHAT THE DEVICE ALREADY HAS, byte for byte.
+  //
+  // littlefs is copy-on-write: rewriting a file allocates new blocks for its data, so every one
+  // of them comes back dirty even when the content is identical. Measured on a device-shaped
+  // 8 MiB partition, rewriting 483 KiB of unchanged files produced 1677 dirty blocks, 6.55 MiB
+  // of flash writes, and the amplification grows with how full the partition is. That is the
+  // "[176/1561]" an install showed for a handful of cores.
+  //
+  // Reading first costs block fetches, but those are reads on a path that is about to mount and
+  // read anyway, and a skipped file costs no erase, no program and no wear.
+  // Same replay discipline as the write loop below, and for the same reason documented in the
+  // Re-entrancy note: a call that trips a missing block leaves littlefs mid-operation, so it is
+  // not resumed -- the block is fetched, the filesystem is remounted, and the WHOLE pass runs
+  // again. A first version retried each file in place instead and produced `littlefs error -84`
+  // (LFS_ERR_CORRUPT) on a real device, because reading on from mid-operation state is exactly
+  // what that note says not to do.
+  let files = filesIn;
+  const toWrite = new Map<string, Uint8Array>();
+  while (true) {
+    toWrite.clear();
+    let missing = -1;
+    for (const [path, data] of files) {
+      const abs = path.startsWith("/") ? path : "/" + path;
+      const len = withCStr(M, abs, (p) => M._lfs_w_read(p));
+      if (len < 0) {
+        const m = M._lfs_w_missing_block();
+        // Not a fault: most often the file simply is not there, which is the normal case for a
+        // new core and means it gets written.
+        if (m < 0 || loaded.has(m)) { toWrite.set(path, data); continue; }
+        missing = m;
+        break;
+      }
+      let same = len === data.length;
+      if (same) {
+        const dptr = M._lfs_w_filedata();
+        const cur = M.HEAPU8.subarray(dptr, dptr + len);
+        for (let i = 0; i < len; i++) {
+          if (cur[i] !== data[i]) { same = false; break; }
+        }
+      }
+      if (!same) toWrite.set(path, data);
+    }
+    if (missing < 0) break;
+    await load(missing);
+    await mount();
+  }
+  const skipped = files.size - toWrite.size;
+  files = toWrite;
+
+  const dirs = new Set<string>();
+  for (const path of files.keys()) {
+    const parts = path.split("/").filter(Boolean);
+    for (let i = 1; i < parts.length; i++) dirs.add("/" + parts.slice(0, i).join("/"));
+  }
+  const dirList = [...dirs].sort();
+
+  // Replay the whole batch on every fetch; see the re-entrancy note above.
+  while (true) {
+    let missing = -1;
+    for (const dir of dirList) {
+      const err = withCStr(M, dir, (p) => M._lfs_w_mkdir(p));
+      if (err < 0) {
+        missing = missingOf(err);
+        break;
+      }
+    }
+    if (missing < 0) {
+      for (const [path, data] of files) {
+        const dptr = M._malloc(data.length || 1);
+        let err: number;
+        try {
+          M.HEAPU8.set(data, dptr);
+          const abs = path.startsWith("/") ? path : "/" + path;
+          err = withCStr(M, abs, (p) => M._lfs_w_write(p, dptr, data.length));
+        } finally {
+          M._free(dptr);
+        }
+        if (err < 0) {
+          missing = missingOf(err);
+          break;
+        }
+      }
+    }
+    if (missing < 0) break;
+    await load(missing);
+    await mount();
+  }
+
+  check(M._lfs_w_unmount());
+
+  const ptr = M._lfs_w_image();
+  const dirty: LittlefsDirtyBlock[] = [];
+  for (let b = 0; b < blockCount; b++) {
+    const off = b * blockSize;
+    const cur = M.HEAPU8.subarray(ptr + off, ptr + off + blockSize);
+    let same = true;
+    for (let i = 0; i < blockSize; i++) {
+      if (cur[i] !== baseline[off + i]) {
+        same = false;
+        break;
+      }
+    }
+    if (!same) dirty.push({ block: b, data: cur.slice() });
+  }
+
+  return { dirty, fetched: [...loaded].sort((a, b) => a - b), skipped };
+}

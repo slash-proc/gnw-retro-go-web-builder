@@ -19,6 +19,70 @@
 /** Progress callback: bytes done out of total, called after each transfer chunk. */
 export type ProgressFn = (done: number, total: number) => void;
 
+/**
+ * A BULK transfer's progress, reported to one process-wide observer regardless of whether the
+ * caller passed an `onProgress` of its own.
+ *
+ * Why this exists at L1 rather than per-flow: the app wants one indicator covering EVERY read
+ * and write, including the ones no flow reports (a scan, a log read, an lfs browse). Per-flow
+ * reporting (`engine/flasher.ts`, `installProgress`) can only ever cover the flows that opted in.
+ *
+ * Why it costs nothing: `readMemory`/`writeMemory` already chunk and already compute
+ * `(done, total)` for `onProgress`. This is the same arithmetic handed to a second listener --
+ * a plain in-process call, no extra USB transaction. Adding per-chunk device traffic here would
+ * repeat the read-back-verify regression documented in CLAUDE.md.
+ *
+ * Why only bulk: a bulk transfer is a unit of work with a KNOWN size; `readWord`/`writeWord` is
+ * a poke with no total. That split is also exactly what excludes the liveness poll, which pings
+ * with `readWord` alone (`engine/flasher.ts`'s `pingTarget`/`isStubAlive`) -- so the heartbeat
+ * cannot move a bar that only bulk transfers feed.
+ */
+export type TransferEvent = { kind: "read" | "write"; done: number; total: number };
+export type TransferObserver = (ev: TransferEvent) => void;
+
+let transferObserver: TransferObserver | null = null;
+
+/** Install (or clear, with `null`) the process-wide bulk-transfer observer. */
+export function setTransferObserver(fn: TransferObserver | null): void {
+  transferObserver = fn;
+}
+
+/** Never let a listener's throw break a device transfer. */
+function emitTransfer(kind: "read" | "write", done: number, total: number): void {
+  if (!transferObserver) return;
+  try {
+    transferObserver({ kind, done, total });
+  } catch {
+    /* an observer is a UI mirror; it must never fail a flash */
+  }
+}
+
+/**
+ * Is this error WebUSB telling us the USBDevice handle is gone?
+ *
+ * Chromium throws a DOMException named `InvalidStateError` with the message "The device must
+ * be opened first" from `transferIn`/`transferOut`/`controlTransfer*` once the handle has been
+ * closed -- either by us (`probe.dispose()`, see device.svelte.ts's `_teardownConnection`) or
+ * by the probe re-enumerating. NOTHING re-opens a handle in that state: every subsequent
+ * transfer through the same object throws the identical error forever.
+ *
+ * That makes it categorically NOT retryable. A retry loop that treats it as ordinary transport
+ * flakiness spins its whole budget -- and, on the flash path, costs a device-resetting stub
+ * reboot per attempt -- for a socket that can never answer. `FlashVerifyError.retryable` is the
+ * same judgement made for a different reason (see gnw-flasher).
+ *
+ * Matched by name first, message second: `NotFoundError` ("The device was disconnected") is the
+ * sibling Chromium raises when the device is physically gone, which is equally terminal for the
+ * handle. Both are recovered from by re-attaching, never by trying again on the dead object.
+ */
+export function isDeadHandleError(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const name = (e as { name?: unknown }).name;
+  if (name === "InvalidStateError" || name === "NotFoundError") return true;
+  const msg = (e as { message?: unknown }).message;
+  return typeof msg === "string" && /must be opened first|device was disconnected/i.test(msg);
+}
+
 export interface SwdTransport {
   connect(): Promise<void>; // navigator.usb.requestDevice gesture (caller-owned)
   readMemory(addr: number, len: number, onProgress?: ProgressFn): Promise<Uint8Array>;
@@ -102,10 +166,14 @@ abstract class BaseTransport implements SwdTransport {
   async readMemory(addr: number, len: number, onProgress?: ProgressFn): Promise<Uint8Array> {
     assertWordAligned(addr, len);
     const out = new Uint8Array(len);
+    // Announce at 0 so the indicator appears when the transfer STARTS, not when its first
+    // chunk lands -- a 16 MB read would otherwise show nothing for its first chunk's latency.
+    emitTransfer("read", 0, len);
     for (let off = 0; off < len; off += this.CHUNK) {
       const n = Math.min(this.CHUNK, len - off);
       out.set(await this._readMemRaw(addr + off, n), off);
       onProgress?.(off + n, len);
+      emitTransfer("read", off + n, len);
       if (len > this.CHUNK) await new Promise((r) => setTimeout(r, 10));
     }
     return out;
@@ -113,10 +181,12 @@ abstract class BaseTransport implements SwdTransport {
 
   async writeMemory(addr: number, data: Uint8Array, onProgress?: ProgressFn): Promise<void> {
     assertWordAligned(addr, data.length);
+    emitTransfer("write", 0, data.length);
     for (let off = 0; off < data.length; off += this.CHUNK) {
       const n = Math.min(this.CHUNK, data.length - off);
       await this._writeMemRaw(addr + off, data.subarray(off, off + n));
       onProgress?.(off + n, data.length);
+      emitTransfer("write", off + n, data.length);
       if (data.length > this.CHUNK) await new Promise((r) => setTimeout(r, 10));
     }
   }

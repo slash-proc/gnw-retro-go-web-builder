@@ -20,6 +20,20 @@ const HEAD_SIZE = 12;
 const HASH_SIZE = 8;
 const DIR_SIZE = 8;
 const FILE_SIZE = 16;
+/**
+ * `child_count` encodes the entry kind, and all three cases must be told apart:
+ * `< 0xff00` is a directory holding that many children, `== 0xff00` an uncompressed
+ * file, `> 0xff00` a COMPRESSED file (frogfs_pico8_ro.py's `_is_dir`/
+ * `_is_file_uncompressed`/`_is_compressed`).
+ *
+ * Only the first two were distinguished here, so a compressed entry fell into the
+ * directory branch and its 0xff01 was read as a child count -- 65281 children, whose
+ * name offset lands far past the buffer, surfacing as "entry name past end of buffer".
+ * A real condition reported as a corrupt image. Our builder cannot emit one (retro-go-sd
+ * compiles only `decomp_raw.c`, so the raw container is all there is), but an image from
+ * elsewhere can, and a `mapped` artifact must be refused for being compressed rather
+ * than for a parse that fell over.
+ */
 const FILE_CHILD_COUNT = 0xff00;
 
 const align = (n: number): number => ((n + 3) >>> 2) << 2;
@@ -110,6 +124,9 @@ export function parseFrogfs(buf: Uint8Array): { head: FrogfsHead; files: FrogfsF
     const parent = dv.getUint32(offs, true);
     const childCount = dv.getUint16(offs + 4, true);
     const segSz = dv.getUint8(offs + 6);
+    if (childCount > FILE_CHILD_COUNT) {
+      throw new FrogFsParseError(`compressed entry at ${offs} (child_count 0x${childCount.toString(16)})`);
+    }
     const isFile = childCount === FILE_CHILD_COUNT;
     let dataOffs = 0;
     let dataSize = 0;

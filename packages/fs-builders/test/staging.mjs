@@ -59,6 +59,10 @@ ok(isMdRom("roms/md/sonic.md"), "isMdRom roms/md/sonic.md");
 ok(!isMdRom("roms/nes/smb.nes"), "!isMdRom roms/nes/smb.nes");
 ok(!isMdRom("roms/md/.DS_Store"), "!isMdRom roms/md/.DS_Store");
 ok(!isMdRom("bios/md/x.md"), "!isMdRom bios/md/x.md (not roms)");
+// Sidecars that live in roms/md but are NOT roms must not be byteswapped.
+ok(!isMdRom("roms/md/sonic.mcf"), "!isMdRom roms/md/sonic.mcf (cheat file)");
+ok(!isMdRom("roms/md/sonic.ggcodes"), "!isMdRom roms/md/sonic.ggcodes");
+ok(!isMdRom("roms/md/sonic.pceplus"), "!isMdRom roms/md/sonic.pceplus");
 
 ok(shouldSkipRomsFile("roms/nes/box.png"), "skip roms/nes/box.png");
 ok(shouldSkipRomsFile("roms/gb/scan.JPG"), "skip roms/gb/scan.JPG (case-insensitive)");
@@ -67,6 +71,14 @@ ok(shouldSkipRomsFile("covers/nes/box.png"), "skip covers/nes/box.png (not .img)
 ok(!shouldSkipRomsFile("covers/nes/box.img"), "!skip covers/nes/box.img (.img kept)");
 ok(!shouldSkipRomsFile("roms/pico8/celeste.p8.png"), "!skip pico8 .p8.png cart");
 ok(!shouldSkipRomsFile("roms/pico8/jelpi.png"), "!skip pico8 .png cart");
+// The skip list applies ONLY under roms/ and covers/ — a .png anywhere else is
+// content (fonts, bios blobs, UI assets) and must survive.
+ok(!shouldSkipRomsFile("fonts/logo.png"), "!skip fonts/logo.png (outside roms/covers)");
+ok(!shouldSkipRomsFile("bios/gb_bios.png"), "!skip bios/gb_bios.png (outside roms/covers)");
+ok(!shouldSkipRomsFile("logo.png"), "!skip a root-level png");
+// Only the FINAL extension decides — a dotted stem must not be misread.
+ok(!shouldSkipRomsFile("roms/nes/my.game.nes"), "!skip roms/nes/my.game.nes (dotted stem)");
+ok(shouldSkipRomsFile("roms/nes/my.game.png"), "skip roms/nes/my.game.png (dotted stem)");
 
 ok(isPico8Cartridge("roms/pico8/celeste.p8"), "pico8 .p8");
 ok(isPico8Cartridge("roms/pico8/celeste.p8.png"), "pico8 .p8.png");
@@ -84,14 +96,19 @@ const staged = stageFrogfsTree([
   { path: "roms/nes/.DS_Store", data: fill(4, 9) }, // discarded
   { path: "roms/nes/smb.nes", data: fill(16, 10) }, // kept as-is
   { path: "roms/pico8/celeste.p8.png", data: fill(20, 11) }, // kept (cart)
+  { path: "roms/md/sonic.mcf", data: fill(12, 12) }, // kept, NOT byteswapped
+  { path: "fonts/logo.png", data: fill(6, 13) }, // kept (png outside roms/covers)
 ]);
 const byPath = Object.fromEntries(staged.map((f) => [f.path, f.data]));
-ok(staged.length === 3, `kept 3 of 5 (got ${staged.length})`);
+ok(staged.length === 5, `kept 5 of 7 (got ${staged.length})`);
 ok(!("roms/nes/box.png" in byPath), "png dropped");
 ok(!("roms/nes/.DS_Store" in byPath), ".DS_Store dropped");
 ok("roms/pico8/celeste.p8.png" in byPath, "pico8 cart kept");
 const sw = byPath["roms/md/sonic.md"];
 ok(sw && sw[0] === md[1] && sw[1] === md[0], "md rom byteswapped");
+const mcf = byPath["roms/md/sonic.mcf"];
+ok(mcf && mcf.every((b, i) => b === fill(12, 12)[i]), "roms/md/*.mcf kept verbatim (not byteswapped)");
+ok("fonts/logo.png" in byPath, "png outside roms/covers kept");
 
 if (fails) {
   console.error(`\nstaging validation FAILED (${fails})`);

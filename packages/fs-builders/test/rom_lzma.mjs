@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import createLiblzma from "../../gnw-patch/vendor/lzma-wasm/liblzma.mjs";
-import { compressPayloadLzma, packStagedRoms, byteswap16 } from "../dist/index.js";
+import { compressPayloadLzma, packStagedRoms, byteswap16, modeForPath } from "../dist/index.js";
 
 const Module = await createLiblzma();
 const lzmaRaw = (bytes) => {
@@ -94,6 +94,37 @@ for (const c of cases) {
     const ref = new Uint8Array(readFileSync(`${base}out/${c.name}.bin`));
     ok(got !== null && eq(got, ref), `${c.name} (${c.mode}${c.gbSpeed ? " speed" : ""}${c.byteswapMd ? " md-swap" : ""}) ${ref.length}B`);
   }
+}
+
+// ── A2. modeForPath: every row of the mapping table, plus near-misses ────────
+// packStagedRoms alone only reaches a handful of these, so most of the table was
+// unpinned: whole rows could be deleted or re-pointed unnoticed.
+console.log("modeForPath:");
+for (const [rel, want] of [
+  ["nes/smb.nes", "nes"], ["nes/disk.fds", "nes"], ["nes/tune.nsf", "nes"],
+  ["pce/game.pce", "pce"],
+  ["gb/tetris.gb", "gb"], ["gbc/oracle.gbc", "gb"], ["gb/x.gbc", "gb"], ["gbc/x.gb", "gb"],
+  ["sms/alex.sms", "sms_md"], ["gg/sonic.gg", "sms_md"],
+  ["md/sonic.md", "sms_md"], ["md/sonic.gen", "sms_md"], ["md/sonic.bin", "sms_md"],
+  ["col/donkey.col", "col"], ["sg/game.sg", "sg"],
+  ["wsv/game.bin", "wsv"], ["wsv/game.sv", "wsv"],
+  ["a2600/game.a26", "a2600"], ["a2600/game.bin", "a2600"],
+  ["a7800/game.a78", "a7800"], ["a7800/game.bin", "a7800"],
+  ["videopac/game.bin", "videopac"],
+  ["msx/game.rom", "msx_rom"], ["msx/game.mx1", "msx_rom"], ["msx/game.mx2", "msx_rom"],
+  // near-misses: right system, wrong extension → no compression
+  ["nes/box.png", null], ["pce/game.bin", null], ["gb/save.srm", null],
+  ["sms/game.gg", null], ["gg/game.sms", null], ["md/game.smd", null],
+  ["col/game.bin", null], ["sg/game.bin", null], ["wsv/game.ws", null],
+  ["a2600/game.a78", null], ["a7800/game.a26", null], ["videopac/game.rom", null],
+  ["msx/game.dsk", null], ["msx/game.cas", null],
+  // wrong system entirely, and degenerate inputs
+  ["snes/game.sfc", null], ["unknown/game.nes", null], ["", null], ["smb.nes", null],
+  // case-insensitive extension matching
+  ["nes/SMB.NES", "nes"], ["md/SONIC.MD", "sms_md"],
+]) {
+  const got = modeForPath(rel);
+  ok(got === want, `modeForPath(${JSON.stringify(rel)}) = ${JSON.stringify(got)}`);
 }
 
 // ── B. packStagedRoms behavior ───────────────────────────────────────────────

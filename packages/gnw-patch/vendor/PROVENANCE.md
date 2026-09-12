@@ -34,11 +34,10 @@
   flashed there by `engine/ofw.ts` after the patched internal image.
   gnwmanager downloads this at runtime (`cli/_bootloader.py`, resolving `latest`);
   we pin a vendored copy instead — the browser can't fetch it directly anyway
-  (GitHub release assets send no CORS headers, and `infra/cors-proxy` is
-  deliberately locked to one repo + a two-asset allowlist), and a floating
-  `latest` would make a byte-exactness-validated pipeline non-reproducible for
-  a binary we flash to the device. To bump it: download the new asset here and
-  update the version + hash above.
+  (GitHub release assets send no CORS headers), and a floating `latest` would
+  make a byte-exactness-validated pipeline non-reproducible for a binary we
+  flash to the device. To bump it: download the new asset here and update the
+  version + hash above.
 
 Regenerate the symbol tables with `tools/extract_symbols.py` (pure stdlib; use
 `--verify` to confirm it still reproduces an existing file exactly).

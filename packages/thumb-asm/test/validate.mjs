@@ -66,19 +66,50 @@ function buildInputs() {
   add("sub sp, #6");
   add("sub sp, #0x200");
 
-  // ldr.w Rt, [pc, #imm] across signed offsets.
+  // Destination/source registers the encodings must reject (sp/pc where the
+  // architecture forbids them) -- without these, dropping a guard goes unnoticed.
+  for (const rd of ["sp", "pc", "r13", "r15"]) add(`movw ${rd}, #0x1234`);
+  for (const op of ["add.w", "sub.w"]) {
+    add(`${op} pc, r1, #4`);
+    add(`${op} r0, pc, #4`);
+    add(`${op} sp, r1, #4`);
+    add(`${op} r0, sp, #4`);
+  }
+
+  // ldr.w Rt, [pc, #imm] across signed offsets *and* across Rt -- a single Rt
+  // (r0) leaves the Rt field position unpinned.
   for (let off = -0xfff; off <= 0xfff; off += 7) add(`ldr.w r0, [pc, #${off}]`);
+  for (const rt of ["r1", "r3", "r7", "r9", "r12", "lr", "pc", "sp"]) {
+    for (const off of [-0xfff, -0x100, -4, 0, 4, 0x100, 0xfff]) {
+      add(`ldr.w ${rt}, [pc, #${off}]`);
+    }
+  }
+  // Hex (and negative-hex) immediates exercise the 0x-prefix parse path.
+  for (const off of ["0x1c", "-0x1c", "0xfff", "-0xfff"]) add(`ldr.w r5, [pc, #${off}]`);
+  // Out of the +/-4095 range -> both must reject.
+  for (const off of [0x1000, -0x1000, 0x10000, -0x10000]) add(`ldr.w r0, [pc, #${off}]`);
 
   // b (narrow) and b.w (wide) across a range of (addr, target) → offsets.
   for (const addr of [0, 0x100, 0x08000000, 0x08018240]) {
     for (const off of [-0x400, -0x100, -4, 0, 4, 0x100, 0x3ff].map((o) => o * 2)) {
       add(`b 0x${(addr + 4 + off).toString(16)}`, addr);
     }
-    for (const off of [-0x1000, -0x20, 0, 0x10, 0x1000, 0x100000].map((o) => o * 2)) {
+    // Offsets spanning every S/I1/I2 combination, including both signs near the
+    // +/-16MB limit, so the S-bit position and the range check are both pinned.
+    for (const off of [
+      -0x1000, -0x20, 0, 0x10, 0x1000, 0x100000,
+      0x200000, -0x200000, 0x3fffff, -0x400000, 0x7fffff, -0x800000,
+    ].map((o) => o * 2)) {
       add(`b.w #0x${(addr + 4 + off).toString(16)}`, addr);
     }
   }
   add("b 0x4000", 0); // narrow out of range → reject
+  // b.w beyond +/-16MB → reject (the narrow-range check alone doesn't cover this).
+  add("b.w #0x1000004", 0);
+  add("b.w #0x2000004", 0);
+  add("b.w #0x4", 0x1000000);
+  add("b.w #0x4", 0x2000000);
+  add("b.w #0x3", 0); // unaligned → reject
 
   // IT blocks: every condition × every t/e pattern.
   const conds = ["eq", "ne", "cs", "cc", "mi", "pl", "vs", "vc", "hi", "ls", "ge", "lt", "gt", "le"];
@@ -86,12 +117,47 @@ function buildInputs() {
     for (const suffix of ["", "t", "e", "tt", "te", "et", "ee", "ttt", "tte", " tet".trim()]) {
       add(`it${suffix} ${c}`);
     }
+    // More than three t/e chars, and non-t/e chars → both must reject.
+    for (const suffix of ["tttt", "ttte", "eeee", "x", "tx", "ttx"]) add(`it${suffix} ${c}`);
   }
+  add("itt zz"); // invalid condition → reject
 
   // The exact multi-instruction forms the patches emit.
   add("ite ne; movne.w r4, #0x1000; moveq.w r4, #0x0");
   add("ite ne; movne.w r4, #0xff000; moveq.w r4, #0xfe000");
+
+  // Multi-instruction sequences containing a PC-relative branch: the assembler
+  // must advance `addr` by the bytes already emitted, so the branch resolves
+  // against its *own* address rather than the sequence's start.
+  for (const a of [0, 0x100, 0x08018240]) {
+    add(`b 0x${(a + 8).toString(16)}; b 0x${(a + 8).toString(16)}`, a);
+    add(`mov r0, r1; b 0x${(a + 8).toString(16)}`, a);
+    add(`movw r0, #1; b 0x${(a + 12).toString(16)}`, a);
+    add(`b.w #0x${(a + 8).toString(16)}; b.w #0x${(a + 8).toString(16)}`, a);
+  }
+
+  // Mixed case: keystone (and the upstream Python) fold to lowercase.
+  add("MOVW R2, #0x1234");
+  add("MOV.W R3, #0x100");
+  add("ITE NE; MOVNE.W R4, #0x1000; MOVEQ.W R4, #0x0");
+  add("B 0x20", 0);
   return inputs;
+}
+
+// ---- Generator self-check ---------------------------------------------------
+// buildInputs() drives its modified-immediate coverage from the module under
+// test. A regression that *shrinks* iterModifiedImmediates would silently shrink
+// the input set instead of failing, so pin its exact contents here.
+function checkGenerator() {
+  const all = [...iterModifiedImmediates()];
+  const uniq = new Set(all);
+  if (all.length !== 4093) fail(`iterModifiedImmediates yielded ${all.length}, expected 4093`);
+  if (uniq.size !== all.length) fail(`iterModifiedImmediates yielded duplicates`);
+  // One representative of each of the four encoding families.
+  for (const v of [0x7f, 0x00ab00ab, 0xab00ab00 >>> 0, 0xabababab >>> 0, 0xff000, 0xfe000, 0x1000]) {
+    if (!uniq.has(v >>> 0)) fail(`iterModifiedImmediates missing 0x${(v >>> 0).toString(16)}`);
+  }
+  console.log(`Generator: ${all.length} modified immediates.`);
 }
 
 // ---- Oracle A: compare against upstream Python ------------------------------
@@ -148,6 +214,7 @@ function oracleB() {
   console.log(`  ${checked} compared.`);
 }
 
+checkGenerator();
 oracleA();
 oracleB();
 
