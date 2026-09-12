@@ -1,0 +1,138 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; } html, body { height: 100%; }
+  </style>
+</helmet>
+
+<!--
+  A NOTE IS NOT AN ERROR, AND IT BELONGS TO ONE ROW.
+
+  A converter module's `warnings[]` are, per gwrg-dist-spec, the only voice it has. Doom's
+  reports that it cropped widescreen lumps while building a `.whd` — the crop really happened,
+  the run SUCCEEDED, and the text is the module's own (runtime data, never translated).
+
+  Two things this board fixes, both reported by the owner seeing
+  `Error: cropped 11 widescreen lumps to 320w: HELP1(560x200) ...` under every homebrew app:
+
+    1. It was rendered with the ERROR prefix and the error colour. A succeeded-with-a-note run
+       is not a failure, and dressing it as one teaches the user to ignore real errors.
+    2. It was held in ONE store-wide slot, so it appeared under every row rather than the game
+       whose conversion produced it.
+
+  So: the note sits under its OWN row, in the muted ink the rest of the secondary text uses,
+  prefixed `Note:`. A real failure keeps `Error:` and the danger ink, unchanged. The two are
+  the same line in the same place — only the prefix word and the colour differ, which is the
+  whole distinction and needs no new component.
+
+  ONE new string: `roms.selectGames.noticePrefix`, the exact shape of the existing
+  `errorPrefix` one line above it. Everything else is already approved: the row, the pills
+  (`roms.selectGames.action*`), the console badge and the message body are runtime data.
+
+  Scope note: a note is session-scoped. It records what the module said WHEN IT RAN; a row
+  restored from the converted-output cache did not re-run the module this session, so it
+  carries no note rather than one we did not actually observe.
+-->
+
+<div style="width: 1440px; height: 100vh; min-height: 0; overflow: hidden; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column;">
+
+  <div style="padding: 26px 40px 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+    <span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">All 4</span>
+    <span style="font-size: 13px; font-weight: 600; background: #1b1b1b; color: #ffffff; border-radius: 3px; padding: 5px 11px;">Doom 3</span>
+    <span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">Homebrew 1</span>
+  </div>
+
+  <div style="padding: 22px 40px 32px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 32px; align-items: start; flex: 1 1 auto; min-height: 0;">
+
+    <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 26px;">
+
+      <div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 9px;">After preparing the first</div>
+        <div style="background: #ffffff; border-radius: 6px; padding: 2px 16px;">
+
+          <!-- The row whose conversion produced the note. Prepared, installable, and carrying
+               the module's own words underneath. -->
+          <div style="padding: 11px 0 9px; border-bottom: 1px solid #ededed;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: #5c5c5c; background: #e8e8e8; border-radius: 2px; padding: 3px 5px; width: 40px; text-align: center; flex-shrink: 0;">DOOM</span>
+              <span style="font-size: 14px; color: #1b1b1b; flex-grow: 1;">DOOM</span>
+              <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">9.8 MB</span>
+              <span style="font-size: 12px; font-weight: 600; color: #ffffff; background: #007bff; border-radius: 999px; padding: 4px 12px; min-width: 80px; text-align: center; white-space: nowrap; flex-shrink: 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.18);">install</span>
+            </div>
+            <div style="font-size: 12px; color: #5c5c5c; padding: 6px 0 0 52px; line-height: 1.45;">Note: cropped 11 widescreen lumps to 320w: HELP1(560x200) CREDIT(560x200) VICTORY2(560x200) TITLEPIC(560x200) PFUB2(560x200)&hairsp;…</div>
+          </div>
+
+          <!-- ITS SIBLING. Same title, same core, not yet prepared - and NO note. This row is
+               the bug: the note used to appear here too, and under every other row as well. -->
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: #5c5c5c; background: #e8e8e8; border-radius: 2px; padding: 3px 5px; width: 40px; text-align: center; flex-shrink: 0;">DOOM</span>
+            <span style="font-size: 14px; color: #1b1b1b; flex-grow: 1;">doom2</span>
+            <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">14.3 MB</span>
+            <span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #e8e8e8; border-radius: 999px; padding: 4px 12px; min-width: 80px; text-align: center; white-space: nowrap; flex-shrink: 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);">prepare</span>
+          </div>
+
+          <!-- A file accepted under `strict: false`. Also a note, not an error: the app used it. -->
+          <div style="padding: 11px 0 9px; border-bottom: 1px solid #ededed;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: #5c5c5c; background: #e8e8e8; border-radius: 2px; padding: 3px 5px; width: 40px; text-align: center; flex-shrink: 0;">DOOM</span>
+              <span style="font-size: 14px; color: #1b1b1b; flex-grow: 1;">freedoom2</span>
+              <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">3.4 MB</span>
+              <span style="font-size: 12px; font-weight: 600; color: #ffffff; background: #007bff; border-radius: 999px; padding: 4px 12px; min-width: 80px; text-align: center; white-space: nowrap; flex-shrink: 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.18);">install</span>
+            </div>
+            <div style="font-size: 12px; color: #5c5c5c; padding: 6px 0 0 52px; line-height: 1.45;">Note: freedoom2.wad not recognised — used anyway.</div>
+          </div>
+
+          <!-- A REAL failure, unchanged: danger ink, `Error:`, and no install control. -->
+          <div style="padding: 11px 0 9px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: #5c5c5c; background: #e8e8e8; border-radius: 2px; padding: 3px 5px; width: 40px; text-align: center; flex-shrink: 0;">HB</span>
+              <span style="font-size: 14px; color: #1b1b1b; flex-grow: 1;">Zelda 3</span>
+              <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">—</span>
+              <span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #e8e8e8; border-radius: 999px; padding: 4px 12px; min-width: 80px; text-align: center; white-space: nowrap; flex-shrink: 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);">prepare</span>
+            </div>
+            <div style="font-size: 12px; color: #8a241b; padding: 6px 0 0 52px; line-height: 1.45;">Error: Couldn't prepare: malformed</div>
+          </div>
+
+        </div>
+        <div style="font-size: 13px; color: #5c5c5c; padding: 10px 2px 0;">The note sits under the row whose conversion produced it, and under no other. A run that emitted only notes succeeded — its row offers install.</div>
+      </div>
+
+    </div>
+
+    <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 22px;">
+
+      <div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 9px;">The two lines, side by side</div>
+        <div style="background: #ffffff; border-radius: 6px; padding: 16px;">
+          <div style="font-size: 12px; color: #5c5c5c; line-height: 1.45; padding-bottom: 10px;">Note: cropped 11 widescreen lumps to 320w</div>
+          <div style="font-size: 12px; color: #8a241b; line-height: 1.45;">Error: Couldn't prepare: malformed</div>
+        </div>
+        <div style="font-size: 13px; color: #5c5c5c; padding: 10px 2px 0;">Same line, same place, same size. Only the prefix word and the ink differ — a note is secondary text, a failure is danger.</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 9px;">What the owner saw</div>
+        <div style="background: #ffffff; border-radius: 6px; padding: 16px;">
+          <div style="font-size: 12px; color: #8a241b; line-height: 1.45;">Error: cropped 11 widescreen lumps to 320w: HELP1(560x200) CREDIT(560x200)&hairsp;…</div>
+          <div style="font-size: 12px; color: #8a241b; line-height: 1.45; padding-top: 8px;">Error: cropped 11 widescreen lumps to 320w: HELP1(560x200) CREDIT(560x200)&hairsp;…</div>
+          <div style="font-size: 12px; color: #8a241b; line-height: 1.45; padding-top: 8px;">Error: cropped 11 widescreen lumps to 320w: HELP1(560x200) CREDIT(560x200)&hairsp;…</div>
+        </div>
+        <div style="font-size: 13px; color: #5c5c5c; padding: 10px 2px 0;">One store-wide slot, rendered by every homebrew row: the same note three times, in the wrong colour, under apps that never ran a converter.</div>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

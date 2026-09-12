@@ -1,0 +1,36 @@
+{
+ "artboards": [
+  {
+   "file": "ChooserRail.dc.html",
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Step 1 drawn on the spine's own rail"
+  },
+  {
+   "file": "ChooserSpan.dc.html",
+   "x": 1560,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Three cards across a 900px measure"
+  },
+  {
+   "file": "ChooserWeighted.dc.html",
+   "x": 3120,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "One full-measure path, two compact alternatives"
+  },
+  {
+   "file": "ChooserPlain.dc.html",
+   "x": 4680,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "No boxes, the spine's construction"
+  }
+ ]
+}

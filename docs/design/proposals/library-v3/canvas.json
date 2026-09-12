@@ -1,0 +1,84 @@
+{
+ "artboards": [
+  {
+   "file": "OptionsRail.dc.html",
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 1240,
+   "title": "Options as a persistent third column"
+  },
+  {
+   "file": "OptionsSheet.dc.html",
+   "x": 1560,
+   "y": 0,
+   "w": 1440,
+   "h": 1180,
+   "title": "Options as a sheet with its own section rail"
+  },
+  {
+   "file": "OptionsInline.dc.html",
+   "x": 3120,
+   "y": 0,
+   "w": 1440,
+   "h": 1420,
+   "title": "Options open inside the row"
+  },
+  {
+   "file": "OptionsModal.dc.html",
+   "x": 4680,
+   "y": 0,
+   "w": 1440,
+   "h": 1080,
+   "title": "Options as a modal with tabs"
+  },
+  {
+   "file": "CarouselFirst.dc.html",
+   "x": 0,
+   "y": 1700,
+   "w": 1440,
+   "h": 1180,
+   "title": "Coverflow takes the screen"
+  },
+  {
+   "file": "CoverGrid.dc.html",
+   "x": 1560,
+   "y": 1700,
+   "w": 1440,
+   "h": 1320,
+   "title": "Covers are the library"
+  },
+  {
+   "file": "DetailView.dc.html",
+   "x": 3120,
+   "y": 1700,
+   "w": 1440,
+   "h": 1180,
+   "title": "One game, its own page"
+  },
+  {
+   "file": "ConsoleRail.dc.html",
+   "x": 0,
+   "y": 3200,
+   "w": 1440,
+   "h": 1180,
+   "title": "Console filter as a rail"
+  },
+  {
+   "file": "SummaryDock.dc.html",
+   "x": 1560,
+   "y": 3200,
+   "w": 1440,
+   "h": 1480,
+   "title": "The summary given room"
+  },
+  {
+   "file": "BigLibrary.dc.html",
+   "x": 3120,
+   "y": 3200,
+   "w": 1440,
+   "h": 1180,
+   "title": "912 games, the stress test"
+  }
+ ]
+}

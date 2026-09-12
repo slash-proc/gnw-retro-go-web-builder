@@ -1,0 +1,752 @@
+{
+ "artboards": [
+  {
+   "file": "Landing1.dc.html",
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Start - step 1, flash or SD"
+  },
+  {
+   "file": "Landing2.dc.html",
+   "x": 1560,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Start - step 2, device or games"
+  },
+  {
+   "file": "ModalConnect.dc.html",
+   "x": 3120,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Gate - device needed"
+  },
+  {
+   "file": "ModalFolder.dc.html",
+   "x": 4680,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Gate - folders needed"
+  },
+  {
+   "file": "ModalFilesBios.dc.html",
+   "x": 6240,
+   "y": 5980,
+   "w": 1440,
+   "h": 960,
+   "title": "Needs a BIOS file"
+  },
+  {
+   "file": "ModalFilesBiosError.dc.html",
+   "x": 9360,
+   "y": 5980,
+   "w": 1440,
+   "h": 960,
+   "title": "Wrong file - now show the hash"
+  },
+  {
+   "file": "ModalFilesConvert.dc.html",
+   "x": 7800,
+   "y": 5980,
+   "w": 1440,
+   "h": 960,
+   "title": "Needs your ROM"
+  },
+  {
+   "file": "Main.dc.html",
+   "x": 0,
+   "y": 1180,
+   "w": 1440,
+   "h": 920,
+   "title": "Stock patched + Retro-Go"
+  },
+  {
+   "file": "StockUnpatched.dc.html",
+   "x": 1560,
+   "y": 1180,
+   "w": 1440,
+   "h": 920,
+   "title": "Stock unpatched, bank 2 free"
+  },
+  {
+   "file": "NoStockBank2.dc.html",
+   "x": 3120,
+   "y": 1180,
+   "w": 1440,
+   "h": 920,
+   "title": "No stock, Retro-Go bank 2"
+  },
+  {
+   "file": "NoStockBank1.dc.html",
+   "x": 4680,
+   "y": 1180,
+   "w": 1440,
+   "h": 920,
+   "title": "No stock, Retro-Go bank 1"
+  },
+  {
+   "file": "BothEmpty.dc.html",
+   "x": 6240,
+   "y": 1180,
+   "w": 1440,
+   "h": 920,
+   "title": "Both banks empty"
+  },
+  {
+   "file": "GuidedLayout.dc.html",
+   "x": 0,
+   "y": 2360,
+   "w": 1440,
+   "h": 920,
+   "title": "Step 1 - what goes on the device"
+  },
+  {
+   "file": "GuidedLayoutStock.dc.html",
+   "x": 9360,
+   "y": 2360,
+   "w": 1440,
+   "h": 920,
+   "title": "Step 1 - device is already stock"
+  },
+  {
+   "file": "GuidedRetroGoOnly.dc.html",
+   "x": 3120,
+   "y": 2360,
+   "w": 1440,
+   "h": 920,
+   "title": "Retro-Go alone"
+  },
+  {
+   "file": "GuidedStockOnly.dc.html",
+   "x": 4680,
+   "y": 2360,
+   "w": 1440,
+   "h": 920,
+   "title": "Original firmware alone"
+  },
+  {
+   "file": "GuidedSkipBackup.dc.html",
+   "x": 6240,
+   "y": 2360,
+   "w": 1440,
+   "h": 920,
+   "title": "Skipping the backup"
+  },
+  {
+   "file": "Guided.dc.html",
+   "x": 1560,
+   "y": 2360,
+   "w": 1440,
+   "h": 920,
+   "title": "Dual boot - unchanged"
+  },
+  {
+   "file": "BackupPatch.dc.html",
+   "x": 0,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "Backup & patch - one backup"
+  },
+  {
+   "file": "BackupPatchBoth.dc.html",
+   "x": 1560,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "Two backups + extflash collision"
+  },
+  {
+   "file": "BackupPatchCross.dc.html",
+   "x": 3120,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "Zelda fw on Mario hw - blocked"
+  },
+  {
+   "file": "BackupPatchAllowed.dc.html",
+   "x": 4680,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "Mario fw on Zelda hw - allowed"
+  },
+  {
+   "file": "Firmware.dc.html",
+   "x": 6240,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "Install Retro-Go"
+  },
+  {
+   "file": "FileBrowser.dc.html",
+   "x": 7800,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "File browser"
+  },
+  {
+   "file": "Write.dc.html",
+   "x": 9360,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "Write image"
+  },
+  {
+   "file": "Dump.dc.html",
+   "x": 10920,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "Dump"
+  },
+  {
+   "file": "Erase.dc.html",
+   "x": 12480,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "Erase"
+  },
+  {
+   "file": "Repos.dc.html",
+   "x": 0,
+   "y": 4720,
+   "w": 1440,
+   "h": 860,
+   "title": "Sources - the list"
+  },
+  {
+   "file": "ReposAdd.dc.html",
+   "x": 1560,
+   "y": 4720,
+   "w": 1440,
+   "h": 920,
+   "title": "Add one - URL or bundle zip"
+  },
+  {
+   "file": "ReposDetail.dc.html",
+   "x": 3120,
+   "y": 4720,
+   "w": 1440,
+   "h": 1010,
+   "title": "One repo, before Prepare"
+  },
+  {
+   "file": "ReposDetailReady.dc.html",
+   "x": 4680,
+   "y": 4720,
+   "w": 1440,
+   "h": 1020,
+   "title": "After Prepare - ready to install"
+  },
+  {
+   "file": "Roms.dc.html",
+   "x": 0,
+   "y": 5980,
+   "w": 1440,
+   "h": 960,
+   "title": "The list and coverflow"
+  },
+  {
+   "file": "LibrarySummary.dc.html",
+   "x": 4680,
+   "y": 5980,
+   "w": 1440,
+   "h": 1240,
+   "title": "Drawer - review and install"
+  },
+  {
+   "file": "RomsOptions.dc.html",
+   "x": 1560,
+   "y": 5980,
+   "w": 1440,
+   "h": 1240,
+   "title": "Drawer - additional options"
+  },
+  {
+   "file": "RomsNewSystem.dc.html",
+   "x": 3120,
+   "y": 5980,
+   "w": 1440,
+   "h": 960,
+   "title": "A core added a system"
+  },
+  {
+   "file": "HeaderBusy.dc.html",
+   "x": 6240,
+   "y": 0,
+   "w": 1440,
+   "h": 620,
+   "title": "Header - do not disconnect"
+  },
+  {
+   "file": "GuidedFlashing.dc.html",
+   "x": 7800,
+   "y": 2360,
+   "w": 1440,
+   "h": 980,
+   "title": "Mid-flash - do not disconnect"
+  },
+  {
+   "file": "ModalSources.dc.html",
+   "x": 0,
+   "y": 7340,
+   "w": 1440,
+   "h": 920,
+   "title": "Add Sources - modal"
+  },
+  {
+   "file": "ModalSourcesEmpty.dc.html",
+   "x": 1560,
+   "y": 7340,
+   "w": 1440,
+   "h": 920,
+   "title": "Add Sources - nothing added"
+  },
+  {
+   "file": "ModalInstallConfirm.dc.html",
+   "x": 0,
+   "y": 8380,
+   "w": 1440,
+   "h": 960,
+   "title": "Install confirm - no addresses"
+  },
+  {
+   "file": "RomsSdNoCard.dc.html",
+   "x": 1560,
+   "y": 8380,
+   "w": 1440,
+   "h": 960,
+   "title": "SD mode - no card picked"
+  },
+  {
+   "file": "ModalInstallConfirmSd.dc.html",
+   "x": 3120,
+   "y": 8380,
+   "w": 1440,
+   "h": 960,
+   "title": "Install confirm - SD card"
+  },
+  {
+   "file": "FlashingCancel.dc.html",
+   "x": 0,
+   "y": 9560,
+   "w": 1440,
+   "h": 980,
+   "title": "Mid-flash - the way out"
+  },
+  {
+   "file": "FlashingCancelConfirm.dc.html",
+   "x": 1560,
+   "y": 9560,
+   "w": 1440,
+   "h": 980,
+   "title": "Confirm - stop mid-write"
+  },
+  {
+   "file": "FlashFailure.dc.html",
+   "x": 3120,
+   "y": 9560,
+   "w": 1440,
+   "h": 980,
+   "title": "Install failed - named blocks"
+  },
+  {
+   "file": "Specimen.dc.html",
+   "x": 0,
+   "y": 11000,
+   "w": 1440,
+   "h": 2400,
+   "title": "Specimen - type and greys"
+  },
+  {
+   "file": "FileBrowserFrogfs.dc.html",
+   "x": 14040,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "File browser - FrogFS selected"
+  },
+  {
+   "file": "FirmwareLayout.dc.html",
+   "x": 15600,
+   "y": 3540,
+   "w": 1440,
+   "h": 1080,
+   "title": "Install Retro-Go - advanced layout open"
+  },
+  {
+   "file": "EraseCustomRange.dc.html",
+   "x": 17160,
+   "y": 3540,
+   "w": 1440,
+   "h": 1020,
+   "title": "Erase - custom range open"
+  },
+  {
+   "file": "ModalRecoveryMode.dc.html",
+   "x": 18720,
+   "y": 3540,
+   "w": 1440,
+   "h": 920,
+   "title": "Enter Recovery Mode?"
+  },
+  {
+   "file": "ModalConfirm.dc.html",
+   "x": 7800,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Generic confirm - Boot Image"
+  },
+  {
+   "file": "RomsNoFolder.dc.html",
+   "x": 10920,
+   "y": 5980,
+   "w": 1440,
+   "h": 620,
+   "title": "Library - no ROM folder yet"
+  },
+  {
+   "file": "ModalSpaceAlert.dc.html",
+   "x": 4680,
+   "y": 8380,
+   "w": 1440,
+   "h": 960,
+   "title": "Space limit reached"
+  },
+  {
+   "file": "ModalConfirmRunning.dc.html",
+   "x": 9360,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Confirm - running, indeterminate"
+  },
+  {
+   "file": "ModalConfirmProgress.dc.html",
+   "x": 10920,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Confirm - running, progress reported"
+  },
+  {
+   "file": "ModalConfirmDone.dc.html",
+   "x": 12480,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Confirm - done"
+  },
+  {
+   "file": "ModalConfirmError.dc.html",
+   "x": 14040,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Confirm - error"
+  },
+  {
+   "file": "SourcesRail.dc.html",
+   "x": 0,
+   "y": 13800,
+   "w": 1440,
+   "h": 920,
+   "title": "Sources - Firmware-tab layout"
+  },
+  {
+   "file": "SourcesRomFolders.dc.html",
+   "x": 1560,
+   "y": 13800,
+   "w": 1440,
+   "h": 920,
+   "title": "Sources - ROM folders"
+  },
+  {
+   "file": "SourcesLocalHomebrew.dc.html",
+   "x": 3120,
+   "y": 13800,
+   "w": 1440,
+   "h": 920,
+   "title": "Sources - local homebrew folders"
+  },
+  {
+   "file": "SourcesAddRoms.dc.html",
+   "x": 4680,
+   "y": 13800,
+   "w": 1440,
+   "h": 920,
+   "title": "Sources - add a ROM folder"
+  },
+  {
+   "file": "SourcesAddHomebrewDir.dc.html",
+   "x": 0,
+   "y": 15200,
+   "w": 1440,
+   "h": 920,
+   "title": "Sources - add a homebrew folder"
+  },
+  {
+   "file": "SourcesHomebrewConfig.dc.html",
+   "x": 1560,
+   "y": 15200,
+   "w": 1440,
+   "h": 1080,
+   "title": "Sources - homebrew config"
+  },
+  {
+   "file": "SourcesEmulatorConfig.dc.html",
+   "x": 3120,
+   "y": 15200,
+   "w": 1440,
+   "h": 1080,
+   "title": "Sources - emulator config"
+  },
+  {
+   "file": "SourcesConfigureRoms.dc.html",
+   "x": 0,
+   "y": 16680,
+   "w": 1440,
+   "h": 920,
+   "title": "Sources - configure a ROM folder"
+  },
+  {
+   "file": "SourcesConfigureHomebrewDir.dc.html",
+   "x": 1560,
+   "y": 16680,
+   "w": 1440,
+   "h": 920,
+   "title": "Sources - configure a homebrew folder"
+  },
+  {
+   "file": "SourcesCache.dc.html",
+   "x": 0,
+   "y": 18000,
+   "w": 1440,
+   "h": 920,
+   "title": "Sources - cache"
+  },
+  {
+   "file": "ModalNameCollision.dc.html",
+   "x": 6240,
+   "y": 8380,
+   "w": 1440,
+   "h": 960,
+   "title": "Two files, one name"
+  },
+  {
+   "file": "RomsLoading.dc.html",
+   "x": 12480,
+   "y": 5980,
+   "w": 1440,
+   "h": 620,
+   "title": "Library - walking the folders"
+  },
+  {
+   "file": "RomsNotice.dc.html",
+   "x": 14040,
+   "y": 5980,
+   "w": 1440,
+   "h": 960,
+   "title": "A note is not an error"
+  },
+  {
+   "file": "SourcesFilesSupplied.dc.html",
+   "x": 4680,
+   "y": 15200,
+   "w": 1440,
+   "h": 1080,
+   "title": "Sources - a supplied file, replaceable"
+  },
+  {
+   "file": "SourcesCuratedUnreadable.dc.html",
+   "x": 1560,
+   "y": 18000,
+   "w": 1440,
+   "h": 1180,
+   "title": "Sources - curated entries unreadable"
+  },
+  {
+   "file": "ModalFolderSdUnreadable.dc.html",
+   "x": 15600,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Gate - SD card folder unreadable"
+  },
+  {
+   "file": "SourcesUpdateAll.dc.html",
+   "x": 3120,
+   "y": 18000,
+   "w": 1440,
+   "h": 1080,
+   "title": "Sources - update all in a pane"
+  },
+  {
+   "file": "RomsPrepare.dc.html",
+   "x": 18720,
+   "y": 5980,
+   "w": 1440,
+   "h": 1100,
+   "title": "A core's ROMs, before and after preparing"
+  },
+  {
+   "file": "FirmwareUpgrade.dc.html",
+   "x": 20280,
+   "y": 3540,
+   "w": 1440,
+   "h": 1080,
+   "title": "Upgrade Retro-Go"
+  },
+  {
+   "file": "RomsActivityLog.dc.html",
+   "x": 15600,
+   "y": 5980,
+   "w": 1440,
+   "h": 1240,
+   "title": "Library - the activity log replaces the row's inline detail"
+  },
+  {
+   "file": "ModalFilesFolder.dc.html",
+   "x": 17160,
+   "y": 5980,
+   "w": 1440,
+   "h": 960,
+   "title": "A folder, not sixteen files"
+  },
+  {
+   "file": "Landing2Unsupported.dc.html",
+   "x": 17160,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Start - step 2, browser without WebUSB"
+  },
+  {
+   "file": "GuidedLocked.dc.html",
+   "x": 10920,
+   "y": 2360,
+   "w": 1440,
+   "h": 920,
+   "title": "Step 1 - device is locked"
+  },
+  {
+   "file": "LibraryComposedOptions.dc.html",
+   "x": 4680,
+   "y": 18000,
+   "w": 1440,
+   "h": 920,
+   "title": "Library - options modal, Cover art"
+  },
+  {
+   "file": "LibraryComposed.dc.html",
+   "x": 6240,
+   "y": 18000,
+   "w": 1440,
+   "h": 920,
+   "title": "Library - the composed design, at rest"
+  },
+  {
+   "file": "LibraryComposedSummary.dc.html",
+   "x": 7800,
+   "y": 18000,
+   "w": 1440,
+   "h": 920,
+   "title": "Library - the summary dock expanded"
+  },
+  {
+   "file": "LibraryComposedOptionsSaves.dc.html",
+   "x": 9360,
+   "y": 18000,
+   "w": 1440,
+   "h": 920,
+   "title": "Library - options modal, Saves"
+  },
+  {
+   "file": "LibraryComposedOptionsCheats.dc.html",
+   "x": 10920,
+   "y": 18000,
+   "w": 1440,
+   "h": 920,
+   "title": "Library - options modal, Cheats"
+  }
+ ],
+ "annotations": [
+  {
+   "id": "note-row1",
+   "x": 0,
+   "y": -190,
+   "w": 760,
+   "text": "INITIAL WIZARD\nTwo steps, then out of the way: a fact about the hardware, then what you came to do.\nThe gates share one modal shell - requirements as rows, the status mark only appears once met."
+  },
+  {
+   "id": "note-row2",
+   "x": 0,
+   "y": 990,
+   "w": 760,
+   "text": "OVERVIEW\nMost installed to least. The header's two slots carry it: stock firmware (bank 1), then Retro-Go (bank 2); a missing side dims rather than disappearing.\nEvery empty bank offers the step that fits THAT state, never a generic install."
+  },
+  {
+   "id": "note-row3",
+   "x": 0,
+   "y": 2170,
+   "w": 760,
+   "text": "GUIDED SETUP\nDone / active / pending read at a glance, and the header above tells the same story."
+  },
+  {
+   "id": "note-row4",
+   "x": 0,
+   "y": 3350,
+   "w": 760,
+   "text": "FIRMWARE SETUP - ADVANCED\nRail order, left to right. Firmware management, then flash management - each item one route, one file.\nCross-model runs one scale: gold informs, oxblood blocks. In flash management the bars are a shortcut that writes into the range fields; the fields are the truth."
+  },
+  {
+   "id": "note-row5",
+   "x": 0,
+   "y": 4530,
+   "w": 760,
+   "text": "REPOSITORIES\nOne row per project, grouped by kind, curated tagged. An emulator states what it PROVIDES - that is what lets it activate itself when matching ROMs appear."
+  },
+  {
+   "id": "note-row6",
+   "x": 0,
+   "y": 5790,
+   "w": 760,
+   "text": "ROMS\nCoverflow keeps the room. Budget and the one action live in the shared 72px footer."
+  },
+  {
+   "id": "note-busy",
+   "x": 4680,
+   "y": -190,
+   "w": 700,
+   "text": "Unplugging mid-write corrupts the install, so the warning lives in the chrome and cannot be dismissed.\nIt clears on a safe-to-disconnect state, not when the progress modal closes - which is why the third state exists."
+  },
+  {
+   "id": "note-row7",
+   "x": 0,
+   "y": 9370,
+   "w": 760,
+   "text": "STOPPING, AND FAILING\nCancel is a text link, never disabled: the writer works in 256 KB blocks and only the erase inside one is unsafe, so it takes effect at the next boundary. A control that blinked on and off every half second could not be trusted.\nFailure is the end of the retry-twice rule. The busy chrome drops the moment the write stops - a page still saying do not disconnect over a dead flash would be lying. Blocks are named by what they carried first, address second."
+  },
+  {
+   "id": "note-row8",
+   "x": 0,
+   "y": 10810,
+   "w": 760,
+   "text": "SPECIMEN\nNot a screen. Every --fs-* and every grey in tokens.css, rendered at the size and on the ground it is actually used on.\nThe near-identical values are drawn adjacently on purpose: if two tokens cannot be told apart here, they cannot be told apart in the app either."
+  }
+ ],
+ "launch": {
+  "view": "canvas"
+ }
+}

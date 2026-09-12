@@ -1,0 +1,201 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; } html, body { height: 100%; }
+  </style>
+</helmet>
+
+<!--
+  THE ACTIVITY LOG — one channel for what the app has to say, instead of a row line.
+
+  WHY. Conversion had no output channel at all. A module's `warnings[]` are the only voice it
+  has (gwrg-dist-spec), and the UI gave that voice one destination: a line under a Library row,
+  inline, at full length. The owner saw
+
+      Error: cropped 11 widescreen lumps to 320w: HELP1(560x200) CREDIT(560x200) ...
+
+  under his game — and, before the verdicts were split per run, under every homebrew app. Three
+  defects landed in the same pixel in one day, which is a missing channel rather than three
+  bugs. The device side never had this problem: a flash gets phases, sub-steps and a log
+  (GuidedFlashing.dc.html), because someone designed somewhere for it to speak.
+
+  WHAT CHANGES ON THE ROW. It keeps a SHORT status and nothing else:
+
+      Prepared with notes   (secondary ink — the run succeeded)
+      Couldn't prepare      (danger ink — it did not)
+
+  Both are the same clickable line in the same place; only the word and the colour differ. The
+  DETAIL — the eleven-item lump inventory, the reason code, every file the gate used under
+  `strict: false` — moves into the log. Nothing is dropped: spec/03 requires an
+  unrecognised-but-used file to reach the user, and it still does, in full, one click away.
+
+  THE INDICATOR counts ERRORS ONLY. A badge that lights up for every successful conversion is a
+  badge the user learns to ignore — the same lesson the `Error:`-prefixed warning taught. Notes
+  are in the log, readable, not clamouring.
+
+  FOUR new strings: `roms.selectGames.verdictNoted` / `verdictFailed` (the two row lines), and
+  `shared.auditLog.title` / `empty`. `Close` and `Copy log` are the existing shared words. Entry
+  BODIES are runtime data — a module's warning is never translated, in any locale — and the log
+  renders keyed entries in the user's language while `Copy log` writes English, the same rule
+  the install log already follows.
+-->
+
+<div style="width: 1440px; height: 100vh; min-height: 0; overflow: hidden; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column;">
+
+  <!-- ── The header cluster, with the indicator beside the language button ───────────────── -->
+  <div style="background: #ffffff; border-bottom: 1px solid #e3e3e3; padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 60px; flex: 0 0 auto;">
+    <span style="font-size: 15px; font-weight: 600; letter-spacing: 0.01em;">Game &amp; Watch</span>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div style="position: relative;">
+        <button style="width: 30px; height: 30px; border: 1px solid #d6d6d6; border-radius: 4px; background: #ffffff; color: #5c5c5c; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        </button>
+        <!-- Errors only. One unattended failure, so one dot. -->
+        <span style="position: absolute; top: -3px; right: -3px; min-width: 15px; height: 15px; border-radius: 8px; background: #8a241b; color: #ffffff; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; padding: 0 4px; box-sizing: border-box;">1</span>
+      </div>
+      <button style="width: 30px; height: 30px; border: 1px solid #d6d6d6; border-radius: 4px; background: #ffffff; color: #5c5c5c; font-size: 11px; font-weight: 600; cursor: pointer; padding: 0;">EN</button>
+    </div>
+  </div>
+
+  <div style="padding: 22px 40px 32px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 32px; align-items: start; flex: 1 1 auto; min-height: 0;">
+
+    <!-- ── Left: the Library rows, now short ──────────────────────────────────────────────── -->
+    <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 26px;">
+
+      <div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 9px;">The row says what happened</div>
+        <div style="background: #ffffff; border-radius: 6px; padding: 2px 16px;">
+
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+            <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #5c5c5c; background: #f0f0f0; border-radius: 3px; padding: 2px 6px;">DOOM</span>
+            <span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; flex: 1 1 auto;">doom</span>
+            <span style="font-size: 13px; color: #5c5c5c;">9.84 MB</span>
+            <span style="font-size: 12px; color: #5c5c5c; border: 1px solid #d6d6d6; border-radius: 3px; padding: 3px 10px;">install</span>
+          </div>
+          <!-- Secondary ink, underlined on hover: a link into the log, not a paragraph. -->
+          <div style="padding: 0 0 10px 60px; margin-top: -3px; border-bottom: 1px solid #ededed;">
+            <span style="font-size: 12px; color: #5c5c5c; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;">Prepared with notes</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+            <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #5c5c5c; background: #f0f0f0; border-radius: 3px; padding: 2px 6px;">DOOM</span>
+            <span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; flex: 1 1 auto;">doom2</span>
+            <span style="font-size: 13px; color: #5c5c5c;">11.94 MB</span>
+            <span style="font-size: 12px; color: #5c5c5c; border: 1px solid #d6d6d6; border-radius: 3px; padding: 3px 10px;">install</span>
+          </div>
+          <div style="padding: 0 0 10px 60px; margin-top: -3px; border-bottom: 1px solid #ededed;">
+            <span style="font-size: 12px; color: #5c5c5c; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;">Prepared with notes</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+            <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #5c5c5c; background: #f0f0f0; border-radius: 3px; padding: 2px 6px;">SNES</span>
+            <span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; flex: 1 1 auto;">smw</span>
+            <span style="font-size: 13px; color: #5c5c5c;">512 KB</span>
+            <span style="font-size: 12px; color: #5c5c5c; border: 1px solid #d6d6d6; border-radius: 3px; padding: 3px 10px;">prepare</span>
+          </div>
+          <!-- Danger ink. Still one line, still a link — the reason lives in the log. -->
+          <div style="padding: 0 0 10px 60px; margin-top: -3px;">
+            <span style="font-size: 12px; color: #8a241b; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;">Couldn't prepare</span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- What it replaced, so the diff is legible at a glance. -->
+      <div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 9px;">What the owner saw before</div>
+        <div style="background: #ffffff; border-radius: 6px; padding: 12px 16px; opacity: 0.6;">
+          <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; padding-bottom: 4px;">doom</div>
+          <div style="font-size: 12px; color: #8a241b; line-height: 1.45;">Error: cropped 11 widescreen lumps to 320w: HELP1(560x200) CREDIT(560x200) VICTORY2(560x200) TITLEPIC(560x200) PFUB2(560x200) ENDPIC(560x200) STBAR(576x32) WIMAP0(560x200) WIMAP1(560x200) WIMAP2(560x200) INTERPIC(560x200)</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Right: the log itself ──────────────────────────────────────────────────────────── -->
+    <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 26px; min-height: 0;">
+
+      <div style="display: flex; flex-direction: column; min-height: 0;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 9px;">Activity</div>
+
+        <div style="background: #ffffff; border: 1px solid #e3e3e3; border-radius: 6px; display: flex; flex-direction: column; min-height: 0; max-height: 520px;">
+          <div style="padding: 14px 18px 12px; border-bottom: 1px solid #ededed; display: flex; align-items: baseline; justify-content: space-between; flex: 0 0 auto;">
+            <span style="font-size: 15px; font-weight: 600;">Activity</span>
+            <span style="font-size: 12px; color: #5c5c5c;">4 entries</span>
+          </div>
+
+          <!-- The scroll lives HERE, on the list, never on a pane/shell/page. -->
+          <div style="overflow-y: auto; min-height: 0; flex: 1 1 auto; padding: 4px 0;">
+
+            <div style="display: flex; gap: 10px; padding: 9px 18px; border-bottom: 1px solid #f2f2f2;">
+              <span style="flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: #8a241b; margin-top: 8px;"></span>
+              <div style="min-width: 0;">
+                <div style="font-size: 11px; color: #8a8a8a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">2026-09-09 14:22:07 · smw.sfc</div>
+                <div style="font-size: 13px; color: #8a241b; line-height: 1.45;">Couldn't prepare: unknown-output (smw_assets.dat)</div>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; padding: 9px 18px; border-bottom: 1px solid #f2f2f2;">
+              <span style="flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: #c9c9c9; margin-top: 8px;"></span>
+              <div style="min-width: 0;">
+                <div style="font-size: 11px; color: #8a8a8a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">2026-09-09 14:21:44 · doom2.wad</div>
+                <div style="font-size: 13px; color: #1b1b1b; line-height: 1.45;">cropped 6 widescreen lumps to 320w: HELP(560x200) TITLEPIC(560x200) CREDIT(560x200) BOSSBACK(560x200) STBAR(576x32) INTERPIC(560x200)</div>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; padding: 9px 18px; border-bottom: 1px solid #f2f2f2;">
+              <span style="flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: #c9c9c9; margin-top: 8px;"></span>
+              <div style="min-width: 0;">
+                <div style="font-size: 11px; color: #8a8a8a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">2026-09-09 14:20:12 · doom.wad</div>
+                <div style="font-size: 13px; color: #1b1b1b; line-height: 1.45;">cropped 11 widescreen lumps to 320w: HELP1(560x200) CREDIT(560x200) VICTORY2(560x200) TITLEPIC(560x200) PFUB2(560x200) ENDPIC(560x200) STBAR(576x32) WIMAP0(560x200) WIMAP1(560x200) WIMAP2(560x200) INTERPIC(560x200)</div>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; padding: 9px 18px;">
+              <span style="flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: #c9c9c9; margin-top: 8px;"></span>
+              <div style="min-width: 0;">
+                <div style="font-size: 11px; color: #8a8a8a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">2026-09-09 14:19:03 · freedoom2.wad</div>
+                <div style="font-size: 13px; color: #1b1b1b; line-height: 1.45;">freedoom2.wad not recognised — used anyway.</div>
+              </div>
+            </div>
+
+          </div>
+
+          <div style="padding: 12px 18px; border-top: 1px solid #ededed; display: flex; gap: 10px; justify-content: flex-end; flex: 0 0 auto;">
+            <button style="font-size: 13px; color: #1b1b1b; background: #ffffff; border: 1px solid #d6d6d6; border-radius: 4px; padding: 6px 14px; cursor: pointer;">Copy log</button>
+            <button style="font-size: 13px; font-weight: 600; color: #ffffff; background: #3e9e4e; border: 1px solid #3e9e4e; border-radius: 4px; padding: 6px 16px; cursor: pointer;">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- The empty state, and the indicator with nothing to report. -->
+      <div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 9px;">Nothing has happened yet</div>
+        <div style="background: #ffffff; border: 1px solid #e3e3e3; border-radius: 6px;">
+          <div style="padding: 14px 18px 12px; border-bottom: 1px solid #ededed; display: flex; align-items: baseline; justify-content: space-between;">
+            <span style="font-size: 15px; font-weight: 600;">Activity</span>
+          </div>
+          <div style="padding: 26px 18px; text-align: center; font-size: 13px; color: #5c5c5c;">Nothing to report yet.</div>
+        </div>
+        <div style="padding-top: 12px; display: flex; align-items: center; gap: 10px;">
+          <button style="width: 30px; height: 30px; border: 1px solid #d6d6d6; border-radius: 4px; background: #ffffff; color: #5c5c5c; display: inline-flex; align-items: center; justify-content: center; padding: 0;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          </button>
+          <span style="font-size: 12px; color: #5c5c5c;">No badge: notes alone never mark the log unattended, only failures do.</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #3e9e4e; } a:hover { color: #2f7a3c; }
+  </style>
+</helmet>
+
+<!--
+  LIBRARY - options as a sheet with its own section rail.
+
+  THE THESIS: the one shape that still works at ten sections. A vertical rail lists them and
+  one is open at a time, so the page height stops being the limit on how many there can be.
+  Adding a section costs one rail row, not another 350px of column.
+
+  FOUR ITEMS, NOT THREE. `Save states` is drawn beside `Saves` because the owner named them
+  as separate features of the device ("Cheats are a genuine feature of the device just like
+  saves/savestates"), and today they share one section where SRAM and the numbered slots sit
+  behind the same tabs. It is marked as not built: NO ARTBOARD DRAWS IT and no code ships it.
+  That marker is the point of including it, and it is the only speculative item on any of
+  these four boards.
+
+  WHAT IT COSTS: the sheet replaces the list while it is open, so you cannot see what you
+  selected while you are configuring it. The carousel stays at the top of the sheet, which
+  is what keeps a sense of which game is being edited, but the list is gone until you close.
+
+  THE DOCK KEEPS ITS DISCLOSURE, because this sheet is still a thing you open from it.
+
+  Fixtures lifted from mockups/Roms.dc.html and RomsOptions.dc.html.
+
+-->
+
+<div style="width: 1440px; min-height: 1180px; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column; position: relative;">
+
+  <div style="display: flex; flex-direction: column;">
+    <div style="height: 56px; background: #ffffff; display: flex; align-items: center; justify-content: space-between; padding: 0 40px;">
+      <div style="display: flex; align-items: center; gap: 13px;">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="#1b1b1b" stroke-width="1.3" stroke-linecap="round">
+          <rect x="5" y="5" width="10" height="10" rx="1.2"></rect>
+          <path d="M7.5 5V3M10 5V3M12.5 5V3M7.5 17v-2M10 17v-2M12.5 17v-2M5 7.5H3M5 10H3M5 12.5H3M17 7.5h-2M17 10h-2M17 12.5h-2"></path>
+        </svg>
+        <div style="display: flex; align-items: center; gap: 11px;">
+          <span style="position: relative; display: inline-flex; flex-shrink: 0;">
+            <span style="height: 28px; width: 47px; background: #2e9e44; border: 1px solid rgba(0,0,0,0.35); border-radius: 2px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 1px 2px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;">
+              <img src="icon-console.svg" alt="" style="height: 100%; width: 100%; object-fit: contain; display: block;">
+            </span>
+            <span style="position: absolute; right: -4px; bottom: -4px; background: #c9c9cd; border: 1px solid rgba(0,0,0,0.35); border-radius: 999px; padding: 2px; display: flex; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+              <svg viewBox="0 0 10 6" width="10" height="6"><path d="M0 0 L5 6 L10 0 Z" fill="#161616"></path></svg>
+            </span>
+          </span>
+          <span style="font-size: 14px; font-weight: 600;">Connected (Recovery Mode)</span>
+        </div>
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-gnw-badge.svg" alt="Game &amp; Watch" style="height: 27px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 14px; font-weight: 600;">Zelda (Patched)</span>
+        </div>
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-rgo.png" alt="Retro-Go" style="height: 14px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, monospace;">v1.4.1-44-flash</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 18px;">
+        <span style="font-size: 12px; font-weight: 500; color: #5c5c5c;">EN</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 12.5A7 7 0 0 1 7.5 4a7 7 0 1 0 8.5 8.5z"></path>
+        </svg>
+      </div>
+    </div>
+    <div style="height: 3px; background: linear-gradient(180deg, #d9bc5e 0%, #c09a32 100%);"></div>
+  </div>
+
+  <div style="padding: 0 40px; background: #ffffff; border-bottom: 1px solid #d8d8d8; display: flex; align-items: stretch; justify-content: space-between;">
+    <div style="display: flex; align-items: stretch; gap: 34px;">
+      <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Overview</div><div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Firmware</div><div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Sources</div><div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: #1b1b1b; box-shadow: inset 0 -3px 0 #3e9e4e;">Library</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.5 6a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16.5 8v6a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 14z"></path>
+      </svg>
+      <span style="font-size: 13px; font-weight: 500; color: #5c5c5c;">Change folder</span>
+    </div>
+  </div>
+  <div style="padding: 22px 40px 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0;">
+    <span style="font-size: 13px; font-weight: 600; background: #1b1b1b; color: #ffffff; border-radius: 3px; padding: 5px 11px;">All 137</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">NES 63</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">Genesis / Mega Drive 22</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">GW 25</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">Master System 9</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">PC Engine 7</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">Game Gear 6</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">Homebrew 3</span>
+  </div>
+  <div style="padding: 22px 40px 32px; display: flex; flex-direction: column; gap: 22px; flex: 1 1 auto; min-height: 0;">
+      <div style="position: relative; height: 190px; perspective: 504px; overflow: hidden;">
+        <div style="position: absolute; top: 50%; left: 50%; width: 94px; height: 122px; border-radius: 4px; background: #d3d3d6; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(-188px) rotateY(48deg) scale(0.66); z-index: 1; display: flex; align-items: flex-end; padding: 8px;"><span style="font-size: 7px; font-weight: 600; color: #5c5c5c;">Alwa's Awakening</span></div><div style="position: absolute; top: 50%; left: 50%; width: 94px; height: 122px; border-radius: 4px; background: #c6cbc4; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(-144px) rotateY(48deg) scale(0.74); z-index: 2; display: flex; align-items: flex-end; padding: 8px;"><span style="font-size: 7px; font-weight: 600; color: #4a4a4a;">Back to the Future</span></div><div style="position: absolute; top: 50%; left: 50%; width: 94px; height: 122px; border-radius: 4px; background: #b9bcc4; box-shadow: 0 8px 26px rgba(0,0,0,0.2); transform: translate(-50%, -50%) translateX(-91px) rotateY(48deg) scale(0.84); z-index: 3; display: flex; align-items: flex-end; padding: 8px;"><span style="font-size: 7px; font-weight: 600; color: #3a3a3a;">Aladdin</span></div><div style="position: absolute; top: 50%; left: 50%; width: 94px; height: 122px; border-radius: 4px; background: #8f9aa6; box-shadow: 0 14px 34px rgba(0,0,0,0.28); transform: translate(-50%, -50%) translateX(0px) scale(1.0); z-index: 5; display: flex; flex-direction: column; justify-content: flex-end; padding: 8px;"><span style="font-size: 8px; font-weight: 700; color: #ffffff; line-height: 1.2;">Aerobiz<br>Supersonic</span></div><div style="position: absolute; top: 50%; left: 50%; width: 94px; height: 122px; border-radius: 4px; background: #b9bcc4; box-shadow: 0 8px 26px rgba(0,0,0,0.2); transform: translate(-50%, -50%) translateX(91px) rotateY(-48deg) scale(0.84); z-index: 3; display: flex; align-items: flex-end; padding: 8px;"><span style="font-size: 7px; font-weight: 600; color: #3a3a3a;">Alex Kidd</span></div><div style="position: absolute; top: 50%; left: 50%; width: 94px; height: 122px; border-radius: 4px; background: #c6cbc4; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(144px) rotateY(-48deg) scale(0.74); z-index: 2; display: flex; align-items: flex-end; padding: 8px;"><span style="font-size: 7px; font-weight: 600; color: #4a4a4a;">Battletoads</span></div><div style="position: absolute; top: 50%; left: 50%; width: 94px; height: 122px; border-radius: 4px; background: #d3d3d6; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(188px) rotateY(-48deg) scale(0.66); z-index: 1; display: flex; align-items: flex-end; padding: 8px;"><span style="font-size: 7px; font-weight: 600; color: #5c5c5c;">Beyond Oasis</span></div>
+      </div>
+      <div style="background: #ffffff; border-radius: 6px; display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 700px;">
+
+        <div style="border-right: 1px solid #ededed; padding: 24px 20px 24px 24px; display: flex; flex-direction: column; gap: 2px;">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 10px;">Additional options</div>
+          <div style="font-size: 14px; font-weight: 600; padding: 9px 0 9px 14px; margin-left: -14px; box-shadow: inset 2px 0 0 #3e9e4e; color: #1b1b1b;">Cover art</div>
+          <div style="font-size: 14px; color: #1b1b1b; padding: 9px 0;">Saves</div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0;">
+            <span style="font-size: 14px; color: #9a9aa0;">Save states</span>
+            <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #9a9aa0; border: 1px dashed #d8d8d8; border-radius: 3px; padding: 2px 6px;">not built</span>
+          </div>
+          <div style="font-size: 14px; color: #1b1b1b; padding: 9px 0;">Cheats</div>
+          <div style="margin-top: auto; padding-top: 24px; border-top: 1px solid #ededed;">
+            <div style="font-size: 13px; font-weight: 600;">Aerobiz Supersonic</div>
+            <div style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; margin-top: 2px;">Genesis / Mega Drive</div>
+          </div>
+        </div>
+
+        <div style="padding: 24px 28px; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 40px; align-items: start;">
+          <div style="display: flex; flex-direction: column; gap: 18px; min-width: 0;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Cover art</div>
+            <div style="display: flex; gap: 12px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5c5c5c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5c5c5c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></div>
+          </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+            <span style="font-size: 13px; color: #5c5c5c;">Source</span>
+            <span style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; background: #ffffff; border: 1px solid #dcdcdc; border-radius: 2px; font-size: 13px; min-width: 220px; justify-content: space-between;"><span>ScreenScraper</span><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"></path></svg></span>
+          </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+            <span style="font-size: 13px; color: #5c5c5c;">Variant</span>
+            <span style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; background: #ffffff; border: 1px solid #dcdcdc; border-radius: 2px; font-size: 13px; min-width: 220px; justify-content: space-between;"><span>Box art</span><svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"></path></svg></span>
+          </div>
+            <div style="display: flex; align-items: center; gap: 16px; padding-top: 4px;">
+              <span style="background: #3e9e4e; color: #ffffff; font-size: 13px; font-weight: 600; padding: 7px 16px; border-radius: 4px;">Apply</span>
+              <span style="font-size: 13px; color: #5c5c5c;">Drop an image to override</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px; padding-top: 10px;">
+              <div style="display: flex; justify-content: space-between;">
+                <span style="font-size: 11px; color: #5c5c5c;">Requests today</span>
+                <span style="font-size: 11px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">842 / 20000</span>
+              </div>
+              <div style="height: 3px; background: #d8d8d8; border-radius: 2px; overflow: hidden;"><div style="height: 100%; width: 4%; background: #1b1b1b;"></div></div>
+            </div>
+          </div>
+          <div style="height: 420px; background: #e8e8e8; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 12px; color: #5c5c5c;">Preview</span>
+          </div>
+        </div>
+
+      </div>
+  </div>
+
+  <div style="margin-top: auto; display: flex; flex-direction: column; flex: 0 0 auto; position: relative; z-index: 3;">
+    <div style="position: absolute; left: 50%; top: 0; transform: translate(-50%, -100%); display: flex; align-items: center; gap: 7px; background: #ffffff; border: 1px solid #d8d8d8; border-bottom: none; border-radius: 7px 7px 0 0; padding: 7px 20px 8px; font-size: 12px; font-weight: 600; color: #5c5c5c; box-shadow: 0 -3px 10px rgba(0,0,0,0.05); z-index: 4;">Summary<svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5-5 5 5"></path></svg></div>
+
+    <div style="display: flex; height: 3px; background: #d8d8d8;">
+      <div style="width: 7%; background: #3e9e4e;"></div>
+      <div style="width: 5%; background: #9a9aa0;"></div>
+    </div>
+    <div style="background: #ffffff; padding: 0 40px; min-height: 72px; box-sizing: border-box; display: flex; align-items: center; flex: 0 0 auto;">
+      <span style="font-size: 13px; color: #5c5c5c;">3.54 MB of 50 MB projected</span>
+      <span style="font-size: 13px; color: #3e9e4e; font-weight: 500; margin-left: 14px;">+0.12 MB net change</span>
+      <div style="display: flex; align-items: center; gap: 18px; margin-left: auto;">
+        <span style="font-size: 13px; font-weight: 600; color: #1b1b1b;">Additional options</span>
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="#1b1b1b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"></path></svg>
+        <div style="background: #c8372b; color: #ffffff; font-size: 14px; font-weight: 600; padding: 9px 22px; border-radius: 5px; box-shadow: inset 0 -2px 0 #9e2a20;">Sync Library</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

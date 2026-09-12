@@ -1,0 +1,151 @@
+{
+  "artboards": [
+    {
+      "file": "Status.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1000,
+      "title": "Status"
+    },
+    {
+      "file": "StatusAttention.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 1000,
+      "title": "Status - something needs doing"
+    },
+    {
+      "file": "Notifications.dc.html",
+      "x": 3120,
+      "y": 0,
+      "w": 1440,
+      "h": 1000,
+      "title": "Notifications - the bell, opened"
+    },
+    {
+      "file": "StatusNoDevice.dc.html",
+      "x": 4680,
+      "y": 0,
+      "w": 1440,
+      "h": 760,
+      "title": "Status - nothing connected"
+    },
+    {
+      "file": "Details.dc.html",
+      "x": 0,
+      "y": 1160,
+      "w": 1440,
+      "h": 1580,
+      "title": "Details"
+    },
+    {
+      "file": "Activity.dc.html",
+      "x": 1560,
+      "y": 1160,
+      "w": 1440,
+      "h": 1080,
+      "title": "Activity"
+    },
+    {
+      "file": "DeviceLog.dc.html",
+      "x": 3120,
+      "y": 1160,
+      "w": 1440,
+      "h": 1020,
+      "title": "Device log"
+    },
+    {
+      "file": "GuidedChooser.dc.html",
+      "x": 0,
+      "y": 2900,
+      "w": 1440,
+      "h": 900,
+      "title": "Guided - chooser"
+    },
+    {
+      "file": "GuidedChooserStock.dc.html",
+      "x": 1560,
+      "y": 2900,
+      "w": 1440,
+      "h": 900,
+      "title": "Guided - untouched device"
+    },
+    {
+      "file": "GuidedChooserSmallFlash.dc.html",
+      "x": 3120,
+      "y": 2900,
+      "w": 1440,
+      "h": 900,
+      "title": "Guided - under 16 MB"
+    },
+    {
+      "file": "GuidedChooserTinyFlash.dc.html",
+      "x": 4680,
+      "y": 2900,
+      "w": 1440,
+      "h": 900,
+      "title": "Guided - under 8 MB"
+    },
+    {
+      "file": "Library.dc.html",
+      "x": 0,
+      "y": 3920,
+      "w": 1440,
+      "h": 1000,
+      "title": "Library"
+    },
+    {
+      "file": "LibraryGame.dc.html",
+      "x": 1560,
+      "y": 3920,
+      "w": 1440,
+      "h": 1000,
+      "title": "Library - a game selected"
+    },
+    {
+      "file": "LibraryBios.dc.html",
+      "x": 3120,
+      "y": 3920,
+      "w": 1440,
+      "h": 1000,
+      "title": "Library - BIOS"
+    },
+    {
+      "file": "LibrarySummary.dc.html",
+      "x": 4680,
+      "y": 3920,
+      "w": 1440,
+      "h": 1280,
+      "title": "Library - install summary"
+    },
+    {
+      "file": "LibraryCovers.dc.html",
+      "x": 0,
+      "y": 5320,
+      "w": 1440,
+      "h": 1000,
+      "title": "Library - Covers"
+    },
+    {
+      "file": "LibrarySaves.dc.html",
+      "x": 1560,
+      "y": 5320,
+      "w": 1440,
+      "h": 1000,
+      "title": "Library - Saves"
+    },
+    {
+      "file": "LibraryCheats.dc.html",
+      "x": 3120,
+      "y": 5320,
+      "w": 1440,
+      "h": 1000,
+      "title": "Library - Cheats"
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

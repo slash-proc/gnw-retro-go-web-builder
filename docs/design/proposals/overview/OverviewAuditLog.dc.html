@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #3e9e4e; } a:hover { color: #2f7a3c; }
+  </style>
+</helmet>
+
+<!-- PROPOSAL: Overview / Audit log -- the GLOBAL one the owner asked for, and the
+     reason converter output stopped being printed inline under a Library row.
+     Line shape is the one this codebase already renders:
+       LogLine = { time, tag, entry }   (logEntry.ts:75)
+       renderLine -> "HH:MM:SS [Tag] text"  (logEntry.ts:79)
+     installProgress.svelte.ts:114 already keeps exactly this list for ONE device operation
+     (`auditLog = $state<LogLine[]>([])`, appended at :247 with `{ time: timestamp(), tag,
+     entry }`). This pane is that list made global and session-long, so a converter warning
+     has somewhere to go; installProgress's own list should converge on it later.
+     Tag = source, so a line says who spoke. Severity is carried by weight + colour, using
+     the same #8a241b danger ink the row verdicts use -- NOT by a word, because the tag
+     column is already doing that job.
+     Entries below are real shapes: the DOOM crop warning is the actual text its WASM module
+     emits, and the SMW line is the output name its module really produces. -->
+<div style="width: 1440px; min-height: 920px; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column;">
+
+  <div style="display: flex; flex-direction: column;">
+    <div style="height: 56px; background: #ffffff; display: flex; align-items: center; justify-content: space-between; padding: 0 40px;">
+      <div style="display: flex; align-items: center; gap: 13px;">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="#1b1b1b" stroke-width="1.3" stroke-linecap="round">
+          <rect x="5" y="5" width="10" height="10" rx="1.2"></rect>
+          <path d="M7.5 5V3M10 5V3M12.5 5V3M7.5 17v-2M10 17v-2M12.5 17v-2M5 7.5H3M5 10H3M5 12.5H3M17 7.5h-2M17 10h-2M17 12.5h-2"></path>
+        </svg>
+        <div style="display: flex; align-items: center; gap: 11px;">
+          <span style="position: relative; display: inline-flex; flex-shrink: 0;">
+            <span style="height: 28px; width: 47px; background: #2e9e44; border: 1px solid rgba(0,0,0,0.35); border-radius: 2px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 1px 2px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;">
+              <img src="icon-console.svg" alt="" style="height: 100%; width: 100%; object-fit: contain; display: block;">
+            </span>
+            <span style="position: absolute; right: -4px; bottom: -4px; background: #c9c9cd; border: 1px solid rgba(0,0,0,0.35); border-radius: 999px; padding: 2px; display: flex; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+              <svg viewBox="0 0 10 6" width="10" height="6"><path d="M0 0 L5 6 L10 0 Z" fill="#161616"></path></svg>
+            </span>
+          </span>
+          <span style="font-size: 14px; font-weight: 600;">Connected (Recovery Mode)</span>
+        </div>
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-gnw-badge.svg" alt="Game &amp; Watch" style="height: 27px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 14px; font-weight: 600;">Zelda (Patched)</span>
+        </div>
+
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-rgo.png" alt="Retro-Go" style="height: 14px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, monospace;">v1.4.1-44-sd</span>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 18px;">
+        <span style="font-size: 12px; font-weight: 500; color: #5c5c5c;">EN</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 12.5A7 7 0 0 1 7.5 4a7 7 0 1 0 8.5 8.5z"></path>
+        </svg>
+      </div>
+    </div>
+    <div style="height: 3px; background: linear-gradient(180deg, #d9bc5e 0%, #c09a32 100%);"></div>
+  </div>
+
+  <div style="padding: 0 40px; background: #ffffff; border-bottom: 1px solid #d8d8d8; display: flex; align-items: stretch; gap: 34px;">
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: #1b1b1b; box-shadow: inset 0 -3px 0 #3e9e4e;">Overview</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Firmware</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Sources</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Library</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 244px minmax(0, 1fr); gap: 0; flex-grow: 1;">
+    <div style="border-right: 1px solid #d8d8d8; padding: 32px 20px 40px 40px; display: flex; flex-direction: column; gap: 26px;"><div style="display: flex; flex-direction: column; gap: 4px;"><div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 6px;">Status</div><div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Summary</span></div><div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Details</span></div></div><div style="display: flex; flex-direction: column; gap: 4px;"><div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 6px;">Logs</div><div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Retro-Go log</span></div><div style="font-size: 14px; font-weight: 600; padding: 7px 0 7px 14px; margin-left: -14px; box-shadow: inset 2px 0 0 #3e9e4e; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Audit log</span></div></div></div>
+    <div style="display: flex; flex-direction: column; justify-content: space-between;"><div style="padding: 32px 40px 40px; display: flex; flex-direction: column; gap: 32px; max-width: 720px;"><div style="display: flex; flex-direction: column; gap: 6px;"><div style="font-size: 24px; font-weight: 600; letter-spacing: -0.015em;">Audit log</div><div style="font-size: 14px; color: #5c5c5c;">This session only.</div></div><div style="display: flex; flex-direction: column; gap: 12px;"><div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Entries</div><div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 4px 18px;"><div style="display: flex; align-items: baseline; gap: 14px; padding: 11px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0;">16:04:11</span><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; width: 84px;">[sources]</span><span style="font-size: 13.5px; color: #1b1b1b; font-weight: 400; min-width: 0;">retro-go: 3 releases, newest v2.0.0-rc1</span></div><div style="display: flex; align-items: baseline; gap: 14px; padding: 11px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0;">16:04:12</span><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; width: 84px;">[sources]</span><span style="font-size: 13.5px; color: #1b1b1b; font-weight: 400; min-width: 0;">22 curated projects imported</span></div><div style="display: flex; align-items: baseline; gap: 14px; padding: 11px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0;">16:07:38</span><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; width: 84px;">[converter]</span><span style="font-size: 13.5px; color: #1b1b1b; font-weight: 400; min-width: 0;">doom.wad &rarr; The Ultimate Doom.whd, 9.84 MB</span></div><div style="display: flex; align-items: baseline; gap: 14px; padding: 11px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0;">16:07:38</span><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; width: 84px;">[converter]</span><span style="font-size: 13.5px; color: #1b1b1b; font-weight: 400; min-width: 0;">cropped 11 widescreen lumps to 320w</span></div><div style="display: flex; align-items: baseline; gap: 14px; padding: 11px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0;">16:08:02</span><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; width: 84px;">[converter]</span><span style="font-size: 13.5px; color: #1b1b1b; font-weight: 400; min-width: 0;">doom2.wad &rarr; Doom II - Hell on Earth.whd, 11.94 MB</span></div><div style="display: flex; align-items: baseline; gap: 14px; padding: 11px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0;">16:08:02</span><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; width: 84px;">[converter]</span><span style="font-size: 13.5px; color: #1b1b1b; font-weight: 400; min-width: 0;">cropped 6 widescreen lumps to 320w</span></div><div style="display: flex; align-items: baseline; gap: 14px; padding: 11px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0;">16:11:57</span><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; width: 84px;">[converter]</span><span style="font-size: 13.5px; color: #1b1b1b; font-weight: 400; min-width: 0;">smw.sfc &rarr; smw_assets.dat, 859 KB</span></div><div style="display: flex; align-items: baseline; gap: 14px; padding: 11px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0;">16:14:20</span><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; width: 84px;">[device]</span><span style="font-size: 13.5px; color: #1b1b1b; font-weight: 400; min-width: 0;">scan: bank 2 Retro-Go v1.4.1-44-g5dc98285, abi 2</span></div><div style="display: flex; align-items: baseline; gap: 14px; padding: 11px 0;"><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0;">16:19:05</span><span style="font-size: 12.5px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; flex-shrink: 0; width: 84px;">[sources]</span><span style="font-size: 13.5px; color: #8a241b; font-weight: 600; min-width: 0;">zelda3: couldn&rsquo;t read the published release</span></div></div></div></div><div style="border-top: 1px solid #d8d8d8; background: #ffffff; padding: 0 40px; min-height: 72px; box-sizing: border-box; margin-top: auto; display: flex; align-items: center; justify-content: space-between;"><span style="font-size: 13px; color: #5c5c5c;">Showing the 200 most recent.</span><div style="display: flex; align-items: center; gap: 12px;"><div style="font-size: 13px; font-weight: 600; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8; border-radius: 5px; padding: 8px 18px;">Download</div></div></div></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

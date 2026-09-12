@@ -1,0 +1,228 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #3e9e4e; } a:hover { color: #2f7a3c; }
+  </style>
+</helmet>
+
+<!--
+  OVERVIEW / DETAILS - the advanced view.
+
+  The same console, with the working shown. Every fact on Status appears here with what it was
+  derived from, plus the things that are detail rather than state.
+
+  VISUALISED, NOT TABULATED. Both banks are BankCard's stacked segment bar (ui/BankCard.svelte,
+  already used at OverviewTab.svelte:461), and the flash chip is GeometryBar + StatPanel's
+  panel-footer variant (OverviewTab.svelte:554,580) rather than a list of offsets. Sizes are a
+  shape you read, not a number you parse.
+
+  SD AND LITTLEFS ARE NEVER SHOWN TOGETHER. LittleFS is a flash-mode filesystem; this device
+  installs to a card. Storage therefore shows the card, and the flash chip shows what is
+  actually on it, which on an SD install is the original game's assets. Drawing both as peers
+  in one bar would be wrong on this device.
+
+  Sources:
+    Bank 1/2         IntflashBank.base/.type/.dataSize   engine/intflashscan.ts:23-29
+    Firmware ABI     IntflashBank.abi -> FirmwareAbi     engine/firmwareAbi.ts
+    Chip, erase size DeviceInfo                          packages/gnw-flasher/src/index.ts:133-140
+    Partitions       ExtPartition.offset/.size/.type/.fs engine/fsscan.ts:21-31
+    Card, folder     device.targetMedia, sdHandle        device.svelte.ts:45,52
+    Probe, UID       device.svelte.ts:38,65
+    Sources, cache   sources store, sources/blobCache.ts
+
+  NOT DRAWN: the /data/INSTALL marker and its CRC. The version it carries is shown as
+  "Installed firmware"; the file it came from is how we know, not something to read.
+
+  Numbers are plausible, not measured.
+-->
+
+<div style="width: 1440px; min-height: 1580px; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column; position: relative;">
+
+  <div style="display: flex; flex-direction: column;">
+    <div style="height: 56px; background: #ffffff; display: flex; align-items: center; justify-content: space-between; padding: 0 40px;">
+      <div style="display: flex; align-items: center; gap: 13px;">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="#1b1b1b" stroke-width="1.3" stroke-linecap="round">
+          <rect x="5" y="5" width="10" height="10" rx="1.2"></rect>
+          <path d="M7.5 5V3M10 5V3M12.5 5V3M7.5 17v-2M10 17v-2M12.5 17v-2M5 7.5H3M5 10H3M5 12.5H3M17 7.5h-2M17 10h-2M17 12.5h-2"></path>
+        </svg>
+        <div style="display: flex; align-items: center; gap: 11px;">
+          <span style="position: relative; display: inline-flex; flex-shrink: 0;">
+            <span style="height: 28px; width: 47px; background: #2e9e44; border: 1px solid rgba(0,0,0,0.35); border-radius: 2px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 1px 2px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;">
+              <img src="icon-console.svg" alt="" style="height: 100%; width: 100%; object-fit: contain; display: block;">
+            </span>
+            <span style="position: absolute; right: -4px; bottom: -4px; background: #c9c9cd; border: 1px solid rgba(0,0,0,0.35); border-radius: 999px; padding: 2px; display: flex; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+              <svg viewBox="0 0 10 6" width="10" height="6"><path d="M0 0 L5 6 L10 0 Z" fill="#161616"></path></svg>
+            </span>
+          </span>
+          <span style="font-size: 14px; font-weight: 600;">Connected</span>
+        </div>
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-gnw-badge.svg" alt="Game &amp; Watch" style="height: 27px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 14px; font-weight: 600;">Zelda (Patched)</span>
+        </div>
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-rgo.png" alt="Retro-Go" style="height: 14px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, monospace;">v1.4.1-44-g5dc98285</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 18px;">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.5" stroke-linecap="round"><path d="M4 5.5h12M4 10h12M4 14.5h7"></path></svg>
+        <span style="font-size: 12px; font-weight: 500; color: #5c5c5c;">EN</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 12.5A7 7 0 0 1 7.5 4a7 7 0 1 0 8.5 8.5z"></path>
+        </svg>
+      </div>
+    </div>
+    <div style="height: 3px; background: linear-gradient(180deg, #d9bc5e 0%, #c09a32 100%);"></div>
+  </div>
+
+  <div style="padding: 0 40px; background: #ffffff; border-bottom: 1px solid #d8d8d8; display: flex; align-items: stretch; gap: 34px;">
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: #1b1b1b; box-shadow: inset 0 -3px 0 #3e9e4e;">Overview</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Firmware</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Sources</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Library</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 244px minmax(0, 1fr); flex-grow: 1;">
+
+    <div style="border-right: 1px solid #d8d8d8; padding: 32px 20px 40px 40px; display: flex; flex-direction: column; gap: 26px;">
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 6px;">Console</div>
+        <div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span style="color: #1b1b1b;">Status</span></div>
+        <div style="font-size: 14px; font-weight: 600; padding: 7px 0 7px 14px; margin-left: -14px; box-shadow: inset 2px 0 0 #3e9e4e; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Details</span></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 6px;">Logs</div>
+        <div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span style="color: #1b1b1b;">Activity</span></div>
+        <div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span style="color: #1b1b1b;">Device log</span></div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; justify-content: space-between;">
+      <div style="padding: 32px 40px 40px; display: flex; flex-direction: column; gap: 30px; max-width: 720px;">
+        <div style="font-size: 24px; font-weight: 600; letter-spacing: -0.015em;">Details</div>
+
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Internal flash</div>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;">
+            <div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 16px 18px; display: flex; flex-direction: column; gap: 11px;">
+              <div style="display: flex; align-items: baseline; justify-content: space-between;">
+                <span style="font-size: 14px; font-weight: 600;">Bank 1</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">0x08000000</span>
+              </div>
+              <div style="display: flex; height: 12px; border-radius: 2px; overflow: hidden; background: #ededed;">
+                <div style="width: 82%; background: #7d9ab8;"></div>
+              </div>
+              <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 14px; align-items: baseline; border-top: 1px solid #ededed; padding-top: 10px;">
+                <span style="font-size: 12px; color: #5c5c5c;">Contents</span>
+                <span style="font-size: 12px;">Zelda, patched</span>
+                <span style="font-size: 12px; color: #5c5c5c;">Used</span>
+                <span style="font-size: 12px;">839 KB of 1 MB</span>
+              </div>
+            </div>
+            <div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 16px 18px; display: flex; flex-direction: column; gap: 11px;">
+              <div style="display: flex; align-items: baseline; justify-content: space-between;">
+                <span style="font-size: 14px; font-weight: 600;">Bank 2</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">0x08100000</span>
+              </div>
+              <div style="display: flex; height: 12px; border-radius: 2px; overflow: hidden; background: #ededed;">
+                <div style="width: 23%; background: #3e9e4e;"></div>
+              </div>
+              <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 14px; align-items: baseline; border-top: 1px solid #ededed; padding-top: 10px;">
+                <span style="font-size: 12px; color: #5c5c5c;">Contents</span>
+                <span style="font-size: 12px;">Retro-Go</span>
+                <span style="font-size: 12px; color: #5c5c5c;">Used</span>
+                <span style="font-size: 12px;">234 KB of 1 MB</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Storage</div>
+          <div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 18px;"><div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px;">
+              <span style="font-size: 13px;">SD card</span>
+              <span style="font-size: 13px; color: #5c5c5c;"><span style="font-family: ui-monospace, Menlo, monospace;">GNW-SD</span></span>
+            </div>
+            <div style="display: flex; height: 22px; border-radius: 3px; overflow: hidden; background: #ededed; margin-bottom: 10px;">
+              <div style="width: 31%; background: #7d9ab8;"></div>
+              <div style="width: 8%; background: #b8a05e;"></div>
+              <div style="width: 3%; background: #3e9e4e;"></div>
+            </div>
+            <div style="display: flex; gap: 18px; font-size: 12px; color: #5c5c5c;">
+              <span><span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: #7d9ab8; margin-right: 5px;"></span>Games</span>
+              <span><span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: #b8a05e; margin-right: 5px;"></span>Covers</span>
+              <span><span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: #3e9e4e; margin-right: 5px;"></span>Saves</span>
+              <span style="margin-left: auto;">12.4 GB free of 29.7 GB</span>
+            </div></div>
+        </div>
+
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">External flash</div>
+          <div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 18px;"><div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px;">
+              <span style="font-size: 13px;">MX25U51245G</span>
+            </div>
+            <div style="display: flex; height: 22px; border-radius: 3px; overflow: hidden; background: #ededed; margin-bottom: 4px;">
+              <div style="width: 6%; background: #b8a05e;"></div>
+            </div>
+            <div style="display: flex; gap: 18px; font-size: 12px; color: #5c5c5c; margin-bottom: 14px;">
+              <span><span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: #b8a05e; margin-right: 5px;"></span>Zelda assets</span>
+            </div>
+            <div style="border-top: 1px solid #d8d8d8; background: #f4f4f4; margin: 0 -18px -18px; padding: 12px 18px 16px;">
+              <div style="display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 9px 20px; align-items: baseline;">
+              <span style="font-size: 13px; color: #5c5c5c;">Capacity</span>
+              <span style="font-size: 13px;">64 MB</span>
+              <span style="font-size: 13px; color: #5c5c5c;">Minimum erase</span>
+              <span style="font-size: 13px;">4 KB</span>
+            </div>
+            </div></div>
+        </div>
+
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Adapter</div>
+          <div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 18px;"><div style="display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 9px 20px; align-items: baseline;">
+              <span style="font-size: 13px; color: #5c5c5c;">Probe</span>
+              <span style="font-size: 13px;">ST-Link V2</span>
+              <span style="font-size: 13px; color: #5c5c5c;">Device UID</span>
+              <span style="font-size: 13px;"><span style="font-family: ui-monospace, Menlo, monospace;">0x0031002A 3438510C 32323639</span></span>
+              <span style="font-size: 13px; color: #5c5c5c;">Read protection</span>
+              <span style="font-size: 13px;">Unlocked</span>
+              <span style="font-size: 13px; color: #5c5c5c;">Firmware backup</span>
+              <span style="font-size: 13px;">12 Jun 2026</span>
+            </div></div>
+        </div>
+
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">This app</div>
+          <div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 18px;"><div style="display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 9px 20px; align-items: baseline;">
+              <span style="font-size: 13px; color: #5c5c5c;">Sources</span>
+              <span style="font-size: 13px;">22 listed, 3 active</span>
+              <span style="font-size: 13px; color: #5c5c5c;">Browser cache</span>
+              <span style="font-size: 13px;">143.5 MB</span>
+              <span style="font-size: 13px; color: #5c5c5c;">App version</span>
+              <span style="font-size: 13px;"><span style="font-family: ui-monospace, Menlo, monospace;">2.0.0-alpha</span></span>
+            </div></div>
+        </div>
+      </div>
+
+      <div style="border-top: 1px solid #d8d8d8; background: #ffffff; padding: 0 40px; min-height: 72px; box-sizing: border-box; margin-top: auto; display: flex; align-items: center; justify-content: space-between;">
+        <span style="font-size: 13px; color: #5c5c5c;"></span>
+        <div style="display: flex; align-items: center; gap: 12px;"><div style="font-size: 13px; font-weight: 600; color: #1b1b1b; background: #ffffff; border: 1px solid #1b1b1b; border-radius: 5px; padding: 8px 18px;">Copy details</div><div style="font-size: 13px; font-weight: 600; color: #1b1b1b; background: #ffffff; border: 1px solid #1b1b1b; border-radius: 5px; padding: 8px 18px;">Rescan</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,381 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 2400px; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; box-sizing: border-box; padding: 40px 40px 48px; display: flex; flex-direction: column; gap: 34px;">
+
+  <!-- Title -->
+  <div style="display: flex; align-items: baseline; justify-content: space-between;">
+    <div style="font-size: 24px; font-weight: 600; letter-spacing: -0.015em;">Specimen</div>
+    <div style="font-size: 13px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">apps/web/src/styles/tokens.css &middot; light theme</div>
+  </div>
+
+  <!-- ============================== TYPE RAMP ============================== -->
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Type ramp</div>
+
+    <div style="background: #ffffff; border-radius: 6px; padding: 2px 18px;">
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Token</span>
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Px</span>
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Wt</span>
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Uses</span>
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Owner</span>
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">At size</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-badge</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">10</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">700</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">5</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Required / optional badges</span>
+        <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;">Required</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-label</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">11</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">700</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">27</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Every section caption</span>
+        <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Firmware management</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-chip</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">12</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">600</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">16</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Chips and system tags</span>
+        <span style="font-size: 12px; font-weight: 600;">Game Boy Advance</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-micro</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">12</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">400</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">63</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Smallest caption, mono values</span>
+        <span style="font-size: 12px;">3,586,048 bytes at 0x90000000</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-btn-sm</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">13</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">600</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">73</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Secondary buttons, dense controls</span>
+        <span style="font-size: 13px; font-weight: 600;">Custom range&hellip;</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-btn</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">14</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">600</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">15</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Primary action label, nav tabs</span>
+        <span style="font-size: 14px; font-weight: 600;">Erase 2 partitions&hellip;</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-caption</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">14</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">400</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">80</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Prose under a heading</span>
+        <span style="font-size: 14px;">Select partitions to wipe. This cannot be undone.</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-lede</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">15</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">500</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">2</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Landing rubric, repo row name</span>
+        <span style="font-size: 15px; font-weight: 500;">What are you putting on the device?</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-body</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">16</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">400</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">5</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Document default; almost nothing sets it</span>
+        <span style="font-size: 16px;">The writer works in 256 KB blocks.</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-title</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">18</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">600</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">10</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Every modal and dialog title</span>
+        <span style="font-size: 18px; font-weight: 600;">Connect your Game &amp; Watch</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-display</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">24</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">600</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">3</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Page heading, one per screen</span>
+        <span style="font-size: 24px; font-weight: 600; letter-spacing: -0.015em;">Erase</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 158px 46px 42px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 13px 0 15px;">
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--fs-display-lg</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">34</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">600</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">1</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Landing title only</span>
+        <span style="font-size: 34px; font-weight: 600; letter-spacing: -0.02em;">Game &amp; Watch</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================== INK, AS TEXT ============================== -->
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Ink &mdash; shown at the size it is used</div>
+
+    <div style="background: #ffffff; border-radius: 6px; padding: 2px 18px;">
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #1b1b1b; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--ink</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#1b1b1b</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">113</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Primary text</span>
+        <span style="font-size: 14px; font-weight: 600; color: #1b1b1b;">Bank 2 &middot; Retro-Go &mdash; v1.4.1-44-flash</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #5c5c5c; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--ink-soft</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#5c5c5c</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">186</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Secondary text, section captions</span>
+        <span style="font-size: 13px; color: #5c5c5c;">6.22 MB will be erased. This cannot be undone.</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #6e6e6e; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--ink-mute</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#6e6e6e</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">5</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Inactive nav tab, back links</span>
+        <span style="font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Overview &nbsp; Sources &nbsp; Library</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #9a9a9a; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--ink-dim</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#9a9a9a</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">18</span>
+        <span style="font-size: 13px; color: #5c5c5c;">De-emphasised captions</span>
+        <span style="font-size: 12px; color: #9a9a9a;">or press Escape</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px 236px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0;">
+        <span style="height: 26px; border-radius: 3px; background: #c8c8c8; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--ink-faint</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#c8c8c8</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">5</span>
+        <span style="font-size: 13px; color: #5c5c5c;">The &ldquo;no change&rdquo; dash. Not for anything read</span>
+        <span style="font-size: 13px; color: #c8c8c8;">&mdash; &nbsp; no change</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================== SURFACES AND LINES ============================== -->
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Surfaces, lines and faces</div>
+
+    <div style="background: #ffffff; border-radius: 6px; padding: 2px 18px;">
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #f4f4f4; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--bg</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#f4f4f4</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">3</span>
+        <span style="font-size: 13px; color: #5c5c5c;">The page ground &mdash; this sheet&rsquo;s own backdrop</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #ffffff; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--surface</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#ffffff</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">58</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Only where a real object sits &mdash; these three cards</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #f0f0f0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--chip-fill</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#f0f0f0</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">4</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Badge and chip fill on a white surface</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #e8e8e8; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--surface-sunk</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#e8e8e8</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">49</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Bar tracks, wells, disabled caps. Also <span style="font-family: ui-monospace, Menlo, monospace;">--seg-free</span></span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #ededed; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--rule</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#ededed</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">22</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Row rules inside a white surface &mdash; every line in this card</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #d8d8d8; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--hairline</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#d8d8d8</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">64</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Structural edges: header, nav, rail, footer</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #c9c9cd; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--silver</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#c9c9cd</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">4</span>
+        <span style="font-size: 13px; color: #5c5c5c;">The device&rsquo;s button caps and caret chip</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #9a9aa0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--silver-edge</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#9a9aa0</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">14</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Cap edge, and the Cores &amp; Saves segment</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;">
+        <span style="height: 26px; border-radius: 3px; background: #9a9a9e; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--model-accent</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#9a9a9e</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">20</span>
+        <span style="font-size: 13px; color: #5c5c5c;">The structural accent before a model is known &mdash; <span style="font-family: ui-monospace, Menlo, monospace;">[data-model]</span> swaps it for Mario red or Zelda green</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 44px 130px 80px 46px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0;">
+        <span style="height: 26px; border-radius: 3px; background: #161616; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.10);"></span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace;">--ink-on-face</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">#161616</span>
+        <span style="font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #5c5c5c;">4</span>
+        <span style="font-size: 13px; color: #5c5c5c;">Legend on a silver or amber face. Never flips with the theme</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================== ADJACENT PAIRS ============================== -->
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Adjacent values, side by side</div>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px;">
+
+      <!-- Pair 1: rule vs hairline, drawn as lines -->
+      <div style="background: #ffffff; border-radius: 6px; padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between;">
+          <span style="font-size: 13px; font-weight: 600;">Two line weights, on white</span>
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">21 / 255 apart</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0;">
+          <div style="padding: 9px 0; border-bottom: 1px solid #ededed; display: flex; justify-content: space-between;"><span style="font-size: 13px;">Row inside a surface</span><span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">--rule #ededed</span></div>
+          <div style="padding: 9px 0; border-bottom: 1px solid #ededed; display: flex; justify-content: space-between;"><span style="font-size: 13px;">Row inside a surface</span><span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">--rule #ededed</span></div>
+          <div style="padding: 9px 0; border-bottom: 1px solid #d8d8d8; display: flex; justify-content: space-between;"><span style="font-size: 13px;">Region edge</span><span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">--hairline #d8d8d8</span></div>
+          <div style="padding: 9px 0; display: flex; justify-content: space-between;"><span style="font-size: 13px; color: #5c5c5c;">Below the edge</span><span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">&nbsp;</span></div>
+        </div>
+      </div>
+
+      <!-- Pair 2: surface-sunk vs chip-fill vs bg, drawn as fills -->
+      <div style="background: #ffffff; border-radius: 6px; padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between;">
+          <span style="font-size: 13px; font-weight: 600;">Three near fills</span>
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">8 and 4 / 255 apart</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="background: #f0f0f0; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 3px;">Core</span>
+          <span style="background: #e8e8e8; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 3px;">Core</span>
+          <span style="background: #f4f4f4; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 3px;">Core</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; width: 92px;">--chip-fill</span>
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; width: 92px;">--surface-sunk</span>
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">--bg</span>
+        </div>
+        <div style="height: 30px; border-radius: 3px; display: flex; overflow: hidden; background: #e8e8e8;">
+          <span style="width: 34%; background: #3e9e4e;"></span>
+          <span style="width: 22%; background: #9a9aa0;"></span>
+        </div>
+        <div style="font-size: 12px; color: #5c5c5c;">The same <span style="font-family: ui-monospace, Menlo, monospace;">--surface-sunk</span> as a bar track, where it does read as a well.</div>
+      </div>
+
+      <!-- Pair 3: the three 9a greys -->
+      <div style="background: #ffffff; border-radius: 6px; padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between;">
+          <span style="font-size: 13px; font-weight: 600;">Three greys at <span style="font-family: ui-monospace, Menlo, monospace;">#9a9a__</span></span>
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">6 / 255 apart at most</span>
+        </div>
+        <div style="display: flex; gap: 0; height: 40px; border-radius: 3px; overflow: hidden;">
+          <span style="width: 33.34%; background: #9a9a9a;"></span>
+          <span style="width: 33.33%; background: #9a9aa0;"></span>
+          <span style="width: 33.33%; background: #9a9a9e;"></span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0;">
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">--ink-dim<br>#9a9a9a</span>
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">--silver-edge<br>#9a9aa0</span>
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">--model-accent<br>#9a9a9e</span>
+        </div>
+        <div style="font-size: 12px; color: #5c5c5c; border-left: 2px solid #b8860b; padding-left: 10px;">Three tokens, three roles, one visible colour.</div>
+      </div>
+
+      <!-- Pair 4: the text greys, small, on both grounds -->
+      <div style="background: #ffffff; border-radius: 6px; padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between;">
+          <span style="font-size: 13px; font-weight: 600;">The text greys at 12px</span>
+          <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">on white, then on ground</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <span style="font-size: 12px; color: #5c5c5c;">--ink-soft &nbsp; 3,586,048 bytes at 0x90000000</span>
+          <span style="font-size: 12px; color: #6e6e6e;">--ink-mute &nbsp; 3,586,048 bytes at 0x90000000</span>
+          <span style="font-size: 12px; color: #9a9a9a;">--ink-dim &nbsp; 3,586,048 bytes at 0x90000000</span>
+          <span style="font-size: 12px; color: #c8c8c8;">--ink-faint &nbsp; 3,586,048 bytes at 0x90000000</span>
+        </div>
+        <div style="background: #f4f4f4; border-radius: 3px; padding: 10px 12px; display: flex; flex-direction: column; gap: 5px;">
+          <span style="font-size: 12px; color: #5c5c5c;">--ink-soft &nbsp; 3,586,048 bytes at 0x90000000</span>
+          <span style="font-size: 12px; color: #6e6e6e;">--ink-mute &nbsp; 3,586,048 bytes at 0x90000000</span>
+          <span style="font-size: 12px; color: #9a9a9a;">--ink-dim &nbsp; 3,586,048 bytes at 0x90000000</span>
+          <span style="font-size: 12px; color: #c8c8c8;">--ink-faint &nbsp; 3,586,048 bytes at 0x90000000</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

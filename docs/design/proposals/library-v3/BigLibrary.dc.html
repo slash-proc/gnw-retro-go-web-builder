@@ -1,0 +1,367 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #3e9e4e; } a:hover { color: #2f7a3c; }
+  </style>
+</helmet>
+
+<!--
+  LIBRARY - 912 games.
+
+  THE STRESS TEST. Same tab, same arrangement, a library ten times the fixture: 912 games,
+  318 of them NES, real cartridge names with their region and revision suffixes. Everything
+  that reads well at 137 is meant to be judged here instead.
+
+  THREE THINGS BREAK, AND THEY ARE DRAWN RATHER THAN DESCRIBED:
+
+  1. THE CHIP STRIP WRAPS. Eleven consoles do not fit on one line at 1440, so the filter takes
+     two rows and pushes the list down. Every core a user adds makes this worse. This is the
+     strongest argument for ConsoleRail, and it is the reason that board exists.
+
+  2. NAMES CLIP. "Teenage Mutant Ninja Turtles II: The Arcade Game" does not fit the column
+     beside a checkbox, a badge, a size and a chip. Drawn clipping, with an ellipsis, because
+     that is what the column does. Widening the column is the only fix and the rail is what
+     takes the width away.
+
+  3. TWENTY-ONE ROWS OF 318. The scrollbar is drawn at its real proportion. Selecting across
+     318 rows by eye is the thing "Select all" cannot help with, and nothing on this page
+     narrows the list except the console filter.
+
+  WHAT IS NOT DRAWN, DELIBERATELY: a search or filter field. There is none today, and
+  UI_VOICE.md is explicit that a board does not invent a control. The absence IS the finding
+  at this scale, and it is written up rather than mocked up.
+
+  ROW DENSITY. 34px rather than 46, which is what buys 21 rows instead of 15. The badge, the
+  size and the chip are unchanged; only the padding and the title size moved.
+
+  Sources, per element:
+    Rows             visibleGames                     RomManagementTab:328-344
+    Console counts   romSelection.systems[].count     RomManagementTab:2258-2270
+    Action chip      getActionState(g)                RomManagementTab:385
+
+  Counts sum to 912. Names are real cartridge titles. No device was attached.
+
+-->
+
+<div style="width: 1440px; min-height: 1180px; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column; position: relative;">
+
+  <div style="display: flex; flex-direction: column;">
+    <div style="height: 56px; background: #ffffff; display: flex; align-items: center; justify-content: space-between; padding: 0 40px;">
+      <div style="display: flex; align-items: center; gap: 13px;">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="#1b1b1b" stroke-width="1.3" stroke-linecap="round">
+          <rect x="5" y="5" width="10" height="10" rx="1.2"></rect>
+          <path d="M7.5 5V3M10 5V3M12.5 5V3M7.5 17v-2M10 17v-2M12.5 17v-2M5 7.5H3M5 10H3M5 12.5H3M17 7.5h-2M17 10h-2M17 12.5h-2"></path>
+        </svg>
+        <div style="display: flex; align-items: center; gap: 11px;">
+          <span style="position: relative; display: inline-flex; flex-shrink: 0;">
+            <span style="height: 28px; width: 47px; background: #2e9e44; border: 1px solid rgba(0,0,0,0.35); border-radius: 2px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 1px 2px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;">
+              <img src="icon-console.svg" alt="" style="height: 100%; width: 100%; object-fit: contain; display: block;">
+            </span>
+            <span style="position: absolute; right: -4px; bottom: -4px; background: #c9c9cd; border: 1px solid rgba(0,0,0,0.35); border-radius: 999px; padding: 2px; display: flex; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+              <svg viewBox="0 0 10 6" width="10" height="6"><path d="M0 0 L5 6 L10 0 Z" fill="#161616"></path></svg>
+            </span>
+          </span>
+          <span style="font-size: 14px; font-weight: 600;">Connected (Recovery Mode)</span>
+        </div>
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-gnw-badge.svg" alt="Game &amp; Watch" style="height: 27px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 14px; font-weight: 600;">Zelda (Patched)</span>
+        </div>
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-rgo.png" alt="Retro-Go" style="height: 14px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, monospace;">v1.4.1-44-flash</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 18px;">
+        <span style="font-size: 12px; font-weight: 500; color: #5c5c5c;">EN</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 12.5A7 7 0 0 1 7.5 4a7 7 0 1 0 8.5 8.5z"></path>
+        </svg>
+      </div>
+    </div>
+    <div style="height: 3px; background: linear-gradient(180deg, #d9bc5e 0%, #c09a32 100%);"></div>
+  </div>
+
+  <div style="padding: 0 40px; background: #ffffff; border-bottom: 1px solid #d8d8d8; display: flex; align-items: stretch; justify-content: space-between;">
+    <div style="display: flex; align-items: stretch; gap: 34px;">
+      <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Overview</div><div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Firmware</div><div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e;">Sources</div><div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: #1b1b1b; box-shadow: inset 0 -3px 0 #3e9e4e;">Library</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.5 6a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16.5 8v6a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 14z"></path>
+      </svg>
+      <span style="font-size: 13px; font-weight: 500; color: #5c5c5c;">Change folder</span>
+    </div>
+  </div>
+  <div style="padding: 20px 40px 0;">
+      <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+        <span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">All 912</span><span style="font-size: 13px; font-weight: 600; background: #1b1b1b; color: #ffffff; border-radius: 3px; padding: 5px 11px; white-space: nowrap;">NES 318</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">Genesis / Mega Drive 204</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">Master System 88</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">Game Boy 71</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">Game Boy Color 64</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">MSX 58</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">PC Engine 43</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">Game Gear 29</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">GW 25</span><span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px; white-space: nowrap;">Homebrew 12</span>
+      </div>
+  </div>
+  <div style="padding: 20px 40px 28px; display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 32px; align-items: start; flex-grow: 1;">
+
+    <div style="display: flex; gap: 10px; min-width: 0;">
+      <div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid #d8d8d8;">
+            <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">84 selected</span>
+            <span style="font-size: 13px; font-weight: 600; color: #3e9e4e;">Select all</span>
+          </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Batman: Return of the Joker (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #3e9e4e; border: 1px solid #35873f;">installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Bucky O'Hare (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #3e9e4e; border: 1px solid #35873f;">installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Castlevania III: Dracula's Curse (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">384 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #0d6efd; border: 1px solid #0a58ca;">install</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Crystalis (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">384 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Dragon Warrior IV (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">512 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Duck Tales 2 (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #3e9e4e; border: 1px solid #35873f;">installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Final Fantasy III (Japan) (Translation)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">512 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Gargoyle's Quest II: The Demon Darkness</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Gimmick! (Japan)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #3e9e4e; border: 1px solid #35873f;">installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Jackal (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">128 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #3e9e4e; border: 1px solid #35873f;">installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Journey to Silius (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Kid Icarus (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">128 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #3e9e4e; border: 1px solid #35873f;">installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed; background: #f4f4f4;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Kirby's Adventure (USA) (Rev A)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">768 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #0d6efd; border: 1px solid #0a58ca;">install</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Little Nemo: The Dream Master (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Mega Man 4 (USA) (Rev A)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">384 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #3e9e4e; border: 1px solid #35873f;">installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Mighty Final Fight (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">384 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Ninja Gaiden III: The Ancient Ship of Doom</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Power Blade 2 (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">384 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Recca: Summer Carnival '92 (Japan)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #ffffff; background: #3e9e4e; border: 1px solid #35873f;">installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid #ededed;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Shatterhand (USA)</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">256 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 0;">
+                <span style="width: 16px; height: 16px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span>
+                <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #5c5c5c; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 3px; padding: 2px 7px; white-space: nowrap; flex-shrink: 0;">NES</span>
+                <span style="font-size: 13px; flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Teenage Mutant Ninja Turtles II: The Arcade Game</span>
+                <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums;">512 KB</span>
+                <span style="font-size: 12px; font-weight: 600; border-radius: 4px; padding: 3px 10px; white-space: nowrap; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8;">not installed</span>
+              </div>
+      </div>
+      <div style="width: 6px; background: #ededed; border-radius: 3px; align-self: stretch; position: relative; flex-shrink: 0;" aria-hidden="true">
+        <div style="position: absolute; top: 0; left: 0; width: 6px; height: 7%; background: #b4b4ba; border-radius: 3px;"></div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+            <div style="position: relative; height: 218px; perspective: 900px; overflow: hidden;">
+              <div style="position: absolute; top: 50%; left: 50%; width: 124px; height: 162px; border-radius: 4px; background: #d3d3d6; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(-154px) rotateY(46deg) scale(0.6); opacity: 0.34; z-index: 3; display: flex; align-items: flex-end; padding: 10px; box-sizing: border-box;"><span style="font-size: 11px; font-weight: 600; color: #5c5c5c; line-height: 1.2;">Gimmick!</span></div><div style="position: absolute; top: 50%; left: 50%; width: 124px; height: 162px; border-radius: 4px; background: #c6cbc4; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(-77px) rotateY(46deg) scale(0.78); opacity: 0.55; z-index: 4; display: flex; align-items: flex-end; padding: 10px; box-sizing: border-box;"><span style="font-size: 11px; font-weight: 600; color: #4a4a4a; line-height: 1.2;">Jackal</span></div><div style="position: absolute; top: 50%; left: 50%; width: 124px; height: 162px; border-radius: 4px; background: #8f9aa6; box-shadow: 0 14px 34px rgba(0,0,0,0.28); transform: translate(-50%, -50%) translateX(0px) rotateY(0deg) scale(1.0); opacity: 1.0; z-index: 5; display: flex; align-items: flex-end; padding: 10px; box-sizing: border-box;"><span style="font-size: 14px; font-weight: 700; color: #ffffff; line-height: 1.2;">Kirby's Adventure</span></div><div style="position: absolute; top: 50%; left: 50%; width: 124px; height: 162px; border-radius: 4px; background: #c6cbc4; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(77px) rotateY(-46deg) scale(0.78); opacity: 0.55; z-index: 4; display: flex; align-items: flex-end; padding: 10px; box-sizing: border-box;"><span style="font-size: 11px; font-weight: 600; color: #4a4a4a; line-height: 1.2;">Mega Man 4</span></div><div style="position: absolute; top: 50%; left: 50%; width: 124px; height: 162px; border-radius: 4px; background: #d3d3d6; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(154px) rotateY(-46deg) scale(0.6); opacity: 0.34; z-index: 3; display: flex; align-items: flex-end; padding: 10px; box-sizing: border-box;"><span style="font-size: 11px; font-weight: 600; color: #5c5c5c; line-height: 1.2;">Kid Icarus</span></div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <span style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em;">Kirby's Adventure</span>
+              <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">Kirby's Adventure (USA) (Rev A).nes</span>
+            </div>
+              <div style="display: flex; flex-direction: column; gap: 9px;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Cover art</span>
+                  <span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8; border-radius: 4px; padding: 3px 10px;">Apply</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 9px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                  <span style="font-size: 13px; color: #5c5c5c;">Source</span>
+                  <span style="display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 10px; background: #ffffff; border: 1px solid #d8d8d8; border-radius: 3px; font-size: 13px; min-width: 150px; justify-content: space-between;"><span>Scraper</span><svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"></path></svg></span>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                  <span style="font-size: 13px; color: #5c5c5c;">Variant</span>
+                  <span style="display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 10px; background: #ffffff; border: 1px solid #d8d8d8; border-radius: 3px; font-size: 13px; min-width: 150px; justify-content: space-between;"><span>Box art</span><svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"></path></svg></span>
+                </div>
+                  <div style="height: 96px; background: #f4f4f4; border: 1px solid #d8d8d8; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                    <span style="font-size: 12px; color: #5c5c5c;">Preview</span>
+                  </div>
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 9px;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Saves</span>
+                  <span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8; border-radius: 4px; padding: 3px 10px;">Download save</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 9px;">
+                  <div style="display: flex; gap: 6px;">
+                    <span style="font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 3px; background: #1b1b1b; color: #ffffff;">SRAM</span>
+                    <span style="font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 3px; color: #5c5c5c;">Slot 1</span>
+                    <span style="font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 3px; color: #5c5c5c;">Slot 2</span>
+                  </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                  <span style="font-size: 13px; color: #5c5c5c;">Written</span>
+                  <span style="font-size: 13px; font-weight: 600; ">2026-08-29 21:14</span>
+                </div>
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 9px;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Cheats</span>
+                  <span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8; border-radius: 4px; padding: 3px 10px;">Add</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 14px; height: 14px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="8" height="8" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span><span style="font-size: 13px; color: #1b1b1b;">Infinite funds</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 14px; height: 14px; border-radius: 3px; background: #3e9e4e; border: 1px solid #35873f; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><svg viewBox="0 0 12 12" width="8" height="8" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.3 L4.7 9 L10 3.2"></path></svg></span><span style="font-size: 13px; color: #1b1b1b;">All aircraft unlocked</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 14px; height: 14px; border-radius: 3px; background: #ffffff; border: 1px solid #d8d8d8; flex-shrink: 0;"></span><span style="font-size: 13px; color: #5c5c5c;">Fast turn processing</span>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                  <span style="font-size: 13px; color: #5c5c5c;">Configured</span>
+                  <span style="font-size: 13px; font-weight: 600; ">2 codes</span>
+                </div>
+                </div>
+              </div>
+    </div>
+
+  </div>
+  <div style="margin-top: auto;">
+    <div style="display: flex; justify-content: center; padding: 0 40px;">
+      <div style="background: #ffffff; border: 1px solid #d8d8d8; border-bottom: none; border-radius: 7px 7px 0 0; padding: 7px 20px 8px; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: #5c5c5c; box-shadow: 0 -3px 10px rgba(0,0,0,0.05);">
+        <span>Summary</span>
+        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </div>
+    </div>
+    <div style="height: 3px; background: #ededed; display: flex;" aria-hidden="true">
+      <div style="width: 62%; background: #3e9e4e;"></div>
+      <div style="width: 9%; background: #3e9e4e; opacity: 0.45;"></div>
+    </div>
+    <div style="background: #ffffff; border-top: 1px solid #d8d8d8; min-height: 72px; box-sizing: border-box; padding: 0 40px; display: flex; align-items: center; justify-content: space-between; gap: 24px;">
+      <div style="display: flex; align-items: baseline;">
+        <span style="font-size: 13px; color: #5c5c5c;">41.8 MB of 50 MB projected</span>
+        <span style="font-size: 13px; font-weight: 600; color: #3e9e4e; margin-left: 14px;">+1.14 MB net change</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 18px;">
+        <span style="font-size: 13px; font-weight: 600; color: #1b1b1b;">Additional options</span>
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="#1b1b1b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12l-5-5-5 5"></path></svg>
+        <div style="font-size: 14px; font-weight: 600; color: #ffffff; background: #3e9e4e; border: 1px solid #35873f; border-radius: 5px; padding: 9px 22px;">Sync Library</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

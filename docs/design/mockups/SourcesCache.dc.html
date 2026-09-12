@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #3e9e4e; } a:hover { color: #2f7a3c; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 920px; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column;">
+
+  <!-- Chrome. Gold drops to a face-plate lip. The two badges are LABELS, each with its own
+       independent install-state value: Retro-Go, then stock firmware. -->
+  <div style="display: flex; flex-direction: column;">
+    <div style="height: 56px; background: #ffffff; display: flex; align-items: center; justify-content: space-between; padding: 0 40px;">
+      <div style="display: flex; align-items: center; gap: 13px;">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="#1b1b1b" stroke-width="1.3" stroke-linecap="round">
+          <rect x="5" y="5" width="10" height="10" rx="1.2"></rect>
+          <path d="M7.5 5V3M10 5V3M12.5 5V3M7.5 17v-2M10 17v-2M12.5 17v-2M5 7.5H3M5 10H3M5 12.5H3M17 7.5h-2M17 10h-2M17 12.5h-2"></path>
+        </svg>
+        <div style="display: flex; align-items: center; gap: 11px;">
+          <span style="position: relative; display: inline-flex; flex-shrink: 0;">
+            <span style="height: 28px; width: 47px; background: #2e9e44; border: 1px solid rgba(0,0,0,0.35); border-radius: 2px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 1px 2px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;">
+              <img src="icon-console.svg" alt="" style="height: 100%; width: 100%; object-fit: contain; display: block;">
+            </span>
+            <span style="position: absolute; right: -4px; bottom: -4px; background: #c9c9cd; border: 1px solid rgba(0,0,0,0.35); border-radius: 999px; padding: 2px; display: flex; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+              <svg viewBox="0 0 10 6" width="10" height="6"><path d="M0 0 L5 6 L10 0 Z" fill="#161616"></path></svg>
+            </span>
+          </span>
+          <span style="font-size: 14px; font-weight: 600;">Connected (Recovery Mode)</span>
+        </div>
+
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-gnw-badge.svg" alt="Game &amp; Watch" style="height: 27px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 14px; font-weight: 600;">Zelda (Patched)</span>
+        </div>
+
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-rgo.png" alt="Retro-Go" style="height: 14px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, monospace;">v1.4.1-44-flash</span>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 18px;">
+        <span style="font-size: 12px; font-weight: 500; color: #5c5c5c;">EN</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 12.5A7 7 0 0 1 7.5 4a7 7 0 1 0 8.5 8.5z"></path>
+        </svg>
+      </div>
+    </div>
+    <div style="height: 3px; background: linear-gradient(180deg, #d9bc5e 0%, #c09a32 100%);"></div>
+  </div>
+
+  <div style="padding: 0 40px; background: #ffffff; border-bottom: 1px solid #d8d8d8; display: flex; align-items: stretch; gap: 34px;">
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Overview</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Firmware</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: #1b1b1b; box-shadow: inset 0 -3px 0 #3e9e4e;">Sources</div>
+      <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Library</div>
+  </div>
+
+<div style="display: grid; grid-template-columns: 244px minmax(0, 1fr); gap: 0; flex-grow: 1;"><div style="border-right: 1px solid #d8d8d8; padding: 32px 20px 40px 40px; display: flex; flex-direction: column; gap: 26px;"><div style="display: flex; flex-direction: column; gap: 4px;"><div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 6px;">Local sources</div><div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>ROMs</span><span style="font-size: 12px; color: #5c5c5c;">2</span></div><div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Homebrew</span><span style="font-size: 12px; color: #5c5c5c;">3</span></div><div style="font-size: 14px; font-weight: 600; padding: 7px 0 7px 14px; margin-left: -14px; box-shadow: inset 2px 0 0 #3e9e4e; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Cache</span></div></div><div style="display: flex; flex-direction: column; gap: 4px;"><div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 6px;">Remote sources</div><div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Cores</span><span style="font-size: 12px; color: #5c5c5c;">5</span></div><div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Homebrew</span><span style="font-size: 12px; color: #5c5c5c;">4</span></div></div></div><div style="display: flex; flex-direction: column; justify-content: space-between;"><div style="padding: 32px 40px 40px; display: flex; flex-direction: column; gap: 32px; max-width: 720px;"><div style="display: flex; flex-direction: column; gap: 6px;"><div style="font-size: 24px; font-weight: 600; letter-spacing: -0.015em;">Cache</div><div style="font-size: 14px; color: #5c5c5c;"></div></div><div style="display: flex; flex-direction: column; gap: 12px;"><div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Contents</div><div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 18px;"><div style="display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 14px; font-weight: 400; flex-grow: 1; min-width: 0;">Firmware bundles</span><span style="font-size: 13px; color: #5c5c5c; width: 84px; text-align: right;">2 files</span><span style="font-size: 13px; font-weight: 400; width: 84px; text-align: right;">48.6 MB</span><span style="font-size: 13px; color: #5c5c5c; width: 46px; text-align: right;">Clear</span></div><div style="display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 14px; font-weight: 400; flex-grow: 1; min-width: 0;">Source artifacts</span><span style="font-size: 13px; color: #5c5c5c; width: 84px; text-align: right;">9 files</span><span style="font-size: 13px; font-weight: 400; width: 84px; text-align: right;">7.4 MB</span><span style="font-size: 13px; color: #5c5c5c; width: 46px; text-align: right;">Clear</span></div><div style="display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 14px; font-weight: 400; flex-grow: 1; min-width: 0;">Converter modules</span><span style="font-size: 13px; color: #5c5c5c; width: 84px; text-align: right;">3 files</span><span style="font-size: 13px; font-weight: 400; width: 84px; text-align: right;">2.1 MB</span><span style="font-size: 13px; color: #5c5c5c; width: 46px; text-align: right;">Clear</span></div><div style="display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 14px; font-weight: 400; flex-grow: 1; min-width: 0;">Converted files</span><span style="font-size: 13px; color: #5c5c5c; width: 84px; text-align: right;">4 files</span><span style="font-size: 13px; font-weight: 400; width: 84px; text-align: right;">51.3 MB</span><span style="font-size: 13px; color: #5c5c5c; width: 46px; text-align: right;">Clear</span></div><div style="display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 14px; font-weight: 400; flex-grow: 1; min-width: 0;">Cover art</span><span style="font-size: 13px; color: #5c5c5c; width: 84px; text-align: right;">212 files</span><span style="font-size: 13px; font-weight: 400; width: 84px; text-align: right;">18.9 MB</span><span style="font-size: 13px; color: #5c5c5c; width: 46px; text-align: right;">Clear</span></div><div style="display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #ededed;"><span style="font-size: 14px; font-weight: 400; flex-grow: 1; min-width: 0;">Offline bundles</span><span style="font-size: 13px; color: #5c5c5c; width: 84px; text-align: right;">1 file</span><span style="font-size: 13px; font-weight: 400; width: 84px; text-align: right;">12.0 MB</span><span style="font-size: 13px; color: #5c5c5c; width: 46px; text-align: right;">Clear</span></div><div style="display: flex; align-items: center; gap: 16px; padding: 12px 0; "><span style="font-size: 14px; font-weight: 400; flex-grow: 1; min-width: 0;">Other</span><span style="font-size: 13px; color: #5c5c5c; width: 84px; text-align: right;">6 files</span><span style="font-size: 13px; font-weight: 400; width: 84px; text-align: right;">3.2 MB</span><span style="font-size: 13px; color: #5c5c5c; width: 46px; text-align: right;">Clear</span></div><div style="display: flex; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid #d8d8d8;"><span style="font-size: 14px; font-weight: 600; flex-grow: 1; min-width: 0;">Total</span><span style="font-size: 13px; color: #5c5c5c; width: 84px; text-align: right;">237 files</span><span style="font-size: 13px; font-weight: 600; width: 84px; text-align: right;">143.5 MB</span><span style="width: 46px;"></span></div></div></div><div style="display: flex; flex-direction: column; gap: 12px;"><div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Storage</div><div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 18px;"><div style="display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 10px 20px; align-items: baseline;"><span style="font-size: 13px; color: #5c5c5c;">Used</span><span style="font-size: 13px;">143.5 MB of 2.1 GB</span><span style="font-size: 13px; color: #5c5c5c;">Protected<span style="display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 999px; border: 1px solid #c8c8c8; color: #5c5c5c; font-size: 10px; font-weight: 600; line-height: 1; margin-left: 6px; vertical-align: middle;">?</span></span><span style="font-size: 13px;">No<span style="position: relative; display: inline-block; margin-left: 8px; vertical-align: middle;"><span style="display: inline-block; background: #1b1b1b; color: #ffffff; font-size: 12px; line-height: 1.45; border-radius: 4px; padding: 7px 10px; max-width: 268px; box-shadow: 0 4px 12px rgba(0,0,0,0.18);">The browser will not delete this to free up space.</span></span></span></div></div></div></div><div style="border-top: 1px solid #d8d8d8; background: #ffffff; padding: 0 40px; min-height: 72px; box-sizing: border-box; margin-top: auto; display: flex; align-items: center; justify-content: space-between;"><span style="font-size: 13px; color: #5c5c5c;"></span><div style="display: flex; align-items: center; gap: 12px;"><div style="font-size: 13px; font-weight: 600; color: #1b1b1b; background: #ffffff; border: 1px solid #1b1b1b; border-radius: 5px; padding: 8px 18px;">Empty cache</div></div></div></div></div>
+</div>
+</x-dc>
+</body>
+</html>

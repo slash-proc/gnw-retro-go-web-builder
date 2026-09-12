@@ -1,0 +1,28 @@
+{
+ "artboards": [
+  {
+   "file": "ChoiceOnTheRail.dc.html",
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "The question is step 1 of the spine"
+  },
+  {
+   "file": "PlanFirst.dc.html",
+   "x": 1560,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "Infer the path, open on the plan"
+  },
+  {
+   "file": "ChooseAndSee.dc.html",
+   "x": 3120,
+   "y": 0,
+   "w": 1440,
+   "h": 920,
+   "title": "The choice and the plan it produces"
+  }
+ ]
+}

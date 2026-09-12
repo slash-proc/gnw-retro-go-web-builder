@@ -1,0 +1,10 @@
+{
+  "artboards": [
+    { "file": "OverviewSummary.dc.html",    "x": 0,    "y": 0, "w": 1440, "h": 1000, "title": "Overview - Summary (simple status)" },
+    { "file": "OverviewDetails.dc.html",    "x": 1560, "y": 0, "w": 1440, "h": 1760, "title": "Overview - Details (advanced status)" },
+    { "file": "OverviewRetroGoLog.dc.html", "x": 3120, "y": 0, "w": 1440, "h": 920,  "title": "Overview - Retro-Go log" },
+    { "file": "OverviewAuditLog.dc.html",   "x": 4680, "y": 0, "w": 1440, "h": 920,  "title": "Overview - Audit log" },
+    { "file": "OverviewNoDevice.dc.html",   "x": 6240, "y": 0, "w": 1440, "h": 920,  "title": "Overview - Summary, no device" }
+  ],
+  "launch": { "view": "canvas" }
+}

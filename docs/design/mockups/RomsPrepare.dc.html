@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; } html, body { height: 100%; }
+  </style>
+</helmet>
+
+<!--
+  ONE ROW PER GAME, BEFORE AND AFTER PREPARING.
+
+  Nothing here is a new component. `Roms.dc.html` already draws this list row, the `prepare`
+  pill (on its HB row) and the carousel caption; what no board showed is the TRANSITION — that
+  a `.wad` and the `.whd` it becomes are ONE entry, and that pressing prepare swaps that row's
+  own pill from `prepare` to `install` rather than adding a second row.
+
+  Every string is one the app already has: `prepare`, `install`, `installed`, `not installed`
+  come from `roms.selectGames.action*`. The console badge (DOOM), the names and the sizes are
+  runtime data. No new copy, so no i18n edit.
+
+  The pairing rule and the two naming surfaces live in `src/lib/sources/gameRows.ts`.
+-->
+
+<div style="width: 1440px; height: 100vh; min-height: 0; overflow: hidden; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column;">
+
+  <div style="padding: 26px 40px 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+    <span style="font-size: 13px; color: #5c5c5c; padding: 5px 11px;">All 3</span>
+    <span style="font-size: 13px; font-weight: 600; background: #1b1b1b; color: #ffffff; border-radius: 3px; padding: 5px 11px;">Doom 3</span>
+  </div>
+
+  <div style="padding: 22px 40px 32px; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 32px; align-items: start; flex: 1 1 auto; min-height: 0;">
+
+    <div style="grid-column: span 5; display: flex; flex-direction: column; gap: 26px;">
+
+      <!-- BEFORE -->
+      <div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 9px;">Before preparing</div>
+        <div style="background: #ffffff; border-radius: 6px; padding: 2px 16px;">
+
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: #5c5c5c; background: #e8e8e8; border-radius: 2px; padding: 3px 5px; width: 40px; text-align: center; flex-shrink: 0;">DOOM</span>
+            <span style="font-size: 14px; color: #1b1b1b; flex-grow: 1;">DOOM</span>
+            <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">12.4 MB</span>
+            <span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #e8e8e8; border-radius: 999px; padding: 4px 12px; min-width: 80px; text-align: center; white-space: nowrap; flex-shrink: 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);">prepare</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: #5c5c5c; background: #e8e8e8; border-radius: 2px; padding: 3px 5px; width: 40px; text-align: center; flex-shrink: 0;">DOOM</span>
+            <span style="font-size: 14px; color: #1b1b1b; flex-grow: 1;">doom2</span>
+            <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">14.3 MB</span>
+            <span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #e8e8e8; border-radius: 999px; padding: 4px 12px; min-width: 80px; text-align: center; white-space: nowrap; flex-shrink: 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);">prepare</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: #5c5c5c; background: #e8e8e8; border-radius: 2px; padding: 3px 5px; width: 40px; text-align: center; flex-shrink: 0;">DOOM</span>
+            <span style="font-size: 14px; color: #1b1b1b; flex-grow: 1;">freedoom2</span>
+            <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">4 MB</span>
+            <span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #e8e8e8; border-radius: 999px; padding: 4px 12px; min-width: 80px; text-align: center; white-space: nowrap; flex-shrink: 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);">prepare</span>
+          </div>
+
+        </div>
+        <div style="font-size: 13px; color: #5c5c5c; padding: 10px 2px 0;">A WAD cannot go to the card, so the row offers no install control at all — only prepare.</div>
+      </div>
+
+      <!-- AFTER -->
+      <div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 9px;">After preparing the first</div>
+        <div style="background: #ffffff; border-radius: 6px; padding: 2px 16px;">
+
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid #ededed;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: #5c5c5c; background: #e8e8e8; border-radius: 2px; padding: 3px 5px; width: 40px; text-align: center; flex-shrink: 0;">DOOM</span>
+            <span style="font-size: 14px; color: #1b1b1b; flex-grow: 1;">DOOM</span>
+            <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">9.8 MB</span>
+            <span style="font-size: 12px; font-weight: 600; color: #ffffff; background: #007bff; border-radius: 999px; padding: 4px 12px; min-width: 80px; text-align: center; white-space: nowrap; flex-shrink: 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.18);">install</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 0;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.07em; color: #5c5c5c; background: #e8e8e8; border-radius: 2px; padding: 3px 5px; width: 40px; text-align: center; flex-shrink: 0;">DOOM</span>
+            <span style="font-size: 14px; color: #1b1b1b; flex-grow: 1;">doom2</span>
+            <span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">14.3 MB</span>
+            <span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #e8e8e8; border-radius: 999px; padding: 4px 12px; min-width: 80px; text-align: center; white-space: nowrap; flex-shrink: 0; box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);">prepare</span>
+          </div>
+
+        </div>
+        <div style="font-size: 13px; color: #5c5c5c; padding: 10px 2px 0;">Still three rows, not six. The row keeps its name and its place; only the pill and the size change, because the size is now the converted file's.</div>
+      </div>
+
+    </div>
+
+    <!-- Carousel caption: the OTHER naming surface -->
+    <div style="grid-column: span 7; display: flex; flex-direction: column; gap: 22px;">
+
+      <div style="position: relative; height: 300px; perspective: 900px; overflow: hidden;">
+        <div style="position: absolute; top: 50%; left: 50%; width: 168px; height: 218px; border-radius: 4px; background: #c6cbc4; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(-258px) rotateY(48deg) scale(0.74); z-index: 2; display: flex; align-items: flex-end; padding: 12px;">
+          <span style="font-size: 12px; font-weight: 600; color: #4a4a4a;">doom2</span>
+        </div>
+        <div style="position: absolute; top: 50%; left: 50%; width: 168px; height: 218px; border-radius: 4px; background: #8f9aa6; box-shadow: 0 14px 34px rgba(0,0,0,0.28); transform: translate(-50%, -50%) scale(1); z-index: 5; display: flex; flex-direction: column; justify-content: flex-end; padding: 14px;">
+          <span style="font-size: 15px; font-weight: 700; color: #ffffff; line-height: 1.2;">The Ultimate<br>Doom</span>
+        </div>
+        <div style="position: absolute; top: 50%; left: 50%; width: 168px; height: 218px; border-radius: 4px; background: #c6cbc4; box-shadow: 0 6px 22px rgba(0,0,0,0.16); transform: translate(-50%, -50%) translateX(258px) rotateY(-48deg) scale(0.74); z-index: 2; display: flex; align-items: flex-end; padding: 12px;">
+          <span style="font-size: 12px; font-weight: 600; color: #4a4a4a;">freedoom2</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 4px; width: 100%; padding-top: 4px;">
+        <span style="font-size: 24px; font-weight: 600; letter-spacing: -0.015em; text-align: center;">The Ultimate Doom</span>
+        <div style="display: flex; align-items: center; gap: 12px; justify-content: center;">
+          <span style="font-size: 14px; color: #5c5c5c;">Doom</span>
+          <span style="width: 3px; height: 3px; border-radius: 50%; background: #9a9aa0;"></span>
+          <span style="font-size: 13px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">DOOM.WAD · 9.8 MB</span>
+        </div>
+      </div>
+
+      <div style="font-size: 13px; color: #5c5c5c; text-align: center; padding: 0 60px;">
+        The headline is the published name for the WAD that was recognised; the line under it keeps the file the entry came from, extension and all. A WAD matching no published variant reads the same on both surfaces — <span style="font-family: ui-monospace, Menlo, monospace;">freedoom2</span> — rather than borrowing a title nobody published.
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

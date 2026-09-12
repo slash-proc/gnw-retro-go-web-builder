@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #3e9e4e; } a:hover { color: #2f7a3c; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 1180px; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column;">
+
+  <!-- Chrome. Gold drops to a face-plate lip. The two badges are LABELS, each with its own
+       independent install-state value: Retro-Go, then stock firmware. -->
+  <div style="display: flex; flex-direction: column;">
+    <div style="height: 56px; background: #ffffff; display: flex; align-items: center; justify-content: space-between; padding: 0 40px;">
+      <div style="display: flex; align-items: center; gap: 13px;">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="#1b1b1b" stroke-width="1.3" stroke-linecap="round">
+          <rect x="5" y="5" width="10" height="10" rx="1.2"></rect>
+          <path d="M7.5 5V3M10 5V3M12.5 5V3M7.5 17v-2M10 17v-2M12.5 17v-2M5 7.5H3M5 10H3M5 12.5H3M17 7.5h-2M17 10h-2M17 12.5h-2"></path>
+        </svg>
+        <div style="display: flex; align-items: center; gap: 11px;">
+          <span style="position: relative; display: inline-flex; flex-shrink: 0;">
+            <span style="height: 28px; width: 47px; background: #2e9e44; border: 1px solid rgba(0,0,0,0.35); border-radius: 2px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 1px 2px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;">
+              <img src="icon-console.svg" alt="" style="height: 100%; width: 100%; object-fit: contain; display: block;">
+            </span>
+            <span style="position: absolute; right: -4px; bottom: -4px; background: #c9c9cd; border: 1px solid rgba(0,0,0,0.35); border-radius: 999px; padding: 2px; display: flex; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+              <svg viewBox="0 0 10 6" width="10" height="6"><path d="M0 0 L5 6 L10 0 Z" fill="#161616"></path></svg>
+            </span>
+          </span>
+          <span style="font-size: 14px; font-weight: 600;">Connected (Recovery Mode)</span>
+        </div>
+
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-gnw-badge.svg" alt="Game &amp; Watch" style="height: 27px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 14px; font-weight: 600;">Zelda (Patched)</span>
+        </div>
+
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-rgo.png" alt="Retro-Go" style="height: 14px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, monospace;">v1.4.1-44-flash</span>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 18px;">
+        <span style="font-size: 12px; font-weight: 500; color: #5c5c5c;">EN</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 12.5A7 7 0 0 1 7.5 4a7 7 0 1 0 8.5 8.5z"></path>
+        </svg>
+      </div>
+    </div>
+    <div style="height: 3px; background: linear-gradient(180deg, #d9bc5e 0%, #c09a32 100%);"></div>
+  </div>
+
+  <div style="padding: 0 40px; background: #ffffff; border-bottom: 1px solid #d8d8d8; display: flex; align-items: stretch; gap: 34px;">
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Overview</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Firmware</div>
+    <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: #1b1b1b; box-shadow: inset 0 -3px 0 #3e9e4e;">Sources</div>
+      <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Library</div>
+  </div>
+
+
+  <!-- ONE CURATED ENTRY FAILED TO RESOLVE, AND THE OFFLINE CASE UNDER IT.
+       `sources/store.svelte.ts`'s `importCurated()` resolves each curated entry inside its own
+       try/catch (the `wanted.map(...)` pass, whose catch simply returns): a failed entry
+       contributes NO ROW today and is silently retried next visit. It must not start
+       contributing one — a row with no card parks in the Homebrew rail whatever it is, so a
+       failed emulator core would surface under Homebrew, and an offline first visit would draw
+       ~22 junk rows.
+       So the failure is NOT a row. It is one quiet note under the section's list, on the ground,
+       no border — a container earns a border only when it wraps a real object, and a failure is
+       not an object. The note is section-scoped, and can be: `kind` and `title` come from
+       `projects.json` (firmwareDist/types.ts:219, `CuratedProject`), which has ALREADY been read
+       when the per-entry `versionsUrl` walk fails, so the app knows both which rail the entry
+       belongs to and what it is called without the file it could not fetch.
+       Rail counts are untouched (Homebrew 4): a failed entry is not a source you have.
+       COPY: one new string, `sources.curatedUnreadable(count)`. It states exactly what the code
+       knows — some named entries could not be read — and claims no cause: `importCurated`
+       discards the error, and offline / 404 / malformed are indistinguishable to it (the same
+       argument `curated.ts` already makes for treating an unreadable list as an absent one).
+       `Retry` is the EXISTING approved `sources.retry`, not a new string. The names are runtime
+       `project.title` values: mono, comma-joined, ellipsised on ONE line — which is what keeps
+       the many-failures case from being a wall (see the band below). -->
+<div style="display: grid; grid-template-columns: 244px minmax(0, 1fr); gap: 0;">
+  <div style="border-right: 1px solid #d8d8d8; padding: 32px 20px 40px 40px; display: flex; flex-direction: column; gap: 26px;">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 6px;">Local sources</div>
+      <div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>ROMs</span><span style="font-size: 12px; color: #5c5c5c;">2</span></div>
+      <div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Homebrew</span><span style="font-size: 12px; color: #5c5c5c;">3</span></div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase; padding-bottom: 6px;">Remote sources</div>
+      <div style="font-size: 14px; padding: 7px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Cores</span><span style="font-size: 12px; color: #5c5c5c;">5</span></div>
+      <div style="font-size: 14px; font-weight: 600; padding: 7px 0 7px 14px; margin-left: -14px; box-shadow: inset 2px 0 0 #3e9e4e; display: flex; align-items: center; justify-content: space-between; gap: 10px;"><span>Homebrew</span><span style="font-size: 12px; color: #5c5c5c;">4</span></div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column;">
+    <div style="padding: 32px 40px 40px; display: flex; flex-direction: column; gap: 32px; max-width: 720px;">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="font-size: 24px; font-weight: 600; letter-spacing: -0.015em;">Homebrew</div>
+        <div style="font-size: 14px; color: #5c5c5c;">Custom games/applications for the Game &amp; Watch.&nbsp;</div>
+      </div>
+      <div style="display: flex; flex-direction: column;">
+        <div style="background: #ffffff; border-radius: 6px; padding: 2px 18px;"><div style="display: flex; align-items: center; gap: 20px; background: #f6f8f6; box-shadow: inset 2px 0 0 #3e9e4e; padding: 15px 18px; margin: 0 -18px; border-bottom: 1px solid #ededed;"><div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0;"><span style="font-size: 15px; font-weight: 600;">Super Mario World</span><span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">slash-proc/smw</span><span style="font-size: 13px; color: #5c5c5c; padding-top: 3px;">Needs user files</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 6px; width: 104px; flex-shrink: 0;"><span style="font-size: 13px; font-weight: 600; color: #1b1b1b; white-space: nowrap;">v1.0.0</span><span style="font-size: 12px; font-weight: 600; color: #ffffff; background: #3e9e4e; border: 1px solid #3e9e4e; border-radius: 999px; padding: 3px 12px; white-space: nowrap;">Active</span></div></div><div style="display: flex; align-items: center; gap: 20px; padding: 15px 0; border-bottom: 1px solid #ededed;"><div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0;"><span style="font-size: 15px; font-weight: 600;">Zelda 3</span><span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">slash-proc/zelda3</span><span style="font-size: 13px; color: #5c5c5c; padding-top: 3px;">Needs user files</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 6px; width: 104px; flex-shrink: 0;"><span style="font-size: 13px; font-weight: 600; color: #1b1b1b; white-space: nowrap;">v1.1.0</span><span style="font-size: 12px; font-weight: 600; color: #ffffff; background: #3e9e4e; border: 1px solid #3e9e4e; border-radius: 999px; padding: 3px 12px; white-space: nowrap;">Active</span></div></div><div style="display: flex; align-items: center; gap: 20px; padding: 15px 0; border-bottom: 1px solid #ededed;"><div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0;"><span style="font-size: 15px; font-weight: 600;">Celeste</span><span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">slash-proc/ccleste-retro-go-sd</span><span style="font-size: 13px; color: #5c5c5c; padding-top: 3px;">No user files needed</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 6px; width: 104px; flex-shrink: 0;"><span style="font-size: 13px; font-weight: 600; color: #1b1b1b; white-space: nowrap;">v2.0.1</span><span style="font-size: 12px; font-weight: 600; color: #ffffff; background: #3e9e4e; border: 1px solid #3e9e4e; border-radius: 999px; padding: 3px 12px; white-space: nowrap;">Active</span></div></div><div style="display: flex; align-items: center; gap: 20px; padding: 15px 0; border-bottom: 1px solid #ededed;"><div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0;"><span style="font-size: 15px; font-weight: 600;">Mine Sweeper</span><span style="font-size: 12px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace;">slash-proc/mine-sweeper-retro-go-sd</span><span style="font-size: 13px; color: #5c5c5c; padding-top: 3px;">No user files needed</span></div><div style="display: flex; flex-direction: column; align-items: center; gap: 6px; width: 104px; flex-shrink: 0;"><span style="font-size: 13px; font-weight: 600; color: #1b1b1b; white-space: nowrap;">v0.1.0</span><span style="font-size: 12px; font-weight: 600; color: #5c5c5c; background: #ffffff; border: 1px solid #c8c8c8; border-radius: 999px; padding: 3px 12px; white-space: nowrap;">Inactive</span></div></div></div>
+        <div style="display: flex; flex-direction: column; gap: 4px; padding: 18px 0 0;"><div style="display: flex; align-items: baseline; gap: 14px;"><span style="font-size: 14px; color: #5c5c5c;">2 curated sources could not be read</span><span style="font-size: 13px; font-weight: 500; color: #3e9e4e;">Retry</span></div><span style="max-width: 420px; font-size: 13px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Snake, Wolfenstein 3D</span></div>
+      </div>
+    </div>
+
+    <div style="border-top: 1px solid #d8d8d8; background: #ffffff; padding: 0 40px; min-height: 72px; box-sizing: border-box; margin-top: auto; display: flex; align-items: center; justify-content: space-between;">
+      <span style="font-size: 13px; color: #5c5c5c;">Super Mario World, v1.0.0</span>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="font-size: 13px; font-weight: 600; color: #5c5c5c; background: #ffffff; border: 1px solid #d8d8d8; border-radius: 5px; padding: 8px 18px;">Configure</div>
+        <div style="font-size: 13px; font-weight: 600; color: #1b1b1b; background: #ffffff; border: 1px solid #1b1b1b; border-radius: 5px; padding: 8px 18px;">Deactivate</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <!-- THE MANY-AT-ONCE CASE. Not a second screen: the SAME note, drawn once per rail section, on
+       an offline first visit where every entry of the list fails. Two lines per section and
+       nothing else — no rows are added, so there is no wall of errors, and each section still
+       shows whatever stored rows the user has of their own. One `Retry` per section, because a
+       section is the scope its note can re-resolve. -->
+  <div style="border-top: 1px solid #d8d8d8; background: #ffffff; padding: 26px 40px 30px; display: flex; flex-direction: column; gap: 20px;">
+    <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.11em; color: #5c5c5c; text-transform: uppercase;">Offline first visit — every entry fails</span>
+    <div style="display: flex; gap: 64px;">
+      <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">Cores</span>
+        <div style="display: flex; flex-direction: column; gap: 4px; padding: 18px 0 0;"><div style="display: flex; align-items: baseline; gap: 14px;"><span style="font-size: 14px; color: #5c5c5c;">8 curated sources could not be read</span><span style="font-size: 13px; font-weight: 500; color: #3e9e4e;">Retry</span></div><span style="max-width: 420px; font-size: 13px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">gnuboy, PC Engine, Lynx, WonderSwan, MSX, Colecovision, SG-1000, Atari 7800</span></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+        <span style="font-size: 15px; font-weight: 600;">Homebrew</span>
+        <div style="display: flex; flex-direction: column; gap: 4px; padding: 18px 0 0;"><div style="display: flex; align-items: baseline; gap: 14px;"><span style="font-size: 14px; color: #5c5c5c;">14 curated sources could not be read</span><span style="font-size: 13px; font-weight: 500; color: #3e9e4e;">Retry</span></div><span style="max-width: 420px; font-size: 13px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Snake, Wolfenstein 3D, Doom, Tetromino, Chess, Sokoban, Flappy Bird, Pong</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

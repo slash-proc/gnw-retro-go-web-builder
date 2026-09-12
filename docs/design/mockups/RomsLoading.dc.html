@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap">
+  <style>
+    body { margin: 0; } html, body { height: 100%; }
+    a { color: #3e9e4e; } a:hover { color: #2f7a3c; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 100vh; min-height: 0; overflow: hidden; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column;">
+
+  <div style="display: flex; flex-direction: column;">
+    <div style="height: 56px; background: #ffffff; display: flex; align-items: center; justify-content: space-between; padding: 0 40px;">
+      <div style="display: flex; align-items: center; gap: 13px;">
+        <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="#1b1b1b" stroke-width="1.3" stroke-linecap="round">
+          <rect x="5" y="5" width="10" height="10" rx="1.2"></rect>
+          <path d="M7.5 5V3M10 5V3M12.5 5V3M7.5 17v-2M10 17v-2M12.5 17v-2M5 7.5H3M5 10H3M5 12.5H3M17 7.5h-2M17 10h-2M17 12.5h-2"></path>
+        </svg>
+        <div style="display: flex; align-items: center; gap: 11px;">
+          <span style="position: relative; display: inline-flex; flex-shrink: 0;">
+            <span style="height: 28px; width: 47px; background: #2e9e44; border: 1px solid rgba(0,0,0,0.35); border-radius: 2px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 1px 2px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center;">
+              <img src="icon-console.svg" alt="" style="height: 100%; width: 100%; object-fit: contain; display: block;">
+            </span>
+            <span style="position: absolute; right: -4px; bottom: -4px; background: #c9c9cd; border: 1px solid rgba(0,0,0,0.35); border-radius: 999px; padding: 2px; display: flex; box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
+              <svg viewBox="0 0 10 6" width="10" height="6"><path d="M0 0 L5 6 L10 0 Z" fill="#161616"></path></svg>
+            </span>
+          </span>
+          <span style="font-size: 14px; font-weight: 600;">Connected (Recovery Mode)</span>
+        </div>
+
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-gnw-badge.svg" alt="Game &amp; Watch" style="height: 27px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 14px; font-weight: 600;">Zelda (Patched)</span>
+        </div>
+
+        <span style="width: 1px; height: 18px; background: #d8d8d8; margin: 0 3px;"></span>
+
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="logo-rgo.png" alt="Retro-Go" style="height: 14px; width: auto; display: block; flex-shrink: 0;">
+          <span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, Menlo, monospace;">v1.4.1-44-flash</span>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 18px;">
+        <span style="font-size: 12px; font-weight: 500; color: #5c5c5c;">EN</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 12.5A7 7 0 0 1 7.5 4a7 7 0 1 0 8.5 8.5z"></path>
+        </svg>
+      </div>
+    </div>
+    <div style="height: 3px; background: linear-gradient(180deg, #d9bc5e 0%, #c09a32 100%);"></div>
+  </div>
+
+  <div style="padding: 0 40px; background: #ffffff; border-bottom: 1px solid #d8d8d8; display: flex; align-items: stretch; justify-content: space-between;">
+    <div style="display: flex; align-items: stretch; gap: 34px;">
+      <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Overview</div>
+      <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Firmware</div>
+      <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: #6e6e6e; box-shadow: inset 0 -3px 0 transparent;">Sources</div>
+      <div style="display: flex; align-items: center; height: 46px; padding: 0 2px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: #1b1b1b; box-shadow: inset 0 -3px 0 #3e9e4e;">Library</div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="#5c5c5c" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2.5 6a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16.5 8v6a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 14z"></path>
+      </svg>
+      <span style="font-size: 13px; font-weight: 500; color: #5c5c5c;">Change folder</span>
+    </div>
+  </div>
+
+
+  <!-- The Library is WALKING the registered folders. Distinct from the empty state next door
+       (RomsNoFolder): that one offers setup, this one reports work in progress. Same
+       `.gate-empty` box (RomManagementTab.svelte:2084) — centred column, 12px gap, 32px/16px
+       padding, #5c5c5c at 14px. The copy is the already-approved `Loading...` string
+       (roms.gameDetailsPanel.cheats.loadingEllipsis), reused rather than re-written, so this
+       state costs no new translation. The bar is InstallProgressModal's track/fill exactly:
+       4px tall, 2px radius, #e8e8e8 (--surface-sunk) track, #3e9e4e (--zelda-green) fill,
+       150ms width transition, min(320px, 80%) wide. It counts FOLDERS walked, not files — a
+       folder's file count is unknown until it has been walked, so files could never fill a
+       determinate bar. Below it, the relative path currently being read: runtime text, mono,
+       single line, ellipsised at min(420px, 90%). -->
+  <div style="padding: 22px 40px 32px; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 16px; color: #5c5c5c; font-size: 14px;">
+      <span>Loading&hellip;</span>
+      <div style="width: 320px; height: 4px; border-radius: 2px; background: #e8e8e8; overflow: hidden;">
+        <div style="width: 40%; height: 100%; background: #3e9e4e;"></div>
+      </div>
+      <span style="max-width: 420px; font-size: 13px; color: #5c5c5c; font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Console ROMs/gbc/Wario Land 3 (USA, Europe).gbc</span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
