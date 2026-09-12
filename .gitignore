@@ -1,10 +1,16 @@
 # Dependencies
 node_modules/
+# ...and as a SYMLINK. The trailing-slash form matches directories only, so the
+# per-worktree symlinks the agent setup creates were committable — one did get
+# committed, and merging it replaced the real apps/web/node_modules with a
+# self-referential link that broke every esbuild-based suite.
+node_modules
 .pnp
 .pnp.js
 
 # Build output
 dist/
+dist
 build/
 *.tsbuildinfo
 
@@ -41,3 +47,13 @@ apps/web/preview-*.png
 packages/fs-builders/test/ref/
 packages/fs-builders/test/ref-staging/
 packages/fs-builders/test/ref-romlzma/
+
+# Transient agent worktrees created by assistant tooling
+.claude/worktrees/
+
+# Agent worktrees (transient, created by the assistant)
+.worktrees/
+
+# electron-builder output (desktop/build/web is already covered by the build/ rule above)
+desktop/release/
+__pycache__/

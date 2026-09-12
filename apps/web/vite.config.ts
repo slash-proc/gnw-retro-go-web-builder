@@ -1,6 +1,13 @@
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+
+// The app's own version, read from this package rather than retyped. `desktop-config.mjs`
+// checks it against the desktop packager's copy, since a release filename carries that one.
+const { version } = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8"),
+) as { version: string };
 
 // The legacy test harness + engine package assets are served by the Express
 // backend in dev; Vite proxies those paths to it. (Production = static; none of
@@ -10,12 +17,37 @@ const LEGACY = "http://localhost:3001";
 export default defineConfig({
   // Project GitHub Pages live at /<repo>/. Override to "/" for a custom domain.
   base: process.env.PUBLIC_BASE ?? "/",
+  // Which build's persisted data this bundle owns. Empty = production, whose storage names are
+  // byte-identical to what they have always been; any other value gives the build a private set
+  // of localStorage keys, IndexedDB databases and OPFS directories. See `lib/storageScope.ts`.
+  define: {
+    __STORAGE_SCOPE__: JSON.stringify(process.env.PUBLIC_STORAGE_SCOPE ?? ""),
+    __APP_VERSION__: JSON.stringify(version),
+  },
   plugins: [svelte()],
   resolve: {
-    alias: {
+    alias: [
       // ST-Link backend lives in the webstlink submodule (browser ESM source).
-      "@webstlink": fileURLToPath(new URL("../../frontend/vendor/webstlink/src", import.meta.url)),
-    },
+      {
+        find: "@webstlink",
+        replacement: fileURLToPath(new URL("../../frontend/vendor/webstlink/src", import.meta.url)),
+      },
+      // Resolve the workspace packages to THIS checkout, not through `node_modules`.
+      //
+      // Agent worktrees symlink `node_modules` to the main clone's, whose `@gnw/*` entries
+      // point back into the MAIN clone's `packages/`. Without this alias a worktree's
+      // `vite build` and `svelte-check` silently compile against a different checkout's
+      // `dist/` — green gates that prove nothing about the change under test. On the main
+      // clone the two paths are the same directory, so this is a no-op there.
+      //
+      // One rule covers both shapes: every package maps its subpaths 1:1 onto its own
+      // directory (`./blobs/*`, `./vendor/*`), and the bare specifier lands on the package
+      // directory itself, resolved via its `package.json`.
+      {
+        find: /^@gnw\/(.*)$/,
+        replacement: fileURLToPath(new URL("../../packages/", import.meta.url)) + "$1",
+      },
+    ],
   },
   server: {
     host: true, // reachable from outside the container
