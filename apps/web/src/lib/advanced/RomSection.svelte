@@ -10,19 +10,27 @@
     type FlashInstall,
     type FlashRegion,
   } from "../engine/flashInstall.js";
-  import { listVersions, fetchBundle } from "../artifacts.js";
+  import { listVersions, refreshVersions, fetchBundle } from "../artifacts.js";
+  import { sameVersion } from "../firmwareDist/compare.js";
   import { dumpRegion } from "../engine/flasher.js";
   import { readFrogfsState } from "../engine/fsscan.js";
   import { dbg as dbgLog } from "../debug.js";
   import { readGameData } from "../engine/frogfsDevice.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import type { LittlefsTreeNode } from "@gnw/fs-builders";
-  import { HOMEBREW_TITLES } from "../engine/homebrew.js";
+  import { homebrew } from "../sources/homebrewTitles.svelte.js";
+  import { prepareState } from "../sources/prepareState.svelte.js";
+  import { sources } from "../sources/store.svelte.js";
+  import { deviceInstallPaths } from "../engine/devicePaths.js";
+  import { isCoreKind, type Target } from "../sources/types.js";
+  import type { MappedSpec } from "@gnw/fs-builders";
   import { planFlashLayout } from "@gnw/fs-builders";
   import { locateSuperblock, readSuperblock, SUPERBLOCK_SIZE } from "@gnw/gnw-patch";
-  import AccordionSection, { type ChipKind } from "./AccordionSection.svelte";
   import SplitButton from "../ui/SplitButton.svelte";
+  import Button from "../ui/Button.svelte";
+  import PaneFooter from "./PaneFooter.svelte";
   import { installProgress, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
+  import { msg, errText, sumBytes } from "../logEntry.js";
   import GeometryBar from "../ui/GeometryBar.svelte";
   import { extflashSegments, intflashSegments, type GeoSegment } from "../engine/classify.js";
   import { isStubAlive } from "../engine/flasher.js";
@@ -41,9 +49,9 @@
     onRunning,
   }: { installMode: "flash" | "sd"; onRunning?: (r: boolean) => void } = $props();
 
-  import { roms } from "../roms.svelte.js";
+  import { library } from "../library.svelte.js";
   import type { FirmwareVersion } from "../artifacts.js";
-  const scan = $derived(roms.scan);
+  const scan = $derived(library.scan);
   let preparing = $state(false);
   let install = $state<FlashInstall | null>(null);
   // Stashed from the fetched bundle during buildInstall(), consumed by run()'s post-rescan
@@ -170,6 +178,13 @@
 
   // Expert layout overrides (decision: "specify offset of frogfs and size of littlefs").
   let layoutOpen = $state(false);
+
+  // Firmware.dc.html:150's footer caption. Both values are device/build-derived, so they are
+  // arguments; with nothing built yet there is no size to state and the artboard shows no
+  // empty-state caption, so the bar's left side stays blank rather than inventing one.
+  const footerSummary = $derived(
+    install ? locale.t.romSection.footerSummary(`${Math.round(install.intflash.length / 1024)} KB`, install.bank, install.bank === 2) : undefined,
+  );
   let frogfsOffsetStr = $state(""); // blank = auto
   let littlefsMiBStr = $state(""); // blank = auto
 
@@ -180,14 +195,28 @@
   const installedVersion = $derived(retroGoBank?.retroGoVersion);
   const retroGoBankIndex = $derived(retroGoBank?.index);
   const bank1StockOfw = $derived(bank1?.ofw && !bank1.ofw.patched ? bank1.ofw : undefined);
+  /**
+   * ANY official firmware in bank 1, stock or patched. `bank1StockOfw` above deliberately means
+   * only the unpatched kind, because "is there stock firmware to preserve" is a different
+   * question from "where should Retro-Go go".
+   *
+   * A DUAL-BOOT PATCHED OFW IS THE STRONGEST possible signal that bank 2 is the target: that
+   * patch exists precisely so the OFW in bank 1 can hand off to Retro-Go in bank 2. Inferring
+   * from `bank1StockOfw` alone meant that after uninstalling Retro-Go, a device with patched
+   * OFW in bank 1 and a dual-boot layout preselected bank 1, which would flash Retro-Go over
+   * the very firmware the patch boots from.
+   */
+  const bank1AnyOfw = $derived(bank1?.ofw);
   const hasRetroGoAnywhere = $derived(retroGoBankIndex !== undefined);
   const deviceHasRetroGoInstalled = $derived(hasRetroGoAnywhere);
 
   let bankUserOverride = $state<1 | 2 | null>(null); // set only via the "change bank" picker
   const inferredBank = $derived.by((): 1 | 2 => {
     if (retroGoBankIndex === 1 || retroGoBankIndex === 2) return retroGoBankIndex; // follow retro-go
-    if (bank1StockOfw) return 2; // stock OFW in bank1 → dual-boot default
-    return 1; // bank1 has no stock firmware (empty/unknown) → retro-go-only install
+    // Any OFW in bank 1, stock or patched. Patched means dual-boot, which is a statement that
+    // bank 2 is where Retro-Go lives -- it is not a reason to treat bank 1 as free.
+    if (bank1AnyOfw) return 2;
+    return 1; // bank1 has no official firmware at all (empty/unknown) → retro-go-only install
   });
   const bank = $derived(bankUserOverride ?? inferredBank);
   const retroGoOnlyInstall = $derived(inferredBank === 1 && !bank1StockOfw && !hasRetroGoAnywhere);
@@ -208,26 +237,67 @@
   let versions = $state<FirmwareVersion[]>([]);
   let selectedVersionTag = $state<string>("");
   let selectedVersionUserSet = false; // becomes true once the user picks explicitly
+
+  /**
+   * Re-read the published version list on demand.
+   *
+   * `versions.json` is memoised for the session, so a release published while the app is open
+   * is invisible and there is no way to tell from the picker whether the list is current. The
+   * owner asked for a way to check without reloading.
+   *
+   * The 10 s lockout is the whole rate limit, by his instruction: the control greys out on
+   * press and comes back. No queueing, no retry, no spinner state machine -- a second press
+   * would only refetch a document that changes on the order of days.
+   */
+  let refreshingVersions = $state(false);
+  let refreshCooldown = $state(false);
+  async function doRefreshVersions(): Promise<void> {
+    if (refreshCooldown || refreshingVersions) return;
+    refreshingVersions = true;
+    refreshCooldown = true;
+    setTimeout(() => (refreshCooldown = false), 10000);
+    try {
+      const v = await refreshVersions();
+      versions = v;
+      // A refresh must not move a choice the user made. It may still fill an empty picker, and
+      // it re-runs the installed-version match when they have not chosen, which is the case
+      // where a newly published release should become the default.
+      if (!selectedVersionUserSet && v.length > 0) {
+        const matchInstalled = v.find((x) => sameVersion(x.gitTag, installedVersion));
+        selectedVersionTag = matchInstalled ? matchInstalled.tag : v[0].tag;
+      }
+    } catch (e) {
+      dbgLog("[versions] refresh failed:", errText(e));
+    } finally {
+      refreshingVersions = false;
+    }
+  }
   $effect(() => {
     listVersions().then((v) => {
       versions = v;
       if (!selectedVersionUserSet && v.length > 0) {
-        const matchInstalled = installedVersion && v.find((x) => x.tag === installedVersion);
+        // The device reports a BAKED version string, which is the release's `gitTag`, not its
+        // release `tag` — matching on `.tag` here could only ever miss.
+        const matchInstalled = v.find((x) => sameVersion(x.gitTag, installedVersion));
         selectedVersionTag = matchInstalled ? matchInstalled.tag : v[0].tag;
       }
     });
   });
   const latestVersion = $derived(versions[0]?.tag ?? null);
 
-  function parseSha(v: string | null | undefined) {
-    if (!v) return null;
-    const m = v.match(/g?([0-9a-f]{7})[0-9a-f]*$/);
-    return m ? m[1] : null;
-  }
-
-  const installedSha = $derived(parseSha(installedVersion));
-  const selectedSha = $derived(parseSha(selectedVersionTag));
-  const isSameVersion = $derived(installedSha !== null && selectedSha !== null && installedSha === selectedSha);
+  // Same-version repair vs a genuine (re)install of a different build. This used to extract a
+  // 7-hex sha off the end of both strings, which parsed nothing the day a release was tagged
+  // `v2.0.0-rc1` rather than as a `git describe` suffix. It is a `gitTag` byte-compare now
+  // (firmwareDist/compare.ts): the device's baked string against the selected release's
+  // published one. Unknown on either side is never "same".
+  const selectedVersion = $derived(versions.find((v) => v.tag === selectedVersionTag));
+  const isSameVersion = $derived(sameVersion(selectedVersion?.gitTag, installedVersion));
+  // NOTE: this section has no upgrade/reinstall LABEL of its own — the picker names the exact
+  // release, and the only question this section asks is same-or-different, which is genuinely
+  // what gates the migrate defaults below and the repair-vs-install log line. Both surfaces
+  // that DO carry that label — views/Wizard.svelte and the Advanced rail's pane title in
+  // advanced/FirmwareRail.svelte — share one rule, `installTitleState` in
+  // firmwareDist/compare.ts; use it rather than a local test if this section ever grows one.
 
   function pickVersion(tag: string) {
     selectedVersionUserSet = true;
@@ -347,22 +417,22 @@
       if (p.offset >= offset) continue; // superseded too — anything from the boundary on is reserved
       const label = p.fs === "frogfs" ? "Games" : p.type;
       const size = Math.min(p.size, offset - p.offset); // clip if it would cross the boundary
-      regions.push({ offset: p.offset, size, kind: p.fs ?? (/OFW/.test(p.type) ? "ofw" : "data"), label, detail: [label, `${MiB(size)} MiB`] });
+      regions.push({ offset: p.offset, size, kind: p.fs ?? (/OFW/.test(p.type) ? "ofw" : "data"), label, detail: [label, `${MiB(size)} MB`] });
     }
     if (extBytes - offset > 0) {
       regions.push({
         offset,
         size: extBytes - offset,
         kind: "frogfs-changed",
-        label: "Reserved (SD cache)",
-        detail: ["Reserved (SD cache)", `${MiB(extBytes - offset)} MiB`],
+        label: locale.t.shared.geometry.reservedSdCache,
+        detail: [locale.t.shared.geometry.reservedSdCache, `${MiB(extBytes - offset)} MB`],
       });
     }
     regions.sort((a, b) => a.offset - b.offset);
     const out: GeoSegment[] = [];
     let cursor = 0;
     const free = (from: number, to: number) => {
-      if (to - from > 0) out.push({ pct: ((to - from) / extBytes) * 100, kind: "free", label: "Free Space", detail: ["Free Space", `${MiB(to - from)} MiB`] });
+      if (to - from > 0) out.push({ pct: ((to - from) / extBytes) * 100, kind: "free", label: "Free Space", detail: ["Free Space", `${MiB(to - from)} MB`] });
     };
     for (const r of regions) {
       if (r.offset < cursor) continue;
@@ -408,19 +478,19 @@
       if (p.fs === "frogfs" || p.fs === "littlefs") continue; // handled specially below
       if (p.offset >= fOffset) continue; // superseded — anything from the FrogFS boundary on is projected
       const size = Math.min(p.size, fOffset - p.offset); // clip if it would cross the boundary
-      regions.push({ offset: p.offset, size, kind: /OFW/.test(p.type) ? "ofw" : "data", label: p.type, detail: [p.type, `${MiB(size)} MiB`] });
+      regions.push({ offset: p.offset, size, kind: /OFW/.test(p.type) ? "ofw" : "data", label: p.type, detail: [p.type, `${MiB(size)} MB`] });
     }
     if (fSize > 0) {
-      regions.push({ offset: fOffset, size: fSize, kind: fKind, label: fLabel, detail: [fLabel, `${MiB(fSize)} MiB`] });
+      regions.push({ offset: fOffset, size: fSize, kind: fKind, label: fLabel, detail: [fLabel, `${MiB(fSize)} MB`] });
     }
     if (lOffset !== null && lSize > 0) {
-      regions.push({ offset: lOffset, size: lSize, kind: lKind, label: lLabel, detail: [lLabel, `${MiB(lSize)} MiB`] });
+      regions.push({ offset: lOffset, size: lSize, kind: lKind, label: lLabel, detail: [lLabel, `${MiB(lSize)} MB`] });
     }
     regions.sort((a, b) => a.offset - b.offset);
     const out: GeoSegment[] = [];
     let cursor = 0;
     const free = (from: number, to: number) => {
-      if (to - from > 0) out.push({ pct: ((to - from) / extBytes) * 100, kind: "free", label: "Free Space", detail: ["Free Space", `${MiB(to - from)} MiB`] });
+      if (to - from > 0) out.push({ pct: ((to - from) / extBytes) * 100, kind: "free", label: "Free Space", detail: ["Free Space", `${MiB(to - from)} MB`] });
     };
     for (const r of regions) {
       if (r.offset < cursor) continue; // overlap guard (shouldn't happen)
@@ -440,6 +510,32 @@
   );
   const needsBuild = $derived(install === null || builtFor !== buildKey);
 
+
+  /**
+   * The relocation facts for the mapped artifacts this install actually writes, keyed the way
+   * the packer keys them. `prepareState` recorded them from the manifest when it fetched the
+   * artifact (`mappedArtifactMap()`); `bytes` is the declared length `relocateMappedInFrogfs`
+   * asserts the packed entry against before it patches a word.
+   *
+   * A mapped artifact is placed in FrogFS whatever its role directory says, because only FrogFS
+   * stores a file as one contiguous run. gba.xip is the live case: the firmware reads it with
+   * `rg_frogfs_get_file_data()` rather than `fopen`, and on a flash-only build nothing else
+   * relocates it (`odroid_overlay_cache_file_in_flash_relocate` runs its callback only under
+   * SD_CARD == 1), so the sentinel rebase has to happen here or the core faults on its first
+   * indirect call. See docs/MAPPED_ARTIFACTS.md.
+   */
+  function mappedArtifactsIn(roms: Map<string, Uint8Array>): Map<string, MappedSpec> | undefined {
+    const all = prepareState.mappedArtifactMap();
+    if (all.size === 0) return undefined;
+    const out = new Map<string, MappedSpec>();
+    for (const [key, data] of roms) {
+      const m = all.get(key);
+      if (!m) continue;
+      out.set(key, { ...(m.relocBase === undefined ? {} : { relocBase: m.relocBase }), bytes: data.length });
+    }
+    return out.size > 0 ? out : undefined;
+  }
+
   async function buildInstall(report: PhaseReporter) {
     err = null;
     result = null;
@@ -447,27 +543,87 @@
     install = null;
     try {
       // The layout needs the device's extflash + erase size, so the RAM util must be up.
+      // Automatic unlock: a locked device is unlocked before this write, never after it
+      // (engine/unlockGate.ts owns the backup-first ordering). No-op when already unlocked.
+      await device.ensureUnlocked();
       report.start("prepare");
-      report.log("prepare", locale.t.romSection.logConnectingFlashUtil);
+      report.log("prepare", msg((t) => t.romSection.logConnectingFlashUtil));
       const flasher = await device.ensureStub();
-      report.log("prepare", locale.t.romSection.logFlashUtilReady(MiB(extBytes), blockSize));
+      report.log("prepare", msg((t) => t.romSection.logFlashUtilReady, extBytes, blockSize));
       report.finish("prepare");
 
       const targetVersion = selectedVersionTag;
       if (!targetVersion) throw new Error(locale.t.romSection.errNoVersionsPublished);
 
       report.start("download");
-      report.log("download", locale.t.romSection.logDownloadingBundle(targetVersion));
-      const bundle = await fetchBundle(targetVersion);
+      report.log("download", msg((t) => t.romSection.logDownloadingBundle, targetVersion));
+      // Phase-level (drawn unconditionally by InstallProgressModal); no new copy.
+      const bundleT0 = Date.now();
+      const bundle = await fetchBundle(targetVersion, (d, t) => report.progress("download", d, t, undefined, "bytes"));
       const bundleBytes = bundle.blobs[1].length + bundle.blobs[2].length;
-      report.log("download", locale.t.romSection.logBundleDownloaded(targetVersion, MiB(bundleBytes)));
+      report.log("download", msg((t) => t.romSection.logBundleDownloaded, targetVersion, bundleBytes, Date.now() - bundleT0));
       report.finish("download");
       // Must follow the SELECTED bank (this view lets the user pick it): SD cores call
       // back into firmware at bank-specific absolute addresses.
       pendingSdContent = installMode === "sd" ? bundle.contentFor(bank, true) : null;
 
       const userRoms = new Map<string, Uint8Array>();
+
+      // EVERY active core's binaries, packed into the LittleFS image this install flashes whole.
+      //
+      // This is the owner's ruling after living with the alternative. A ROM install cannot
+      // rebuild the partition (it holds the saves), so it had to mount the device's filesystem
+      // over SWD and write into it incrementally -- and that path is slow for reasons that are
+      // structural, not a bug to tune away: our littlefs block device faults at BLOCK
+      // granularity while littlefs only ever asks for 16 to 64 bytes, so every read amplifies.
+      // gnwmanager is fast because its driver reads and programs exactly the bytes littlefs
+      // asks for (`gnwmanager/filesystem.py`, LfsDriverContext).
+      //
+      // A firmware install has no such constraint: it already extracts saves and /data into
+      // `lfsData` below, so it can pack the whole partition locally and flash it in one
+      // sequential write. That is the path that was always fast.
+      //
+      // Consequence, stated rather than hidden: adding a core later means running an install
+      // again. It preserves saves and takes seconds.
+      await prepareState.restore(homebrew.titles);
+      const coreTargets: { key: string; target: Target }[] = [];
+      for (const row of sources.rows) {
+        if (!row.active || !row.manifest) continue;
+        for (const target of row.manifest.targets) {
+          if (!isCoreKind(target.kind)) continue;
+          if ((target.artifacts?.length ?? 0) === 0) continue;
+          coreTargets.push({ key: `${row.repo}#${target.id}`, target });
+        }
+      }
+      for (const { key, target } of coreTargets) {
+        if (prepareState.preparedBytesFor(key) !== undefined) continue;
+        try {
+          await prepareState.prepareCoreArtifacts(key, target);
+        } catch (e) {
+          dbgLog("[install] core artifacts unavailable:", key, errText(e));
+          report.log("migrate-scan", `core artifacts unavailable: ${key}: ${errText(e)}`, "lfs-extract");
+        }
+      }
+      const CORES_PREFIX = `${deviceInstallPaths().cores}/`;
+      let coreCount = 0;
+      for (const [k, v] of prepareState.assets) {
+        if (!k.startsWith(CORES_PREFIX)) continue;
+        userRoms.set(k, v);
+        coreCount++;
+      }
+      dbgLog("[install] cores packed into the LittleFS image:", coreCount, "file(s) from", coreTargets.length, "core source(s)");
       const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
+
+      // NO CORES BY DEFAULT on a flash install. The owner's rule, and it is about the medium:
+      // on SD a user may drop a ROM onto the card by hand at any moment, so every core has to
+      // be there already; on Flash content can only arrive through this tool, so a core follows
+      // a ROM selection and this flow has none. Two earlier attempts here got it wrong in both
+      // directions: installing every active source put the Doom core on the device, and
+      // filtering by ROM presence installed nothing at all.
+      //
+      // The partition is still built WITH its directory structure (`plan.lfsDirs` -> `cores`
+      // and `data`). An empty LittleFS carrying no directories reads as a failed install, and
+      // `/data` has to exist regardless: it is where the firmware writes its own state.
 
       const lfsData = new Map<string, Uint8Array>();
       let frogfsState;
@@ -487,17 +643,17 @@
       report.log(
         "migrate-scan",
         isSameVersion
-          ? locale.t.romSection.logSameVersionRepair(selectedVersionTag)
-          : locale.t.romSection.logMigrateSummary(selectedVersionTag, migrateGames, migrateLfs),
-      );
+          ? msg((t) => t.romSection.logSameVersionRepair, selectedVersionTag)
+          : msg((t) => t.romSection.logMigrateSummary, selectedVersionTag, migrateGames, migrateLfs));
       if (isRetroGo) {
         report.subStart("migrate-scan", "frogfs-state");
+        const stateWindow = extBytes - defaultFrogfsOffset;
         try {
-          frogfsState = await readFrogfsState(read, defaultFrogfsOffset, extBytes - defaultFrogfsOffset);
-          report.log("migrate-scan", locale.t.romSection.logReadPreviousGameState, "frogfs-state");
+          frogfsState = await readFrogfsState(read, defaultFrogfsOffset, stateWindow);
+          report.log("migrate-scan", msg((t) => t.romSection.logReadPreviousGameState, hex(defaultFrogfsOffset), stateWindow), "frogfs-state");
           report.subFinish("migrate-scan", "frogfs-state");
         } catch (e) {
-          report.log("migrate-scan", locale.t.romSection.logCouldNotReadPreviousGameState, "frogfs-state");
+          report.log("migrate-scan", msg((t) => t.romSection.logCouldNotReadPreviousGameState, hex(defaultFrogfsOffset), stateWindow, errText(e)), "frogfs-state");
           report.subFinish("migrate-scan", "frogfs-state");
         }
 
@@ -518,10 +674,10 @@
           if (dataDir) await extractLfs(dataDir, "data/");
           const configFile = lfsTree.children?.find((c) => c.name === "CONFIG" && !c.isDirectory);
           if (configFile) lfsData.set("CONFIG", await readLfsFile("CONFIG"));
-          report.log("migrate-scan", locale.t.romSection.logExtractedSavesData(lfsData.size), "lfs-extract");
+          report.log("migrate-scan", msg((t) => t.romSection.logExtractedSavesData, lfsData.size, sumBytes(lfsData)), "lfs-extract");
           report.subFinish("migrate-scan", "lfs-extract");
         } catch (e) {
-          report.log("migrate-scan", locale.t.romSection.logCouldNotExtractSavesData, "lfs-extract");
+          report.log("migrate-scan", msg((t) => t.romSection.logCouldNotExtractSavesData, errText(e)), "lfs-extract");
           report.subFinish("migrate-scan", "lfs-extract");
         }
       } else {
@@ -537,21 +693,22 @@
             userRoms.set(path, await readGameData(read, defaultFrogfsOffset, g));
           }
         }
-        report.log("migrate-scan", locale.t.romSection.logMigratedGames(device.installedGames.length), "games-migrate");
+        report.log("migrate-scan", msg((t) => t.romSection.logMigratedGames, device.installedGames.length), "games-migrate");
       } else {
-        report.log("migrate-scan", locale.t.romSection.logSkippedGameMigration, "games-migrate");
+        report.log("migrate-scan", msg((t) => t.romSection.logSkippedGameMigration, isRetroGo && migrateGames, device.installedGames.length), "games-migrate");
       }
       report.subFinish("migrate-scan", "games-migrate");
       report.finish("migrate-scan");
 
-      // Build selectedHomebrew: Celeste is always included. For others, check if their
-      // device files are present in the userRoms map (which includes migrated on-device games).
-      const selectedHomebrew = new Set(["celeste"]);
-      for (const hb of HOMEBREW_TITLES) {
-        if (hb.key === "celeste") continue;
-        // If the user's rom folder (or migrated device state) has ANY of the title's device files, keep it.
-        const hasFiles = hb.deviceFiles.some((f) => userRoms.has(`homebrew/${f}`));
-        if (hasFiles) selectedHomebrew.add(hb.key);
+      // Build selectedHomebrew from the ACTIVE sources' manifests. A SELF-CONTAINED title
+      // (one whose converter needs no user file — what "celeste" used to be hardcoded as) is
+      // always included; every other title is kept only if the userRoms map (which includes
+      // migrated on-device games) already has ANY of its device files.
+      const selectedHomebrew = new Set<string>();
+      for (const hb of homebrew.titles) {
+        if (hb.selfContained || hb.deviceFiles.some((f) => userRoms.has(`homebrew/${f}`))) {
+          selectedHomebrew.add(hb.key);
+        }
       }
 
       report.start("build");
@@ -567,28 +724,28 @@
         littlefsLength: littlefsOverride,
         lfsData,
         sdCard: installMode === "sd",
+        mappedArtifacts: mappedArtifactsIn(userRoms),
         opts: {
           selectedHomebrew,
-          homebrewTitles: HOMEBREW_TITLES,
+          homebrewTitles: homebrew.titles,
         },
         onStep: (step) => {
           if (step === "frogfs") {
-            report.log("build", locale.t.romSection.logGamesBiosLanguagesBuilt, "frogfs");
+            report.log("build", msg((t) => t.romSection.logGamesBiosLanguagesBuilt), "frogfs");
             report.subFinish("build", "frogfs");
             report.subStart("build", "littlefs");
           } else if (step === "littlefs") {
-            report.log("build", locale.t.romSection.logEmulatorsSavesBuilt, "littlefs");
+            report.log("build", msg((t) => t.romSection.logCoresSavesBuilt), "littlefs");
             report.subFinish("build", "littlefs");
             report.subStart("build", "superblock");
           } else if (step === "superblock") {
-            report.log("build", locale.t.romSection.logSuperblockPatched, "superblock");
+            report.log("build", msg((t) => t.romSection.logSuperblockPatched), "superblock");
             report.subFinish("build", "superblock");
           } else if (step === "sdcache") {
             report.log(
               "build",
-              locale.t.romSection.logSdCacheBoundarySet(frogfsOffset),
-              "sdcache",
-            );
+              msg((t) => t.romSection.logSdCacheBoundarySet, frogfsOffset),
+              "sdcache");
             report.subFinish("build", "sdcache");
           }
         },
@@ -603,11 +760,12 @@
       // engine/flasher.ts. This does not touch the flashImage() 120s stall watchdog itself.
       // Deliberately NOT a visible phase — this is an internal mitigation detail, not
       // something the user needs to see as its own checklist step.
-      report.log("flash", locale.t.romSection.logConfirmingLinkResponsive);
+      const pingT0 = Date.now();
       await new Promise((r) => setTimeout(r, 500));
-      if (device.transport) {
-        await raceWithFallback(isStubAlive(device.transport), 2500, false);
-      }
+      const stubAlive = device.transport
+        ? await raceWithFallback(isStubAlive(device.transport), 2500, false)
+        : false;
+      report.log("flash", msg((t) => t.romSection.logConfirmingLinkResponsive, stubAlive, Date.now() - pingT0));
     } catch (e) {
       err = e instanceof BudgetError ? e.message : e instanceof Error ? e.message : String(e);
       throw e;
@@ -651,7 +809,7 @@
         (force) => device.ensureStub(undefined, force, true),
         inst,
         (phase, d, t) => {
-          report.progress("flash", d, t, REGION_LABELS[phase], phase);
+          report.progress("flash", d, t, phase, "bytes");
         },
         (line: string) => {
           dbgLog(line);
@@ -662,6 +820,7 @@
           if (event === "start") report.subStart("flash", region);
           else report.subFinish("flash", region);
         },
+        report.signal,
       );
     } finally {
       device.resumePoll();
@@ -669,8 +828,8 @@
     report.finish("flash");
 
     report.start("rescan");
-    report.log("rescan", locale.t.romSection.logRescanning);
-    await device.runScan(); // big change → rescan the device geometry (docs/DEVICE_SCAN.md)
+    report.log("rescan", msg((t) => t.romSection.logRescanning));
+    await device.runScan("after firmware install"); // big change → rescan the device geometry (docs/DEVICE_SCAN.md)
     report.finish("rescan");
 
     // SD mode also writes the bundle's cores/bios/fonts content to the SD card — mirrors
@@ -678,18 +837,18 @@
     // on Firefox where there's no File System Access API / no writable handle at all).
     if (installMode === "sd" && pendingSdContent) {
       report.start("sd-sync");
-      report.log("sd-sync", locale.t.romSection.logSdSyncFoundItems(pendingSdContent.size));
+      report.log("sd-sync", msg((t) => t.romSection.logSdSyncFoundItems, pendingSdContent.size, sumBytes(pendingSdContent)));
       if (device.sdHandle) {
         let doneFiles = 0;
         const totalFiles = pendingSdContent.size;
         for (const [path, data] of pendingSdContent) {
-          report.log("sd-sync", locale.t.romSection.logSdSyncCopyingFile(path));
+          report.log("sd-sync", msg((t) => t.romSection.logSdSyncCopyingFile, path, data.length));
           await saveFileToDirOrDownload(device.sdHandle, path, data);
           doneFiles++;
-          report.progress("sd-sync", doneFiles, totalFiles, undefined);
+          report.progress("sd-sync", doneFiles, totalFiles);
         }
       } else {
-        report.log("sd-sync", locale.t.romSection.logSdSyncNoHandleZipFallback);
+        report.log("sd-sync", msg((t) => t.romSection.logSdSyncNoHandleZipFallback, pendingSdContent.size));
         const zip = new JSZip();
         for (const [path, data] of pendingSdContent) zip.file(path, data);
         const blob = await zip.generateAsync({ type: "blob" });
@@ -709,7 +868,7 @@
   const DISPLAY_REGION_NAMES: Record<FlashRegion, string> = {
     intflash: locale.t.romSection.regionInternalFirmware,
     frogfs: locale.t.romSection.regionGamesBiosLanguages,
-    littlefs: locale.t.romSection.regionEmulatorsSaves,
+    littlefs: locale.t.romSection.regionCoresSaves,
   };
   const flashTitle = $derived(
     displayFlashTarget.length === FLASH_REGIONS.length
@@ -721,7 +880,7 @@
     const names: Record<FlashRegion, string> = {
       intflash: locale.t.romSection.nameInternalFirmware(install.bank),
       frogfs: locale.t.romSection.nameGamesBiosLanguages(hex(EXTBASE + install.layout.frogfsOffset)),
-      littlefs: locale.t.romSection.nameEmulatorsSaves(hex(EXTBASE + install.layout.littlefsOffset)),
+      littlefs: locale.t.romSection.nameCoresSaves(hex(EXTBASE + install.layout.littlefsOffset)),
     };
     return locale.t.romSection.flashBody(displayFlashTarget.map((r) => names[r]).join(", "));
   });
@@ -802,26 +961,15 @@
     };
   });
 
-  const chipKind = $derived<ChipKind>(
-    flashing ? "running" : result ? "success" : "idle",
-  );
-  const chipText = $derived(
-    flashing
-      ? locale.t.romSection.chipTextFlashing
-      : result
-        ? locale.t.romSection.chipTextInstalled
-        : scan
-          ? locale.t.romSection.chipTextFileCount(scan.summary.totalFiles)
-          : locale.t.romSection.chipTextIdle,
-  );
 </script>
 
 <div class="stack">
     <!-- Version picker — clean and minimal. The currently-installed version is already shown in
          the status bar, so there's no need to repeat an "installed → target" chip pair here;
          just a plain prompt for which version to install. -->
-    <label class="field">
+    <label class="field version">
       <span>{locale.t.romSection.installVersionLabel}</span>
+      <div class="version-row">
       <select
         class="mono"
         bind:value={selectedVersionTag}
@@ -832,10 +980,34 @@
           <option value={v.tag}>{v.tag}{v.prerelease ? " (pre)" : ""}</option>
         {/each}
       </select>
+      <!-- Icon only: the label beside it already says what the row is about, and a second word
+           here would be the narration docs/UI_VOICE.md rules out. The accessible name says what
+           the control DOES, not what it looks like. -->
+      <button
+        type="button"
+        class="version-refresh"
+        onclick={() => void doRefreshVersions()}
+        disabled={refreshCooldown || refreshingVersions}
+        title={locale.t.romSection.refreshVersions}
+        aria-label={locale.t.romSection.refreshVersions}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true" class:spin={refreshingVersions}>
+          <path
+            d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          />
+          <path d="M13.6 2.4v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+      </div>
     </label>
 
     {#if installMode === "flash" && deviceHasRetroGoInstalled}
-      <div class="field" style="flex-direction: column; align-items: flex-start;">
+      <!-- Firmware.dc.html:100 — the two option rows are one column at `gap: 14px`. -->
+      <div class="field optgroup" style="flex-direction: column; align-items: flex-start;">
         <label class="row" style="cursor: {frogfsPart ? 'pointer' : 'not-allowed'};" class:migrate-disabled={!frogfsPart}>
           <input type="checkbox" bind:checked={migrateGames} disabled={!frogfsPart} />
           <span>{locale.t.romSection.migrateGamesLabel}</span>
@@ -851,13 +1023,22 @@
          clickable: the selected bank is highlighted, the other dims, so the choice reads
          clearly at a glance instead of a plain <select>. Front-and-center, right after the
          version — this is the main decision an install makes. -->
+    <!-- Firmware.dc.html:119-141 — a `Target` label over the two cards, and each card carries
+         its own sub-caption (`Replaces stock` / `Dual boot`) instead of one composed sentence
+         below both. -->
+    <div class="targetgroup">
+    <span class="field-label">{locale.t.romSection.bankTargetLabel}</span>
     <div class="bank-picker">
-      <BankCard bankNum={1} segs={bank1Segs} selectable selected={bank === 1} onSelect={() => (bankUserOverride = 1)} />
-      <BankCard bankNum={2} segs={bank2Segs} selectable selected={bank === 2} onSelect={() => (bankUserOverride = 2)} />
+      <BankCard bankNum={1} segs={bank1Segs} selectable selected={bank === 1} onSelect={() => (bankUserOverride = 1)}>
+        {#snippet footer()}<span class="bank-sub">{locale.t.romSection.bankReplacesStock}</span>{/snippet}
+      </BankCard>
+      <BankCard bankNum={2} segs={bank2Segs} selectable selected={bank === 2} onSelect={() => (bankUserOverride = 2)}>
+        {#snippet footer()}<span class="bank-sub">{locale.t.romSection.bankDualBoot}</span>{/snippet}
+      </BankCard>
     </div>
-    <p class="muted bank-caption">
-      {locale.t.romSection.bankTargetCaption(bank, bank === 2)}
-    </p>
+    <!-- These three notices annotate the target choice directly above them. No artboard draws
+         them, so they are not a group in the artboard's 32px body rhythm; they live INSIDE the
+         target group at its own 12px so they stay attached to the picker they qualify. -->
     {#if retroGoOnlyInstall}
       <p class="notice">
         {locale.t.romSection.retroGoOnlyNotice}
@@ -872,15 +1053,13 @@
         {locale.t.romSection.installOriginMismatchNotice(installOriginMismatch === "flash" ? "Flash" : "SD", installMode === "sd" ? "SD" : "Flash")}
       </p>
     {/if}
+    </div>
 
     <!-- Layout (advanced): expert overrides + the device's current flash-layout geometry, both
          tucked away by default — neither is interesting for a typical install (and the
          geometry bar specifically has nothing meaningful to say for an SD install). -->
-    <div class="sub">
-      <button class="sub-toggle" aria-expanded={layoutOpen} onclick={() => (layoutOpen = !layoutOpen)}>
-        <span aria-hidden="true">{layoutOpen ? "▾" : "▸"}</span> {locale.t.romSection.layoutAdvancedToggle}
-      </button>
-      {#if layoutOpen}
+    {#if layoutOpen}
+      <div class="sub">
         <div class="sub-body">
           <label class="field">
             <span>{installMode === "sd" ? locale.t.romSection.sdCacheOffsetLabel : locale.t.romSection.frogfsOffsetLabel} <em>{locale.t.romSection.offsetHint}</em></span>
@@ -923,19 +1102,19 @@
               {:else if device.scanError}
                 <div class="scanerr mono">{locale.t.romSection.scanFailed(device.scanError)}</div>
               {:else if installMode === "sd" && sdCacheSegments.length}
-                <GeometryBar segments={sdCacheSegments} title="external flash" leftLabel={hex(EXTBASE)} rightLabel={hex(extEnd)} />
+                <GeometryBar size="tall" segments={sdCacheSegments} title={locale.t.shared.geometry.externalFlash} leftLabel={hex(EXTBASE)} rightLabel={hex(extEnd)} />
               {:else if installMode !== "sd" && flashProjectionSegments.length}
-                <GeometryBar segments={flashProjectionSegments} title="external flash" leftLabel={hex(EXTBASE)} rightLabel={hex(extEnd)} />
+                <GeometryBar size="tall" segments={flashProjectionSegments} title={locale.t.shared.geometry.externalFlash} leftLabel={hex(EXTBASE)} rightLabel={hex(extEnd)} />
               {:else if extSegs.length}
-                <GeometryBar segments={extSegs} title="external flash" leftLabel={hex(EXTBASE)} rightLabel={hex(extEnd)} />
+                <GeometryBar size="tall" segments={extSegs} title={locale.t.shared.geometry.externalFlash} leftLabel={hex(EXTBASE)} rightLabel={hex(extEnd)} />
               {/if}
             {:else}
               <p class="muted">{locale.t.romSection.scanToSeeLayout}</p>
             {/if}
           </div>
         </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
 
     {#if !device.isConnected}
       <p class="muted">{locale.t.romSection.connectToSizeAndFlash}</p>
@@ -945,22 +1124,18 @@
       <p class="notice warn">{err}</p>
     {/if}
 
-    {#if device.isConnected}
-      <div>
-        <SplitButton
-          label={flashButtonLabel}
-          disabled={flashing}
-          onclick={onFlashButtonClick}
-          items={installMode === "flash" && install
-            ? [
-                { label: locale.t.romSection.flashInternalFirmware, onclick: () => openFlash(["intflash"]) },
-                { label: locale.t.romSection.flashGamesBiosLanguages, onclick: () => openFlash(["frogfs"]) },
-                { label: locale.t.romSection.flashEmulatorsSaves, onclick: () => openFlash(["littlefs"]) },
-              ]
-            : []}
-        />
-      </div>
-    {/if}
+    <!-- Firmware.dc.html:149 — the pane's one primary action lives in the anchored 72px
+         footer bar, beside the "Advanced layout" disclosure that reveals the expert
+         overrides above (the artboard shows the toggle there, not in the body). PaneFooter
+         renders nothing in place; FirmwareRail draws the bar as the pane column's 2nd child. -->
+    <PaneFooter summary={footerSummary}>
+      <button class="footlink" aria-expanded={layoutOpen} onclick={() => (layoutOpen = !layoutOpen)}
+        >{locale.t.romSection.layoutAdvancedToggle}</button
+      >
+      {#if device.isConnected}
+        <Button variant="action" disabled={flashing} onclick={onFlashButtonClick}>{flashButtonLabel}</Button>
+      {/if}
+    </PaneFooter>
 
     {#if install && geom}
       <div class="well mono">
@@ -994,10 +1169,14 @@
   </div>
 
 <style>
+  /* Firmware.dc.html:80 — the pane body stacks its groups 32px apart (the same rhythm
+     `.pane.narrow .panebody` already uses one level up). The undrawn notices are not peers of
+     those groups: they were moved inside `.targetgroup` so they keep its 12px and stay tight to
+     the picker they annotate. */
   .stack {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 32px;
   }
   .muted {
     color: var(--ink-soft);
@@ -1011,7 +1190,7 @@
   }
   .unit-input input {
     width: 4.5ch;
-    text-align: right;
+    text-align: end;
   }
   .unit-input .unit {
     color: var(--ink-soft);
@@ -1025,6 +1204,117 @@
   }
   .migrate-disabled {
     opacity: 0.45;
+  }
+  /* Firmware.dc.html:87-89 — a 13px/500 --ink-soft label over a 40px `2px`-radius control,
+     `padding: 0 12px`, 9px apart. */
+  .version {
+    gap: 9px;
+  }
+  /* `.field` is a column (label above control), so the refresh has to share a ROW with the
+     select rather than being a third child of the field. */
+  .version-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .version-row select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  /* Sits with the select, not after the field: it acts on that control. Sized to the select's
+     own line so it does not change the row's height. */
+  .version-refresh {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    flex: none;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .version-refresh:hover:not(:disabled) {
+    color: var(--ink);
+  }
+  .version-refresh:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .version-refresh svg {
+    width: 15px;
+    height: 15px;
+  }
+  /* Only while a fetch is in flight. The 10 s lockout is deliberately silent: a control that
+     keeps spinning after its work is done is lying about what it is waiting for. */
+  .version-refresh svg.spin {
+    animation: version-refresh-spin 900ms linear infinite;
+  }
+  @keyframes version-refresh-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .version-refresh svg.spin {
+      animation: none;
+    }
+  }
+  /* Firmware.dc.html:119 — the `Target` label sits 12px above its two cards. */
+  .targetgroup {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  /* Firmware.dc.html:100 — the two option rows are 14px apart. */
+  .optgroup {
+    gap: 14px;
+  }
+  .version > span {
+    font-size: var(--fs-btn-sm);
+    font-weight: 500;
+    color: var(--ink-soft);
+  }
+  .version select {
+    height: 40px;
+    padding: 0 12px;
+  }
+  /* Firmware.dc.html:101-116 — the option marks are 17px `2px`-radius squares filling
+     --zelda-green with a white 11px check, 11px from their 14px label. The control stays a
+     real <input type="checkbox">; only its paint is ours. */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    font-size: var(--fs-caption);
+  }
+  .row input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+    width: 17px;
+    height: 17px;
+    flex-shrink: 0;
+    border: 1px solid var(--silver-edge);
+    border-radius: 2px;
+    background: var(--surface);
+    cursor: inherit;
+  }
+  .row input[type="checkbox"]:checked {
+    border-color: var(--zelda-green);
+    background:
+      var(--zelda-green)
+      url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 20 20' fill='none' stroke='%23ffffff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 10.5l3.5 3.5 7.5-8'/%3E%3C/svg%3E")
+      center / 11px 11px no-repeat;
+  }
+  .row input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--zelda-green);
+    outline-offset: 2px;
   }
   input,
   select {
@@ -1047,26 +1337,43 @@
     border: 1px solid var(--hairline);
     border-radius: var(--r-control);
   }
-  /* Subdued — this is a rarely-needed expert disclosure, not a real button. */
-  .sub-toggle {
-    width: 100%;
-    text-align: left;
+  /* Firmware.dc.html:152 — `font-size: 14px; font-weight: 500; color: #5c5c5c`, plain text
+     with no button chrome. Keyboard focus keeps a visible ring (no bare `outline: none`). */
+  .footlink {
     font: inherit;
-    font-size: var(--fs-micro);
-    font-weight: 400;
-    background: none;
+    font-size: var(--fs-caption);
+    font-weight: 500;
     color: var(--ink-soft);
+    background: none;
     border: none;
-    padding: 0.35rem 0.6rem;
+    padding: 0;
     cursor: pointer;
   }
+  .footlink:focus-visible {
+    outline: 2px solid var(--zelda-green);
+    outline-offset: 3px;
+  }
+  /* Firmware.dc.html:121 — the two Target cards are a two-up grid, not a flex row:
+     `grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; max-width: 460px`.
+     The cap is what keeps the pair from stretching across the full pane width. */
   .bank-picker {
-    display: flex;
-    gap: 1rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    max-width: 460px;
     min-width: 0;
   }
-  .bank-caption {
-    margin-top: -0.35rem;
+  /* Firmware.dc.html:120 — the `Target` label is the same 13px/500 --ink-soft as the other
+     field labels on this pane. */
+  .field-label {
+    font-size: var(--fs-btn-sm);
+    font-weight: 500;
+    color: var(--ink-soft);
+  }
+  /* Firmware.dc.html:129/139 — the per-card sub-caption, 12px --ink-soft. */
+  .bank-sub {
+    font-size: var(--fs-micro);
+    color: var(--ink-soft);
   }
   .sub-body {
     display: flex;
@@ -1143,6 +1450,6 @@
   }
   .scanerr {
     font-size: var(--fs-micro);
-    color: #b03030;
+    color: var(--danger);
   }
 </style>

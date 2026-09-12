@@ -2,23 +2,39 @@
   import { device } from "../device.svelte.js";
   import GeometryBar from "../ui/GeometryBar.svelte";
   import type { GeoSegment } from "../engine/classify.js";
-  import { extflashSegments } from "../engine/classify.js";
+  import { extflashSegments, intflashSegments } from "../engine/classify.js";
+  import { INT_BAR_NOTE, INT_BAR_SIZE, EXT_BAR_NOTE, extBarSize } from "./addr.js";
   import type { FrogfsFile, LittlefsTreeNode } from "@gnw/fs-builders";
   import { dumpRegion } from "../engine/flasher.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
-  import { download, kb } from "../util.js";
+  import { download, formatSize } from "../util.js";
   import { locale } from "../i18n/locale.svelte.js";
+  import PaneFooter from "./PaneFooter.svelte";
 
   let selectedFs = $state<string | null>(null);
+  // The clicked segment, kept so the bar can draw it as selected. Nothing reads it for I/O.
+  let selectedSeg = $state<GeoSegment | null>(null);
 
+  const intSegs = $derived(intflashSegments(device.banks));
   const segments = $derived(extflashSegments(device.partitions, device.info?.externalFlashSizeBytes ?? 0));
 
   function handleFsClick(s: GeoSegment) {
     if (s.kind === "frogfs" || s.kind === "littlefs") {
       selectedFs = s.kind;
+      selectedSeg = s;
     }
   }
 
+  // FileBrowser.dc.html:83 — the caption is the partition's human name with its filesystem in
+  // parentheses ("Cores, saves (LittleFS)"). The absolute address the board used to print
+  // after a `·` was dropped when the boards were resynced in 31cc2f7.
+  const captionTitle = $derived(
+    selectedFs === "frogfs"
+      ? locale.t.fileBrowserSection.frogfsTitle
+      : selectedFs === "littlefs"
+        ? locale.t.fileBrowserSection.littlefsTitle
+        : (selectedFs ?? ""),
+  );
   interface TreeNode {
     name: string;
     path: string;
@@ -77,6 +93,7 @@
   let lfsProgress = $state(0);
   let lfsTree = $state<TreeNode | null>(null);
   let lfsError = $state<string | null>(null);
+  const readPct = $derived(Math.round(lfsProgress * 100));
   
   async function loadLittleFs() {
     if (lfsTree && device.installedLfsTree) return;
@@ -97,6 +114,19 @@
   // behind Recovery Mode (device.utilLoaded) exactly like every other on-device read path.
   // FrogFS rows stay non-interactive — only LittleFS has a per-file reader today.
   const canDownload = $derived(selectedFs === "littlefs" && device.utilLoaded);
+
+  // The two boards give the pane one summary per partition selection:
+  // FileBrowser.dc.html:89 (LittleFS) says a file can be clicked to download it;
+  // FileBrowserFrogfs.dc.html:87 (FrogFS) says download is LittleFS-only — which is what
+  // the FrogFS rows actually do (they are never rendered as buttons). With no partition
+  // selected neither board draws a footer line, so none is shown rather than inventing one.
+  const footerSummary = $derived(
+    selectedFs === "littlefs"
+      ? locale.t.fileBrowserSection.footerSummary
+      : selectedFs === "frogfs"
+        ? locale.t.fileBrowserSection.footerSummaryFrogfs
+        : undefined,
+  );
 
   let downloading = $state<string | null>(null);
 
@@ -120,10 +150,49 @@
 </script>
 
 <div class="stack">
-  <div class="desc">
-    <p>{locale.t.fileBrowserSection.intro}</p>
+  <!-- FileBrowser.dc.html:81 draws TWO headed bars, the same pair Write/Dump/Erase draw:
+       `Internal flash` / `bank 1 · bank 2` / `2 × 256 KB`, then `External flash` /
+       `bank 0` / the device capacity. Only the extflash segments are clickable here —
+       there is no file system to browse on an internal bank. -->
+  <div class="bars">
+    {#if intSegs.length > 0}
+      <GeometryBar
+        size="tall"
+        segments={intSegs}
+        title={locale.t.fileBrowserSection.internalFlashTitle}
+        note={INT_BAR_NOTE}
+        sizeLabel={INT_BAR_SIZE}
+      />
+    {/if}
+    <GeometryBar
+      size="tall"
+      segments={segments}
+      title={locale.t.fileBrowserSection.externalFlashTitle}
+      note={EXT_BAR_NOTE}
+      sizeLabel={extBarSize(device.extSizeMB)}
+      isSelected={(s) => s === selectedSeg}
+      onClick={handleFsClick}
+    />
   </div>
-  <GeometryBar segments={segments} onClick={handleFsClick} />
+
+  <!-- FileBrowser.dc.html:85 — stroked SVG icons (folder `#5c5c5c`, file `#9a9aa0`,
+       green `#3e9e4e` download arrow), each row a flex line with a `1px solid #ededed`
+       rule and the size right-aligned in mono. -->
+  {#snippet folderIcon()}
+    <svg class="ic" viewBox="0 0 20 20" fill="none" stroke="var(--ink-soft)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+      ><path d="M2.5 6a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16.5 8v6a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 14z"></path></svg
+    >
+  {/snippet}
+  {#snippet fileIcon()}
+    <svg class="ic" viewBox="0 0 20 20" fill="none" stroke="var(--ink-dim)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+      ><path d="M5 2.5h6l4 4v11H5z"></path><path d="M11 2.5v4h4"></path></svg
+    >
+  {/snippet}
+  {#snippet downloadIcon()}
+    <svg class="ic dl" viewBox="0 0 24 24" fill="none" stroke="var(--zelda-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+      ><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg
+    >
+  {/snippet}
 
   {#snippet renderTree(nodes: TreeNode[])}
     <ul>
@@ -132,144 +201,221 @@
           {#if node.isDirectory}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="folder" onclick={() => toggleNode(node)}>
-              <span class="icon">
-                {#if node.loading}
-                  ⏳
-                {:else if openDirs.has(node.path)}
-                  📂
-                {:else}
-                  📁
-                {/if}
-              </span> {node.name}
+            <div class="row folder" class:busy={node.loading} onclick={() => toggleNode(node)}>
+              {@render folderIcon()}
+              <span class="name">{node.name}</span>
             </div>
             {#if openDirs.has(node.path) && node.children}
               {@render renderTree(node.children)}
             {/if}
+          {:else if canDownload}
+            <button
+              class="row file downloadable"
+              class:busy={downloading === node.path}
+              type="button"
+              disabled={downloading !== null}
+              title={locale.t.fileBrowserSection.downloadTitle(node.path)}
+              onclick={() => downloadFile(node)}
+            >
+              {@render fileIcon()}
+              <span class="name">{node.name}</span>
+              <span class="size">{formatSize(node.size ?? 0)}</span>
+              {@render downloadIcon()}
+            </button>
           {:else}
-            {#if canDownload}
-              <button
-                class="file downloadable"
-                type="button"
-                disabled={downloading !== null}
-                title={locale.t.fileBrowserSection.downloadTitle(node.path)}
-                onclick={() => downloadFile(node)}
-              >
-                <span class="icon">{downloading === node.path ? "⏳" : "📄"}</span>
-                {node.name} <span class="size">({kb(node.size ?? 0)} KB)</span>
-              </button>
-            {:else}
-              <div
-                class="file"
-                title={selectedFs === "littlefs" ? locale.t.fileBrowserSection.downloadNeedsRecovery : undefined}
-              >
-                <span class="icon">📄</span> {node.name} <span class="size">({kb(node.size ?? 0)} KB)</span>
-              </div>
-            {/if}
+            <div
+              class="row file"
+              title={selectedFs === "littlefs" ? locale.t.fileBrowserSection.downloadNeedsRecovery : undefined}
+            >
+              {@render fileIcon()}
+              <span class="name">{node.name}</span>
+              <span class="size">{formatSize(node.size ?? 0)}</span>
+            </div>
           {/if}
         </li>
       {/each}
     </ul>
   {/snippet}
 
-  {#if selectedFs === "frogfs"}
-    <div class="fs-view">
-      <h3>{locale.t.fileBrowserSection.frogfsTitle}</h3>
-      {#if frogfsTree && frogfsTree.children && frogfsTree.children.length > 0}
-        <div class="tree">
-          {@render renderTree(frogfsTree.children)}
-        </div>
-      {:else}
-        <p class="muted">{locale.t.fileBrowserSection.noFrogfsFiles}</p>
+  <!-- FileBrowser.dc.html:83-84 — an uppercase caption naming the partition, the read
+       status right-aligned opposite it, then a 4px read-progress track, then the white
+       list surface. -->
+  {#if selectedFs}
+    <div class="fsblock">
+      <div class="caprow">
+        <div class="cap">{captionTitle}</div>
+        {#if selectedFs === "littlefs" && lfsLoading}
+          <span class="capstat">{locale.t.fileBrowserSection.readingLittlefs(readPct)}</span>
+        {/if}
+      </div>
+
+      {#if selectedFs === "littlefs" && lfsLoading}
+        <div class="readbar"><div class="readfill" style="width: {readPct}%"></div></div>
       {/if}
-    </div>
-  {:else if selectedFs === "littlefs"}
-    <div class="fs-view">
-      <h3>{locale.t.fileBrowserSection.littlefsTitle}</h3>
-      {#if lfsLoading}
-        <p class="muted">{locale.t.fileBrowserSection.readingLittlefs(Math.round(lfsProgress * 100))}</p>
-      {:else if lfsError}
-        <p class="error">{lfsError}</p>
-      {:else if lfsTree && lfsTree.children && lfsTree.children.length > 0}
-        <div class="tree">
-          {@render renderTree(lfsTree.children)}
-        </div>
+
+      {#if selectedFs === "frogfs"}
+        {#if frogfsTree && frogfsTree.children && frogfsTree.children.length > 0}
+          <div class="fs-view">
+            <div class="tree">
+              {@render renderTree(frogfsTree.children)}
+            </div>
+          </div>
+        {:else}
+          <p class="muted">{locale.t.fileBrowserSection.noFrogfsFiles}</p>
+        {/if}
+      {:else if selectedFs === "littlefs"}
+        {#if lfsLoading}
+          <!-- The tree only exists once the whole partition has been read, so the
+               progress track above stands alone until it does. -->
+        {:else if lfsError}
+          <p class="error">{lfsError}</p>
+        {:else if lfsTree && lfsTree.children && lfsTree.children.length > 0}
+          <div class="fs-view">
+            <div class="tree">
+              {@render renderTree(lfsTree.children)}
+            </div>
+          </div>
+        {:else}
+          <p class="muted">{locale.t.fileBrowserSection.noLittlefsFiles}</p>
+        {/if}
       {:else}
-        <p class="muted">{locale.t.fileBrowserSection.noLittlefsFiles}</p>
+        <p class="muted">{locale.t.fileBrowserSection.browserNotAvailable(selectedFs)}</p>
       {/if}
-    </div>
-  {:else if selectedFs}
-    <div class="fs-view">
-      <p class="muted">{locale.t.fileBrowserSection.browserNotAvailable(selectedFs)}</p>
     </div>
   {/if}
+  <PaneFooter summary={footerSummary} />
 </div>
 
 <style>
+  /* Write/Dump/Erase/FileBrowser.dc.html — the pane body column is `gap: 28px`
+     (FirmwareRail's `.panebody` already is); the section's own stack continues that
+     column, so it uses the same rhythm. */
   .stack {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 28px;
   }
-  .desc {
+  .bars {
+    display: flex;
+    flex-direction: column;
+    gap: 1.125rem;
+  }
+  /* FileBrowser.dc.html:82 — caption, status, track and surface stack at `gap: 14px`. */
+  .fsblock {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .caprow {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  /* FileBrowser.dc.html:83 — 11px/700/0.11em uppercase, on the page ground. */
+  .cap {
+    font-size: var(--fs-label);
+    font-weight: 700;
+    letter-spacing: var(--label-track);
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+  .capstat {
+    font-size: var(--fs-micro);
     color: var(--ink-soft);
   }
+  /* FileBrowser.dc.html:85 — `height: 4px; border-radius: 2px` on the sunk track. */
+  .readbar {
+    display: flex;
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--surface-sunk);
+  }
+  .readfill {
+    background: var(--zelda-green);
+  }
+  /* FileBrowser.dc.html:86 — the panel is `#ffffff` + `border-radius: 6px` with
+     NO border and NO shadow; rows carry the separation via `1px solid #ededed`. */
   .fs-view {
     background: var(--surface);
-    border: 1px solid var(--surface-sunk);
     border-radius: var(--r-card);
-    padding: 1.5rem;
-    box-shadow: var(--shadow-card);
-  }
-  .fs-view h3 {
-    margin-top: 0;
-    margin-bottom: 1rem;
-    font-size: 1.1rem;
+    padding: 2px 16px;
   }
   .tree ul {
     list-style: none;
-    padding-left: 1.5rem;
-    margin: 0.25rem 0;
+    padding-inline-start: 1.25rem;
+    margin: 0;
   }
+  /* Artboard row ladder: 12px base indent, +20px per level. */
   .tree > ul {
-    padding-left: 0;
+    padding-inline-start: 12px;
+  }
+  /* One shared row shape for folders and files: icon · name · size · arrow,
+     separated by the artboard's in-surface rule rather than by boxes. */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--rule);
+    /* FileBrowser.dc.html:86 — rows are 13px: folders at 600, files at 400. */
+    font-size: var(--fs-btn-sm);
+    text-align: start;
+    background: none;
+    border-inline-start: 0;
+    border-inline-end: 0;
+    border-top: 0;
+    font-family: inherit;
+    color: var(--ink);
+  }
+  .row .name {
+    flex-grow: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .folder {
     cursor: pointer;
-    font-weight: 500;
+    font-weight: 600;
     user-select: none;
-    padding: 0.25rem 0;
   }
-  .folder:hover {
-    color: var(--model-accent, var(--brand-blue));
-  }
+  /* FileBrowser.dc.html:86 — a file row's NAME is the page ink at weight 400; only its
+     icon (--ink-dim) and its size (--ink-soft) are quiet. */
   .file {
-    padding: 0.25rem 0;
-    color: var(--ink-soft);
+    color: var(--ink);
+    font-weight: 400;
+  }
+  .row.busy {
+    opacity: 0.6;
+  }
+  .folder:hover,
+  button.file:hover:not(:disabled) {
+    color: var(--model-accent);
   }
   button.file {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    font: inherit;
     cursor: pointer;
-  }
-  button.file:hover:not(:disabled) {
-    color: var(--model-accent, var(--brand-blue));
   }
   button.file:disabled {
     cursor: default;
     opacity: 0.6;
   }
   .size {
-    font-size: 0.85em;
-    opacity: 0.6;
-    margin-left: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    color: var(--ink-soft);
   }
-  .icon {
-    display: inline-block;
-    width: 1.5rem;
+  .ic {
+    width: 14px;
+    height: 14px;
+    flex: none;
+  }
+  /* FileBrowser.dc.html:86 — the download arrow sits 12px after the size. */
+  .ic.dl {
+    width: 13px;
+    height: 13px;
+    margin-inline-start: 12px;
   }
 </style>

@@ -2,23 +2,24 @@
   import { device } from "../device.svelte.js";
   import { dumpRegion } from "../engine/flasher.js";
   import { download, kb } from "../util.js";
-  import { parseAddr, hex, hex8, commas, BANK_BASE, bankOptions, regionSize } from "./addr.js";
-  import AccordionSection, { type ChipKind } from "./AccordionSection.svelte";
+  import {
+    parseAddr, hex, hex8, commas, BANK_BASE, EXTBASE, bankForAddr, regionSize,
+    INT_BAR_NOTE, INT_BAR_SIZE, EXT_BAR_NOTE, extBarSize,
+  } from "./addr.js";
   import Button from "../ui/Button.svelte";
   import Progress from "../ui/Progress.svelte";
   import GeometryBar from "../ui/GeometryBar.svelte";
+  import RangeField from "./RangeField.svelte";
   import { extflashSegments, intflashSegments, type GeoSegment } from "../engine/classify.js";
   import { locale } from "../i18n/locale.svelte.js";
+  import PaneFooter from "./PaneFooter.svelte";
 
   // §A.2 — Dump flash (cancelable read). Real, wired to readFlash via dumpRegion.
-  let {
-    open = false,
-    onToggle,
-    onRunning,
-  }: { open?: boolean; onToggle?: (id: string) => void; onRunning?: (r: boolean) => void } = $props();
+  let { onRunning }: { onRunning?: (r: boolean) => void } = $props();
 
-  let bank = $state(0);
-  let offset = $state("0x0");
+  // The range fields are the source of truth (docs/design/mockups README: the bars are only a
+  // shortcut that writes into them). `start` holds an ABSOLUTE address; the bank is derived.
+  let start = $state(hex8(EXTBASE));
   let length = $state("");
 
   let dumping = $state(false);
@@ -30,51 +31,54 @@
   let canceledChip = $state(false);
   let startedAt = 0;
 
-  const BANKS = $derived(bankOptions(locale.t.shared.bankSelect));
-
   const extSize = $derived(device.extFlashBytes);
   const intSegs = $derived(intflashSegments(device.banks));
   const extSegs = $derived(extflashSegments(device.partitions, extSize));
+
+  const startAddr = $derived(parseAddr(start));
+  const bank = $derived(bankForAddr(startAddr, device.extSizeMB));
+  const inRange = $derived(bank >= 0);
 
   // A locked device can't read internal flash (§3.1 / validation).
   const lockedGuard = $derived(device.locked === true && (bank === 1 || bank === 2));
 
   // Resolve offset/length; empty length → whole region from offset (§A.2).
-  const offBytes = $derived(parseAddr(offset));
-  const region = $derived(regionSize(bank, device.extSizeMB));
+  const offBytes = $derived(inRange ? startAddr - BANK_BASE[bank] : NaN);
+  const region = $derived(inRange ? regionSize(bank, device.extSizeMB) : 0);
   const lenBytes = $derived(length.trim() === "" ? Math.max(0, region - (offBytes || 0)) : parseAddr(length));
   const valid = $derived(
-    Number.isFinite(offBytes) && offBytes >= 0 && Number.isFinite(lenBytes) && lenBytes > 0 && !lockedGuard,
+    inRange && Number.isFinite(offBytes) && offBytes >= 0 && Number.isFinite(lenBytes) && lenBytes > 0 && !lockedGuard,
   );
   const overrun = $derived(valid && (offBytes || 0) + lenBytes > region);
-  const base = $derived(BANK_BASE[bank]);
+  const base = $derived(inRange ? BANK_BASE[bank] : 0);
   const filename = $derived(`${device.model}_bank${bank}_${hex(offBytes || 0)}_${hex(lenBytes || 0)}.bin`);
 
-  const chipKind = $derived<ChipKind>(
-    dumping ? "running" : lockedGuard ? "locked" : error ? "error" : result ? "success" : "idle",
-  );
-  const chipText = $derived(
-    dumping
-      ? locale.t.dumpSection.readingPct(total > 0 ? Math.round((100 * done) / total) : 0)
-      : lockedGuard
-        ? locale.t.dumpSection.lockedChip
-        : canceledChip
-          ? locale.t.dumpSection.canceledChip
-          : error
-            ? locale.t.dumpSection.errorChip
-            : ""
-  );
 
-  // Quick-fill chips (§A.2). intflash chip is the stock-OFW internal range.
-  function fill(off: number, len: number) {
-    offset = hex(off);
-    length = hex(len);
-  }
+  // Dump.dc.html:88 — the caption's trailing `matches LittleFS` clause: true only when the
+  // resolved range is EXACTLY a scanned partition (or a whole internal bank). Read-only —
+  // it feeds nothing but the caption.
+  const matchLabel = $derived.by(() => {
+    if (!valid || overrun) return "";
+    const hit = [...intSegs, ...extSegs].find(
+      (sg) =>
+        sg.bank === bank &&
+        sg.kind !== "free" &&
+        sg.label !== "" &&
+        sg.offset === (offBytes || 0) &&
+        sg.size === lenBytes,
+    );
+    return hit ? hit.label : "";
+  });
 
+  // Click-to-fill: writes the segment's ABSOLUTE start and its size into the two range
+  // fields and nothing else. Both values come from the scanned segment itself
+  // (engine/classify.ts over device.banks / device.partitions), never from a constant here.
+  let filled = $state<GeoSegment | null>(null);
   function handleGeoClick(s: GeoSegment) {
-    if (s.bank !== undefined) bank = s.bank;
-    if (s.offset !== undefined) offset = hex(s.offset);
+    if (s.bank === undefined || s.offset === undefined) return;
+    start = hex8(BANK_BASE[s.bank] + s.offset);
     if (s.size !== undefined) length = hex(s.size);
+    filled = s;
   }
 
   // Dumping intflash (bank 1/2) only needs a connection. Dumping extflash (bank 0) needs
@@ -124,24 +128,23 @@
   }
 </script>
 
-<AccordionSection id="dump" title={locale.t.dumpSection.title} {open} running={dumping} {chipKind} {chipText} {onToggle}>
   {#if device.scanning}
-    <!-- The bank/offset quick-fills and geometry bars below all read device.banks/partitions,
+    <!-- The range fields and geometry bars below all read device.banks/partitions,
          which are mid-flight during a scan — mask the section instead of showing a stale or
          half-populated layout. -->
     <div class="placeholder">{locale.t.dumpSection.scanningDevice}</div>
   {:else}
   <div class="stack">
-    <p class="muted">{locale.t.dumpSection.intro}</p>
-
     <div class="bars">
       {#if intSegs.length > 0}
         <div class="bar-group">
           <GeometryBar
+            size="tall"
             segments={intSegs}
             title={locale.t.dumpSection.internalFlashTitle}
-            leftLabel={hex(0x08000000)}
-            rightLabel={hex(0x08200000)}
+            note={INT_BAR_NOTE}
+            sizeLabel={INT_BAR_SIZE}
+            isSelected={(s) => s === filled}
             onClick={handleGeoClick}
           />
         </div>
@@ -150,60 +153,70 @@
       {#if extSegs.length > 0}
         <div class="bar-group">
           <GeometryBar
+            size="tall"
             segments={extSegs}
             title={locale.t.dumpSection.externalFlashTitle}
-            leftLabel={hex(0x90000000)}
-            rightLabel={hex(0x90000000 + extSize)}
+            note={EXT_BAR_NOTE}
+            sizeLabel={extBarSize(device.extSizeMB)}
+            isSelected={(s) => s === filled}
             onClick={handleGeoClick}
           />
         </div>
       {/if}
     </div>
 
-    <div class="grid">
-      <label class="field"><span>{locale.t.dumpSection.bankLabel}</span>
-        <select class="mono" bind:value={bank} disabled={dumping}>
-          {#each BANKS as b (b.v)}<option value={b.v}>{b.label}</option>{/each}
-        </select>
-      </label>
-      <label class="field"><span>{locale.t.dumpSection.offsetLabel}</span>
-        <input class="mono" bind:value={offset} disabled={dumping} placeholder={locale.t.dumpSection.offsetPlaceholder} />
-      </label>
-      <label class="field"><span>{locale.t.dumpSection.lengthLabel}</span>
-        <input class="mono" bind:value={length} disabled={dumping} placeholder={locale.t.dumpSection.lengthPlaceholder} />
-      </label>
-    </div>
+    <p class="muted small barhint">{locale.t.dumpSection.barHint}</p>
 
-    <div class="chips">
-      <button class="qf" disabled={dumping} onclick={() => fill(0, region)}>{locale.t.dumpSection.quickFillWholeRegion}</button>
-      <button class="qf" disabled={dumping} onclick={() => fill(offBytes || 0, 128 * 1024)}>{locale.t.dumpSection.quickFill128Kib}</button>
-      <button class="qf" disabled={dumping} onclick={() => fill(offBytes || 0, 1024 * 1024)}>{locale.t.dumpSection.quickFill1Mib}</button>
-      <button class="qf" disabled={dumping} onclick={() => fill(0, 0x20000)}>{locale.t.dumpSection.quickFillStockOfw}</button>
+    <div class="grid">
+      <RangeField label={locale.t.dumpSection.offsetLabel} bind:value={start} disabled={dumping} placeholder={locale.t.dumpSection.offsetPlaceholder} />
+      <RangeField label={locale.t.dumpSection.lengthLabel} bind:value={length} disabled={dumping} placeholder={locale.t.dumpSection.lengthPlaceholder} />
     </div>
 
     {#if lockedGuard}
       <p class="notice">
         {locale.t.dumpSection.lockedNotice}
       </p>
-    {:else if length.trim() === ""}
-      <p class="muted small">{locale.t.dumpSection.lengthBlankHint}</p>
     {/if}
 
-    <div class="well mono">
-      <div>{locale.t.dumpSection.planLine(hex8(base + (offBytes || 0)), hex8(base + (offBytes || 0) + (lenBytes || 0)))}</div>
-      <div>{locale.t.dumpSection.planBytesLine(commas(lenBytes || 0), filename)}</div>
-      {#if overrun}<div class="warn">{locale.t.dumpSection.overrunWarning(commas(region - (offBytes || 0)))}</div>{/if}
+    <!-- Dump.dc.html:87-88 — the resolved range is one mono caption under the fields,
+         with the artboard's trailing `matches <partition>` clause when the range is
+         exactly a scanned partition. -->
+    <p class="rangecap mono">
+      {hex8(base + (offBytes || 0))} → {hex8(base + (offBytes || 0) + (lenBytes || 0))} · {locale.t.dumpSection.bytesValue(commas(lenBytes || 0))}{matchLabel ? ` · ${locale.t.dumpSection.matchesPartition(matchLabel)}` : ""}
+    </p>
+
+    <!-- Dump.dc.html:89-90 — a white PLAN block of label/value rows. -->
+    <div class="plan">
+      <div class="plancap">{locale.t.dumpSection.planCaption}</div>
+      <div class="planrows">
+        <div class="planrow">
+          <span class="pl">{locale.t.dumpSection.readsRow}</span>
+          <span class="pv mono">{locale.t.dumpSection.bytesValue(commas(lenBytes || 0))}</span>
+        </div>
+        <div class="planrow">
+          <span class="pl">{locale.t.dumpSection.toFileRow}</span>
+          <span class="pv mono">{filename}</span>
+        </div>
+      </div>
     </div>
 
+    {#if overrun}<p class="warn">{locale.t.dumpSection.overrunWarning(commas(region - (offBytes || 0)))}</p>{/if}
+
+    <!-- Dump.dc.html:93 — the footer bar carries only the summary sentence and the primary
+         button (survey A, D-8). The invalid-range hint belongs to the range fields, so it
+         states itself in the body next to the overrun warning. -->
+    {#if !dumping && !needsRecovery && !valid && !lockedGuard}
+      <p class="hint">{locale.t.dumpSection.invalidHint}</p>
+    {/if}
+
     {#if !dumping}
-      <div>
+      <PaneFooter summary={locale.t.dumpSection.footerSummary}>
         {#if needsRecovery}
           <Button variant="action" onclick={enterRecovery}>{locale.t.dumpSection.enterRecoveryMode}</Button>
         {:else}
           <Button variant="action" disabled={!valid} onclick={dump}>{locale.t.dumpSection.dumpToFile}</Button>
-          {#if !valid && !lockedGuard}<span class="hint">{locale.t.dumpSection.invalidHint}</span>{/if}
         {/if}
-      </div>
+      </PaneFooter>
     {:else}
       <Progress value={done} max={total} label={locale.t.dumpSection.progressLabel(String(kb(done)), String(kb(total)))} />
       <div><Button onclick={() => (canceled = true)}>{locale.t.dumpSection.cancel}</Button></div>
@@ -214,13 +227,15 @@
     {#if error}<p class="err mono">{error}</p>{/if}
   </div>
   {/if}
-</AccordionSection>
 
 <style>
+  /* Write/Dump/Erase/FileBrowser.dc.html — the pane body column is `gap: 28px`
+     (FirmwareRail's `.panebody` already is); the section's own stack continues that
+     column, so it uses the same rhythm. */
   .stack {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 28px;
   }
   .placeholder {
     margin: 0;
@@ -236,16 +251,25 @@
   .small {
     font-size: var(--fs-micro);
   }
+  /* Dump.dc.html:83 — `display: flex; gap: 16px; align-items: flex-end` with the two
+     fields at flex 1.4 / 1, spanning the pane body's full width (no cap), matching
+     Write's `.fieldrow`. The 32rem cap was ours. */
   .grid {
     display: grid;
-    gap: 0.75rem;
-    grid-template-columns: 1.6fr 1fr 1fr;
+    gap: 16px;
+    align-items: end;
+    grid-template-columns: 1.4fr 1fr;
+  }
+  /* Write/Dump/Erase.dc.html — the bar hint is `font-size: 13px; color: #5c5c5c;
+     margin-top: -8px`, i.e. 13px (not the 12px `.small`) and pulled 8px toward the bars. */
+  .barhint {
+    font-size: var(--fs-btn-sm);
+    margin-top: -8px;
   }
   .bars {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    margin-bottom: 0.25rem;
+    gap: 18px;
   }
   .bar-group {
     display: flex;
@@ -257,62 +281,63 @@
       grid-template-columns: 1fr;
     }
   }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    font-size: var(--fs-caption);
-  }
-  input,
-  select {
-    font: inherit;
-    padding: 0.35rem 0.5rem;
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-control);
-    background: var(--surface);
-    color: var(--ink);
-  }
   .mono {
     font-family: var(--font-mono);
   }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-  }
-  .qf {
-    font: inherit;
+  /* Dump.dc.html:87 — 12px mono, quiet grey, tucked under the field row. */
+  .rangecap {
+    margin: -14px 0 0;
     font-size: var(--fs-micro);
-    color: var(--ink);
-    background: var(--surface-sunk);
-    border: 1px solid var(--hairline);
-    border-radius: 999px;
-    padding: 0.15rem 0.6rem;
-    cursor: pointer;
-  }
-  .qf:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .well {
-    background: var(--surface-sunk);
-    border-radius: 0;
-    padding: 0.55rem 0.7rem;
-    font-size: var(--fs-micro);
-    color: var(--ink);
+    color: var(--ink-soft);
     overflow-x: auto;
-    white-space: nowrap;
   }
-  .well > div {
-    line-height: 1.5;
+  /* Dump.dc.html:89 — `#ffffff`, `border-radius: 6px`, `padding: 18px 20px`, under an
+     11px/700/0.11em uppercase PLAN caption. */
+  .plan {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 18px 20px;
+    background: var(--surface);
+    border-radius: var(--r-card);
+  }
+  .plancap {
+    font-size: var(--fs-label);
+    font-weight: 700;
+    letter-spacing: var(--label-track);
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+  .planrows {
+    padding-top: 6px;
+  }
+  .planrow {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 5px 0;
+  }
+  .pl {
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
+  }
+  .pv {
+    font-size: var(--fs-caption);
+    font-weight: 600;
+    color: var(--ink);
+    text-align: end;
+    overflow-wrap: anywhere;
   }
   .warn,
   .hint {
     color: var(--caution);
+    margin: 0;
+  }
+  .warn {
+    font-size: var(--fs-caption);
   }
   .hint {
     font-size: var(--fs-micro);
-    margin-left: 0.6rem;
   }
   .notice {
     margin: 0;
