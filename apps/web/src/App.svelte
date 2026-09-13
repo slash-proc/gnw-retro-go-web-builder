@@ -1,6 +1,7 @@
 <script lang="ts">
   import { device } from "./lib/device.svelte.js";
   import { sources } from "./lib/sources/store.svelte.js";
+  import { library } from "./lib/library.svelte.js";
   import { deviceSafety } from "./lib/installProgress.svelte.js";
   import { lipProgress } from "./lib/lipProgress.svelte.js";
   import { runCacheMigrations } from "./lib/sources/cacheMigrations.js";
@@ -32,6 +33,26 @@
   });
 
   sources.load();
+
+  // Restore the user's registered ROM folders as soon as the source registry is ready, regardless
+  // of which tab opens first. The Library used to own this effect, so starting on Overview or
+  // Sources left every core at zero until the Library was visited. One registry signature covers
+  // all active cores/homebrew; a source change schedules one merged scan after manifests settle.
+  $effect(() => {
+    library.romFolderSignature;
+    // The landing chooser is the first-run wizard (Flash vs SD, Firmware vs Library). It must
+    // not trigger a library walk before the user has chosen a destination.
+    if (showLanding) return;
+    // Guided Setup owns the device while it is open; defer the library walk until the wizard
+    // switches back to the normal device/library UI. Reading firmwareMode keeps this effect
+    // subscribed so closing the wizard starts the deferred scan automatically.
+    if (device.firmwareMode === "wizard") return;
+    // On a hard refresh Advanced has not applied the route to firmwareMode yet; the hash is
+    // already authoritative, so use it to close that startup race.
+    if (typeof window !== "undefined" && window.location.hash.startsWith("#guided")) return;
+    if (library.sourcesResolving && !library.loaded) return;
+    void library.sync();
+  });
 
   // Point cover art at the OPFS blob cache and drain the two legacy IndexedDB byte stores onto
   // it. Returns immediately — the drain itself runs on an idle callback, in budgeted passes.

@@ -18,6 +18,7 @@ import { saveDir, loadDir, handlePermission } from "./persist.js";
 import { toGWCover } from "./screenscraper/gw.js";
 import { device } from "./device.svelte.js";
 import { dbg } from "./debug.js";
+import { lipProgress } from "./lipProgress.svelte.js";
 import { auditLog } from "./auditLog.svelte.js";
 import { msg } from "./logEntry.js";
 import { localFolders } from "./sources/localFolders.svelte.js";
@@ -191,8 +192,10 @@ class LibraryStore {
    */
   async sync(): Promise<void> {
     if (this.syncing) {
-      // A registry change that lands mid-scan is not dropped; it is re-checked on the way out.
-      this.syncPending = true;
+      // A second consumer can call sync() while the first walk is still running. Queue another
+      // pass only when the registry really changed; otherwise the duplicate call is already
+      // covered by the walk in progress.
+      if (this.romFolderSignature !== this.syncedSignature) this.syncPending = true;
       return;
     }
     this.syncing = true;
@@ -294,6 +297,7 @@ class LibraryStore {
   async scanAllFolders(): Promise<void> {
     this.folderScanning = true;
     this.error = null;
+    let lipClaimed = false;
     try {
       await localFolders.load();
 
@@ -356,6 +360,8 @@ class LibraryStore {
       let doneFiles = 0;
       let lastTick = 0;
       this.progress = { done: 0, total: totalFiles, current: "", folder: "" };
+      lipProgress.operationProgress("library-scan", 0);
+      lipClaimed = true;
       const merged = await scanLibraryFolders(sources, {
         ...defaultLibraryScanDeps,
         scan: async (src) => {
@@ -367,6 +373,7 @@ class LibraryStore {
             if (now - lastTick < 80) return;
             lastTick = now;
             this.progress = { done: doneFiles, total: totalFiles, current: rel, folder: src.id };
+            if (totalFiles > 0) lipProgress.operationProgress("library-scan", doneFiles / totalFiles);
           });
           this.progress = { done: doneFiles, total: totalFiles, current: "", folder: src.id };
           // `hasRomsPrefix` is kept PER FOLDER: one folder's `roms/` layout must never
@@ -402,6 +409,7 @@ class LibraryStore {
       // anything arriving here is a real read failure and not the user closing the picker.
       auditLog.add("error", "sources", msg((t) => t.shared.auditLog.foldersFailed, this.error));
     } finally {
+      if (lipClaimed) lipProgress.operationProgress("library-scan", null);
       this.folderScanning = false;
       this.loaded = true;
       this.progress = null;

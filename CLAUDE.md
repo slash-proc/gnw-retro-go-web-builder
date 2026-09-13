@@ -81,3 +81,9 @@ flag, verify that still exists before acting on it.
 ---
 
 `GEMINI.md` is a symlink to this file, so Gemini-based tools read the same rules. Edit this one.
+
+## Product direction note
+
+The current text-heavy source and status rows are an interim presentation. Replace their explanatory
+copy with tasteful icon-based infographics when the visual system is ready, while preserving clear
+accessible labels and equivalent information for assistive technology.

@@ -38,6 +38,8 @@
   import type { Target } from "../sources/types.js";
   import { isCoreKind } from "../sources/types.js";
   import { prepareState } from "../sources/prepareState.svelte.js";
+  import { biosRequired } from "../sources/fileRows.js";
+  import { prepareTool } from "../sources/converter.js";
   import { composeInstallRows, installTotal } from "../sources/installRows.js";
   import { formatSize } from "../util.js";
   import { untrack } from "svelte";
@@ -356,6 +358,40 @@
    * tested. This function only resolves the raw inputs and maps each returned token to its
    * localised string.
    */
+  /** Whether a source still has a mandatory file that the user must provide.
+   *
+   * The card flag is a manifest summary and remains true after the BIOS or converter input has
+   * been found. Resolve it against the live status instead, so a satisfied source does not keep
+   * advertising a requirement it no longer has. A persisted card without its manifest stays
+   * conservative until the manifest is restored.
+   */
+  function hasOutstandingUserFiles(row: SourceRow): boolean {
+    if (!row.card?.needsUserFiles) return false;
+    const bios = biosState.all.filter((b) => b.repo === row.repo && biosRequired(b.need));
+    if (bios.length > 0 && bios.some((b) => !b.present || b.blocked)) return true;
+
+    const target = row.manifest?.targets?.find((t2) => t2.platform === "game-and-watch") ?? row.manifest?.targets?.[0];
+    const tools = row.manifest?.tools ?? [];
+    const requiredTools = new Set((target?.uses ?? []).filter((u) => u.required).map((u) => u.tool));
+    let inspectedInput = false;
+    for (const tool of tools) {
+      if (!requiredTools.has(tool.id)) continue;
+      let prepared;
+      try {
+        prepared = prepareTool(tool);
+      } catch {
+        return true;
+      }
+      for (const input of prepared.inputs) {
+        if (!input.required) continue;
+        inspectedInput = true;
+        if (!prepareState.isSatisfied(row.repo, input.id)) return true;
+      }
+    }
+    if (bios.length > 0 || inspectedInput) return false;
+    return true;
+  }
+
   function factTexts(row: SourceRow): string[] {
     const card = row.card;
     const facts = chooseMetaFacts({
@@ -366,7 +402,7 @@
       abiCompatible: abiCompatible(row),
       romsMatched: romsMatched(row),
       hasRomFolder: folderExtensions !== null,
-      needsUserFiles: !!card?.needsUserFiles,
+      needsUserFiles: hasOutstandingUserFiles(row),
       prerelease: !!card?.prerelease,
     });
     return facts.map((f) => {
