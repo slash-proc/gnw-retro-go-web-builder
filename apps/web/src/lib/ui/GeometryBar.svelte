@@ -298,19 +298,19 @@
       transparent 12px
     );
   }
-  .fat {
+  .gseg.fat {
     background: #1565c0;
   }
-  .ofw {
+  .gseg.ofw {
     background: #8d6e63;
   }
-  .assets {
+  .gseg.assets {
     background: #6a4ca5;
   }
-  .data {
+  .gseg.data {
     background: #546e7a;
   }
-  .bank {
+  .gseg.bank {
     background: var(--model-accent, #b0853a);
   }
   /* Free space is the bare track (Main.dc.html leaves it unpainted). */
