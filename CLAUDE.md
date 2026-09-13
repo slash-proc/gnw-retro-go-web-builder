@@ -46,9 +46,12 @@ one.**
 - **Keep packages dependency-free and bundler-free.** The browser imports built `dist/*.js`
   directly; cross-package runtime deps go through dependency injection or an import map.
 - **Branch for feature work; never commit straight to `main`.**
-- **Run the gates before committing**, not after. For UI or store changes that means
-  `npm run check --workspace @gnw/web` **and** `npx vite build`: `check` does not run the
-  bundler, and has passed while the build was broken.
+- **Run the push gate before pushing executable changes**, not after. For changes to JavaScript,
+  TypeScript, Svelte, CSS, assets, package metadata or other build inputs, run
+  `npm run check:push` in Docker and do not push unless it passes. This runs the internal
+  package builds and the complete production web build. Documentation-only changes such as
+  Markdown do not require this gate. The gate is honor-system rather than a Git hook; see
+  [docs/PUSH_GATE.md](./docs/PUSH_GATE.md).
 - **Verify a test by breaking what it guards.** A check that still passes with the fix reverted
   is worth nothing, and several in this repo silently were. Break the thing, not a spelling of
   it, and quote the failure line.

@@ -161,7 +161,7 @@ export interface DeviceLog {
 /**
  * Extract the currently launched game/homebrew from the persistent log.
  *
- * Emulator initialization is launcher bookkeeping, not an activity the header should expose:
+ * Core initialization is launcher bookkeeping, not an activity the header should expose:
  * the launcher itself is simply "Retro-Go". Retro-Go switches back to app 0 when it returns to
  * that launcher, so clear the prior title at that boundary and only publish an actual
  * `Starting game` record afterwards.

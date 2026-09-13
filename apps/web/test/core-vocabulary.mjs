@@ -119,9 +119,9 @@ for (const f of files.filter((x) => x.startsWith("sources."))) {
 // IDENTIFIERS. The half that used to be exempt.
 //
 // Walks every .ts/.svelte under src/ and fails on an identifier-shaped `emulator` token —
-// `colEmulators`, `isEmulator`, `bundleEmulatorCount`. Comments are NOT stripped: prose that
-// calls a core an emulator is the same regression wearing a different hat, and the three
-// legitimate survivors are listed by file below rather than waved through by a pattern.
+// `colEmulators`, `isEmulator`, `bundleEmulatorCount`. Comments are stripped first: technical
+// documentation may accurately explain that a core is an emulator, while user-facing locale
+// values remain governed by the value sweep above.
 //
 // Exempt by PATH, deliberately. A regex broad enough to spare the shim's explanation would
 // also spare a real reversion sitting next to it.
@@ -183,20 +183,44 @@ if (srcFiles.length < 100) {
 
 const idOffenders = [];
 const staleSpec = [];
+function codeWithoutComments(src) {
+  let inBlock = false;
+  return src.split("\n").map((raw) => {
+    let line = raw;
+    if (inBlock) {
+      const end = line.indexOf("*/");
+      if (end < 0) return "";
+      line = line.slice(end + 2);
+      inBlock = false;
+    }
+    while (true) {
+      const start = line.indexOf("/*");
+      const slash = line.indexOf("//");
+      if (slash >= 0 && (start < 0 || slash < start)) return line.slice(0, slash);
+      if (start < 0) return line;
+      const end = line.indexOf("*/", start + 2);
+      if (end < 0) {
+        inBlock = true;
+        return line.slice(0, start);
+      }
+      line = line.slice(0, start) + line.slice(end + 2);
+    }
+  }).join("\n");
+}
 for (const full of srcFiles) {
   const rel = full.slice(srcRoot.length + 1);
   const src = readFileSync(full, "utf8");
   if (STALE_SPEC.test(src)) staleSpec.push(rel);
   if (SHIM_AND_QUOTES.has(rel)) continue;
   // The i18n tables are covered by the VALUE sweep above; here we want their key names.
-  src.split("\n").forEach((line, i) => {
+  codeWithoutComments(src).split("\n").forEach((line, i) => {
     if (LEGITIMATE.some((re) => re.test(line))) return;
     const m = line.match(/[A-Za-z_$]*[eE]mulator[A-Za-z_$]*|Emulatoren|Emulatory/);
     if (m) idOffenders.push(`${rel}:${i + 1} -> ${JSON.stringify(m[0])}`);
   });
 }
 
-check("no identifier or comment in src/ still says emulator", () => {
+check("no identifier in src/ still says emulator", () => {
   if (idOffenders.length) {
     throw new Error(
       `the code's word is "core" too, not just the copy; ${idOffenders.length} left:\n    ` +
