@@ -1339,9 +1339,9 @@
 
                   {#if id === "backup"}
                     {#if step1Done}
-                      <button type="button" class="run-again" onclick={path === "dual" ? openStep1 : openBackupOnly}>
+                      <Button variant="quiet" onclick={path === "dual" ? openStep1 : openBackupOnly}>
                         {w.spine.runAgain}
-                      </button>
+                      </Button>
                     {:else}
                       <div class="row">
                         <!-- Dual boot patches; Retro-Go-only backs up and stops (see openBackupOnly). -->
@@ -1389,7 +1389,7 @@
                     {/if}
 
                   {:else if id === "sources"}
-                    <Button variant="default" onclick={() => (sourcesModalOpen = true)}>{w.spine.sourcesButtonLabel}</Button>
+                    <Button variant="quiet" onclick={() => (sourcesModalOpen = true)}>{w.spine.sourcesButtonLabel}</Button>
 
                   {:else if id === "roms"}
                     <Button variant="action" disabled={!step3Active} onclick={() => onComplete?.()}>{w.step3.continueButtonLabel}</Button>
@@ -1781,20 +1781,6 @@
     .version-refresh svg.spin {
       animation: none;
     }
-  }
-  /* A quiet way back into a step that is already done — not a link, not a button. */
-  .run-again {
-    background: none;
-    border: none;
-    padding: 2px 0 0;
-    cursor: pointer;
-    font: inherit;
-    font-size: var(--fs-btn-sm);
-    font-weight: 500;
-    color: var(--ink-soft);
-  }
-  .run-again:hover {
-    color: var(--ink);
   }
   .version {
     font-family: var(--font-mono);

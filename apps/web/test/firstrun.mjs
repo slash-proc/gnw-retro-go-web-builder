@@ -328,6 +328,14 @@ check("sources step: the Add Sources button is unconditional", () => {
     "the button is the custom-addition route and must not be gated on the curated pull");
 });
 
+check("supplementary guided actions share the Reinstall quiet style", () => {
+  ok(/<Button variant="quiet" onclick=\{path === "dual" \? openStep1 : openBackupOnly\}>\s*\{w\.spine\.runAgain\}/.test(wizardBare),
+    "Run again must use the same quiet Button variant as Reinstall");
+  ok(/<Button variant="quiet" onclick=\{\(\) => \(sourcesModalOpen = true\)\}>\s*\{w\.spine\.sourcesButtonLabel\}/.test(wizardBare),
+    "Add Sources must use the same quiet Button variant as Reinstall");
+  ok(!/class="run-again"/.test(wizardBare), "the old bespoke Run again styling must be gone");
+});
+
 // area files ARE the areas.
 check("every i18n area is in the orphan scan's AREAS list", () => {
   const dir = join(src, "i18n/strings");
