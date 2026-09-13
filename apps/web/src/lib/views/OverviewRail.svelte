@@ -210,7 +210,7 @@
     width: 100%;
     align-self: stretch;
     position: relative;
-    z-index: 1;
+    z-index: var(--z-raised);
     border-top: 1px solid var(--hairline);
     background: var(--surface);
     padding: 0 var(--page-pad-x);
