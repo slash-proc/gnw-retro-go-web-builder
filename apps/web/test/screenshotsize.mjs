@@ -92,6 +92,18 @@ check("the image fills the area without distorting", () => {
     "a 320x240 panel must not be smoothed");
   ok(!/height:\s*auto/.test(body),
     "`height: auto` lets the image set its own height, defeating the fixed area");
+  ok(/width:\s*320px/.test(body) && /height:\s*240px/.test(body),
+    "the image must have explicit native dimensions; a fractional flex/grid size is forbidden");
+});
+
+check("the optional high-DPI presentation is exactly 2x", () => {
+  const clean = src.replace(/\/\*[\s\S]*?\*\//g, "");
+  ok(/min-width:\s*1920px/.test(clean), "2x preview must require a 4K-class viewport");
+  ok(/min-resolution:\s*2dppx/.test(clean), "2x preview must require 2x device resolution");
+  ok(/\.screenshot-area\s*\{[^}]*width:\s*640px[^}]*height:\s*480px/s.test(clean),
+    "the high-DPI panel must be exactly 640x480");
+  ok(/\.screenshot-area img\s*\{[^}]*width:\s*640px[^}]*height:\s*480px/s.test(clean),
+    "the high-DPI image must be exactly 640x480");
 });
 
 check("the pinned size is the size the engine actually produces", () => {

@@ -42,8 +42,11 @@ const REPO = path.resolve(HERE, "../../..");
 const DIR = "apps/web/src/lib/i18n/strings";
 
 // Every commit at or before this one is history we inherited; the guard only polices what
-// lands after it. Bump it only when consciously accepting new drift.
-const BASELINE = "182d68f35c1ab68cfc9f6c9fde29cc14edeee204";
+// lands after it. The fifteen-locale rollout and its English rewordings are already part of
+// main, but its waiver lived on a side merge that is not in main's first-parent history. Keep
+// that accepted history out of the forward-looking check while continuing to police every new
+// English edit from this point onward.
+const BASELINE = "1d376c6";
 const MAX_COMMITS = 500;
 const WAIVER = /^i18n-locale-drift:\s*ok\s*$/im;
 

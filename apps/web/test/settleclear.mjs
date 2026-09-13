@@ -36,12 +36,12 @@ const prog = readFileSync(join(here, "../src/lib/installProgress.svelte.ts"), "u
 // --- the rule itself, lifted from installProgress.svelte.ts -------------------------------
 // Restating it would test the restatement; the guarantee under test is the real one.
 function realSafety() {
-  const m = prog.match(/markQuiet\(\): void \{\s*([\s\S]*?)\s*\}/);
+  const m = prog.match(/markQuiet\(\): void \{\s*([\s\S]*?)\n  \}\n\n  \/\*\*/);
   ok(m, "no markQuiet() in installProgress.svelte.ts");
   const body = m[1];
   ok(/holds/.test(body) && /settling/.test(body), `markQuiet() is not the rule under test: ${body}`);
   const safety = { holds: 0, state: "safe" };
-  safety.markQuiet = new Function(`${body.replace(/this\./g, "this.")}`).bind(safety);
+  safety.markQuiet = new Function("dbg", body).bind(safety, () => {});
   return safety;
 }
 
@@ -101,7 +101,7 @@ check("the poll is still an attestation too", () => {
 check("the early-out that caused this is still there, and still the reason", () => {
   // ARMED: if pollTick stops skipping a busy link, the extra attestations are belt-and-braces
   // rather than load-bearing, and this file's reasoning is stale.
-  ok(/if \(this\.transport\.busy\(\)\) return;/.test(store),
+  ok(/if \(this\.transport\.busy\(\)\)\s*\{[\s\S]*?return;/.test(store),
     "pollTick no longer skips a busy link -- re-read whether the added attestations are still needed");
 });
 

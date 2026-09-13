@@ -288,11 +288,29 @@
   }
   .screenshot-area img {
     display: block;
-    width: 100%;
-    height: 100%;
+    flex: 0 0 320px;
+    width: 320px;
+    height: 240px;
     object-fit: contain;
     image-rendering: pixelated;
     cursor: pointer;
+  }
+  /* On a sufficiently wide high-DPI display, give the native pixels a clean integer 2×
+     presentation. The dock grows as a whole, so the rail and the rest of the page keep their
+     normal geometry; there is deliberately no 1.25×/1.5× fallback. */
+  @media (min-width: 1920px) and (min-resolution: 2dppx) {
+    .overview {
+      grid-template-columns: minmax(0, 1fr) 680px;
+    }
+    .screenshot-area {
+      width: 640px;
+      height: 480px;
+    }
+    .screenshot-area img {
+      flex-basis: 640px;
+      width: 640px;
+      height: 480px;
+    }
   }
   .screenshot-placeholder {
     color: var(--ink-soft);

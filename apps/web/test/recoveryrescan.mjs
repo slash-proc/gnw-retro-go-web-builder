@@ -50,8 +50,9 @@ function realStartRecoveryMode() {
   return new Function(
     "dbg",
     "StubLoadCancelled",
+    "isDeadHandleError",
     `return async function () {${body.replace(/: Promise<void>/g, "")}}`,
-  )((m) => logged.push(m), StubLoadCancelled);
+  )((m) => logged.push(m), StubLoadCancelled, () => false);
 }
 /** Every dbg() line the real method emitted, newest last. Reset per check. */
 const logged = [];
