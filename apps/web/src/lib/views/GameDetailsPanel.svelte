@@ -1883,15 +1883,14 @@
   }
 
   /* --- Per-tab bodies ----------------------------------------------------------------------
-     Boards: Cover art and Saves are `minmax(0, 1fr) 300px` — content beside a fixed image
-     column — and Cheats is `minmax(0, 1fr) minmax(0, 1fr)`, because it has nothing to preview.
+     Boards: Cover art uses a 2:3 content-to-preview split, while Saves keeps its fixed preview
+     column and Cheats uses two equal columns because it has nothing to preview.
      The preview sits mid-list among its siblings in the markup (it is drawn where it belongs in
      reading order), so it is PLACED into column 2 rather than moved, and everything else is
      told to stay in column 1. */
   .game-details-accordion.bare .panel-content.cover-options,
   .game-details-accordion.bare .panel-content.saves-content {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 300px;
     /* COLUMN GAP ONLY, and the rhythm between the column-1 items carried by their own margin.
        A row gap is charged once per pair of adjacent ROWS, not once per pair of siblings, and
        the preview below spans 99 of them. At 36px that was 98 gutters, about 3500px of nothing
@@ -1903,6 +1902,12 @@
     align-items: start;
     align-content: start;
     flex: none;
+  }
+  .game-details-accordion.bare .panel-content.cover-options {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
+  .game-details-accordion.bare .panel-content.saves-content {
+    grid-template-columns: minmax(0, 1fr) 300px;
   }
   .game-details-accordion.bare .panel-content.cover-options > *,
   .game-details-accordion.bare .panel-content.saves-content > * {
@@ -1934,6 +1939,13 @@
     grid-row: 1 / span 99;
     align-self: start;
     margin-block-end: 0;
+  }
+  .game-details-accordion.bare .panel-content.cover-options > .cover-preview-box {
+    height: 300px;
+    min-height: 300px;
+  }
+  .game-details-accordion.bare .panel-content.cover-options > .cover-preview-box .cover-preview-img {
+    max-height: 100%;
   }
   /* Cheats: left is what is already set (detected game, presets), right is what you can add
      (manual entry, the configured list). The `isWholeFileSystem` branch is a single row with
@@ -1971,6 +1983,10 @@
     .game-details-accordion.bare .panel-content.saves-content > .saves-preview-container {
       grid-column: 1;
       grid-row: auto;
+    }
+    .game-details-accordion.bare .panel-content.cover-options > .cover-preview-box {
+      height: 152px;
+      min-height: 152px;
     }
     .game-details-accordion.bare .cheats-row.col-a,
     .game-details-accordion.bare .cheats-row.col-b {
