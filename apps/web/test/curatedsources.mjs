@@ -9,8 +9,8 @@
  * project) are INJECTED through `CuratedDeps`, so nothing here touches a network.
  *
  * The contract under test — these are the design decisions, pinned:
- *   - a release WITH `projects` produces one row per entry, all INACTIVE (the app listed them;
- *     the user did not ask to install them)
+ *   - a release WITH `projects` produces one active row per entry; the firmware's curated list
+ *     is the default core catalog, and users can deactivate individual rows later
  *   - a release WITHOUT one (`load` -> null) adds nothing and is NOT an error
  *   - the whole walk failing is likewise not an error: the rail degrades to what it had
  *   - an entry the user already added by hand produces ONE row, and the user's row is the one
@@ -100,14 +100,15 @@ const okResolver = (kinds) => async (repo) => {
 };
 const KINDS = { [CORE]: { kind: "emulator", title: "FCEUmm" }, [HB]: { kind: "homebrew", title: "Snake" } };
 
-await check("a manifest WITH projects yields one inactive row per entry, in the right rail", async () => {
+await check("a manifest WITH projects yields one active row per entry, in the right rail", async () => {
   const s = freshStore();
   await s.importCurated({ load: async () => LIST, resolve: okResolver(KINDS) });
   eq(s.rows.length, 2, "two rows");
   eq(s.byKind.core.length, 1, "the core lands under Emulators");
   eq(s.byKind.homebrew.length, 1, "the homebrew lands under Homebrew");
   eq(s.byKind.core[0].repo, CORE, "emulator row is the core");
-  ok(s.rows.every((r) => r.active === false), "curated rows start INACTIVE");
+  ok(s.rows.every((r) => r.active === true), "curated rows start ACTIVE");
+  ok(s.rows.every((r) => r.curated === true), "curated rows are marked as curated");
   ok(s.rows.every((r) => r.status === "ok" && r.card), "rows carry a resolved card");
   eq(s.selected, null, "importing selects nothing");
 });
@@ -222,7 +223,7 @@ await check("a successful retry adds the row and clears the note", async () => {
   eq(listed, 0, "retry does not re-walk the curated discovery list");
   eq(s.rows.length, 1, "the retried entry became a row");
   eq(s.rows[0].repo, CORE, "and it is the core");
-  eq(s.rows[0].active, false, "still inactive, as any curated row is");
+  eq(s.rows[0].active, true, "retry restores the active curated default");
   eq(s.curatedFailuresByKind.core.length, 0, "its note is cleared");
   eq(s.curatedFailuresByKind.homebrew.length, 1, "the other section's note is untouched");
 });

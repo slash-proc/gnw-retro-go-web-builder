@@ -14,8 +14,8 @@
  *     and the size compared is the manifest's own summed `artifacts[].bytes`
  *   - a full cache hit issues NO fetch at all (not a fetch served warm)
  *   - a failed auto-download is silent: same row, same status, no error, nothing thrown
- *   - SCALE: an inactive row (which is what every curated row is) never downloads; activating
- *     it is the signal
+ *   - SCALE: an inactive row never downloads; activating it is the signal. Curated rows now
+ *     start active and therefore may warm their artifacts.
  *   - concurrency is bounded, and a download is cancellable (deactivate / remove / remove)
  */
 import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
@@ -188,7 +188,7 @@ await check("a failed auto-download is silent and leaves the row exactly as it w
   eq(s.addError, null, "and no add-form error either");
 });
 
-await check("SCALE: an inactive curated row never downloads; activating it is the signal", async () => {
+await check("SCALE: curated rows are active by default and warm their artifacts", async () => {
   const r = rig();
   const s = freshStore(r.dl);
   const CORE = "slash-proc/fceumm-retro-go-sd";
@@ -199,13 +199,14 @@ await check("SCALE: an inactive curated row never downloads; activating it is th
     resolve: async (repo) => resolved(repo, 1024),
   });
   eq(s.rows.length, 2, "two curated rows landed");
-  ok(s.rows.every((row) => row.active === false), "and they are inactive");
+  ok(s.rows.every((row) => row.active === true), "and they are active");
   await r.dl.idle();
-  eq(r.calls.length, 0, "no curated row downloaded anything");
-  eq(r.dl.stats.queued, 0, "nothing was queued for them");
+  eq(r.calls.length, 2, "both curated rows downloaded their artifacts");
+  eq(r.dl.stats.queued, 2, "both were queued");
+  s.setActive(REPO, false);
   s.setActive(REPO, true);
   await r.dl.idle();
-  eq(r.calls.length, 1, "activating one downloads exactly that one");
+  eq(r.calls.length, 3, "reactivating one may refresh that row");
 });
 
 await check("SCALE: the row gate admits only active, network-resolved, resolved rows", async () => {

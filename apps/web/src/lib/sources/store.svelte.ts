@@ -129,6 +129,8 @@ export type SourceOrigin = "url" | "bundle";
 interface Persisted {
   repo: string;
   active: boolean;
+  /** True when this row was discovered from the firmware's curated project list. */
+  curated?: boolean;
   card?: SourceCard;
   /** Absent in rows written before bundles existed; those are all network-resolved. */
   origin?: SourceOrigin;
@@ -315,8 +317,8 @@ class SourcesStore {
    * Background artifact pre-fetch (`autoDownload.ts`). A field rather than a direct import so
    * offline suites can swap in a fake; production leaves the app-wide queue in place.
    *
-   * It is only ever asked for ACTIVE, network-resolved rows — see that module's header for why
-   * a curated row (which arrives inactive, ~22 at a time) must not trigger one.
+   * It is only ever asked for ACTIVE, network-resolved rows. Curated rows are active by default,
+   * so they participate in the same warm-up once their manifests resolve.
    */
   downloader: AutoDownloader = autoDownloader;
 
@@ -343,6 +345,7 @@ class SourcesStore {
       .map((s) => ({
         repo: s.repo,
         active: s.active === true,
+        ...(s.curated === true ? { curated: true } : {}),
         card: s.card,
         origin: s.origin === "bundle" ? ("bundle" as const) : ("url" as const),
         ...(typeof s.pinnedTag === "string" ? { pinnedTag: s.pinnedTag } : {}),
@@ -367,9 +370,9 @@ class SourcesStore {
    * Bring in the curated core/homebrew list the CURRENT NEWEST firmware release publishes, as
    * ordinary remote-source rows.
    *
-   * This adds rows. It downloads no artifact and prepares nothing — a curated row is exactly
-   * what the user would have got by pasting the repo, except that it starts INACTIVE: the app
-   * chose to list it, the user did not choose to install it.
+   * This adds rows. It downloads no artifact and prepares nothing. Curated rows are enabled by
+   * default because the firmware's published project list is the app's default core catalog;
+   * users can still deactivate individual rows from Sources.
    *
    * Degradation, in the order it matters:
    *   - the release publishes no `projects` (or the walk fails): nothing is added, and the rail
@@ -398,7 +401,18 @@ class SourcesStore {
       if (this.dismissed.has(repo)) continue;
       // A dedupe skip is NOT a failure: the user already has this source, so there is nothing
       // missing to tell them about.
-      if (this.get(repo)) continue;
+      const existing = this.get(repo);
+      if (existing) {
+        // Rows created by the old curated importer were persisted inactive. Their folder
+        // associations are still valid, so migrate those rows to the new default once. A
+        // deliberately deactivated row keeps its choice after this marker is written.
+        if (existing.curated !== true && existing.active === false) {
+          existing.active = true;
+          existing.curated = true;
+          this.persist();
+        }
+        continue;
+      }
       if (wanted.some((w) => w.repo === repo)) continue;
       wanted.push({ repo, title: project.title, kind: project.kind === "core" ? "core" : "homebrew" });
     }
@@ -461,7 +475,8 @@ class SourcesStore {
       ...this.rows,
       {
         repo: want.repo,
-        active: false,
+        active: true,
+        curated: true,
         card: toCard(resolved, "url"),
         manifest: resolved.manifest,
         origin: "url",
@@ -469,6 +484,7 @@ class SourcesStore {
       },
     ];
     this.persist();
+    this.maybeAutoDownload(want.repo);
   }
 
   private clearCuratedFailure(repo: string): void {
@@ -527,9 +543,10 @@ class SourcesStore {
   private persist(): void {
     saveSel(
       STORAGE_KEY,
-      this.rows.map(({ repo, active, card, origin, pinnedTag }) => ({
+      this.rows.map(({ repo, active, curated, card, origin, pinnedTag }) => ({
         repo,
         active,
+        ...(curated === true ? { curated: true } : {}),
         card,
         origin,
         pinnedTag,
