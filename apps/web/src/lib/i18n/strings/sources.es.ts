@@ -12,6 +12,8 @@ export const sourcesEs: SourcesStrings = {
   coresSubtitle: "Emuladores y motores de juego que añaden una consola a la Game & Watch.",
   homebrewSubtitle: "Juegos/aplicaciones caseros para la Game & Watch.",
   emptyColumn: "Sin fuentes",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   allSources: "Todas las fuentes",
 
   addSource: "Añadir fuente",
@@ -58,7 +60,7 @@ export const sourcesEs: SourcesStrings = {
   oneRomMatched: "1 ROM coincidente",
   noRoms: "Sin ROMs",
   noRomFolder: "Ninguna carpeta de ROMs elegida",
-  needsUserFiles: "Necesita un archivo que aportes tú",
+  needsUserFiles: "Se requieren archivos adicionales",
   prerelease: "Versión preliminar",
   needsNewerFirmware: "Requiere firmware más reciente",
 

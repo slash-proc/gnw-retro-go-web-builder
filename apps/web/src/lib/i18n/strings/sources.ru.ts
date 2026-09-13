@@ -17,6 +17,8 @@ export const sourcesRu: SourcesStrings = {
   coresSubtitle: "Эмуляторы и игровые движки, добавляющие консоль на Game & Watch.",
   homebrewSubtitle: "Собственные игры и приложения для Game & Watch.",
   emptyColumn: "Нет источников",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   allSources: "Все источники",
 
   addSource: "Добавить источник",
@@ -72,7 +74,7 @@ export const sourcesRu: SourcesStrings = {
   oneRomMatched: "1 ROM найден",
   noRoms: "Нет ROM",
   noRomFolder: "Папка с ROM не выбрана",
-  needsUserFiles: "Нужен ваш файл",
+  needsUserFiles: "Требуются дополнительные файлы",
   prerelease: "Предрелиз",
   needsNewerFirmware: "Нужна более новая прошивка",
 

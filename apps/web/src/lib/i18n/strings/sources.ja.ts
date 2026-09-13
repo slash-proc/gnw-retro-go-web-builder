@@ -13,6 +13,8 @@ export const sourcesJa: SourcesStrings = {
   coresSubtitle: "Game & Watch にコンソールを追加するエミュレーターやゲームエンジンです。",
   homebrewSubtitle: "Game & Watch 用の自作ゲーム・アプリです。",
   emptyColumn: "ソースなし",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   allSources: "すべてのソース",
 
   addSource: "ソースを追加",
@@ -56,7 +58,7 @@ export const sourcesJa: SourcesStrings = {
   oneRomMatched: "1 件の ROM が一致",
   noRoms: "ROM なし",
   noRomFolder: "ROM フォルダが未選択",
-  needsUserFiles: "利用者が用意するファイルが必要",
+  needsUserFiles: "追加ファイルが必要",
   prerelease: "プレリリース",
   needsNewerFirmware: "新しいファームウェアが必要",
 

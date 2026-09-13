@@ -14,6 +14,8 @@ export const sourcesPl: SourcesStrings = {
   coresSubtitle: "Emulatory i silniki gier, które dodają konsolę do Game & Watch.",
   homebrewSubtitle: "Amatorskie gry/aplikacje dla Game & Watch.",
   emptyColumn: "Brak źródeł",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   allSources: "Wszystkie źródła",
 
   addSource: "Dodaj źródło",
@@ -60,7 +62,7 @@ export const sourcesPl: SourcesStrings = {
   oneRomMatched: "Dopasowano 1 ROM",
   noRoms: "Brak ROM-ów",
   noRomFolder: "Nie wybrano folderu z ROM-ami",
-  needsUserFiles: "Wymaga pliku dostarczonego przez Ciebie",
+  needsUserFiles: "Wymagane dodatkowe pliki",
   prerelease: "Wersja wstępna",
   needsNewerFirmware: "Wymaga nowszego firmware'u",
 

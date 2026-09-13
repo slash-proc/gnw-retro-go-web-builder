@@ -21,6 +21,8 @@ export const sourcesEn = {
   coresSubtitle: "Emulators and game engines that add a console to the Game & Watch.",
   homebrewSubtitle: "Custom games/applications for the Game & Watch.",
   emptyColumn: "No sources",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   // The Guided Setup modal's way out to the full Sources tab (ModalSources artboard).
   allSources: "All sources",
 
@@ -89,7 +91,7 @@ export const sourcesEn = {
   oneRomMatched: "1 ROM matched",
   noRoms: "No ROMs",
   noRomFolder: "No ROM folder picked",
-  needsUserFiles: "Needs a file you supply",
+  needsUserFiles: "Additional files required",
   prerelease: "Prerelease",
   needsNewerFirmware: "Needs newer firmware",
 

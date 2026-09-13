@@ -12,6 +12,8 @@ export const sourcesAr: SourcesStrings = {
   coresSubtitle: "محاكيات ومحركات ألعاب تضيف جهازًا إلى Game & Watch.",
   homebrewSubtitle: "ألعاب وتطبيقات مخصصة لأجهزة Game & Watch.",
   emptyColumn: "لا مصادر",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   allSources: "كل المصادر",
 
   addSource: "إضافة مصدر",
@@ -56,7 +58,7 @@ export const sourcesAr: SourcesStrings = {
   oneRomMatched: "ROM واحد مطابق",
   noRoms: "لا ملفات ROM",
   noRomFolder: "لم يُختر مجلد ROM",
-  needsUserFiles: "يحتاج ملفًا توفّره أنت",
+  needsUserFiles: "ملفات إضافية مطلوبة",
   prerelease: "إصدار تجريبي",
   needsNewerFirmware: "يحتاج برنامجًا ثابتًا أحدث",
 

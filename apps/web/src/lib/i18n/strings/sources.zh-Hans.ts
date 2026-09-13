@@ -11,6 +11,8 @@ export const sourcesZhHans: SourcesStrings = {
   coresSubtitle: "为 Game & Watch 增加主机的模拟器和游戏引擎。",
   homebrewSubtitle: "为 Game & Watch 制作的自制游戏和应用。",
   emptyColumn: "没有源",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   allSources: "全部源",
 
   addSource: "添加源",
@@ -55,7 +57,7 @@ export const sourcesZhHans: SourcesStrings = {
   oneRomMatched: "匹配到 1 个 ROM",
   noRoms: "没有 ROM",
   noRomFolder: "未选择 ROM 文件夹",
-  needsUserFiles: "需要你提供的文件",
+  needsUserFiles: "需要其他文件",
   prerelease: "预发布",
   needsNewerFirmware: "需要更新的固件",
 

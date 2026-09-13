@@ -11,6 +11,8 @@ export const sourcesNo: SourcesStrings = {
   coresSubtitle: "Emulatorer og spillmotorer som gir Game & Watch-en en ny konsoll.",
   homebrewSubtitle: "Egne spill og programmer for Game & Watch-en.",
   emptyColumn: "Ingen kilder",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   allSources: "Alle kilder",
 
   addSource: "Legg til kilde",
@@ -55,7 +57,7 @@ export const sourcesNo: SourcesStrings = {
   oneRomMatched: "1 ROM funnet",
   noRoms: "Ingen ROM-er",
   noRomFolder: "Ingen ROM-mappe valgt",
-  needsUserFiles: "Trenger en fil fra deg",
+  needsUserFiles: "Flere filer kreves",
   prerelease: "Forhåndsversjon",
   needsNewerFirmware: "Trenger nyere firmware",
 

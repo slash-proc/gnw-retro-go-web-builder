@@ -11,6 +11,8 @@ export const sourcesZhHant: SourcesStrings = {
   coresSubtitle: "模擬器與遊戲引擎，為 Game & Watch 增加一台主機。",
   homebrewSubtitle: "給 Game & Watch 的自製遊戲／應用程式。",
   emptyColumn: "沒有來源",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   allSources: "所有來源",
 
   addSource: "新增來源",
@@ -54,7 +56,7 @@ export const sourcesZhHant: SourcesStrings = {
   oneRomMatched: "符合 1 個 ROM",
   noRoms: "沒有 ROM",
   noRomFolder: "未選擇 ROM 資料夾",
-  needsUserFiles: "需要你提供檔案",
+  needsUserFiles: "需要其他檔案",
   prerelease: "預先發行版",
   needsNewerFirmware: "需要較新的韌體",
 

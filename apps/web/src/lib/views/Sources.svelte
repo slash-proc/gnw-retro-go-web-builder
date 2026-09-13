@@ -177,6 +177,23 @@
   const remoteKind = $derived<"core" | "homebrew" | null>(
     !isRemotePane(pane) ? null : pane === "remote-homebrew" ? "homebrew" : "core",
   );
+  let bulkSelected = $state<Set<string>>(new Set());
+  const remoteRows = $derived(
+    remoteKind === "core" ? sources.byKind.core : remoteKind === "homebrew" ? sources.byKind.homebrew : [],
+  );
+  const allBulkSelected = $derived(remoteRows.length > 0 && remoteRows.every((row) => bulkSelected.has(row.repo)));
+
+  function toggleBulk(repo: string): void {
+    const next = new Set(bulkSelected);
+    if (next.has(repo)) next.delete(repo);
+    else next.add(repo);
+    bulkSelected = next;
+  }
+
+  function toggleAllBulk(): void {
+    bulkSelected = allBulkSelected ? new Set() : new Set(remoteRows.map((row) => row.repo));
+  }
+
   /** True only while a version SWITCH is in flight — not while a background refresh runs. */
   let switching = $state(false);
 
@@ -625,6 +642,7 @@
             aria-current={pane === it.id ? "true" : undefined}
             onclick={() => {
               pane = it.id;
+              bulkSelected = new Set();
               detailsOpen = false;
               addOpen = false;
               folderAddOpen = false;
@@ -919,6 +937,14 @@
     {:else if remoteKind}
       {@const rows = remoteKind === "core" ? sources.byKind.core : sources.byKind.homebrew}
       <div class="listregion">
+      {#if rows.length > 0}
+        <div class="bulkbar">
+          <label class="bulkselect">
+            <input type="checkbox" checked={allBulkSelected} onchange={toggleAllBulk} />
+            <span>{allBulkSelected ? t.clearSelection : t.selectAllSources}</span>
+          </label>
+        </div>
+      {/if}
       <div class="list">
         {#if rows.length === 0}
           <p class="empty">{t.emptyColumn}</p>
@@ -938,9 +964,19 @@
                 }
               }}
             >
+              <input
+                class="rowcheck"
+                type="checkbox"
+                checked={bulkSelected.has(row.repo)}
+                aria-label={row.card?.title ?? row.repo}
+                onclick={(e) => e.stopPropagation()}
+                onchange={() => toggleBulk(row.repo)}
+              />
               <div class="main">
-                <div class="name">{row.card?.title ?? row.repo}</div>
-                <div class="repo">{row.repo}</div>
+                <div class="identity">
+                  <div class="name">{row.card?.title ?? row.repo}</div>
+                  <div class="repo">{row.repo}</div>
+                </div>
                 {#if segments.length > 0}
                   <div class="meta" class:bad={row.status === "error"}>
                     {#each segments as segment, i (i)}{#if i > 0}<span class="sep">|</span
@@ -1031,13 +1067,22 @@
           disabled={!addCanAdd}
           onclick={() => void addRef?.submit()}>{sources.adding ? t.adding : t.add}</Button
         >
+      {:else if isRemote && !detail && bulkSelected.size > 0}
+        <Button variant="ink-solid" onclick={() => {
+          for (const row of remoteRows) if (bulkSelected.has(row.repo)) sources.setActive(row.repo, true);
+          bulkSelected = new Set();
+        }}>{t.activate}</Button>
+        <Button variant="ink-solid" onclick={() => {
+          for (const row of remoteRows) if (bulkSelected.has(row.repo)) sources.setActive(row.repo, false);
+          bulkSelected = new Set();
+        }}>{t.deactivate}</Button>
       {:else if selected}
         {#if selected.status === "error"}
           <Button variant="default" onclick={() => void sources.refresh(selected.repo)}
             >{t.retry}</Button
           >
         {/if}
-        {#if !detail}
+        {#if !detail && bulkSelected.size === 0}
           <Button variant="default" onclick={() => (detailsOpen = true)}>{t.configure}</Button>
         {/if}
         <!-- ReposDetail.dc.html fills this cap (`#1b1b1b`/white, inset lip). Two artboards
@@ -1347,6 +1392,34 @@
     border-radius: var(--r-card);
     padding: 2px 18px;
   }
+  .bulkbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 42px;
+    padding: 0 2px 10px;
+  }
+  .bulkselect {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink-soft);
+    font-size: var(--fs-btn-sm);
+    cursor: pointer;
+  }
+  .bulkselect input,
+  .rowcheck {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--zelda-green);
+    cursor: pointer;
+  }
+  .bulkselect input:focus-visible,
+  .rowcheck:focus-visible {
+    outline: 2px solid var(--zelda-green);
+    outline-offset: 2px;
+  }
   .empty {
     margin: 0;
     color: var(--ink-soft);
@@ -1360,6 +1433,12 @@
     gap: 20px;
     padding: 15px 0;
     cursor: pointer;
+    box-sizing: border-box;
+  }
+  .rowcheck {
+    flex: none;
+    margin-block: 0;
+    margin-inline: 0 2px;
   }
   .row + .row {
     border-top: 1px solid var(--rule);
@@ -1370,6 +1449,7 @@
     box-shadow: inset 2px 0 0 var(--zelda-green);
     margin: 0 -18px;
     padding: 15px 18px;
+    width: calc(100% + 36px);
   }
   /* Repos.dc.html:74: `display: flex; flex-direction: column; gap: 3px; flex-grow: 1;
      min-width: 0`. As a plain block the three lines stacked flush; only `.meta` had any
@@ -1381,12 +1461,28 @@
     flex: 1;
     min-width: 0;
   }
+  .identity {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    min-width: 0;
+  }
   .name {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-weight: 600;
     /* Repos.dc.html: `font-size: 15px; font-weight: 600`. */
     font-size: var(--fs-lede);
   }
   .repo {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: var(--font-mono);
     font-size: var(--fs-micro);
     color: var(--ink-soft);

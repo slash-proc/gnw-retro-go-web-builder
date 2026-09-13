@@ -13,6 +13,8 @@ export const sourcesKo: SourcesStrings = {
   coresSubtitle: "게임 & 워치에 콘솔을 추가하는 에뮬레이터와 게임 엔진이에요.",
   homebrewSubtitle: "게임 & 워치용 홈브루 게임/앱입니다.",
   emptyColumn: "소스 없음",
+  selectAllSources: "Select all",
+  clearSelection: "Clear selection",
   allSources: "모든 소스",
 
   addSource: "소스 추가",
@@ -56,7 +58,7 @@ export const sourcesKo: SourcesStrings = {
   oneRomMatched: "1개의 ROM 일치",
   noRoms: "ROM 없음",
   noRomFolder: "ROM 폴더를 선택하지 않음",
-  needsUserFiles: "사용자가 준비한 파일이 필요함",
+  needsUserFiles: "추가 파일 필요",
   prerelease: "사전 배포판",
   needsNewerFirmware: "최신 펌웨어 필요",
 
