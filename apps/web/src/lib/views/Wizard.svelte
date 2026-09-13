@@ -175,8 +175,10 @@
   // On the Retro-Go-only path the step is BACKUP ONLY — it never patches, so `isPatched` can
   // never be what completes it; the recorded backup is.
   /**
-   * This step is "back up, then patch". It is DONE when both of those facts are true, and its
-   * completion must not depend on anything else.
+   * This step is "back up, then patch". On the dual-boot path, a patched OFW in bank 1 is
+   * durable device evidence that the patch phase already happened, even when this browser has
+   * no remembered backup record. Retro-Go-only still requires the local backup because that
+   * path never patches the device.
    *
    * It used to read `isPatched`, which also requires `hasAssets` -- a stock-asset partition
    * still present in extflash. That extra condition belongs to "will the OFW boot", not to
@@ -186,11 +188,12 @@
    *
    * The blank-device false positive the `hasAssets` check was guarding against is handled by
    * the patch evidence itself: `deviceClass.ofw.patched` comes from the bank scan, so an erased
-   * intflash has no `ofw` at all and cannot report patched. Requiring the backup as well makes
-   * it stricter than the old check in the direction that matters.
+   * intflash has no `ofw` at all and cannot report patched. A patched bank-1 image is sufficient
+   * evidence for dual boot; requiring a local backup record there made an already-patched
+   * Zelda/Mario device look unfinished after a reload or when prepared by another session.
    */
   let step1Done = $derived(
-    step1Skipped || (path === "rgo" ? backupTaken : !!device.deviceClass?.ofw?.patched && backupTaken),
+    step1Skipped || (path === "rgo" ? backupTaken : !!device.deviceClass?.ofw?.patched),
   );
   let step1Active = $derived(!step1Done);
 
