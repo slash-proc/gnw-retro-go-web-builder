@@ -157,15 +157,27 @@
         ? locale.t.deviceHeader.noConnection
         : deviceSafety.state === "writing"
           ? locale.t.deviceHeader.unsafeWritingStatus
-          : deviceSafety.state === "settling"
+        : deviceSafety.state === "settling"
             ? locale.t.deviceHeader.unsafeSettlingStatus
         : device.utilLoaded
         ? locale.t.deviceHeader.connectedRecoveryMode
-        : isRetroGo
-          ? locale.t.deviceHeader.connectedRetroGo
-          : device.deviceClass
-            ? locale.t.deviceHeader.connectedAs(device.deviceClass.label)
-            : locale.t.deviceHeader.connected,
+        : device.runtimeKind === "retro-go"
+          ? locale.t.deviceHeader.connectedAs(
+              device.retroGoActivity ? `Retro-Go - ${device.retroGoActivity}` : "Retro-Go",
+            )
+          : device.runtimeKind === "stock-ofw"
+            ? locale.t.deviceHeader.connectedAs(locale.t.deviceHeader.stock)
+            : device.runtimeKind === "bootloader"
+              ? locale.t.deviceHeader.connectedAs("Bootloader")
+              : device.runtimeKind === "recovery"
+                ? locale.t.deviceHeader.connectedRecoveryMode
+        : device.runtimeKind === "unknown"
+          ? locale.t.deviceHeader.connected
+          : isRetroGo
+            ? locale.t.deviceHeader.connectedRetroGo
+            : device.deviceClass
+              ? locale.t.deviceHeader.connectedAs(device.deviceClass.label)
+              : locale.t.deviceHeader.connected,
   );
 
   // FrogFS presence is a Flash-mode concept (extflash content) — it must never influence SD

@@ -192,12 +192,14 @@
      pane column that scrolled itself would silently clip with no scrollbar. */
   .pane {
     min-width: 0;
+    min-height: 100%;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
   }
   .panebody {
     min-width: 0;
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
     gap: 28px;
@@ -205,6 +207,10 @@
     max-width: 880px;
   }
   .panefoot {
+    width: 100%;
+    align-self: stretch;
+    position: relative;
+    z-index: 1;
     border-top: 1px solid var(--hairline);
     background: var(--surface);
     padding: 0 var(--page-pad-x);
@@ -214,6 +220,14 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
+  }
+  /* Overview's screen dock is a sibling column of this rail. Carry the footer band beneath that
+     dock as well; the grid column already includes the dock's trailing gutter. */
+  @media (min-width: 1201px) {
+    .panefoot {
+      width: calc(100% + 360px);
+      margin-inline-end: -360px;
+    }
   }
   .sum {
     font-size: var(--fs-btn-sm);

@@ -49,7 +49,7 @@ export function serialTransport(t: SwdTransport): SerialTransport {
   return {
     busy: () => pending > 0,
     connect: () => q(() => t.connect()),
-    readMemory: (a, l, p) => q(() => t.readMemory(a, l, p)),
+    readMemory: (a, l, p, reportProgress) => q(() => t.readMemory(a, l, p, reportProgress)),
     writeMemory: (a, d, p) => q(() => t.writeMemory(a, d, p)),
     readWord: (a) => q(() => t.readWord(a)),
     writeWord: (a, v) => q(() => t.writeWord(a, v)),

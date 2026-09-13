@@ -78,6 +78,7 @@
   import StatPanel, { type StatRow } from "../ui/StatPanel.svelte";
   import Carousel from "../ui/Carousel.svelte";
   import RefreshButton from "../ui/RefreshButton.svelte";
+  import Button from "../ui/Button.svelte";
   import StatusChip from "../ui/StatusChip.svelte";
   import GameDetailsPanel from "./GameDetailsPanel.svelte";
   import { download, formatSize } from "../util.js";
@@ -506,6 +507,15 @@
   const homebrewTitles = $derived(homebrew.status(deviceHomebrew.map((g) => g.name)));
   const unknownHomebrew = $derived(
     deviceHomebrew.filter((g) => !homebrew.owning(g.name) && !romSelection.deletedUnknownHomebrew.has(g.name)),
+  );
+
+  // The preview image is built from folder/prepared bytes. A real install also preserves
+  // device-only games and homebrew by reading their bytes back before repacking. Until that
+  // read happens, its total is useful for a rough space estimate but is not a trustworthy
+  // before/after delta. Publishing the difference here was the source of misleading values
+  // such as “−0.09 MB net change” on an otherwise untouched selection.
+  const previewHasUnmodeledDeviceFiles = $derived(
+    romSelection.retainedFromDevice.length > 0 || deviceHomebrew.length > 0,
   );
 
 
@@ -2195,7 +2205,7 @@
     // double-represented the same selection across two rows.
     const sizeStr = newFrogfsLen !== null ? formatSize(newFrogfsLen) : building ? locale.t.roms.summary.calculating : "—";
     let sizeDetail: string | undefined;
-    if (newFrogfsLen !== null && currentFrogfsLen !== null) {
+    if (newFrogfsLen !== null && currentFrogfsLen !== null && !previewHasUnmodeledDeviceFiles) {
       const net = newFrogfsLen - currentFrogfsLen;
       sizeDetail = net === 0 ? undefined : locale.t.roms.summary.netChange(net > 0 ? "+" : "", MiB(net));
     }
@@ -2323,7 +2333,7 @@
   /** Net change vs. what's on the device now (Flash only — SD has no equivalent baseline). */
   const netChangeText = $derived.by<string | null>(() => {
     if (device.targetMedia === "sd") return null;
-    if (newFrogfsLen === null || currentFrogfsLen === null) return null;
+    if (newFrogfsLen === null || currentFrogfsLen === null || previewHasUnmodeledDeviceFiles) return null;
     const net = newFrogfsLen - currentFrogfsLen;
     if (net === 0) return null;
     // Same rule as `budgetText`: the artboard reads `+0.12 MB net change`, and
@@ -2996,6 +3006,10 @@
     } else {
       report.log("build", msg((t) => t.roms.install.logReusingPreview, frogfs.length), "pack");
     }
+    // From this point on the image is the exact one being written, including any preserved
+    // device-only files. Keep the displayed projection synchronized with what we will flash;
+    // the post-install scan then replaces the old baseline and reduces a completed no-op to 0.
+    newFrogfsLen = frogfs.length;
     // What this install is NOT doing, said out loud. A core whose every ROM was deselected is
     // gone from the image above, but only its MAPPED half actually leaves the device: FrogFS is
     // rebuilt, the LittleFS partition is not, and there is no delete path into it at all (see
@@ -3690,13 +3704,19 @@
                     </button>
                   {/if}
                 {:else}
-                  <button
-                    class="install-btn"
-                    disabled={!flashReady || !canInstallRoms || building || !fitsGap}
-                    onclick={handleInstallClick}
-                  >
-                    {locale.t.roms.install.syncLibraryButton}
-                  </button>
+                  {#if device.isConnected && !device.utilLoaded}
+                    <Button variant="action" onclick={() => void device.startRecoveryMode()}>
+                      {locale.t.retroGoTab.enterRecoveryMode}
+                    </Button>
+                  {:else}
+                    <button
+                      class="install-btn"
+                      disabled={!flashReady || !canInstallRoms || building || !fitsGap}
+                      onclick={handleInstallClick}
+                    >
+                      {locale.t.roms.install.syncLibraryButton}
+                    </button>
+                  {/if}
                 {/if}
               </div>
             </div>

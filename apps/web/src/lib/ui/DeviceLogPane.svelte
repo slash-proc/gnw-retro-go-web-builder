@@ -25,6 +25,7 @@
    */
   import { locale } from "../i18n/locale.svelte.js";
   import { device } from "../device.svelte.js";
+  import { deviceSafety } from "../installProgress.svelte.js";
   import { download } from "../util.js";
   import PaneFooter from "../advanced/PaneFooter.svelte";
   import Button from "./Button.svelte";
@@ -36,12 +37,20 @@
   let logErr = $state<string | null>(null);
   let logContainer = $state<HTMLElement | null>(null);
   let reading = $state(false);
+  let polling = $state(false);
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
 
-  async function readLog(): Promise<void> {
-    reading = true;
+  async function readLog(manual = true): Promise<void> {
+    if (manual) reading = true;
+    else {
+      if (polling) return;
+      polling = true;
+    }
     logErr = null;
+    const followOutput =
+      !logContainer || logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 8;
     try {
-      const r = await device.readLog();
+      const r = await device.readLog(manual);
       // "(log buffer empty)" and the "\n---\n" join stay English in every locale: this is the
       // DEVICE's own raw printf buffer, and these markers are interleaved with it in the same
       // <pre>. Not UI chrome.
@@ -58,20 +67,34 @@
         }
         log += overlap > 0 ? newText.slice(overlap) : "\n---\n" + newText;
       }
-      setTimeout(() => {
-        if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
-      }, 0);
+      if (followOutput) {
+        setTimeout(() => {
+          if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
+        }, 0);
+      }
     } catch (e) {
       logErr = e instanceof Error ? e.message : String(e);
     } finally {
-      reading = false;
+      if (manual) reading = false;
+      else polling = false;
     }
   }
 
   $effect(() => {
-    if (device.isConnected && device.partitions.length > 0 && !log && !reading) {
-      void readLog();
+    if (device.isConnected && device.retroGoRunning && !deviceSafety.unsafe && !log && !reading && !polling) {
+      void readLog(false);
     }
+  });
+
+  $effect(() => {
+    if (!device.isConnected || !device.retroGoRunning) return;
+    pollTimer = setInterval(() => {
+      if (!reading && !polling && !deviceSafety.unsafe) void readLog(false);
+    }, 1000);
+    return () => {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = undefined;
+    };
   });
 
   function copyLog(): void {
@@ -110,7 +133,7 @@
 <!-- The pane's one DEVICE operation, drawn in the rail's anchored footer bar. Copy and Save are
      deliberately NOT here: they act on the output above, so they sit with it. -->
 <PaneFooter>
-  <Button variant="action" disabled={reading || !device.isConnected} onclick={readLog}>
+  <Button variant="action" disabled={reading || !device.isConnected} onclick={() => void readLog(true)}>
     {reading ? ov.log.reading : ov.log.readLog}
   </Button>
 </PaneFooter>

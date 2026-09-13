@@ -205,10 +205,11 @@
        It was 260px, which left 220px of content, and the panel's `max-width: 100%` then capped
        it to 220 without a word. Change either number and you resize the capture. */
     grid-template-columns: minmax(0, 1fr) 360px;
-    align-items: start;
+    align-items: stretch;
     flex: 1;
     width: 100%;
     min-width: 0;
+    min-height: 100%;
   }
   /* "Below roughly 1200px it drops out." Ambient content does not get to squeeze the rail. */
   @media (max-width: 1200px) {

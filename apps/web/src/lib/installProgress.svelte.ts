@@ -432,6 +432,7 @@ class InstallProgressStore {
     } finally {
       // A failed operation is if anything MORE likely to have left the device mid-write, so
       // the error path releases exactly like the success path — into "settling".
+      dbg(`[safety] operation complete title=${p.title}; releasing install hold`);
       deviceSafety.release();
       // And hand the lip back, on both paths, or it stays frozen at wherever the operation
       // stopped and every later transfer is ignored.
@@ -565,18 +566,26 @@ class DeviceSafetyStore {
   hold(): void {
     this.holds++;
     this.state = "writing";
+    dbg(`[safety] hold state=writing holds=${this.holds}`);
   }
 
   release(): void {
     if (this.holds > 0) this.holds--;
-    if (this.holds > 0) return;
+    if (this.holds > 0) {
+      dbg(`[safety] release deferred state=${this.state} holds=${this.holds}`);
+      return;
+    }
     this.state = this.noLinkProbe?.() ? "safe" : "settling";
+    dbg(`[safety] release state=${this.state} holds=${this.holds} noLink=${this.noLinkProbe?.() ?? false}`);
   }
 
   /** Called by the liveness poll when the target answered while the link was idle. Only
    *  meaningful for "settling" — it must never pull the warning down out from under a hold. */
   markQuiet(): void {
-    if (this.holds === 0 && this.state === "settling") this.state = "safe";
+    if (this.holds === 0 && this.state === "settling") {
+      this.state = "safe";
+      dbg("[safety] markQuiet state=safe");
+    }
   }
 
   /** The link is gone (deliberate disconnect, or a lost adapter): there is nothing left that

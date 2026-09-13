@@ -62,7 +62,8 @@ const STUBS = {
   "./engine/transport.js": `
     export const connectProbe = (opts) => globalThis.__fake.connectProbe(opts);
     export const getKnownProbes = () => globalThis.__fake.getKnownProbes();
-    export const serialTransport = (t) => t;`,
+    export const serialTransport = (t) => t;
+    export const isDeadHandleError = () => false;`,
   "./engine/flasher.js": `
     export const bootStub = (t, log) => globalThis.__fake.bootStub(t, log);
     export const readInfo = async () => ({ locked: false, externalFlashSizeMiB: 16 });
@@ -75,7 +76,7 @@ const STUBS = {
   "./engine/classify.js": `export const classifyDevice = () => null;`,
   "./engine/screenshot.js": `export const captureScreenshot = async () => null;`,
   "./engine/frogfsDevice.js": `export const readInstalledFrogfs = async () => null;`,
-  "./engine/devicelog.js": `export const readLogFromTransport = async () => "";`,
+  "./engine/devicelog.js": `export const fallbackLogLayout = () => null; export const loadDeviceLogLayout = async () => null; export const readLogFromTransport = async () => ({ text: "", idx: 0 }); export const retroGoActivityFromLog = () => null;`,
   "./debug.js": `export const dbg = () => {}; export const dbgLog = () => () => {}; export const setDbgSink = () => {};`,
 };
 

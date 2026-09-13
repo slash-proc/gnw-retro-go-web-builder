@@ -12,8 +12,10 @@ import { captureScreenshot as _captureScreenshot } from "./engine/screenshot.js"
 import { readInstalledFrogfs, type InstalledGame, type InstalledFrogfs } from "./engine/frogfsDevice.js";
 import { classifySdScanKey, homebrewScanPrefixes, shadowedLegacyHomebrewKeys } from "./engine/devicePaths.js";
 import { dbg, dbgLog } from "./debug.js";
-import { readLogFromTransport } from "./engine/devicelog.js";
+import { fallbackLogLayout, loadDeviceLogLayout, readLogFromTransport, retroGoActivityFromLog } from "./engine/devicelog.js";
+import { detectRuntime, type RuntimeKind } from "./engine/runtime.js";
 import { raceWithFallback } from "./engine/timeout.js";
+import { isDeadHandleError } from "@gnw/swd-transport";
 import { loadSel, saveSel, saveDir, loadDir, deleteDir } from "./persist.js";
 
 /**
@@ -68,6 +70,9 @@ class DeviceStore {
    *  installer defaults to flash when this isn't true. */
   sdPresent = $state<boolean | null>(null);
   probeName = $state<string | null>(null);
+  runtimeKind = $state<RuntimeKind>("unknown");
+  runtimeBank = $state<1 | 2 | null>(null);
+  retroGoActivity = $state<string | null>(null);
   error = $state<string | null>(null);
   /** True once we've connected at least once this session (never reset) — so a later
    *  disconnect keeps the user on the working view instead of the homepage. */
@@ -200,6 +205,8 @@ class DeviceStore {
   public transport: SerialTransport | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pinging = false;
+  private lastRuntimeProbeAt = 0;
+  private lastSettlingPollLogAt = 0;
   flasher: GnwFlasher | null = null;
   /** Reactive mirror of "the RAM util is loaded" — `flasher` itself is non-reactive, so the
    *  UI (LED/status) tracks this instead. Set when ensureStub boots it; cleared on disconnect. */
@@ -308,6 +315,11 @@ class DeviceStore {
     if (kind.startsWith("retrogo")) return "retro-go";
     if (kind === "stock") return "stock-ofw";
     return "unknown";
+  }
+
+  get retroGoRunning(): boolean { return this.runtimeKind === "retro-go"; }
+  private updateRetroGoActivity(text: string): void {
+    this.retroGoActivity = retroGoActivityFromLog(text);
   }
 
   /** The firmware ABI table the connected device publishes, or null when we do not know:
@@ -730,7 +742,27 @@ class DeviceStore {
     // suite rather than silently testing nothing. Keep this body free of TS syntax.
     let err = "";
     try {
-      await this.ensureStub(undefined, true);
+      // A probe can report as connected after its WebUSB handle has been closed by a prior
+      // re-enumeration. That is exactly the failure Chrome reports as `transferOut ... must be
+      // opened first`; retrying bootStub on the same transport can never work. Reattach the
+      // authorized probe and retry automatically so a transient stale handle does not require
+      // the user to press Start Recovery Mode several times.
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await this.ensureStub(undefined, true);
+          break;
+        } catch (e) {
+          if (!isDeadHandleError(e) || attempt >= 3) throw e;
+          dbg(`[recovery] stale USB handle during stub boot; reattaching (retry ${attempt}/2)`);
+          await this._teardownConnection();
+          this.connection = "lost";
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          await this.connect();
+          // connect() starts an automatic scan; finish it before the next boot so the scan
+          // cannot take the freshly opened probe away from ensureStub again.
+          if (this._scanPromise) await this._scanPromise.catch(() => {});
+        }
+      }
       bootMs = Date.now() - t0;
       if (this._scanPromise) await this._scanPromise.catch(() => {});
       await this.runScan("recovery mode");
@@ -1007,6 +1039,10 @@ class DeviceStore {
         );
         this._banksScannedAt = Date.now();
       }
+      const runtime = await detectRuntime(transport, this.banks);
+      this.runtimeKind = runtime.kind;
+      this.runtimeBank = runtime.bank;
+      if (runtime.kind !== "retro-go") this.retroGoActivity = null;
       phase("banks", 1);
       // Tier 2 (deep, needs the stub) — extflash partitions + installed games.
       const extSize = this.info?.externalFlashSizeBytes ?? 0;
@@ -1229,9 +1265,26 @@ class DeviceStore {
 
   /** Read retro-go's persistent printf log over the LIVE connection (the serialized
    *  transport, so it queues safely with the poll/ops). For the Overview page. */
-  async readLog(): Promise<{ text: string; idx: number }> {
+  async readLog(manual = true): Promise<{ text: string; idx: number }> {
     if (!this.transport) throw new Error("Not connected.");
-    return readLogFromTransport(this.transport);
+    const installed = this.banks.find((b) => b.retroGoVersion);
+    dbg(`[devicelog] installed=${installed?.retroGoVersion ?? "none"} bank=${installed?.index ?? "none"}`);
+    let layout = null;
+    if (installed?.retroGoVersion) {
+      // The debug ELF is the authority for RAM symbols. If the release is unavailable offline,
+      // devicelog.ts still tries the current and legacy known layouts.
+      layout = await loadDeviceLogLayout(installed.retroGoVersion, installed.index).catch((e) => {
+        dbg(`[devicelog] ELF lookup failed: ${e instanceof Error ? e.message : String(e)}`);
+        return null;
+      });
+      // Pre-v2 releases have no ELF asset. Select their DTCM layout first so stale bytes in the
+      // other address pair cannot be mistaken for the current log.
+      if (!layout) layout = fallbackLogLayout(installed.retroGoVersion);
+    }
+    dbg("[devicelog] selected layout", layout ?? "none; probing known layouts");
+    const result = await readLogFromTransport(this.transport, layout, !manual);
+    if (this.runtimeKind === "retro-go") this.updateRetroGoActivity(result.text);
+    return result;
   }
 
   /** Capture a screenshot from the LTDC layer-1 framebuffer. Always halts the CPU
@@ -1294,13 +1347,24 @@ class DeviceStore {
   private async pollTick(): Promise<void> {
     if (this.pinging || !this.transport) return;
     if (this.connection !== "connected" && this.connection !== "attention") return;
-    if (this.transport.busy()) return; // an op holds the link — it'll surface a loss itself
+    if (this.transport.busy()) {
+      if (deviceSafety.state === "settling" && Date.now() - this.lastSettlingPollLogAt >= 1000) {
+        this.lastSettlingPollLogAt = Date.now();
+        dbg("[poll] waiting for idle transport while settling");
+      }
+      return; // an op holds the link — it'll surface a loss itself
+    }
     this.pinging = true;
     try {
       // Time-box the ping: a yanked device usually leaves the read HANGING (the adapter keeps
       // retrying — the blinking), so "no response in 300 ms while idle" == lost. Safe to
       // time-box because we only ping when the link is idle (never queued behind a long op).
+      const pingStarted = Date.now();
       const ok = await raceWithFallback(pingTarget(this.transport), 300, false);
+      const pingMs = Date.now() - pingStarted;
+      if (deviceSafety.state === "settling" && (pingMs > 100 || !ok)) {
+        dbg(`[poll] settling ping ok=${ok} elapsed=${pingMs}ms`);
+      }
       if (!ok) {
         if (this.connection === "connected" || this.connection === "attention") {
           await this.handleLost();
@@ -1317,6 +1381,21 @@ class DeviceStore {
 
       // Check what is running to update UI state:
       const utilAlive = await isStubAlive(this.transport);
+      if (utilAlive) {
+        this.runtimeKind = "recovery";
+        this.runtimeBank = null;
+      } else if (this.banks.length > 0 && Date.now() - this.lastRuntimeProbeAt >= 2000) {
+        // VTOR is a single live memory read, so this passive probe does not halt the target.
+        // The full PC fallback is reserved for deliberate scans; polling must stay tiny.
+        this.lastRuntimeProbeAt = Date.now();
+        const runtime = await detectRuntime(this.transport, this.banks, { pcFallback: false });
+        if (runtime.kind !== "unknown") {
+          this.runtimeKind = runtime.kind;
+          this.runtimeBank = runtime.bank;
+          if (runtime.kind !== "retro-go") this.retroGoActivity = null;
+          else this.updateRetroGoActivity((await readLogFromTransport(this.transport, undefined, true)).text);
+        }
+      }
       if (this.utilLoaded !== utilAlive) {
         // Newly discovered the util already running (e.g. left over from a prior session,
         // found passively here rather than via our own ensureStub() call) — ensureStub()
@@ -1335,11 +1414,8 @@ class DeviceStore {
         if (utilAlive && !this.utilLoaded && !scanIsFresh) void this.runScan("liveness poll", { auto: true });
         this.utilLoaded = utilAlive;
       }
-      // NOTE: deliberately no isRetroGoRunning-based firmware guess here anymore. The
-      // persistent printf log survives reboots, so its presence only proves retro-go ran at
-      // SOME point — never that it's running now. Firmware classification comes solely from
-      // the Tier-1/2 bank scan (`deviceClass`); logs are read on-demand for display only
-      // (device.readLog()), with zero bearing on device state. See the plan's Tier 0 section.
+      // Runtime classification comes from the live VTOR probe above, never from the persistent
+      // log buffer: old log text proves only that Retro-Go ran at SOME point.
     } finally {
       this.pinging = false;
     }
@@ -1550,6 +1626,9 @@ class DeviceStore {
     }
     await this._teardownConnection();
     this.probeName = null;
+    this.runtimeKind = "unknown";
+    this.runtimeBank = null;
+    this.retroGoActivity = null;
     this.clearInfo();
     this.connection = "disconnected";
     deviceSafety.linkGone();

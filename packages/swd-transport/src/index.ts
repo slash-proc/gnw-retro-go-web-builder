@@ -85,7 +85,7 @@ export function isDeadHandleError(e: unknown): boolean {
 
 export interface SwdTransport {
   connect(): Promise<void>; // navigator.usb.requestDevice gesture (caller-owned)
-  readMemory(addr: number, len: number, onProgress?: ProgressFn): Promise<Uint8Array>;
+  readMemory(addr: number, len: number, onProgress?: ProgressFn, reportProgress?: boolean): Promise<Uint8Array>;
   writeMemory(addr: number, data: Uint8Array, onProgress?: ProgressFn): Promise<void>;
   readWord(addr: number): Promise<number>;
   writeWord(addr: number, val: number): Promise<void>;
@@ -163,17 +163,17 @@ abstract class BaseTransport implements SwdTransport {
   // pacing delay), not a duplicate of apps/web's engine/chunkedRead.ts or
   // screenshot.ts helpers — those build on top of readMemory, calling it with a
   // chosen chunk size. See docs/AUDIT_NOTES.md item #2.
-  async readMemory(addr: number, len: number, onProgress?: ProgressFn): Promise<Uint8Array> {
+  async readMemory(addr: number, len: number, onProgress?: ProgressFn, reportProgress = true): Promise<Uint8Array> {
     assertWordAligned(addr, len);
     const out = new Uint8Array(len);
     // Announce at 0 so the indicator appears when the transfer STARTS, not when its first
     // chunk lands -- a 16 MB read would otherwise show nothing for its first chunk's latency.
-    emitTransfer("read", 0, len);
+    if (reportProgress) emitTransfer("read", 0, len);
     for (let off = 0; off < len; off += this.CHUNK) {
       const n = Math.min(this.CHUNK, len - off);
       out.set(await this._readMemRaw(addr + off, n), off);
       onProgress?.(off + n, len);
-      emitTransfer("read", off + n, len);
+      if (reportProgress) emitTransfer("read", off + n, len);
       if (len > this.CHUNK) await new Promise((r) => setTimeout(r, 10));
     }
     return out;
