@@ -67,8 +67,9 @@
   import type { LibrarySortKey, SortDirection } from "../librarySort.js";
   import FilePromptModal from "../ui/FilePromptModal.svelte";
   import { type ChangeItem } from "../ui/ChangeSummary.svelte";
-  import { biosState } from "../sources/biosState.svelte.js";
-  import { basePath } from "../sources/libraryScan.js";
+import { biosState } from "../sources/biosState.svelte.js";
+import { basePath } from "../sources/libraryScan.js";
+import { navigate } from "../nav.js";
   import { type BiosStatus } from "../sources/bios.js";
   import { type ConverterInput } from "../sources/converterTypes.js";
   import { type Target } from "../sources/types.js";
@@ -507,6 +508,9 @@
   const homebrewTitles = $derived(homebrew.status(deviceHomebrew.map((g) => g.name)));
   const unknownHomebrew = $derived(
     deviceHomebrew.filter((g) => !homebrew.owning(g.name) && !romSelection.deletedUnknownHomebrew.has(g.name)),
+  );
+  const hasLibrarySources = $derived(
+    coreRegistry.current.systems.length > 0 || homebrew.titles.length > 0 || unknownHomebrew.length > 0,
   );
 
   // The preview image is built from folder/prepared bytes. A real install also preserves
@@ -3246,14 +3250,21 @@
       {:else if listState === "empty"}
         <div class="page-body">
         <div class="gate-empty">
-          <p>{locale.t.roms.selectGames.gateBody}</p>
-          <!-- openFolderGate, not ensureFolders: this button is an EXPLICIT click on the empty
-               state, which is also reached when a folder IS registered but unreadable (a
-               needs-permission row leaves `library.selected` false). ensureFolders now no-ops
-               in exactly that case, so it would be a dead button. -->
-          <button class="action" onclick={() => library.openFolderGate(device.targetMedia === "sd").catch(() => {})}>
-            {locale.t.roms.selectGames.gateButton}
-          </button>
+          {#if !hasLibrarySources}
+            <p>{locale.t.roms.selectGames.noActiveSources}</p>
+            <button class="action" onclick={() => navigate("#sources", true)}>
+              {locale.t.sources.allSources}
+            </button>
+          {:else}
+            <p>{locale.t.roms.selectGames.gateBody}</p>
+            <!-- openFolderGate, not ensureFolders: this button is an EXPLICIT click on the empty
+                 state, which is also reached when a folder IS registered but unreadable (a
+                 needs-permission row leaves `library.selected` false). ensureFolders now no-ops
+                 in exactly that case, so it would be a dead button. -->
+            <button class="action" onclick={() => library.openFolderGate(device.targetMedia === "sd").catch(() => {})}>
+              {locale.t.roms.selectGames.gateButton}
+            </button>
+          {/if}
         </div>
         </div>
       {:else}

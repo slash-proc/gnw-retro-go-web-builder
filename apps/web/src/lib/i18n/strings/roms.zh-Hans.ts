@@ -8,6 +8,7 @@ export const romsZhHans: RomsStrings = {
   },
   selectGames: {
     gateBody: "设置你的 ROM 文件夹以管理游戏。",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "设置文件夹…",
     allFilterLabel: (count: number) => `全部（${count}）`,
     homebrewFilterLabel: (count: number) => `自制程序（${count}）`,

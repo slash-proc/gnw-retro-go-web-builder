@@ -8,6 +8,7 @@ export const romsZhHant: RomsStrings = {
   },
   selectGames: {
     gateBody: "設定好 ROM 資料夾才能管理遊戲。",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "設定資料夾…",
     allFilterLabel: (count: number) => `全部（${count}）`,
     homebrewFilterLabel: (count: number) => `Homebrew（${count}）`,

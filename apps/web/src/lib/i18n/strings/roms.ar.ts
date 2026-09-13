@@ -11,6 +11,7 @@ export const romsAr: RomsStrings = {
   },
   selectGames: {
     gateBody: "جهّز مجلد ملفات ROM لإدارة الألعاب.",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "تجهيز المجلدات…",
     allFilterLabel: (count: number) => `الكل (${count})`,
     homebrewFilterLabel: (count: number) => `Homebrew (${count})`,

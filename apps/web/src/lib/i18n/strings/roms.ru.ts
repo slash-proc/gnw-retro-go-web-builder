@@ -17,6 +17,7 @@ export const romsRu: RomsStrings = {
   },
   selectGames: {
     gateBody: "Настройте папку с ROM, чтобы управлять играми.",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "Настроить папки…",
     allFilterLabel: (count: number) => `Все (${count})`,
     homebrewFilterLabel: (count: number) => `Homebrew (${count})`,

@@ -8,6 +8,7 @@ export const romsNo: RomsStrings = {
   },
   selectGames: {
     gateBody: "Sett opp ROM-mappen for å behandle spill.",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "Sett opp mapper…",
     allFilterLabel: (count: number) => `Alle (${count})`,
     homebrewFilterLabel: (count: number) => `Homebrew (${count})`,

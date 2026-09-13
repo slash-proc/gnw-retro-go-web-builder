@@ -9,6 +9,7 @@ export const romsUk: RomsStrings = {
   },
   selectGames: {
     gateBody: "Налаштуйте теку з ROM, щоб керувати іграми.",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "Налаштувати теки…",
     allFilterLabel: (count: number) => `Усі (${count})`,
     homebrewFilterLabel: (count: number) => `Homebrew (${count})`,

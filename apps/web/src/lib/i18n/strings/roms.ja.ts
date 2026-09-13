@@ -8,6 +8,7 @@ export const romsJa: RomsStrings = {
   },
   selectGames: {
     gateBody: "ゲームを管理するにはROMフォルダを設定してください。",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "フォルダを設定…",
     allFilterLabel: (count: number) => `すべて（${count}）`,
     homebrewFilterLabel: (count: number) => `Homebrew（${count}）`,

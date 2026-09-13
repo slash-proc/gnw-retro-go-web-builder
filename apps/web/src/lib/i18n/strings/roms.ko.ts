@@ -8,6 +8,7 @@ export const romsKo: RomsStrings = {
   },
   selectGames: {
     gateBody: "게임을 관리하려면 ROM 폴더를 설정하세요.",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "폴더 설정…",
     allFilterLabel: (count: number) => `전체 (${count})`,
     homebrewFilterLabel: (count: number) => `홈브루 (${count})`,

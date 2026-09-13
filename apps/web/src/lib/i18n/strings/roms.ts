@@ -16,6 +16,7 @@ export const romsEn = {
   },
   selectGames: {
     gateBody: "Set up your ROM folder to manage games.",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "Set up folders…",
     allFilterLabel: (count: number) => `All (${count})`,
     homebrewFilterLabel: (count: number) => `Homebrew (${count})`,

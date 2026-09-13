@@ -8,6 +8,7 @@ export const romsFr: RomsStrings = {
   },
   selectGames: {
     gateBody: "Configurez votre dossier de ROMs pour gérer vos jeux.",
+  noActiveSources: "Add or activate a core or homebrew source to see games in the Library.",
     gateButton: "Configurer les dossiers…",
     allFilterLabel: (count: number) => `Tous (${count})`,
     homebrewFilterLabel: (count: number) => `Homebrew (${count})`,
