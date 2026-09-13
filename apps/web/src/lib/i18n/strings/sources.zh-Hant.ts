@@ -54,7 +54,7 @@ export const sourcesZhHant: SourcesStrings = {
 
   romsMatched: (count: number) => `符合 ${count} 個 ROM`,
   oneRomMatched: "符合 1 個 ROM",
-  noRoms: "沒有 ROM",
+  noRoms: "符合 0 個 ROM",
   noRomFolder: "未選擇 ROM 資料夾",
   needsUserFiles: "需要其他檔案",
   prerelease: "預先發行版",

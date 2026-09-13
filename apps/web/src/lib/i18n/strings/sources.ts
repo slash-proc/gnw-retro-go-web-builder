@@ -89,7 +89,7 @@ export const sourcesEn = {
   // Meta line facts
   romsMatched: (count: number) => `${count} ROMs matched`,
   oneRomMatched: "1 ROM matched",
-  noRoms: "No ROMs",
+  noRoms: "0 ROMs matched",
   noRomFolder: "No ROM folder picked",
   needsUserFiles: "Additional files required",
   prerelease: "Prerelease",

@@ -1430,8 +1430,8 @@
     display: flex;
     align-items: center;
     /* Repos.dc.html:74: the row's name block and its version/state column are 20px apart. */
-    gap: 20px;
-    padding: 15px 0;
+    gap: 14px;
+    padding: 11px 0;
     cursor: pointer;
     box-sizing: border-box;
   }
@@ -1448,7 +1448,7 @@
     background: var(--tint-select);
     box-shadow: inset 2px 0 0 var(--zelda-green);
     margin: 0 -18px;
-    padding: 15px 18px;
+    padding: 11px 18px;
     width: calc(100% + 36px);
   }
   /* Repos.dc.html:74: `display: flex; flex-direction: column; gap: 3px; flex-grow: 1;

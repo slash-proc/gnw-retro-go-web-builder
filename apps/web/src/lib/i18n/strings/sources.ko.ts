@@ -56,7 +56,7 @@ export const sourcesKo: SourcesStrings = {
 
   romsMatched: (count: number) => `${count}개의 ROM 일치`,
   oneRomMatched: "1개의 ROM 일치",
-  noRoms: "ROM 없음",
+  noRoms: "0개의 ROM 일치",
   noRomFolder: "ROM 폴더를 선택하지 않음",
   needsUserFiles: "추가 파일 필요",
   prerelease: "사전 배포판",

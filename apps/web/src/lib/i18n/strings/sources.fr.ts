@@ -58,7 +58,7 @@ export const sourcesFr: SourcesStrings = {
 
   romsMatched: (count: number) => `${count} ROMs correspondantes`,
   oneRomMatched: "1 ROM correspondante",
-  noRoms: "Aucune ROM",
+  noRoms: "0 ROM correspondante",
   noRomFolder: "Aucun dossier de ROMs choisi",
   needsUserFiles: "Fichiers supplémentaires requis",
   prerelease: "Préversion",

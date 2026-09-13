@@ -71,7 +71,7 @@ export function metaFacts(input: MetaFactInputs): MetaFact[] {
     facts.push({ kind: "needs-newer-firmware" });
   } else if (input.isCore) {
     const n = input.romsMatched;
-    if (n === null) facts.push({ kind: input.hasRomFolder ? "no-roms" : "no-rom-folder" });
+    if (n === null) facts.push({ kind: "no-roms" });
     else if (n === 0) facts.push({ kind: "no-roms" });
     else if (n === 1) facts.push({ kind: "one-rom-matched" });
     else facts.push({ kind: "roms-matched", count: n });

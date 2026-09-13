@@ -3989,7 +3989,7 @@ const { metaFacts } = await load("metaFacts.js");
 
 /**
  * A NEUTRAL baseline: a resolved, compatible emulator card with nothing else to say. Note it
- * is not fact-free (no folder picked yields `no-rom-folder`) — that is on purpose, so a check
+ * is not fact-free (no folder picked yields a zero ROM count) — that is on purpose, so a check
  * asserting "no facts at all" cannot pass by the baseline being silent anyway.
  */
 const factInput = (over = {}) => ({
@@ -4097,7 +4097,7 @@ check("facts: an unknown ABI counts ROMs exactly as a compatible one does", () =
 // "1 ROMs matched" is not a sentence.
 check("facts: the ROM-count table maps every row to its own fact", () => {
   const base = { isCore: true, abiCompatible: true };
-  eq(kinds({ ...base, romsMatched: null, hasRomFolder: false })[0], "no-rom-folder", "null, no folder");
+  eq(kinds({ ...base, romsMatched: null, hasRomFolder: false })[0], "no-roms", "null, no folder reports zero");
   eq(kinds({ ...base, romsMatched: null, hasRomFolder: true })[0], "no-roms", "null, folder picked");
   eq(kinds({ ...base, romsMatched: 0, hasRomFolder: true })[0], "no-roms", "zero matches");
   eq(kinds({ ...base, romsMatched: 1, hasRomFolder: true })[0], "one-rom-matched", "exactly one");

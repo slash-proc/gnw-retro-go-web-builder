@@ -56,7 +56,7 @@ export const sourcesAr: SourcesStrings = {
 
   romsMatched: (count: number) => `${count} ROM مطابقة`,
   oneRomMatched: "ROM واحد مطابق",
-  noRoms: "لا ملفات ROM",
+  noRoms: "0 ROM مطابقة",
   noRomFolder: "لم يُختر مجلد ROM",
   needsUserFiles: "ملفات إضافية مطلوبة",
   prerelease: "إصدار تجريبي",

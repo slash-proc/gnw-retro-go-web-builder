@@ -74,7 +74,7 @@ export const sourcesUk: SourcesStrings = {
   // shape rather than one of them reading as a stranded singular.
   romsMatched: (count: number) => `Збігів ROM: ${count}`,
   oneRomMatched: "Збігів ROM: 1",
-  noRoms: "Немає ROM",
+  noRoms: "Збігів ROM: 0",
   noRomFolder: "Теку з ROM не вибрано",
   needsUserFiles: "Потрібні додаткові файли",
   prerelease: "Передреліз",

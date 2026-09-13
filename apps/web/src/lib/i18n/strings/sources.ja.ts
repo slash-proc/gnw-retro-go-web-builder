@@ -56,7 +56,7 @@ export const sourcesJa: SourcesStrings = {
 
   romsMatched: (count: number) => `${count} 件の ROM が一致`,
   oneRomMatched: "1 件の ROM が一致",
-  noRoms: "ROM なし",
+  noRoms: "0 件の ROM が一致",
   noRomFolder: "ROM フォルダが未選択",
   needsUserFiles: "追加ファイルが必要",
   prerelease: "プレリリース",

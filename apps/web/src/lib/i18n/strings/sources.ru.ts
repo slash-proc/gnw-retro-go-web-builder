@@ -72,7 +72,7 @@ export const sourcesRu: SourcesStrings = {
   // "найдено" is impersonal and neuter, so it is correct after every count.
   romsMatched: (count: number) => `${count} ROM найдено`,
   oneRomMatched: "1 ROM найден",
-  noRoms: "Нет ROM",
+  noRoms: "Найдено ROM: 0",
   noRomFolder: "Папка с ROM не выбрана",
   needsUserFiles: "Требуются дополнительные файлы",
   prerelease: "Предрелиз",

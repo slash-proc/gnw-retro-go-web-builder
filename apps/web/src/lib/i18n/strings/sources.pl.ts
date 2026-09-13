@@ -60,7 +60,7 @@ export const sourcesPl: SourcesStrings = {
 
   romsMatched: (count: number) => `Dopasowano ${count} ROM-ów`,
   oneRomMatched: "Dopasowano 1 ROM",
-  noRoms: "Brak ROM-ów",
+  noRoms: "Dopasowano 0 ROM",
   noRomFolder: "Nie wybrano folderu z ROM-ami",
   needsUserFiles: "Wymagane dodatkowe pliki",
   prerelease: "Wersja wstępna",
