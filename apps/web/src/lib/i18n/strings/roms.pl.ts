@@ -27,6 +27,7 @@ export const romsPl: RomsStrings = {
       return `${n} wybranych`;
     },
     selectAll: "Zaznacz wszystkie",
+    unselectAll: 'Odznacz wszystko',
     noFilterMatch: "Żadna gra nie pasuje do tego filtra.",
     removeButton: "usuń",
     errorPrefix: (message: string) => `Błąd: ${message}`,
@@ -291,6 +292,11 @@ export const romsPl: RomsStrings = {
       noGamesFound: "Nie znaleziono gier",
       defaultVariantLabel: "Wariant domyślny:",
       stop: "Zatrzymaj",
+      progressLabel: (done: number, total: number) => `${done} of ${total} covers scraped`,
+      showGeneratedCovers: "Show generated covers",
+      skipExistingCovers: "Skip entries with an existing cover",
+      generatedCoverPreviewAlt: "Latest generated cover",
+      coverNotFound: (name: string) => `${name} could not be found`,
       importSelected: (count: number) => {
         const form =
           count === 1
