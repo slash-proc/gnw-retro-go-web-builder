@@ -42,7 +42,7 @@ const mod = sfc.slice(sfc.indexOf(">", sfc.indexOf("<script lang=\"ts\" module>"
 const stubbed = mod
   .replace(/import \{ sources \}[^\n]*\n/, "const sources = { get rows() { return globalThis.__rows; } };\n")
   .replace(/import \{ homebrew \}[^\n]*\n/, "const homebrew = { titles: [] };\n")
-  .replace(/import \{ targetKey \}[^\n]*\n/, "const targetKey = (repo, id) => `${repo}#${id}`;\n")
+  .replace(/import \{ targetKey[^}]*\}[^\n]*\n/, "const targetKey = (repo, id) => `${repo}#${id}`;\nconst OFW_BACKUP_USED_BY_KEY = \"__ofw_backup__\";\n")
   // `isCoreKind` is the real rule (it accepts the pre-rename "emulator" too), so it is inlined
   // from its own module rather than stubbed with a guess. `systemKey`/`targetOf` are the real
   // ones, imported from the compiled module they live in -- the key shape is what is under test

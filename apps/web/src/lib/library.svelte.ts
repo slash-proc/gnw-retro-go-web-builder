@@ -383,7 +383,7 @@ class LibraryStore {
       }
       let doneFiles = 0;
       let lastTick = 0;
-      const layers = sources.filter((s) => s.status === "ready").map((s) => ({
+      const layers: { id: string; name: string; phase: string; done: number; total: number; status: "pending" | "active" | "done" }[] = sources.filter((s) => s.status === "ready").map((s) => ({
         id: s.id,
         name: displayName(localFolders.get(s.id) ?? { name: "", folderName: s.id }),
         phase: "Finding games",

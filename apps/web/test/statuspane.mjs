@@ -306,8 +306,11 @@ ok(/backupPresence\.refresh/.test(footMarkup), "Rescan re-reads the backup folde
 const bpOut = mkdtempSync(join(tmpdir(), "backuppresence-"));
 const bpFakes = {
   "persist.js":
+    "export const loadSel = (_k, fallback) => fallback;\n" +
+    "export const saveSel = (_k, _v) => {};\n" +
     "export const loadDir = async (k) => globalThis.__bp.loadDir(k);\n" +
     "export const saveDir = async (k, h) => globalThis.__bp.saveDir(k, h);\n" +
+    "export const deleteDir = async (_k) => {};\n" +
     "export const handlePermission = async (h, m, i) => globalThis.__bp.permission(h, m, i);\n",
   "ofw.js":
     "export const backupPickerSupported = () => globalThis.__bp.supported;\n" +

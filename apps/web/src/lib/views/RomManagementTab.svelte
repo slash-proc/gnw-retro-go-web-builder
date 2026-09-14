@@ -4455,6 +4455,7 @@ import { navigate } from "../nav.js";
     line-height: 1.2;
     display: -webkit-box;
     -webkit-box-orient: vertical;
+    line-clamp: 2;
     -webkit-line-clamp: 2;
     overflow: hidden;
     overflow-wrap: break-word;
