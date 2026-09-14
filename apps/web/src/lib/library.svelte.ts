@@ -21,7 +21,7 @@ import { dbg } from "./debug.js";
 import { lipProgress } from "./lipProgress.svelte.js";
 import { auditLog } from "./auditLog.svelte.js";
 import { msg } from "./logEntry.js";
-import { localFolders } from "./sources/localFolders.svelte.js";
+import { localFolders, displayName } from "./sources/localFolders.svelte.js";
 import { sources } from "./sources/store.svelte.js";
 import {
   scanLibraryFolders,
@@ -128,7 +128,11 @@ class LibraryStore {
   /** Files read / files to read, plus the folder and file being read right now. FILES, not
    *  folders: with one ROM folder a folder-denominated bar sat at 0% while names streamed past
    *  and then jumped to 100%. `folder` is the local-folder id, so the line can say where. */
-  progress = $state<{ done: number; total: number; current: string; folder: string } | null>(null);
+  progress = $state<{
+    done: number; total: number; current: string; folder: string;
+    layers?: { id: string; name: string; phase: string; done: number; total: number; status: "pending" | "active" | "done" }[];
+    finalizing?: string | null;
+  } | null>(null);
   error = $state<string | null>(null);
   // A remembered folder location from a prior visit that needs a permission re-grant before use.
   pendingHandle = $state<RomDirHandle | null>(null);
@@ -195,11 +199,28 @@ class LibraryStore {
       // A second consumer can call sync() while the first walk is still running. Queue another
       // pass only when the registry really changed; otherwise the duplicate call is already
       // covered by the walk in progress.
-      if (this.romFolderSignature !== this.syncedSignature) this.syncPending = true;
+      // During the initial hydration there is no meaningful snapshot yet; a second consumer
+      // observing the empty pre-load signature must not turn that into a queued duplicate pass.
+      if (this.syncedSignature !== null && this.romFolderSignature !== this.syncedSignature) {
+        this.syncPending = true;
+      }
       return;
     }
     this.syncing = true;
     try {
+      // Hydrate the folder registry before taking the signature snapshot. If the snapshot is
+      // taken first, IndexedDB hydration changes `romFolderSignature` during the walk and the
+      // in-flight guard correctly (but unnecessarily) queues a second full scan on startup.
+      await localFolders.load();
+      // The legacy single-folder record is also a registry mutation. Adopt it before taking the
+      // snapshot; doing this inside `scanAllFolders()` makes the first pass observe a changed
+      // signature and schedule a second pass for users migrating from the old storage key.
+      try {
+        const legacy = (await loadDir("romDir")) as RomDirHandle | null;
+        if (legacy) await migrateLegacyRomDir(legacy, localFolders, defaultLibraryScanDeps);
+      } catch {
+        // `scanAllFolders()` retains the guarded migration path and will report any real failure.
+      }
       do {
         this.syncPending = false;
         const sig = this.romFolderSignature;
@@ -348,10 +369,13 @@ class LibraryStore {
       // Count first, read second. Enumerating entries opens no files, so this is cheap next to
       // the walk it measures, and it gives the bar a denominator it can actually reach.
       let totalFiles = 0;
+      const sourceTotals = new Map<string, number>();
       for (const src of sources) {
         if (src.status !== "ready") continue;
         try {
-          totalFiles += await countRomDirectory(src.handle as RomDirHandle);
+          const count = await countRomDirectory(src.handle as RomDirHandle);
+          sourceTotals.set(src.id, count);
+          totalFiles += count;
         } catch {
           // A folder that cannot be counted is one that cannot be read either; the scan below
           // reports it through `scanSkipped`. Leaving it out of the total keeps the bar honest.
@@ -359,12 +383,26 @@ class LibraryStore {
       }
       let doneFiles = 0;
       let lastTick = 0;
-      this.progress = { done: 0, total: totalFiles, current: "", folder: "" };
+      const layers = sources.filter((s) => s.status === "ready").map((s) => ({
+        id: s.id,
+        name: displayName(localFolders.get(s.id) ?? { name: "", folderName: s.id }),
+        phase: "Finding games",
+        done: 0,
+        total: sourceTotals.get(s.id) ?? 0,
+        status: "pending" as const,
+      }));
+      this.progress = { done: 0, total: totalFiles, current: "", folder: "", layers, finalizing: null };
       lipProgress.operationProgress("library-scan", 0);
       lipClaimed = true;
       const merged = await scanLibraryFolders(sources, {
         ...defaultLibraryScanDeps,
         scan: async (src) => {
+          const layer = layers.find((l) => l.id === src.id);
+          if (layer) {
+            layer.status = "active";
+            layer.phase = "Loading games";
+            this.progress = { ...this.progress!, layers: [...layers] };
+          }
           const r = await scanRomDirectory(src.handle as RomDirHandle, (rel) => {
             doneFiles++;
             // Throttled: a 1000-ROM folder must not queue 1000 reactive updates. The COUNT is
@@ -372,10 +410,18 @@ class LibraryStore {
             const now = Date.now();
             if (now - lastTick < 80) return;
             lastTick = now;
-            this.progress = { done: doneFiles, total: totalFiles, current: rel, folder: src.id };
+            if (layer) {
+              layer.done++;
+            }
+            this.progress = { done: doneFiles, total: totalFiles, current: rel, folder: src.id, layers: [...layers], finalizing: null };
             if (totalFiles > 0) lipProgress.operationProgress("library-scan", doneFiles / totalFiles);
           });
-          this.progress = { done: doneFiles, total: totalFiles, current: "", folder: src.id };
+          if (layer) {
+            layer.status = "done";
+            layer.phase = "Ready";
+            layer.done = layer.total;
+          }
+          this.progress = { done: doneFiles, total: totalFiles, current: "", folder: src.id, layers: [...layers], finalizing: null };
           // `hasRomsPrefix` is kept PER FOLDER: one folder's `roms/` layout must never
           // reinterpret another's (scanRomDirectory has already stripped the prefix locally).
           return { files: r.userRoms, hasRomsPrefix: !!r.hasRomsPrefix };
@@ -388,7 +434,7 @@ class LibraryStore {
       if (merged.scanned.length === 0) return;
 
       const userRoms = merged.files;
-      await convertCoversInMap(userRoms);
+      if (this.progress) this.progress = { ...this.progress, finalizing: "Organizing library" };
       const primaryId = merged.scanned[0].id;
       this.scan = {
         userRoms,
@@ -402,6 +448,12 @@ class LibraryStore {
       this.fileOrigin = merged.origin;
       this.pendingHandle = null;
       this.clearDirty();
+
+      // Cover conversion is derived session data. Publish the library first, then build .img
+      // sidecars in the background so a large cover set cannot delay the first usable list.
+      void convertCoversInMap(userRoms).catch((e) => {
+        dbg(`[covers] background conversion failed: ${e instanceof Error ? e.message : String(e)}`);
+      });
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       // `library.error` is write-only: NO component reads it, so this was the quietest failure

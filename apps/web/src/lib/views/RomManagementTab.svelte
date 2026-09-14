@@ -3247,22 +3247,29 @@ import { navigate } from "../nav.js";
   <div class="group">
     <div class="layered-panel">
       {#if listState === "loading"}
-        <!-- LOADING, not empty. Before the registry's IndexedDB pass and the first scan resolve
-             we know nothing, so we must not tell a user with folders registered for months to
-             "set up your ROM folder". No new copy: the label is the existing approved
-             "Loading…" string (its i18n home is `roms.gameDetailsPanel.cheats` only because
-             that is where it was first approved — it is the word "Loading…" in all seven
-             locales and nothing else; no new copy was invented for this state), and the only
-             other text is the relative path of the file being
-             read — runtime-derived, not UI copy. The bar is the InstallProgressModal
-             track/fill visual (4px, --surface-sunk, --zelda-green) and counts FOLDERS walked;
-             with the count unknown it renders as a plain track. -->
+        <!-- LOADING, not empty. The registry and each source scan are still settling, so show
+             the existing loading copy plus one progress layer per readable source. -->
         <div class="page-body">
         <div class="gate-empty">
           <p>{locale.t.roms.gameDetailsPanel.cheats.loadingEllipsis}</p>
+          {#if library.progress?.layers}
+            <div class="scan-layers">
+              {#each library.progress.layers as layer (layer.id)}
+                <div class="scan-layer">
+                  <div class="scan-layer-head">
+                    <span class="scan-layer-state">{layer.status === "done" ? "✓" : layer.status === "active" ? "→" : "○"}</span>
+                    <span class="scan-layer-name">{layer.name}</span>
+                    <span class="scan-layer-phase">{layer.phase}</span>
+                  </div>
+                  <div class="scan-track"><div class="scan-fill" class:indeterminate={layer.status === "active"} style:width={layer.status === "done" ? "100%" : undefined}></div></div>
+                </div>
+              {/each}
+            </div>
+          {/if}
           <div class="scan-track">
             {#if scanPct !== null}<div class="scan-fill" style:width="{scanPct}%"></div>{/if}
           </div>
+          {#if library.progress?.finalizing}<p class="scan-current">{library.progress.finalizing}</p>{/if}
           {#if library.progress?.current}
             <!-- Folder and file, both runtime values, joined as a path. The owner asked to see
                  each file go by: at these speeds it is a flash, which is the point. -->
@@ -3444,7 +3451,8 @@ import { navigate } from "../nav.js";
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div 
-                  class="row {selectedCarouselId === g.key ? 'active' : ''}"
+                  class="row"
+                  class:sel={selectedCarouselId === g.key}
                   style={state.disabled ? "opacity: 0.5; cursor: not-allowed;" : ""}
                   onclick={() => { selectedCarouselId = g.key; }}
                 >
@@ -3630,7 +3638,7 @@ import { navigate } from "../nav.js";
                   onclick={() => (openDrawer = openDrawer === "summary" ? null : "summary")}
                 >
                   <span>{locale.t.roms.summary.summaryTab}</span>
-                  <svg class="caret" class:up={openDrawer !== "summary"} viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  <svg class="caret" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="var(--ink-soft)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points={openDrawer !== "summary" ? "6 15 12 9 18 15" : "6 9 12 15 18 9"}></polyline></svg>
                 </button>
                 {/if}
               </div>
@@ -3944,6 +3952,31 @@ import { navigate } from "../nav.js";
     background: var(--zelda-green);
     transition: width 150ms ease;
   }
+  .scan-fill.indeterminate {
+    width: 35%;
+    animation: scan-slide 1.1s ease-in-out infinite alternate;
+  }
+  @keyframes scan-slide {
+    from { transform: translateX(0); }
+    to { transform: translateX(185%); }
+  }
+  .scan-layers {
+    width: min(520px, 90%);
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    text-align: start;
+  }
+  .scan-layer-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    font-size: var(--fs-micro);
+  }
+  .scan-layer-state { width: 1rem; color: var(--zelda-green); }
+  .scan-layer-name { font-weight: 600; color: var(--ink); }
+  .scan-layer-phase { margin-inline-start: auto; color: var(--ink-soft); }
+  .scan-layer .scan-track { width: 100%; }
   .scan-current {
     margin: 0;
     max-width: min(420px, 90%);
@@ -3993,6 +4026,10 @@ import { navigate } from "../nav.js";
     gap: 0.6rem;
     flex: 1 1 auto;
     min-height: 0;
+    /* The Library gets a wider, responsive reading frame than the other Advanced panes.
+       Keep the proven 1600px baseline, allow larger displays to grow with their height, and
+       cap the result against the viewport so an ultra-wide window does not become a banner. */
+    max-width: min(92vw, max(1600px, 92vh));
   }
   /* consoles | search | refresh. The chips are the one item that grows and wraps, so they
      take `flex: 1 1 auto` and the other two keep their intrinsic size. `align-items: center`
@@ -4128,6 +4165,10 @@ import { navigate } from "../nav.js";
     /* A rule inside the list's white surface -> --rule (was --surface-sunk, a FILL
        token: #101010, a black line in dark theme). */
     border-bottom: 1px solid var(--rule);
+  }
+  .row.sel {
+    background: var(--tint-select);
+    box-shadow: inset 2px 0 0 var(--zelda-green);
   }
   .row:last-child {
     border-bottom: none;
@@ -4274,9 +4315,10 @@ import { navigate } from "../nav.js";
     min-height: 0;
     overflow-y: auto;
     flex: 1 1 auto;
+    grid-template-columns: minmax(0, 0.88fr) minmax(0, 1fr);
   }
   .left-column {
-    grid-column: span 5;
+    grid-column: auto;
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -4476,7 +4518,7 @@ import { navigate } from "../nav.js";
      job, and a carousel floating in the middle of a tall column is not what any artboard shows.
      The mechanism went, so the rule it existed for went with it. */
   .carousel-pane {
-    grid-column: span 7;
+    grid-column: auto;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -4592,6 +4634,10 @@ import { navigate } from "../nav.js";
      which is a handle's height too high and was the gap. */
   .docktop {
     position: relative;
+    /* Let the quiet Summary handle sit slightly over the body below it. The dock remains
+       anchored to the bottom bar; only the handle's reserved gap is reclaimed by the table. */
+    margin-top: -30px;
+    pointer-events: none;
   }
   .tabrow {
     display: flex;
@@ -4604,6 +4650,10 @@ import { navigate } from "../nav.js";
   }
   .summary-tab {
     display: inline-flex;
+    width: max-content;
+    flex: 0 0 auto;
+    justify-content: center;
+    gap: 8px;
     align-items: center;
     gap: 0.35rem;
     font: inherit;
@@ -4626,12 +4676,17 @@ import { navigate } from "../nav.js";
        order, which would bury it. Contained by the dock's isolation. */
     position: relative;
     z-index: var(--z-raised);
+    pointer-events: auto;
   }
   .summary-tab .caret {
-    transition: transform 0.15s ease;
-  }
-  .summary-tab .caret.up {
-    transform: rotate(180deg);
+    display: block;
+    flex: 0 0 12px;
+    color: var(--ink-soft);
+    stroke: var(--ink-soft);
+    overflow: visible;
+    position: relative;
+    inset-inline-start: -10px;
+    inset-block-start: -12px;
   }
   /* Artboard (LibrarySummary) gives the drawer a height envelope — it never collapses
      below 180px and never eats more than 46% of the viewport — and scrolls its BODY,
@@ -4671,6 +4726,7 @@ import { navigate } from "../nav.js";
        so it is harmless" is the instruction; this is what makes it structurally true rather
        than true by a few pixels of luck. */
     padding: 26px var(--page-pad-x) 44px;
+    pointer-events: auto;
   }
   .drawer-body {
     flex: 1 1 auto;
