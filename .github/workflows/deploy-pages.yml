@@ -4,16 +4,6 @@ on:
   push:
     branches: ["main", "feat/ui-redesign"]
   workflow_dispatch: # Allows you to run this manually from the Actions tab
-    inputs:
-      wip_branch:
-        description: "Branch to publish under /wip/ (blank = the default below)"
-        required: false
-        default: ""
-
-# The branch published at /wip/ for testers. Production ALWAYS comes from `main`, whatever ref
-# triggered this run, so pushing the wip branch can never change what production serves.
-env:
-  WIP_BRANCH_DEFAULT: "feat/ui-redesign"
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 # `actions: write` is needed only for the stale-artifact cleanup step below (deleting a leftover
@@ -64,42 +54,10 @@ jobs:
           # Production owns the storage names it has always owned. Do not set a scope here.
           PUBLIC_STORAGE_SCOPE: ""
 
-      # Everything below through "Assemble" is the /wip/ build. It is fenced with
-      # continue-on-error so a broken wip branch degrades to "the last good /wip/ is replaced by
-      # nothing" rather than taking production down with it. Production is already staged in
-      # /tmp/site by the step above and is never rebuilt from the wip tree.
-      - name: Build Web App (/wip/)
-        id: wip
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          BRANCH="${{ github.event.inputs.wip_branch }}"
-          [ -n "$BRANCH" ] || BRANCH="${WIP_BRANCH_DEFAULT}"
-          echo "Publishing /wip/ from $BRANCH"
-          git checkout --force "origin/$BRANCH"
-          git submodule update --init --recursive
-          npm ci
-          npx tsc -b packages/builder-core packages/fs-builders packages/gnw-flasher \
-                   packages/gnw-patch packages/swd-transport packages/thumb-asm
-          npm run build --workspace @gnw/web
-          # Only publish a wip build that completed; a partial dist must not reach the artifact.
-          rm -rf /tmp/wip-dist && cp -r apps/web/dist /tmp/wip-dist
-        env:
-          PUBLIC_BASE: /gnw-retro-go-web-builder/wip/
-          # Gives the wip build its own localStorage keys, IndexedDB databases and OPFS
-          # directory, so testers cannot read or migrate production users' data.
-          # `apps/web/test/storagescope.mjs` fails the build if this is ever removed.
-          PUBLIC_STORAGE_SCOPE: wip
-
       - name: Assemble site
         run: |
           set -euo pipefail
-          if [ -d /tmp/wip-dist ]; then
-            cp -r /tmp/wip-dist /tmp/site/wip
-            echo "Site: production at / and wip at /wip/"
-          else
-            echo "::warning::wip build failed or produced nothing; publishing production only"
-          fi
+          echo "Site: current build at /"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -123,7 +81,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # The assembled site: production at the root, the wip build under /wip/.
+          # The assembled site: the current production build at the root.
           path: '/tmp/site'
 
       - name: Deploy to GitHub Pages

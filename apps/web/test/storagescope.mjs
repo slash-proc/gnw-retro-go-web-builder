@@ -1,7 +1,7 @@
 // Guard: a non-production build must not share persisted storage with production.
 //
-// `/wip/` on GitHub Pages is the SAME ORIGIN as production, so localStorage, IndexedDB and OPFS
-// are shared unless every persisted name is scoped. Two things can go wrong and both are
+// A separate legacy deployment may use another origin; the current Pages deployment contains
+// only production. Two things can go wrong and both are
 // silent:
 //
 //   1. Production's names change -> every existing user looks like a first-time visitor and
@@ -166,14 +166,10 @@ check("vite defines the scope from PUBLIC_STORAGE_SCOPE", () => {
   ok(/\?\?\s*""/.test(cfg), "the scope must default to production, not to a scoped build");
 });
 
-check("the deploy workflow gives /wip/ its own scope, and production none", () => {
+check("the deploy workflow publishes production only with an empty scope", () => {
   const wf = readFileSync(join(here, "../../../.github/workflows/deploy-pages.yml"), "utf8");
-  ok(/PUBLIC_BASE:\s*\/gnw-retro-go-web-builder\/wip\//.test(wf), "no /wip/ base in the workflow");
-  ok(/PUBLIC_STORAGE_SCOPE:\s*wip/.test(wf), "the wip build does not set PUBLIC_STORAGE_SCOPE");
-  // Production must not inherit a scope from a previous step.
-  const prodStep = wf.slice(wf.indexOf("Build Web App (production"), wf.indexOf("Build Web App (/wip/)"));
-  ok(/PUBLIC_STORAGE_SCOPE:\s*""/.test(prodStep), "the production build does not pin an empty scope");
-  ok(/continue-on-error:\s*true/.test(wf), "a failing wip build could take production down");
+  ok(!/\/wip\//.test(wf), "the obsolete /wip/ deployment remains in the workflow");
+  ok(/PUBLIC_STORAGE_SCOPE:\s*""/.test(wf), "the production build does not pin an empty scope");
   ok(/ref:\s*main/.test(wf), "production is not pinned to main, so a wip push could redeploy it");
 });
 
