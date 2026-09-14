@@ -125,6 +125,21 @@
   let scrubX = $state<number | null>(null);
   let scrubberRef = $state<HTMLElement | null>(null);
   let isScrubbing = $state(false);
+  let scrubPendingEvent: PointerEvent | null = null;
+  let scrubRaf = 0;
+
+  const letterBounds = $derived.by(() => {
+    const bounds = ALPHABET.map(() => ({ first: -1, last: -1 }));
+    covers.forEach((cover: any, index: number) => {
+      let first = cover.name.charAt(0).toUpperCase();
+      if (first < "A" || first > "Z") first = "#";
+      const letterIndex = ALPHABET.indexOf(first);
+      if (letterIndex < 0) return;
+      if (bounds[letterIndex].first < 0) bounds[letterIndex].first = index;
+      bounds[letterIndex].last = index;
+    });
+    return bounds;
+  });
 
   function getHandleLeft() {
     if (covers.length === 0) return 0;
@@ -144,17 +159,9 @@
     const letterIdx = ALPHABET.indexOf(first);
     if (letterIdx === -1) return 0;
     
-    // Find bounds for this letter
-    let firstOfLetter = covers.findIndex((c: any) => {
-      let f = c.name.charAt(0).toUpperCase();
-      if (f < "A" || f > "Z") f = "#";
-      return f === first;
-    });
-    let lastOfLetter = covers.findLastIndex((c: any) => {
-      let f = c.name.charAt(0).toUpperCase();
-      if (f < "A" || f > "Z") f = "#";
-      return f === first;
-    });
+    const bounds = letterBounds[letterIdx];
+    const firstOfLetter = bounds.first;
+    const lastOfLetter = bounds.last;
     
     let subFraction = 0.5; // default center
     if (lastOfLetter > firstOfLetter) {
@@ -164,8 +171,11 @@
     return letterIdx + subFraction;
   }
 
-  function onScrubberPointerMove(e: PointerEvent) {
-    if (!scrubberRef) return;
+  function processScrubberPointerMove() {
+    scrubRaf = 0;
+    const e = scrubPendingEvent;
+    scrubPendingEvent = null;
+    if (!e || !scrubberRef) return;
     const rect = scrubberRef.getBoundingClientRect();
     scrubX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     
@@ -173,10 +183,13 @@
       const fraction = scrubX / rect.width;
       const bestIdx = Math.min(covers.length - 1, Math.max(0, Math.floor(fraction * covers.length)));
       
-      if (covers[bestIdx] && covers[bestIdx].id !== selectedId) {
-        triggerSelect(covers[bestIdx].id);
-      }
+      if (covers[bestIdx]) focusIndex = bestIdx;
     }
+  }
+
+  function onScrubberPointerMove(e: PointerEvent) {
+    scrubPendingEvent = e;
+    if (!scrubRaf) scrubRaf = requestAnimationFrame(processScrubberPointerMove);
   }
 
   function onScrubberPointerDown(e: PointerEvent) {
@@ -187,9 +200,16 @@
   }
 
   function onScrubberPointerUp(e: PointerEvent) {
+    const wasScrubbing = isScrubbing;
+    if (scrubRaf) {
+      cancelAnimationFrame(scrubRaf);
+      processScrubberPointerMove();
+    }
     isScrubbing = false;
     scrubX = null;
     (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    const selected = covers[focusIndex];
+    if (wasScrubbing && selected && selected.id !== selectedId) triggerSelect(selected.id);
   }
 
   let ready = $derived(vp.w > 0 && vp.h > 0);
