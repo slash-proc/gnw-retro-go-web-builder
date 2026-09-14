@@ -648,6 +648,14 @@ import { navigate } from "../nav.js";
     });
   });
 
+  // Follow the filtered list. When every visible row is selected this becomes a one-click clear
+  // action; changing the filter recalculates the state automatically.
+  const allVisibleSelected = $derived(
+    visibleGames.length > 0 && visibleGames.every((g) =>
+      g.isHomebrew ? romSelection.isHomebrewSelected(g.key) : romSelection.isRowSelected(g),
+    ),
+  );
+
   /** How the filter module reads one of these rows. */
   const rowAccess = {
     systemOf: (g: any) => g.system,
@@ -1067,15 +1075,17 @@ import { navigate } from "../nav.js";
 
   // Carousel State
   let coverUrls = new Map<string, string>();
+  let coverLodUrls = new Map<string, string>();
   let coverVersion = $state(0);
   
-  function getCoverUrl(key: string, _version = 0) {
+  function getCoverUrl(key: string, _version = 0, lowResolution = false) {
     // A second folder's differing file under the same name is keyed `<path>\0<id>` (see
     // sources/libraryScan.ts). The cover is a sibling of the real path, so the id comes off
     // first — both variants therefore show the one cover that path has, which is correct: the
     // cover is named after the ROM, and on the card there is only one of that name.
     const gameKey = basePath(key);
-    if (coverUrls.has(gameKey)) return coverUrls.get(gameKey)!;
+    const cache = lowResolution ? coverLodUrls : coverUrls;
+    if (cache.has(gameKey)) return cache.get(gameKey)!;
     let system = "";
     let base = "";
     
@@ -1099,7 +1109,10 @@ import { navigate } from "../nav.js";
     }
     
     // Check both standard paths and inline paths (prefer high-quality originals, fallback to .img)
-    for (const ext of [".png", ".jpg", ".jpeg", ".img"]) {
+    const extensions = lowResolution
+      ? [".img", ".jpg", ".jpeg", ".png"]
+      : [".png", ".jpg", ".jpeg", ".img"];
+    for (const ext of extensions) {
       const inlinePath = `${system}/${base}${ext}`;
       const coversPath = `covers/${system}/${base}${ext}`;
       
@@ -1109,7 +1122,7 @@ import { navigate } from "../nav.js";
       
       if (matchPath) {
         const url = URL.createObjectURL(new Blob([library.scan!.userRoms.get(matchPath) as any]));
-        coverUrls.set(gameKey, url);
+        cache.set(gameKey, url);
         return url;
       }
     }
@@ -1133,7 +1146,8 @@ import { navigate } from "../nav.js";
       id: g.key,
       name: g.name,
       system: g.system,
-      url: getCoverUrl(g.key, v)
+      url: getCoverUrl(g.key, v),
+      lodUrl: getCoverUrl(g.key, v, true),
     }));
   });
 
@@ -1645,9 +1659,15 @@ import { navigate } from "../nav.js";
   // update_bank2.bin — the two are the same upgrade action from the user's perspective ("Upgrade
   // Retro-Go and Cores"), so a single checkbox drives both; there's no separate "include
   // firmware update" opt-in anymore. OFF by default — these rarely change and are the bulk of
-  // the sync's data; only needed when preparing the SD card for a firmware/cores update, not on
-  // every ROM/cover/cheat sync.
+  // the sync's data; existing cards only fetch it when preparing the SD card for a firmware/cores
+  // update. A fresh card is the exception: its first ROM install must include the shared bundle.
   let syncCores = $state(false);
+
+  // A newly connected SD card has no installed games yet.  Its first ROM install must carry
+  // the shared runtime files too: fonts/ and lang/ are part of the release bundle and are needed
+  // for the Retro-Go UI to render.  Keep the explicit upgrade checkbox for existing cards, but
+  // treat the first install as an implicit bundle sync so a fresh card is bootable.
+  const freshSdTarget = $derived(device.installedGames.length === 0);
 
   // Version to upgrade cores + Retro-Go to, when syncCores is on — same real
   // multi-version picker pattern as Firmware Setup's Install step (RomSection.svelte). We
@@ -1735,7 +1755,7 @@ import { navigate } from "../nav.js";
         { id: "cheats", label: locale.t.roms.sdSync.writeSubCheats },
         { id: "remove", label: locale.t.roms.sdSync.writeSubRemove },
         ...(favorites.dirty ? [{ id: "favorites", label: locale.t.roms.sdSync.writeSubFavorites }] : []),
-        ...(syncCores ? [{ id: "cores", label: locale.t.roms.sdSync.writeSubCores }] : []),
+        ...(syncCores || freshSdTarget ? [{ id: "cores", label: locale.t.roms.sdSync.writeSubCores }] : []),
         ...(syncCores && isBank2Install ? [{ id: "fw-update", label: locale.t.roms.sdSync.writeSubFwUpdate }] : []),
       ],
     },
@@ -2554,19 +2574,22 @@ import { navigate } from "../nav.js";
 
     report.log(
       "scan",
-      syncCores
+      syncCores || freshTarget
         ? msg((t) => t.roms.sdSync.logCoresWillResync, isBank2Install)
         : msg((t) => t.roms.sdSync.logCoresSkipped));
     report.finish("scan");
 
     // Cores/bios/fonts from the latest bundle — the bulk of the sync's data and rarely
-    // changed, so only fetched/written when explicitly requested (syncCores). A bank2 install's
+    // changed, so only fetched/written when explicitly requested (syncCores), except for the
+    // first install on a fresh SD target. A bank2 install's
     // update_bank2.bin comes from the same bundle/version and is written under the same
     // checkbox — there's no separate firmware-update opt-in.
     report.start("write");
     const sdHandle = device.sdHandle;
     try {
-    const needsBundle = syncCores;
+    // The first ROM install also fetches the bundle so fonts/ and lang/ are present on a
+    // genuinely fresh card.  Subsequent syncs retain the opt-in core upgrade behavior.
+    const needsBundle = syncCores || freshTarget;
     let sdContent: Map<string, Uint8Array> = new Map();
     let sd2Blob: Uint8Array | undefined;
     if (needsBundle) {
@@ -2574,7 +2597,7 @@ import { navigate } from "../nav.js";
       report.log("write", msg((t) => t.roms.sdSync.logFetchingBundle, tag), "cores");
       const bundle = await fetchBundle(tag);
       rememberInstallPaths(bundle.manifest?.dist?.paths);
-      if (syncCores) sdContent = bundle.contentFor(installBank, true);
+      if (syncCores || freshTarget) sdContent = bundle.contentFor(installBank, true);
       sd2Blob = bundle.blobs.sd_2;
     }
 
@@ -2693,7 +2716,7 @@ import { navigate } from "../nav.js";
 
       // "cores"/"fw-update" only exist as checklist items when their checkbox is on (see
       // sdPhases) — only report through them when that's actually the case.
-      if (syncCores) {
+      if (syncCores || freshTarget) {
         report.subStart("write", "cores");
         if (sdContent.size > 0) {
           report.log("write", msg((t) => t.roms.sdSync.logWritingCores, sdContent.size, sumBytes(sdContent)), "cores");
@@ -3328,8 +3351,8 @@ import { navigate } from "../nav.js";
                 <div class="games-pane-header">
                   <!-- Audit S1.3. Roms.dc.html's header row: `N selected` (11px/700/0.11em
                        uppercase) on the left, `Select all` as a green text link on the right.
-                       The collapse chevron and `Unselect all` appear in no artboard and are
-                       gone — deselecting stays reachable per row. The folder button STAYS:
+                       The link changes to `Unselect all` when the visible scope is fully selected.
+                       The collapse chevron remains absent. The folder button STAYS:
                        the artboard puts `Change folder` in the tab strip, which this view does
                        not own, and openFolderGate() has no other call site. -->
                   <span class="sel-count">{locale.t.roms.selectGames.selectedCount(selectedTotal)}</span>
@@ -3378,6 +3401,13 @@ import { navigate } from "../nav.js";
                     {/if}
                   </div>
                   <button class="action-btn" onclick={() => {
+                    if (allVisibleSelected) {
+                      for (const g of visibleGames) {
+                        if (g.isHomebrew) romSelection.toggleHomebrew(g.key, false);
+                        else romSelection.toggleRow(g);
+                      }
+                      return;
+                    }
                     let extraBytes = 0;
                     const toggles: Array<() => void> = [];
                     for (const g of visibleGames) {
@@ -3400,7 +3430,7 @@ import { navigate } from "../nav.js";
                     }
                     if (extraBytes > 0 && !validateFit(extraBytes)) return;
                     toggles.forEach(t => t());
-                  }}>{locale.t.roms.selectGames.selectAll}</button>
+                  }}>{allVisibleSelected ? locale.t.roms.selectGames.unselectAll : locale.t.roms.selectGames.selectAll}</button>
                     <button class="folder-btn" title={locale.t.roms.selectGames.changeFoldersTitle} onclick={() => library.openFolderGate(device.targetMedia === "sd").catch(() => {})}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                     </button>
@@ -3491,7 +3521,7 @@ import { navigate } from "../nav.js";
           
           <div class="carousel-pane">
             <div style="flex: 1; min-height: 0;">
-              <Carousel 
+                <Carousel
                 covers={carouselCovers} 
                 bind:selectedId={selectedCarouselId} 
                 getUrl={(key) => getCoverUrl(key, coverVersion)} 
@@ -3810,7 +3840,7 @@ import { navigate } from "../nav.js";
             coverUrl={getCoverUrl(activeGame.key, coverVersion)}
             bind:configuredCheats
             bind:configuredCheatFiles
-            onCoverChange={() => { coverUrls.clear(); coverVersion++; }}
+                onCoverChange={() => { coverUrls.clear(); coverLodUrls.clear(); coverVersion++; }}
           />
         {:else if activeHb}
           <GameDetailsPanel
@@ -3821,7 +3851,7 @@ import { navigate } from "../nav.js";
             coverUrl={getCoverUrl(activeHb.name, coverVersion)}
             bind:configuredCheats
             bind:configuredCheatFiles
-            onCoverChange={() => { coverUrls.clear(); coverVersion++; }}
+                onCoverChange={() => { coverUrls.clear(); coverLodUrls.clear(); coverVersion++; }}
           />
         {:else}
           <p class="note">{locale.t.roms.selectGames.infoEmpty}</p>

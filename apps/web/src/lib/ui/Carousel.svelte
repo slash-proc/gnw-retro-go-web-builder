@@ -45,6 +45,25 @@
 
   let focused = $derived(covers[focusIndex] ?? null);
 
+  // Keep a small decoded LOD window around the focus. The parent already has the cover bytes in
+  // memory; this only asks the browser to fetch/decode nearby object URLs before they become
+  // visible during a fast scrub. The full library remains data-only and the DOM still renders
+  // only the cards around the focus.
+  const PRELOAD_RADIUS = 8;
+  $effect(() => {
+    const currentVersion = version;
+    const center = focusIndex;
+    for (let i = Math.max(0, center - PRELOAD_RADIUS); i <= Math.min(covers.length - 1, center + PRELOAD_RADIUS); i++) {
+      const urls = new Set([covers[i]?.lodUrl, covers[i]?.url || getUrl(covers[i]?.id, currentVersion)]);
+      for (const url of urls) {
+        if (!url) continue;
+        const image = new Image();
+        image.src = url;
+        void image.decode().catch(() => {});
+      }
+    }
+  });
+
   let aspects = $state<Record<string, number>>({});
   function onImgLoad(id: string, e: Event) {
     const target = e.target as HTMLImageElement;
@@ -331,8 +350,13 @@
                 title={cover.name}
                 data-version={version}
               >
-                {#if cover.url}
-                  <img src={cover.url} alt="" data-version={version} draggable={false} onload={(e) => onImgLoad(cover.id, e)} />
+                {#if cover.url || cover.lodUrl}
+                  {#if cover.lodUrl && cover.lodUrl !== cover.url}
+                    <img class="coverflow-item__lod" src={cover.lodUrl} alt="" data-version={version} draggable={false} decoding="async" />
+                  {/if}
+                  {#if cover.url}
+                    <img class="coverflow-item__main" src={cover.url} alt="" data-version={version} draggable={false} decoding="async" onload={(e) => onImgLoad(cover.id, e)} />
+                  {/if}
                 {:else}
                   <span class="coverflow-item__placeholder">{locale.t.roms.carousel.noCover}</span>
                 {/if}
@@ -450,6 +474,8 @@
     filter: drop-shadow(0 0 15px var(--info-blue)) drop-shadow(0 0 5px var(--info-blue));
   }
   .coverflow-item img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: contain;
