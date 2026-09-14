@@ -14,7 +14,13 @@ else
 fi
 
 echo "== push gate: internal packages"
-npx tsc -b \
+tsc_bin="$repo_root/node_modules/.bin/tsc"
+if [[ ! -x "$tsc_bin" ]]; then
+  echo "ERROR: local TypeScript compiler is missing ($tsc_bin)"
+  echo "Run npm ci (or the repository's dependency setup) before running the push gate."
+  exit 1
+fi
+"$tsc_bin" -b \
   packages/builder-core \
   packages/fs-builders \
   packages/gnw-flasher \
