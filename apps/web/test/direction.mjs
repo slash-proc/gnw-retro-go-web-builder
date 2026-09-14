@@ -195,6 +195,13 @@ const INSET_EXCEPTIONS = [
        + "mirroring it would flip the coverflow's maths, which is transform-driven and has no "
        + "direction of its own (same class as GeometryBar's address space above)",
   },
+  {
+    file: "lib/ui/Carousel.svelte",
+    selector: ".scrubber-handle",
+    why: "the handle's transform is measured from the scrubber track's leading origin; "
+       + "the physical zero inset anchors that coordinate system while the handle itself "
+       + "moves with translate3d and must not mirror with document reading direction",
+  },
 ];
 
 /** Every `.svelte` <style> block and `.css` file under src/, comments stripped. */
