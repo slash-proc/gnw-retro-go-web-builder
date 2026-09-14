@@ -53,12 +53,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build internal packages
-        run: npx tsc -b packages/builder-core packages/fs-builders packages/gnw-flasher packages/gnw-patch packages/swd-transport packages/thumb-asm
-
-      - name: Build Web App (production, from main)
+      - name: Run push gate and build Web App (production, from main)
         run: |
-          npm run build --workspace @gnw/web
+          ./scripts/push-gate.sh
           rm -rf /tmp/site && mkdir -p /tmp/site
           cp -r apps/web/dist/. /tmp/site/
         env:

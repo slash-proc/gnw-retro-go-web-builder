@@ -98,11 +98,8 @@ jobs:
       - name: Install web dependencies
         run: npm ci
 
-      - name: Build workspace packages
-        run: npx tsc -b packages/builder-core packages/fs-builders packages/gnw-flasher packages/gnw-patch packages/swd-transport packages/thumb-asm
-
-      - name: Build the web app
-        run: npm run build --workspace @gnw/web
+      - name: Run push gate and build the web app
+        run: ./scripts/push-gate.sh
 
       # `artifactName` interpolates ${version} from desktop/package.json, which is 0.0.0 in the
       # repo. Without this every release would ship assets called gnw-web-builder-0.0.0-*, and a
