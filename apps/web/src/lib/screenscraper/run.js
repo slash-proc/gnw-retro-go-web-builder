@@ -352,6 +352,7 @@ export async function loadSystems() {
  * @param {string} opts.sspassword
  * @param {boolean} opts.skipExisting
  * @param {number|null} opts.forceSys
+ * @param {object|null} [opts.quota] Previously fetched account quota
  * @param {string|null} [opts.forceName] The manifest's `originalName`, used AS GIVEN.
  * @param {object} cb
  * @param {(msg: string) => void} cb.onLog
@@ -373,6 +374,7 @@ export async function runCovers(opts, cb) {
     skipExisting,
     forceSys,
     forceName,
+    quota: suppliedQuota = null,
   } = opts;
   const { onLog, onProgress, onStatus, onCover, onMiss, shouldCancel, signal, onAccount } = cb;
 
@@ -383,7 +385,7 @@ export async function runCovers(opts, cb) {
   const client = new ScreenScraperClient({ creds, limiter, signal });
   const fetchImage = makeImageFetcher(client, useCache);
 
-  let q = await client.userQuota();
+  let q = suppliedQuota || await client.userQuota();
   if (hasAccount && q.status === "bad") {
     // DEGRADE TO ANONYMOUS, DO NOT ABORT. ScreenScraper authenticates on the DEVELOPER
     // credentials; a user account only raises the quota and thread count. This returned
@@ -406,6 +408,7 @@ export async function runCovers(opts, cb) {
     onLog(`rate: ${q.perMin} req/min · quota ${q.today ?? 0}/${q.perDay ?? "?"} today`);
   }
   onAccount?.({
+    threads: q?.maxthreads ?? null,
     perMin: q?.perMin ?? null,
     perDay: q?.perDay ?? null,
     today: q?.today ?? null,
@@ -424,7 +427,6 @@ export async function runCovers(opts, cb) {
     return { error: "mixInvalid" };
   }
 
-  const hashers = await createHashers();
   let coverSeq = 0;
   let missSeq = 0;
 
@@ -467,28 +469,39 @@ export async function runCovers(opts, cb) {
   onProgress(0, roms.length);
 
   try {
-    for (const rom of roms) {
-      if (shouldCancel()) {
-        onLog(t("stopped"));
-        break;
-      }
-      done++;
-      onProgress(done, roms.length);
-      onAccount?.({
-        perMin: q?.perMin ?? null,
-        perDay: q?.perDay ?? null,
-        today: q?.today ?? null,
-        used: (q?.today || 0) + client.requestsMade,
-      });
-
-      if (!rom.systemeid) {
-        onLog(t("sysUnknown", { name: rom.file.name, folder: rom.sysShort }));
-        reportMiss(rom, "no_system");
-        fail++;
-        continue;
-      }
-
+    // ScreenScraper reports both a request rate and a thread allowance. The limiter is shared
+    // across workers so every request still observes the account's per-minute quota; workers
+    // only overlap independent ROMs when the account explicitly permits it.
+    const workerCount = Math.max(1, Math.min(Number(q?.maxthreads) || 1, roms.length || 1));
+    onLog(`threads: ${workerCount}`);
+    let next = 0;
+    const worker = async () => {
+      const hashers = await createHashers();
+      while (true) {
+        const rom = roms[next++];
+        if (!rom) break;
       try {
+        if (shouldCancel()) {
+          onLog(t("stopped"));
+          break;
+        }
+
+        onAccount?.({
+          threads: q?.maxthreads ?? null,
+          perMin: q?.perMin ?? null,
+          perDay: q?.perDay ?? null,
+          today: q?.today ?? null,
+          used: (q?.today || 0) + client.requestsMade,
+        });
+
+        if (!rom.systemeid) {
+          onLog(t("sysUnknown", { name: rom.file.name, folder: rom.sysShort }));
+          reportMiss(rom, "no_system");
+          fail++;
+          continue;
+        }
+
+        try {
         const h = await hashFile(rom.file, hashers);
         if (shouldCancel()) { onLog(t("stopped")); break; }
         // Cache by hash (system-agnostic): the md5 identifies the game whatever
@@ -547,14 +560,20 @@ export async function runCovers(opts, cb) {
           onLog(t("ssOk", { name: rom.file.name }));
           ok++;
         }
-      } catch (e) {
-        if (e?.name === "AbortError" || shouldCancel()) { onLog(t("stopped")); break; }
-        if (e instanceof FatalError) throw e;
-        onLog(t("errGeneric", { name: rom.file.name, msg: e.message }));
-        reportMiss(rom, "error");
-        fail++;
+        } catch (e) {
+          if (e?.name === "AbortError" || shouldCancel()) { onLog(t("stopped")); break; }
+          if (e instanceof FatalError) throw e;
+          onLog(t("errGeneric", { name: rom.file.name, msg: e.message }));
+          reportMiss(rom, "error");
+          fail++;
+        }
+      } finally {
+        done++;
+        onProgress(done, roms.length);
       }
-    }
+      }
+    };
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
   } catch (e) {
     if (e?.name === "AbortError") onLog(t("stopped"));
     else onLog(e instanceof FatalError ? t("fatalStop", { msg: e.message }) : t("errRun", { msg: e.message }));

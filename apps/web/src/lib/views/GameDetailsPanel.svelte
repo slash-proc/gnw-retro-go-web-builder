@@ -12,10 +12,10 @@
   import { fade, slide } from "svelte/transition";
   import { device } from "../device.svelte.js";
   import { locale } from "../i18n/locale.svelte.js";
-  import { runCovers } from "../screenscraper/run.js";
+  import { fetchAccount, runCovers } from "../screenscraper/run.js";
   import { dbg } from "../debug.js";
   import { auditLog } from "../auditLog.svelte.js";
-  import { msg } from "../logEntry.js";
+  import { literal, msg } from "../logEntry.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import type { LittlefsTreeNode } from "@gnw/fs-builders";
   import { MCF_WHOLE_FILE_SYSTEMS, findMcfPreset, mcfAssetUrl, loadCheatsForSystem, resolveCheatGame, type Cheat, type CheatGame } from "../cheats/index.js";
@@ -685,8 +685,48 @@
   let ssRemember = $state(localStorage.getItem(SS_KEYS.ssRemember) === 'true');
   let ssPreferLocal = $state(localStorage.getItem(SS_KEYS.ssPreferLocal) !== 'false');
   let ssSaveLocal = $state(nativeFolderPickerSupported() && localStorage.getItem(SS_KEYS.ssSaveLocal) !== 'false');
-  let ssRequestsTotal = $state(50000);
-  let ssRequestsUsed = $state(1500);
+  let ssRequestsTotal = $state<number | null>(null);
+  let ssRequestsUsed = $state<number | null>(null);
+  let ssQuota = $state<any>(null);
+  let quotaRequestId = 0;
+  let quotaTimer: ReturnType<typeof setTimeout> | undefined;
+
+  $effect(() => {
+    const username = ssUsername.trim();
+    const password = ssPassword;
+    const requestId = ++quotaRequestId;
+
+    if (!username || !password) {
+      ssQuota = null;
+      ssRequestsTotal = null;
+      ssRequestsUsed = null;
+      return;
+    }
+
+    quotaTimer = setTimeout(() => {
+      fetchAccount(username, password).then((quota) => {
+        if (requestId !== quotaRequestId) return;
+        if (quota.status !== "ok" || quota.perDay === null || quota.today === null) {
+          ssQuota = null;
+          ssRequestsTotal = null;
+          ssRequestsUsed = null;
+          return;
+        }
+        ssQuota = quota;
+        ssRequestsTotal = quota.perDay;
+        ssRequestsUsed = quota.today;
+      }).catch(() => {
+        if (requestId !== quotaRequestId) return;
+        ssQuota = null;
+        ssRequestsTotal = null;
+        ssRequestsUsed = null;
+      });
+    }, 350);
+
+    return () => {
+      if (quotaTimer) clearTimeout(quotaTimer);
+    };
+  });
 
   // --- Import Modal State ---
   let showImportModal = $state(false);
@@ -697,14 +737,31 @@
   let defaultVariant = $state<"box" | "ss" | "mix3" | "mix4" | "mix5">("box");
   
   let isImporting = $state(false);
-  let importProgress = $state({ current: 0, total: 0, log: [] as string[] });
+  let importProgress = $state({ current: 0, total: 0 });
+  let showGeneratedCovers = $state(true);
+  let skipExistingCovers = $state(true);
+  let importPreviewBlob = $state<Blob | null>(null);
+  let importPreviewUrl = $state<string | null>(null);
+  let importPreviewMessage = $state<string | null>(null);
+
+  $effect(() => {
+    if (!importPreviewBlob) {
+      importPreviewUrl = null;
+      return;
+    }
+    const url = URL.createObjectURL(importPreviewBlob);
+    importPreviewUrl = url;
+    return () => URL.revokeObjectURL(url);
+  });
 
   async function startImport() {
     isImporting = true;
-    importProgress = { current: 0, total: importSelected.size, log: [] };
+    importPreviewBlob = null;
+    importPreviewMessage = null;
     
     const filesToScrape: File[] = [];
-    for (const key of importSelected) {
+    const keysToImport = [...importSelected].filter(key => !skipExistingCovers || !hasLocalCover(key));
+    for (const key of keysToImport) {
       const buffer = library.scan?.userRoms.get(key);
       if (!buffer) continue;
       const parts = key.split("/");
@@ -717,16 +774,19 @@
       // in this synthetic path is the scraper's system hint, not a destination.
       const hb = homebrew.find(key);
       if (hb && !hb.originalSystem) {
-        importProgress.log = [
-          ...importProgress.log,
-          `${filename}: ${locale.t.roms.gameDetailsPanel.coverArt.errNoOriginalSystem}`,
-        ];
+        dbg(`[covers] ${filename}: ${locale.t.roms.gameDetailsPanel.coverArt.errNoOriginalSystem}`);
         continue;
       }
       const webkitPath = hb ? `root/${hb.originalSystem}/${filename}` : `root/${key}`;
       
       Object.defineProperty(file, 'webkitRelativePath', { value: webkitPath });
       filesToScrape.push(file);
+    }
+
+    importProgress = { current: 0, total: filesToScrape.length };
+    if (filesToScrape.length === 0) {
+      isImporting = false;
+      return;
     }
     
     try {
@@ -740,9 +800,22 @@
         mixFile: null,
         useCache: false,
         forceSys: null,
+        quota: ssQuota?.status === "ok" ? ssQuota : null,
       }, {
         onLog: (msg: string) => {
-          importProgress.log = [...importProgress.log, msg];
+          dbg(`[cover] ${msg}`);
+        },
+        onMiss: (miss: any) => {
+          if (showGeneratedCovers) {
+            importPreviewBlob = null;
+            importPreviewMessage = locale.t.roms.gameDetailsPanel.importModal.coverNotFound(miss.name);
+          }
+          auditLog.add(
+            "warning",
+            "sources",
+            literal(`Cover not scraped: ${miss.name} (${miss.reason})`),
+            miss.name,
+          );
         },
         onProgress: (done: number, total: number) => {
           importProgress.current = done;
@@ -756,10 +829,19 @@
         },
         onCover: async (cover: any) => {
           const { blob, outputPath, name } = cover;
+          if (showGeneratedCovers) {
+            importPreviewMessage = null;
+            importPreviewBlob = blob;
+          }
           
           // Re-map back to homebrew/ if this was a homebrew title we injected a console dir for
           const hb = homebrew.titles.find(t => t.displayName === name || t.key === name);
           let relPath = outputPath.startsWith("root/") ? outputPath.slice(5) : outputPath;
+          // GW conversion already returns a `covers/...` path. Normalize that prefix before the
+          // handler constructs its canonical `covers/<path>.img` and `.png` entries; otherwise
+          // the first imported Doom cover is stored as `covers/covers/doom/...` and disappears
+          // after reload because the reader only checks the single-prefix form.
+          if (relPath.startsWith("covers/")) relPath = relPath.slice("covers/".length);
           if (hb) {
             // Replace the injected console directory with "homebrew" (a no-op when none was
             // published and we already filed it under homebrew/)
@@ -828,7 +910,12 @@
       showImportModal = false;
     } catch (e: any) {
       dbg(`[covers] the cover import failed: ${e?.message || String(e)}`);
-      importProgress.log = [...importProgress.log, "Fatal Error: " + (e.message || String(e))];
+      auditLog.add(
+        "error",
+        "sources",
+        literal(`Cover import failed: ${e?.message || String(e)}`),
+        "cover import",
+      );
     } finally {
       isImporting = false;
     }
@@ -879,6 +966,10 @@
     });
     return sorted;
   });
+
+  let importableSelectedCount = $derived(
+    [...importSelected].filter(key => !skipExistingCovers || !hasLocalCover(key)).length
+  );
 
 
 
@@ -1225,14 +1316,14 @@
         </div>
       {/if}
 
-      {#if ssUsername}
+      {#if ssRequestsTotal !== null && ssRequestsUsed !== null}
         <div class="requests-bar">
           <div class="requests-head">
             <span>{locale.t.roms.gameDetailsPanel.coverArt.requestsToday}</span>
             <span class="requests-count">{ssRequestsUsed} / {ssRequestsTotal}</span>
           </div>
           <div class="requests-track">
-            <div class="requests-fill" style="width: {(ssRequestsUsed / ssRequestsTotal) * 100}%;"></div>
+            <div class="requests-fill" style="width: {Math.min(100, Math.max(0, (ssRequestsUsed / ssRequestsTotal) * 100))}%;"></div>
           </div>
         </div>
       {/if}
@@ -1632,6 +1723,7 @@
         </button>
       </div>
 
+      {#if !isImporting}
       <div class="consoles import-filter">
         <button class="console" class:active={importFilterConsole === "all"} onclick={() => importFilterConsole = "all"}>
           {locale.t.roms.gameDetailsPanel.importModal.allFilterLabel(importGamesList.length)}
@@ -1703,44 +1795,65 @@
         </table>
       </div>
 
-      <div class="import-foot">
-        <label class="variant-label">
-          {locale.t.roms.gameDetailsPanel.importModal.defaultVariantLabel}
-          <select bind:value={defaultVariant} class="variant-select">
-            <option value="box">{locale.t.roms.gameDetailsPanel.coverArt.variantBoxart}</option>
-            <option value="ss">{locale.t.roms.gameDetailsPanel.coverArt.variantScreenshot}</option>
-            <option value="mix3">{locale.t.roms.gameDetailsPanel.coverArt.variantMulti3}</option>
-            <option value="mix4">{locale.t.roms.gameDetailsPanel.coverArt.variantMulti4}</option>
-            <option value="mix5">{locale.t.roms.gameDetailsPanel.coverArt.variantMulti5}</option>
-          </select>
+      <div class="import-options">
+        <label class="check-label">
+          <input type="checkbox" bind:checked={showGeneratedCovers} />
+          {locale.t.roms.gameDetailsPanel.importModal.showGeneratedCovers}
         </label>
-
-        <div class="import-btns">
-          {#if isImporting}
-            <div class="importing">
-              <span>{importProgress.current} / {importProgress.total}</span>
-              <button class="mbtn" onclick={() => isImporting = false}>
-                {locale.t.roms.gameDetailsPanel.importModal.stop}
-              </button>
-            </div>
-          {:else}
-            <button class="mbtn" onclick={() => showImportModal = false}>
-              {locale.t.shared.common.cancel}
-            </button>
-            <button class="mbtn primary" onclick={startImport} disabled={importSelected.size === 0}>
-              {locale.t.roms.gameDetailsPanel.importModal.importSelected(importSelected.size)}
-            </button>
-          {/if}
-        </div>
+        <label class="check-label">
+          <input type="checkbox" bind:checked={skipExistingCovers} />
+          {locale.t.roms.gameDetailsPanel.importModal.skipExistingCovers}
+        </label>
       </div>
 
-      {#if importProgress.log.length > 0}
-        <div class="import-log">
-          {#each importProgress.log as logEntry}
-            <div>{logEntry}</div>
-          {/each}
+      <div class="import-foot">
+          <label class="variant-label">
+            {locale.t.roms.gameDetailsPanel.importModal.defaultVariantLabel}
+            <select bind:value={defaultVariant} class="variant-select">
+              <option value="box">{locale.t.roms.gameDetailsPanel.coverArt.variantBoxart}</option>
+              <option value="ss">{locale.t.roms.gameDetailsPanel.coverArt.variantScreenshot}</option>
+              <option value="mix3">{locale.t.roms.gameDetailsPanel.coverArt.variantMulti3}</option>
+              <option value="mix4">{locale.t.roms.gameDetailsPanel.coverArt.variantMulti4}</option>
+              <option value="mix5">{locale.t.roms.gameDetailsPanel.coverArt.variantMulti5}</option>
+            </select>
+          </label>
+
+        <div class="import-btns">
+          <button class="mbtn" onclick={() => showImportModal = false}>
+            {locale.t.shared.common.cancel}
+          </button>
+          <button class="mbtn primary" onclick={startImport} disabled={importableSelectedCount === 0}>
+            {locale.t.roms.gameDetailsPanel.importModal.importSelected(importableSelectedCount)}
+          </button>
+        </div>
+      </div>
+      {:else}
+        <div class="import-running">
+          {#if showGeneratedCovers}
+            <div class="import-preview-viewport">
+              {#if importPreviewUrl}
+                <img src={importPreviewUrl} alt={locale.t.roms.gameDetailsPanel.importModal.generatedCoverPreviewAlt} />
+              {:else if importPreviewMessage}
+                <span>{importPreviewMessage}</span>
+              {:else}
+                <span>{locale.t.roms.gameDetailsPanel.importModal.showGeneratedCovers}</span>
+              {/if}
+            </div>
+          {/if}
+          <div class="importing">
+            <div class="import-progress" role="progressbar"
+              aria-label={locale.t.roms.gameDetailsPanel.importModal.progressLabel(importProgress.current, importProgress.total)}
+              aria-valuemin="0" aria-valuemax={importProgress.total} aria-valuenow={importProgress.current}>
+              <div class="import-progress-fill" style={`width: ${importProgress.total > 0 ? Math.round(importProgress.current / importProgress.total * 100) : 0}%`}></div>
+            </div>
+            <span class="import-progress-label">{locale.t.roms.gameDetailsPanel.importModal.progressLabel(importProgress.current, importProgress.total)}</span>
+            <button class="mbtn" onclick={() => isImporting = false}>
+              {locale.t.roms.gameDetailsPanel.importModal.stop}
+            </button>
+          </div>
         </div>
       {/if}
+
     </div>
   </div>
 {/if}
@@ -2740,6 +2853,34 @@
     display: flex;
     gap: 0.5rem;
   }
+  .import-options {
+    display: flex;
+    gap: 1.25rem;
+    margin-top: 0.75rem;
+  }
+  .import-running {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .import-preview-viewport {
+    height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: var(--r-card);
+    background: var(--surface-sunk);
+  }
+  .import-preview-viewport img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .import-preview-viewport span {
+    color: var(--ink-soft);
+    font-size: var(--fs-micro);
+  }
   .importing {
     display: flex;
     align-items: center;
@@ -2747,6 +2888,22 @@
     color: var(--ink-soft);
     font-size: var(--fs-micro);
     margin-inline-end: 1rem;
+  }
+  .import-progress {
+    width: 10rem;
+    height: 0.45rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--hairline);
+  }
+  .import-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--model-accent);
+    transition: width 120ms ease-out;
+  }
+  .import-progress-label {
+    white-space: nowrap;
   }
   .mbtn {
     padding: 0.5rem 1rem;
@@ -2762,16 +2919,5 @@
     background: var(--model-accent);
     color: #fff;
     font-weight: 500;
-  }
-  .import-log {
-    margin-top: 1rem;
-    max-height: 150px;
-    overflow-y: auto;
-    background: var(--hairline);
-    border-radius: var(--r-card);
-    padding: 0.5rem;
-    font-size: var(--fs-micro);
-    font-family: var(--font-mono);
-    color: var(--ink);
   }
 </style>

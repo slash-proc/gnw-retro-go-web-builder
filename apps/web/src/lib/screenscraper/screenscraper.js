@@ -93,6 +93,7 @@ export class ScreenScraperClient {
     };
     return {
       status: "ok",
+      maxthreads: gi("maxthreads"),
       perMin: gi("maxrequestspermin", "maxrequestsperdmin"),
       perDay: gi("maxrequestsperday"),
       today: gi("requeststoday"),
