@@ -647,6 +647,10 @@ import { navigate } from "../nav.js";
       locale: locale.current,
     });
   });
+  // Selection changes happen much more often than library changes while scrubbing. Keep a keyed
+  // view of the visible rows so the details pane does not linearly search the full list each time.
+  const visibleGameByKey = $derived.by(() => new Map(visibleGames.map((g) => [g.key, g])));
+  const unknownHomebrewByName = $derived.by(() => new Map(unknownHomebrew.map((g) => [g.name, g])));
 
   // Follow the filtered list. When every visible row is selected this becomes a one-click clear
   // action; changing the filter recalculates the state automatically.
@@ -1077,6 +1081,17 @@ import { navigate } from "../nav.js";
   let coverUrls = new Map<string, string>();
   let coverLodUrls = new Map<string, string>();
   let coverVersion = $state(0);
+  let coverIndexMap: Map<string, LibraryFile> | null = null;
+  let coverIndexSize = -1;
+  let coverIndex = new Map<string, string>();
+  function ensureCoverIndex(): void {
+    const files = library.scan?.userRoms;
+    if (!files || (files === coverIndexMap && files.size === coverIndexSize)) return;
+    coverIndexMap = files;
+    coverIndexSize = files.size;
+    coverIndex = new Map();
+    for (const path of files.keys()) coverIndex.set(basePath(path).toLowerCase(), path);
+  }
   
   function getCoverUrl(key: string, _version = 0, lowResolution = false) {
     // A second folder's differing file under the same name is keyed `<path>\0<id>` (see
@@ -1119,6 +1134,17 @@ import { navigate } from "../nav.js";
       let matchPath = null;
       if (library.scan?.userRoms.has(inlinePath)) matchPath = inlinePath;
       else if (library.scan?.userRoms.has(coversPath)) matchPath = coversPath;
+      // Directory scans preserve the spelling found on disk, while ROM keys and scraper output
+      // can differ in case (Doom commonly mixes `DOOM.WAD` with `doom/doom.png`). Match the
+      // canonical paths case-insensitively so a reload does not lose an otherwise present cover.
+      if (!matchPath && library.scan) {
+        ensureCoverIndex();
+        const wanted = new Set([inlinePath, coversPath].map((p) => p.toLowerCase()));
+        for (const path of wanted) {
+          const found = coverIndex.get(path);
+          if (found) { matchPath = found; break; }
+        }
+      }
       
       if (matchPath) {
         const url = URL.createObjectURL(new Blob([library.scan!.userRoms.get(matchPath) as any]));
@@ -1129,6 +1155,34 @@ import { navigate } from "../nav.js";
     return "";
   }
   let selectedCarouselId = $state<string>("");
+  let detailsSelectedId = $state<string>("");
+  let carouselScrubbing = $state(false);
+  // Freeze the table marker during a scrub to isolate its per-row update cost.
+  // On release (or any non-scrub selection), synchronize it with the carousel again.
+  let tableSelectedId = $state("");
+  $effect(() => {
+    if (!carouselScrubbing) tableSelectedId = selectedCarouselId;
+  });
+  let detailsUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+  function onCarouselSelect(id: string): void {
+    if (!carouselScrubbing) {
+      detailsSelectedId = id;
+      return;
+    }
+    if (detailsUpdateTimer) clearTimeout(detailsUpdateTimer);
+    detailsUpdateTimer = setTimeout(() => {
+      detailsSelectedId = id;
+      detailsUpdateTimer = null;
+    }, 40);
+  }
+  function onCarouselScrubState(active: boolean): void {
+    carouselScrubbing = active;
+    if (!active) {
+      if (detailsUpdateTimer) clearTimeout(detailsUpdateTimer);
+      detailsUpdateTimer = null;
+      detailsSelectedId = selectedCarouselId;
+    }
+  }
   $effect(() => {
     if (selectedCarouselId && !carouselCovers.some(c => c.id === selectedCarouselId) && !unknownHomebrew.some(g => g.name === selectedCarouselId)) {
       selectedCarouselId = "";
@@ -1138,16 +1192,15 @@ import { navigate } from "../nav.js";
       selectedCarouselId = carouselCovers[0].id;
       hasInitializedSelection = true;
     }
+    if (!carouselScrubbing && selectedCarouselId) detailsSelectedId = selectedCarouselId;
   });
   let carouselCovers = $derived.by(() => {
-    // Reference coverVersion so this array re-evaluates and triggers the child Carousel correctly
-    const v = coverVersion;
+    // Keep the full library data-only. Cover object URLs are created lazily by Carousel for
+    // the visible/preload neighborhood, avoiding thousands of eager URL/decode operations.
     return visibleGames.map(g => ({
       id: g.key,
       name: g.name,
       system: g.system,
-      url: getCoverUrl(g.key, v),
-      lodUrl: getCoverUrl(g.key, v, true),
     }));
   });
 
@@ -3452,7 +3505,7 @@ import { navigate } from "../nav.js";
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div 
                   class="row"
-                  class:sel={selectedCarouselId === g.key}
+                  class:sel={tableSelectedId === g.key}
                   style={state.disabled ? "opacity: 0.5; cursor: not-allowed;" : ""}
                   onclick={() => { selectedCarouselId = g.key; }}
                 >
@@ -3532,16 +3585,20 @@ import { navigate } from "../nav.js";
                 <Carousel
                 covers={carouselCovers} 
                 bind:selectedId={selectedCarouselId} 
+                onSelect={onCarouselSelect}
+                onScrubState={onCarouselScrubState}
                 getUrl={(key) => getCoverUrl(key, coverVersion)} 
+                getLodUrl={(key) => getCoverUrl(key, coverVersion, true)}
                 systemLabel={(c) => c.system}
                 version={coverVersion}
               />
             </div>
             
             <div class="info-pane">
-              {#if selectedCarouselId}
-                {@const activeGame = visibleGames.find(g => g.key === selectedCarouselId)}
-                {@const activeHb = !activeGame ? unknownHomebrew.find(g => g.name === selectedCarouselId) : null}
+              {#if detailsSelectedId}
+                {@const activeGame = visibleGameByKey.get(detailsSelectedId)}
+                {@const activeHb = !activeGame ? unknownHomebrewByName.get(detailsSelectedId) : null}
+                {@const liveGame = visibleGameByKey.get(selectedCarouselId)}
                 {#if activeGame}
                   {@const state = getActionState(activeGame)}
                   <div class="info-content">
@@ -3550,13 +3607,13 @@ import { navigate } from "../nav.js";
                          "The Ultimate Doom"); the mono line keeps the ORIGINAL filename with its
                          extension, so it stays provenance. With no variant match both fall back to
                          the same extensionless name. See sources/gameRows.ts. -->
-                    <h3 class="info-title" style="text-align: center;">{activeGame.prettyName ?? activeGame.name}</h3>
+                    <h3 class="info-title" style="text-align: center;">{liveGame?.prettyName ?? liveGame?.name ?? activeGame.prettyName ?? activeGame.name}</h3>
                     <div class="info-details" style="justify-content: center; margin-top: 0.25rem;">
                       <span class="info-system">{activeGame.system === 'homebrew' ? locale.t.roms.selectGames.homebrewTag : consoleLabel(activeGame.system)}</span>
                       <span class="info-dot" aria-hidden="true"></span>
-                      <span class="info-meta mono">{activeGame.originFilename ?? activeGame.name}</span>
+                    <span class="info-meta info-filename mono">{liveGame?.originFilename ?? liveGame?.name ?? activeGame.originFilename ?? activeGame.name}</span>
                       <span class="info-dot" aria-hidden="true"></span>
-                      <span class="info-meta mono">{activeGame.size > 0 ? formatSize(activeGame.size) : '—'}</span>
+                      <span class="info-meta info-size mono">{activeGame.size > 0 ? formatSize(activeGame.size) : '—'}</span>
                       {#if state && state.label !== 'missing rom'}
                         <StatusChip kind={state.cls} disabled={state.disabled} style="margin-left: 0.5rem;" onclick={(e) => { 
                           e.stopPropagation(); 
@@ -3575,9 +3632,9 @@ import { navigate } from "../nav.js";
                     <div class="info-details" style="justify-content: center; margin-top: 0.25rem;">
                       <span class="info-system">{locale.t.roms.selectGames.unknownHomebrewTag}</span>
                       <span class="info-dot" aria-hidden="true"></span>
-                      <span class="info-meta mono">{activeHb.name}</span>
+                      <span class="info-meta info-filename mono">{activeHb.name}</span>
                       <span class="info-dot" aria-hidden="true"></span>
-                      <span class="info-meta mono">{activeHb.size > 0 ? formatSize(activeHb.size) : '—'}</span>
+                      <span class="info-meta info-size mono">{activeHb.size > 0 ? formatSize(activeHb.size) : '—'}</span>
                       <StatusChip kind="caution" style="margin-left: 0.5rem;" onclick={(e) => { e.preventDefault(); romSelection.removeUnknownHomebrew(activeHb.name); }}>{locale.t.roms.selectGames.removeButton}</StatusChip>
                     </div>
                   </div>
@@ -3813,8 +3870,8 @@ import { navigate } from "../nav.js";
 {/if}
 
 {#if optionsOpen}
-  {@const activeGame = visibleGames.find(g => g.key === selectedCarouselId)}
-  {@const activeHb = !activeGame ? unknownHomebrew.find(g => g.name === selectedCarouselId) : null}
+  {@const activeGame = visibleGameByKey.get(selectedCarouselId)}
+  {@const activeHb = !activeGame ? unknownHomebrewByName.get(selectedCarouselId) : null}
   <!-- THE OPTIONS, OUT OF THE DOCK. It rose from the bottom edge, opposite the row it acted on,
        and shared one drawer with the summary so the numbers describing a write and the settings
        that change it could never be read together. As a modal the selection stays visible behind
@@ -4373,6 +4430,7 @@ import { navigate } from "../nav.js";
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-wrap: nowrap;
   }
   /* Artboard draws the sub-line as one run: the full system name, a 3px round dot,
      then the filename and size together in mono — no chip, no border-left divider. */
@@ -4390,6 +4448,24 @@ import { navigate } from "../nav.js";
   .info-meta {
     font-size: var(--fs-caption);
     color: var(--ink-soft);
+  }
+  .info-filename {
+    width: auto;
+    height: 2.4em;
+    line-height: 1.2;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: break-word;
+    word-break: normal;
+    text-align: center;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .info-size {
+    white-space: nowrap;
+    flex: 0 0 auto;
   }
   .info-empty {
     font-size: var(--fs-caption);

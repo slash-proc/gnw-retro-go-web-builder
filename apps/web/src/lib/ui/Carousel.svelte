@@ -17,14 +17,18 @@
     covers = [], 
     selectedId = $bindable(""), 
     onSelect = () => {}, 
+    onScrubState = () => {},
     getUrl = () => "", 
+    getLodUrl = () => "",
     systemLabel = () => "",
     version = 0
   } = $props<{
     covers: any[];
     selectedId: string;
     onSelect?: (id: string) => void;
+    onScrubState?: (active: boolean) => void;
     getUrl?: (id: string, version?: number) => string;
+    getLodUrl?: (id: string, version?: number) => string;
     systemLabel?: (cover: any) => string;
     version?: number;
   }>();
@@ -45,6 +49,32 @@
 
   let focused = $derived(covers[focusIndex] ?? null);
 
+  // Decode each object URL at most once per carousel instance. Fast scrubbing revisits the same
+  // neighborhood repeatedly; creating a fresh Image for every focus update caused the browser
+  // to redo decodes and briefly show unloaded covers on large libraries.
+  const decodedUrls = new Set<string>();
+  const pendingDecodes = new Map<string, Promise<void>>();
+  function preloadUrl(url: string): void {
+    if (decodedUrls.has(url) || pendingDecodes.has(url)) return;
+    const image = new Image();
+    image.src = url;
+    const pending = image.decode()
+      .then(() => { decodedUrls.add(url); })
+      .catch(() => {})
+      .finally(() => { pendingDecodes.delete(url); });
+    pendingDecodes.set(url, pending);
+  }
+
+  // The track only ever draws a small neighborhood around the focus. Iterating the complete
+  // library in the template on every spring frame made 1,600-entry libraries noticeably slower
+  // than 600-entry ones, even though the off-screen cards were immediately discarded.
+  const renderCovers = $derived.by(() => {
+    const center = Math.round(smoothIndex.current);
+    const start = Math.max(0, center - SIDE - 2);
+    const end = Math.min(covers.length, center + SIDE + 3);
+    return covers.slice(start, end).map((cover: any, i: number) => ({ cover, index: start + i }));
+  });
+
   // Keep a small decoded LOD window around the focus. The parent already has the cover bytes in
   // memory; this only asks the browser to fetch/decode nearby object URLs before they become
   // visible during a fast scrub. The full library remains data-only and the DOM still renders
@@ -54,12 +84,13 @@
     const currentVersion = version;
     const center = focusIndex;
     for (let i = Math.max(0, center - PRELOAD_RADIUS); i <= Math.min(covers.length - 1, center + PRELOAD_RADIUS); i++) {
-      const urls = new Set([covers[i]?.lodUrl, covers[i]?.url || getUrl(covers[i]?.id, currentVersion)]);
+      const urls = new Set([
+        covers[i]?.lodUrl || getLodUrl(covers[i]?.id, currentVersion),
+        covers[i]?.url || getUrl(covers[i]?.id, currentVersion),
+      ]);
       for (const url of urls) {
         if (!url) continue;
-        const image = new Image();
-        image.src = url;
-        void image.decode().catch(() => {});
+        preloadUrl(url);
       }
     }
   });
@@ -99,6 +130,7 @@
     window.addEventListener("keydown", onKey);
 
     const updateVp = () => {
+      if (scrubberRef) scrubberWidth = scrubberRef.clientWidth;
       if (vpRef) {
         vp = { w: vpRef.clientWidth, h: vpRef.clientHeight };
       }
@@ -106,6 +138,7 @@
     updateVp();
     const ro = new ResizeObserver(updateVp);
     if (vpRef) ro.observe(vpRef);
+    if (scrubberRef) ro.observe(scrubberRef);
 
     return () => {
       window.removeEventListener("keydown", onKey);
@@ -144,6 +177,8 @@
   let scrubX = $state<number | null>(null);
   let scrubberRef = $state<HTMLElement | null>(null);
   let isScrubbing = $state(false);
+  let scrubberWidth = $state(0);
+  let scrubBounds: DOMRect | null = null;
   let scrubPendingEvent: PointerEvent | null = null;
   let scrubRaf = 0;
 
@@ -162,15 +197,15 @@
 
   function getHandleLeft() {
     if (covers.length === 0) return 0;
-    if (isScrubbing && scrubX !== null && scrubberRef) {
-      return (scrubX / scrubberRef.clientWidth) * 100;
+    if (isScrubbing && scrubX !== null && scrubberWidth > 0) {
+      return (scrubX / scrubberWidth) * 100;
     }
     return (smoothIndex.current / Math.max(1, covers.length - 1)) * 100;
   }
 
   function getCurrentLetterFraction() {
     if (covers.length === 0) return 0;
-    const currentIndex = smoothIndex.current;
+    const currentIndex = isScrubbing ? focusIndex : smoothIndex.current;
     const idx = Math.max(0, Math.min(covers.length - 1, Math.round(currentIndex)));
     const currentName = covers[idx]?.name || "";
     let first = currentName.charAt(0).toUpperCase();
@@ -195,14 +230,21 @@
     const e = scrubPendingEvent;
     scrubPendingEvent = null;
     if (!e || !scrubberRef) return;
-    const rect = scrubberRef.getBoundingClientRect();
+    const rect = scrubBounds ?? scrubberRef.getBoundingClientRect();
+    if (!rect.width) return;
     scrubX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     
     if (isScrubbing && covers.length > 0) {
       const fraction = scrubX / rect.width;
       const bestIdx = Math.min(covers.length - 1, Math.max(0, Math.floor(fraction * covers.length)));
       
-      if (covers[bestIdx]) focusIndex = bestIdx;
+      if (covers[bestIdx]) {
+        focusIndex = bestIdx;
+        // Scrubbing is itself a selection gesture. Keep the adjacent Library row in step while
+        // the pointer moves, rather than waiting for pointer-up and leaving the green marker
+        // behind during the scrub.
+        if (covers[bestIdx].id !== selectedId) triggerSelect(covers[bestIdx].id);
+      }
     }
   }
 
@@ -211,9 +253,59 @@
     if (!scrubRaf) scrubRaf = requestAnimationFrame(processScrubberPointerMove);
   }
 
+  let profileRaf = 0;
+  let profileObserver: MutationObserver | null = null;
+  let profileFrames: number[] = [];
+  let profileLast = 0;
+  let profileAdded = 0;
+  function stopScrubProfile(report = true) {
+    cancelAnimationFrame(profileRaf);
+    profileObserver?.disconnect();
+    if (profileObserver && report) {
+      const frames = [...profileFrames].sort((a, b) => a - b);
+      console.info("[carousel scrub]", {
+        entries: covers.length, frames: frames.length, cardsCreated: profileAdded,
+        p95FrameMs: frames[Math.floor(frames.length * 0.95)] ?? 0,
+        maxFrameMs: frames.at(-1) ?? 0,
+        framesOver32ms: frames.filter(ms => ms > 32).length,
+      });
+    }
+    profileObserver = null;
+  }
+  function startScrubProfile() {
+    if (!new URLSearchParams(window.location.search).has("carouselProfile") || !vpRef) return;
+    stopScrubProfile(false);
+    profileFrames = [];
+    profileAdded = 0;
+    profileLast = performance.now();
+    profileObserver = new MutationObserver(records => {
+      for (const record of records) for (const node of record.addedNodes) {
+        if (node instanceof Element) {
+          profileAdded += Number(node.matches(".coverflow-item"));
+          profileAdded += node.querySelectorAll(".coverflow-item").length;
+        }
+      }
+    });
+    profileObserver.observe(vpRef, { childList: true, subtree: true });
+    const sample = (now: number) => {
+      profileFrames.push(now - profileLast);
+      profileLast = now;
+      profileRaf = requestAnimationFrame(sample);
+    };
+    profileRaf = requestAnimationFrame(sample);
+  }
+  onMount(() => () => {
+    stopScrubProfile(false);
+    cancelAnimationFrame(scrubRaf);
+  });
+
   function onScrubberPointerDown(e: PointerEvent) {
     if (e.button !== 0) return; // Only left click
+    scrubBounds = scrubberRef?.getBoundingClientRect() ?? null;
+    if (scrubBounds) scrubberWidth = scrubBounds.width;
     isScrubbing = true;
+    startScrubProfile();
+    onScrubState(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     onScrubberPointerMove(e);
   }
@@ -225,8 +317,12 @@
       processScrubberPointerMove();
     }
     isScrubbing = false;
+    stopScrubProfile();
+    onScrubState(false);
     scrubX = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    scrubBounds = null;
+    const handle = e.currentTarget as HTMLElement;
+    if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
     const selected = covers[focusIndex];
     if (wasScrubbing && selected && selected.id !== selectedId) triggerSelect(selected.id);
   }
@@ -328,8 +424,12 @@
         style="touch-action: pan-y;"
       >
         <div class="coverflow-track">
-          {#each covers as cover, index (cover.id)}
+          {#each renderCovers as item (item.cover.id)}
+            {@const cover = item.cover}
+            {@const index = item.index}
             {@const offset = index - smoothIndex.current}
+            {@const lodUrl = cover.lodUrl || getLodUrl(cover.id, version)}
+            {@const mainUrl = cover.url || getUrl(cover.id, version)}
             {#if Math.abs(offset) <= SIDE + 1}
               {@const a = Math.abs(offset)}
               {@const isSelected = cover.id === selectedId}
@@ -350,12 +450,12 @@
                 title={cover.name}
                 data-version={version}
               >
-                {#if cover.url || cover.lodUrl}
-                  {#if cover.lodUrl && cover.lodUrl !== cover.url}
-                    <img class="coverflow-item__lod" src={cover.lodUrl} alt="" data-version={version} draggable={false} decoding="async" />
+                {#if mainUrl || lodUrl}
+                  {#if lodUrl && lodUrl !== mainUrl}
+                    <img class="coverflow-item__lod" src={lodUrl} alt="" data-version={version} draggable={false} decoding="async" />
                   {/if}
-                  {#if cover.url}
-                    <img class="coverflow-item__main" src={cover.url} alt="" data-version={version} draggable={false} decoding="async" onload={(e) => onImgLoad(cover.id, e)} />
+                  {#if mainUrl}
+                    <img class="coverflow-item__main" src={mainUrl} alt="" data-version={version} draggable={false} decoding="async" onload={(e) => onImgLoad(cover.id, e)} />
                   {/if}
                 {:else}
                   <span class="coverflow-item__placeholder">{locale.t.roms.carousel.noCover}</span>
@@ -374,7 +474,7 @@
           <div class="scrubber-track"></div>
           <div 
             class="scrubber-handle" 
-            style="left: {getHandleLeft()}%;"
+            style="transform: translate3d({getHandleLeft() * scrubberWidth / 100}px, 0, 0) translate(-50%, -50%);"
             role="slider"
             aria-valuemin="0"
             aria-valuemax="26"
@@ -382,7 +482,6 @@
             tabindex="0"
             onpointerdown={onScrubberPointerDown}
             onpointermove={onScrubberPointerMove}
-            onpointerleave={onScrubberPointerUp}
             onpointerup={onScrubberPointerUp}
             onpointercancel={onScrubberPointerUp}
           >
@@ -531,6 +630,8 @@
   }
   .scrubber-handle {
     position: absolute;
+    left: 0;
+    will-change: transform;
     top: 50%;
     /* Artboard: a 46px x 14px pill in --silver-edge, not the darker soft ink. */
     width: 46px;
@@ -576,7 +677,7 @@
     align-items: center;
     height: 100%;
     will-change: transform;
-    transition: transform 0.1s ease-out;
+    transition: none;
   }
   
   .mag-letter {
@@ -587,6 +688,6 @@
     font-weight: bold;
     color: white;
     will-change: transform, opacity, color;
-    transition: transform 0.1s ease-out, opacity 0.1s ease-out, color 0.1s ease-out;
+    transition: none;
   }
 </style>
