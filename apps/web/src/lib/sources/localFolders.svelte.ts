@@ -52,6 +52,11 @@ import { defaultLibraryScanDeps } from "./libraryScan.js";
 
 const STORAGE_KEY = "localFolders.v1";
 
+/** Internal metadata names must never leak into the directory-source UI. */
+export const OFW_BACKUP_FOLDER_NAME = "__ofw_backup__";
+/** Reserved association used by the firmware-backup flow. */
+export const OFW_BACKUP_USED_BY_KEY = OFW_BACKUP_FOLDER_NAME;
+
 /** IndexedDB key for one folder's handle. Namespaced so it cannot collide with "romDir". */
 export function handleKey(id: string): string {
   return `localFolder:${id}`;
@@ -138,7 +143,8 @@ export function servesTarget(folder: Pick<LocalFolderMeta, "usedBy">, key: strin
 
 /** The name to show: the user's label when they gave one, else the folder's own name. */
 export function displayName(folder: Pick<LocalFolderMeta, "name" | "folderName">): string {
-  return folder.name.trim() || folder.folderName;
+  const value = folder.name.trim() || folder.folderName;
+  return value === OFW_BACKUP_FOLDER_NAME ? "OFW Backup" : value;
 }
 
 function readName(handle: unknown): string {
@@ -326,6 +332,24 @@ class LocalFolderStore {
     return this.add(opts);
   }
 
+  /** Register the firmware-backup directory with its reserved association. */
+  async adoptOfwBackup(handle: unknown): Promise<LocalFolderRow> {
+    await this.load();
+    for (const row of this.folders) {
+      const same = row.handle ? await this.deps.isSameEntry(row.handle, handle) : false;
+      const legacy = !row.handle &&
+        (row.name === OFW_BACKUP_FOLDER_NAME || row.folderName === OFW_BACKUP_FOLDER_NAME);
+      if (!same && !legacy) continue;
+      const usedBy = row.usedBy.includes(OFW_BACKUP_USED_BY_KEY)
+        ? row.usedBy
+        : [...row.usedBy, OFW_BACKUP_USED_BY_KEY];
+      const updated = this.replace(row.id, { handle, status: "ready", usedBy, folderName: readName(handle) });
+      await this.deps.saveDir(handleKey(row.id), handle);
+      return updated ?? row;
+    }
+    return this.add({ handle, usedBy: [OFW_BACKUP_USED_BY_KEY] });
+  }
+
   /** Set (or clear, with "") the user's label. */
   rename(id: string, name: string): void {
     this.replace(id, { name });
@@ -357,12 +381,33 @@ class LocalFolderStore {
     this.replace(id, { usedBy: row.usedBy.filter((k) => targetOf(k) !== key) });
   }
 
+  /** Remove a source's dedicated folders, preserving folders shared with other sources. */
+  async removeOwnedBy(repo: string, targetKeys: readonly string[]): Promise<void> {
+    const keys = new Set(targetKeys);
+    const owned = (key: string) => keys.has(key) || key.startsWith(`${repo}#`);
+    for (const folder of [...this.folders]) {
+      if (folder.usedBy.length === 0) continue; // shared "Any" folder
+      const mine = folder.usedBy.filter(owned);
+      if (mine.length === 0) continue;
+      const others = folder.usedBy.filter((key) => !owned(key));
+      if (others.length === 0) {
+        await this.remove(folder.id);
+      } else {
+        this.replace(folder.id, { usedBy: others });
+      }
+    }
+  }
+
   /** Forget a folder AND its handle — skipping the handle leaks IndexedDB entries forever. */
   async remove(id: string): Promise<void> {
-    if (!this.get(id)) return;
+    const row = this.get(id);
+    if (!row) return;
     this.folders = this.folders.filter((f) => f.id !== id);
     this.persist();
     await this.deps.deleteDir(handleKey(id));
+    if (row.usedBy.includes(OFW_BACKUP_USED_BY_KEY) || row.name === OFW_BACKUP_FOLDER_NAME || row.folderName === OFW_BACKUP_FOLDER_NAME) {
+      await this.deps.deleteDir("ofwBackupDir");
+    }
   }
 
   /** Re-grant permission for a restored handle. Call from a user gesture. */

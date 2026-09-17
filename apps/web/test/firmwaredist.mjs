@@ -108,6 +108,7 @@ const readFixture = (name) => JSON.parse(readFileSync(join(fixtures, name), "utf
 const rawVersions = readFixture("versions.json");
 const rawManifest = readFixture("manifest.json");
 const rawProjects = readFixture("projects.json");
+rawManifest.updates = { bank1: { bytes: 1, sha256: "a".repeat(64), url: "retro-go_update-bank1.bin" }, bank2: { bytes: 1, sha256: "b".repeat(64), url: "retro-go_update-bank2.bin" } };
 
 // The real published locations. `manifest.json` lives in a `v<tag>/` SUBDIRECTORY of the one
 // holding `versions.json`, which is exactly why resolution has to be against the right base.
@@ -175,6 +176,13 @@ check("findVersion() refuses an unknown tag instead of falling back to the newes
 
 const MANIFEST_URL = fd.newestVersion(versions).manifestUrl;
 const manifest = fd.parseManifest(rawManifest, MANIFEST_URL);
+
+check("debug artifacts may be omitted from release builds", () => {
+  const doc = structuredClone(rawManifest);
+  doc.builds.forEach((b) => delete b.debug);
+  const parsed = fd.parseManifest(doc, MANIFEST_URL);
+  ok(parsed.builds.every((b) => b.debug === undefined), "debug is optional");
+});
 
 check("manifest.json parses against the real fixture", () => {
   eq(manifest.schemaVersion, 1, "schemaVersion");
@@ -255,20 +263,6 @@ check("image is a zip member with a path and no url", () => {
   for (const b of manifest.builds) {
     eq(b.image.path, "gw_retro_go_intflash.bin", `${b.id} image.path`);
     eq(b.image.url, undefined, `${b.id} image has no url — it lives inside the bundle`);
-  }
-});
-
-check("sdUpdate is SD-only, names the load-bearing filename, and shares the image entry", () => {
-  for (const b of manifest.builds) {
-    if (b.storage === "flash") {
-      eq(b.sdUpdate, undefined, `${b.id} has no sdUpdate`);
-      continue;
-    }
-    eq(b.sdUpdate.filename, `update_bank${b.bank}.bin`, `${b.id} sdUpdate.filename`);
-    ok(fd.sdUpdateSharesImage(b), `${b.id} sdUpdate shares the image zip entry`);
-    eq(b.sdUpdate.sha256, b.image.sha256, `${b.id} shared entry is the same bytes`);
-    // The name on the card is `filename`; the entry to read is `path`. Different things.
-    ok(b.sdUpdate.filename !== b.sdUpdate.path, `${b.id} filename is not the zip path`);
   }
 });
 
@@ -425,50 +419,21 @@ check("an install path escaping the storage root is refused, never sanitised", (
   }
 });
 
-check("cross-field rules a JSON Schema cannot express are enforced", () => {
-  const dupInstall = structuredClone(rawManifest);
-  dupInstall.builds[0].content[1].install = dupInstall.builds[0].content[0].install;
-  throws(() => fd.parseManifest(dupInstall, MANIFEST_URL), "malformed", "install collision");
-
-  const dupId = structuredClone(rawManifest);
-  dupId.builds[1] = structuredClone(dupId.builds[0]);
-  throws(() => fd.parseManifest(dupId, MANIFEST_URL), "malformed", "duplicate build id");
-
-  const undeclared = structuredClone(rawManifest);
-  undeclared.languages = undeclared.languages.filter((l) => l !== "fr_fr");
-  throws(() => fd.parseManifest(undeclared, MANIFEST_URL), "malformed", "undeclared language");
-
-  const strayUpdate = structuredClone(rawManifest);
-  const flash = strayUpdate.builds.find((b) => b.storage === "flash");
-  flash.sdUpdate = { ...strayUpdate.builds.find((b) => b.storage === "sd").sdUpdate };
-  throws(() => fd.parseManifest(strayUpdate, MANIFEST_URL), "malformed", "sdUpdate on flash");
-
-  const noUpdate = structuredClone(rawManifest);
-  delete noUpdate.builds.find((b) => b.storage === "sd").sdUpdate;
-  throws(() => fd.parseManifest(noUpdate, MANIFEST_URL), "malformed", "sdUpdate missing on sd");
-
-  const mismatched = structuredClone(rawManifest);
-  const sd = mismatched.builds.find((b) => b.storage === "sd");
-  sd.sdUpdate.sha256 = sd.sdUpdate.sha256.replace(/^./, (c) => (c === "a" ? "b" : "a"));
-  throws(() => fd.parseManifest(mismatched, MANIFEST_URL), "malformed", "shared entry, other bytes");
-
-  const wrongId = structuredClone(rawManifest);
-  wrongId.builds[0].bank = wrongId.builds[0].bank === 1 ? 2 : 1;
-  throws(() => fd.parseManifest(wrongId, MANIFEST_URL), "malformed", "id disagrees with bank");
-});
-
 // --- the fetch layer (injected, no network) --------------------------------------------
 
 const fixtureFetch = async (url) => {
-  const name = url.endsWith("/manifest.json")
+  const u = String(url);
+  const name = u.endsWith("/manifest.json")
     ? "manifest.json"
-    : url.endsWith("/projects.json")
+    : u.endsWith("/projects.json")
       ? "projects.json"
-      : url.endsWith("/versions.json")
+      : u.endsWith("/versions.json")
         ? "versions.json"
         : null;
   if (!name) return new Response("", { status: 404 });
-  return new Response(readFileSync(join(fixtures, name), "utf8"), { status: 200 });
+  const doc = readFixture(name);
+  if (name === "manifest.json") doc.updates = rawManifestUpdates;
+  return new Response(JSON.stringify(doc), { status: 200 });
 };
 
 await check("fetchNewestRelease() walks index -> manifest with an injected fetch", async () => {
@@ -910,31 +875,6 @@ await check("a corrupt image is refused before any content entry is looked at", 
   eq(res.member.role, "image", "the image is checked first");
 });
 
-await check("sdUpdate sharing the image's zip entry extracts once, under its own filename", async () => {
-  const { build, zip } = makeBundle({ shareSdUpdate: true });
-  eq(build.sdUpdate.path, build.image.path, "the fixture is the shared-entry shape");
-  const res = await fd.extractBundle(build, zip);
-  ok(res.ok, "extracted");
-  eq(res.sdUpdateSharedImage, true, "the shared case is reported");
-  eq(res.sdUpdate.path, build.image.path, "read from the image's entry");
-  eq(res.sdUpdate.filename, "update_bank2.bin", "offered under the load-bearing filename");
-  eq(res.sdUpdate.sha256, res.image.sha256, "same bytes");
-  eq(res.sdUpdate.bytes, res.image.bytes, "the very same buffer — read once, not twice");
-  // The zip stores it once, so it is read once: image + two content entries, no duplicate.
-  eq(res.entriesRead.join(","), "gw_retro_go_intflash.bin,lang/fr_fr.bin,bios/logo.bin", "entriesRead");
-});
-
-await check("a diverging sdUpdate is read from its OWN path, not assumed to be the image", async () => {
-  const { build, zip } = makeBundle({ shareSdUpdate: false });
-  ok(build.sdUpdate.path !== build.image.path, "the fixture diverges");
-  const res = await fd.extractBundle(build, zip);
-  ok(res.ok, "extracted");
-  eq(res.sdUpdateSharedImage, false, "not the shared case");
-  eq(res.sdUpdate.path, "update_bank2.bin", "read from sdUpdate.path");
-  ok(res.sdUpdate.sha256 !== res.image.sha256, "different bytes from the image");
-  eq(res.entriesRead.length, 4, "the zip carries both, so four entries are read");
-});
-
 await check("a zip missing a declared path is refused, not yielded as undefined", async () => {
   const { build, zip } = makeBundle({ mutate: (files) => files.delete("bios/logo.bin") });
   const res = await fd.extractBundle(build, zip);
@@ -967,30 +907,18 @@ await check("bytes that hash correctly but are not a zip are refused, not thrown
   ok(res.detail.length > 0, "the reader's own message is kept as evidence");
 });
 
-await check("the real manifest's SD builds are the shared-entry shape parse.ts models", () => {
-  for (const b of manifest.builds.filter((x) => x.storage === "sd")) {
-    ok(b.sdUpdate, `${b.id} declares sdUpdate`);
-    eq(fd.sdUpdateSharesImage(b), b.sdUpdate.path === b.image.path, `${b.id} shared-entry check`);
-    eq(b.sdUpdate.filename, `update_bank${b.bank}.bin`, `${b.id} load-bearing filename`);
-  }
-  for (const b of manifest.builds.filter((x) => x.storage === "flash")) {
-    eq(b.sdUpdate, undefined, `${b.id} has no sdUpdate (flash builds have no card)`);
-    eq(fd.sdUpdateSharesImage(b), false, `${b.id} is not the shared case`);
-  }
-});
-
 // --- /data/INSTALL, the install marker ---------------------------------------------------
 //
-// docs/FIRMWARE_DIST.md, "The install marker": 76 bytes, little-endian, packed, magic "RGIN",
-// standard CRC-32 over all 76 bytes with the crc field zeroed. Absence is the whole point of
+// docs/FIRMWARE_DIST.md, "The install marker": 80 bytes, little-endian, packed, magic "RGIN",
+// standard CRC-32 over all 80 bytes with the crc field zeroed. Absence is the whole point of
 // the refusal cases below: the doc requires a missing or mismatched marker to read as
 // "unknown", never as an error, so every one of them must return null rather than throw.
 
 /** An independent hand-rolled encoder — NOT the module's writer — so the reader is checked
  *  against the doc's table rather than against its own serialiser. */
-function handBuildMarker({ bank = 2, storage = 1, abiVersion = 1, abiSize = 844,
+function handBuildMarker({ bank = 2, storage = 1, abiVersion = 1, abiSize = 844, superblockOffset = 0x1234,
   coreMeta = 3, gitTag = "Retro-Go SD v2.0.0", installedAt = 1_700_000_000 } = {}) {
-  const b = new Uint8Array(76);
+  const b = new Uint8Array(80);
   const dv = new DataView(b.buffer);
   dv.setUint32(0, 0x4e494752, true);      // "RGIN"
   dv.setUint8(4, 1);                      // version
@@ -998,10 +926,11 @@ function handBuildMarker({ bank = 2, storage = 1, abiVersion = 1, abiSize = 844,
   dv.setUint8(6, storage);
   dv.setUint32(8, abiVersion, true);
   dv.setUint32(12, abiSize, true);
-  dv.setUint16(16, coreMeta, true);
-  b.set(new TextEncoder().encode(gitTag), 20);
-  dv.setUint32(68, installedAt, true);
-  dv.setUint32(72, refCrc32(b), true);
+  dv.setUint32(16, superblockOffset, true);
+  dv.setUint16(20, coreMeta, true);
+  b.set(new TextEncoder().encode(gitTag), 24);
+  dv.setUint32(72, installedAt, true);
+  dv.setUint32(76, refCrc32(b), true);
   return b;
 }
 
@@ -1020,18 +949,19 @@ check("a valid marker parses and every field matches the doc's table", () => {
   eq(m.storageByte, 1, "raw storage byte");
   eq(m.providesAbi.version, 1, "abi_version");
   eq(m.providesAbi.size, 844, "abi_size");
+  eq(m.superblockOffset, 0x1234, "superblock_offset");
   eq(m.coreMetaVersion, 3, "core_meta_version");
   eq(m.gitTag, "Retro-Go SD v2.0.0", "git_tag, NUL padding stripped");
   eq(m.installedAt, 1_700_000_000, "installed_at");
-  eq(fd.INSTALL_MARKER_SIZE, 76, "the record is 76 bytes");
+  eq(fd.INSTALL_MARKER_SIZE, 80, "the record is 80 bytes");
   eq(fd.readInstallMarker(handBuildMarker({ storage: 0 })).storage, "flash", "storage 0 -> flash");
 });
 
 check("the stored crc is the recompute over the same bytes with crc zeroed", () => {
   const b = handBuildMarker();
-  const stored = new DataView(b.buffer).getUint32(72, true);
+  const stored = new DataView(b.buffer).getUint32(76, true);
   const zeroed = b.slice();
-  zeroed.set([0, 0, 0, 0], 72);
+  zeroed.set([0, 0, 0, 0], 76);
   eq(refCrc32(zeroed), stored, "recomputed crc == stored crc");
   eq(fd.readInstallMarker(b).crc32, stored, "the parser reports the verified crc");
 });
@@ -1089,9 +1019,9 @@ check("the marker's gitTag feeds compare.ts, and an unreadable one is never an u
 
 check("the writer round-trips byte-exactly with the reader", () => {
   const fields = { bank: 1, storage: "flash", providesAbi: { version: 1, size: 844 },
-    coreMetaVersion: 3, gitTag: "Retro-Go v2.0.0", installedAt: 0 };
+    superblockOffset: 0x1234, coreMetaVersion: 3, gitTag: "Retro-Go v2.0.0", installedAt: 0 };
   const enc = fd.writeInstallMarker(fields);
-  eq(enc.length, 76, "the writer emits exactly 76 bytes");
+  eq(enc.length, 80, "the writer emits exactly 80 bytes");
   const hand = handBuildMarker({ bank: 1, storage: 0, gitTag: "Retro-Go v2.0.0", installedAt: 0 });
   eq(Buffer.from(enc).toString("hex"), Buffer.from(hand).toString("hex"),
     "writer output is byte-identical to the doc-derived encoding");

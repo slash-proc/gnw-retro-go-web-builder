@@ -257,8 +257,8 @@ for (const [rel, writeCall] of WRITE_FLOWS) {
 
 await check("Wizard's two write flows each unlock", () => {
   const src = strip(read("src/lib/views/Wizard.svelte"));
-  eq((src.match(/device\.ensureUnlocked\(\)/g) || []).length, 3,
-    "runStep1 (after its dump), runStep2's flash and restoreStock each need one");
+  eq((src.match(/device\.ensureUnlocked\(\)/g) || []).length, 4,
+    "runStep1, runStep2's flash, bank2 cleanup, and restoreStock each need one");
 });
 
 // --- 5. The opt-in is gone -----------------------------------------------------------------------

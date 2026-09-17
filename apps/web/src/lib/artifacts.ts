@@ -155,6 +155,22 @@ export interface FirmwareBundle {
 }
 
 /** Injected seams, for tests only. Production passes nothing. */
+export async function fetchUpdateArchive(tag: string, bank: 1 | 2, deps?: BundleFetchDeps): Promise<Uint8Array> {
+  const versions = await loadVersions(deps);
+  const entry = findVersion(versions, tag);
+  if (!entry) throw new Error(`no published firmware release tagged "${tag}"`);
+  const manifest = await manifestOnce(entry, deps?.fetchImpl);
+  const asset = manifest.updates[`bank${bank}`];
+  const response = await (deps?.fetchZip ?? ((u: string) => fetch(u)))(asset.url);
+  if (!response.ok) throw new Error(`firmware update download failed (${response.status})`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length !== asset.bytes) throw new Error(`firmware update size mismatch (expected ${asset.bytes}, got ${bytes.length})`);
+  const actual = await crypto.subtle.digest("SHA-256", bytes);
+  const hash = [...new Uint8Array(actual)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  if (hash !== asset.sha256) throw new Error(`firmware update hash mismatch (expected ${asset.sha256}, got ${hash})`);
+  return bytes;
+}
+
 export interface BundleFetchDeps {
   /** Fetch one bundle zip. Defaults to the global `fetch`. */
   fetchZip?: (url: string) => Promise<Response>;

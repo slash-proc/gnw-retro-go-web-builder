@@ -98,7 +98,7 @@ export const romsUk: RomsStrings = {
   },
   sdSync: {
     // Ends right before the version dropdown, so the phrase has to stop on `до`.
-    upgradeLabelPre: "Оновити Retro-Go та ядра до",
+    upgradeLabelPre: "Оновити Retro-Go до",
     updatesWhenBoots: "(застосується при наступному запуску G&W)",
     downloadZipButton: "Завантажити SD ZIP",
     nothingToSyncTitle:

@@ -11,6 +11,7 @@
   import RangeField from "./RangeField.svelte";
   import { installProgress, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
   import { msg } from "../logEntry.js";
+  import { dbgLog } from "../debug.js";
   import { locale } from "../i18n/locale.svelte.js";
   import { formatSize } from "../util.js";
   import PaneFooter from "./PaneFooter.svelte";
@@ -139,14 +140,14 @@
             const chunk = data.subarray(offset, offset + CHUNK_SIZE);
             await flashImage((force) => device.ensureStub(undefined, force, true), targetBank, s.offset + offset, chunk, (d) => {
               report.progress("erase", offset + d, data.length, substepId, "bytes");
-            }, undefined, { compress: true, verify: false });
+            }, dbgLog("erase", (line) => report.log("erase", line, substepId)), { compress: true, verify: false, abortSignal: report.signal });
             await new Promise(res => setTimeout(res, 50));
           }
         } else {
           const data = new Uint8Array(s.size).fill(0xff);
           await flashImage((force) => device.ensureStub(undefined, force, true), targetBank, s.offset, data, (d) => {
             report.progress("erase", d, s.size!, substepId, "bytes");
-          }, undefined, { compress: true, verify: false });
+          }, dbgLog("erase", (line) => report.log("erase", line, substepId)), { compress: true, verify: false, abortSignal: report.signal });
           await new Promise(res => setTimeout(res, 50));
         }
         report.subFinish("erase", substepId);
@@ -190,7 +191,7 @@
   {#if device.scanning}
     <div class="placeholder">{locale.t.eraseSection.scanningDevice}</div>
   {:else if !device.utilLoaded}
-    <Button variant="action" onclick={() => device.ensureStub()}>{locale.t.eraseSection.enterRecoveryMode}</Button>
+    <Button variant="action" onclick={() => void device.startRecoveryMode()}>{locale.t.eraseSection.enterRecoveryMode}</Button>
   {:else}
   <div class="stack">
     <div class="bars">

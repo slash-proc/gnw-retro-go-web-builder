@@ -62,6 +62,7 @@ import { zipList, zipExtractOne, CentralDirectoryOutOfRange, type ZipEntry } fro
 import { isLazy, resolveBytes, type LazyBytes, type MaybeLazy } from "./lazyBytes.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { isKnownConsoleDir, type CoreRegistry } from "./sources/coreRegistry.js";
+import { homebrewDirs } from "./engine/devicePaths.js";
 import { download } from "./util.js";
 import { dbg } from "./debug.js";
 import {
@@ -117,6 +118,10 @@ export class LazyRom implements LazyBytes {
       });
     }
     return this.inflight;
+  }
+
+  release(): void {
+    this.cached = null;
   }
 }
 
@@ -274,11 +279,9 @@ async function walk(
 
     if (handle.kind === "directory") {
       // Do not recurse into subdirectories inside homebrew
-      if (!isInsideHomebrew) {
-        await walk(handle, rel, out, onFile, hbPrefixes);
-      }
+      await walk(handle, rel, out, onFile, hbPrefixes);
     } else {
-      if (isInsideHomebrew) {
+      if (isInsideHomebrew || hbPrefixes.some((p) => rel.startsWith(`${p}/`))) {
         // Cover art (celeste.png, "Zelda 3.png", …) also lives directly in homebrew/ (see
         // GameDetailsPanel.svelte's applyPreview()/getCoverUrl() in RomManagementTab.svelte)
         // — it's neither a device file nor a source ROM, so the exact-name whitelist below
@@ -292,8 +295,10 @@ async function walk(
         // added, both sets are empty and only cover art survives the walk — which is correct,
         // since nothing can be built from those files anyway.
         const isCoverImage = /\.(png|jpe?g|img)$/i.test(name);
+        const hbRoot = hbPrefixes.find((p) => rel === p || rel.startsWith(`${p}/`));
+        const hbKey = hbRoot ? rel.slice(hbRoot.length + 1) : name;
         const isWhitelisted =
-          isCoverImage || homebrew.deviceFiles.has(name) || isHomebrewSourceFile(name);
+          isCoverImage || homebrew.deviceFiles.has(hbKey) || isHomebrewSourceFile(name) || !!homebrew.owning(hbKey);
         if (!isWhitelisted) continue;
       }
       if (/\.zip$/i.test(name)) {
@@ -331,8 +336,26 @@ async function walk(
         continue;
       }
 
+      // Keep regular files lazy as well. Scanning only needs their name and size; reading every
+      // ROM into JS memory here made a large library consume gigabytes before the user selected
+      // anything to install. The same LazyRom path already protects ZIP payloads.
       const file = await handle.getFile();
-      out.set(rel, new Uint8Array(await file.arrayBuffer()));
+      // The webkitdirectory fallback owns in-memory File objects already; retain its historical
+      // eager value semantics for callers/tests. Native File System Access handles are the case
+      // that needs lazy reads to avoid copying an entire library into the JS heap.
+      if ((handle as FsFileHandle & { eager?: boolean }).eager === true) {
+        out.set(rel, new Uint8Array(await file.arrayBuffer()));
+        onFile?.(rel);
+        continue;
+      }
+      out.set(
+        rel,
+        new LazyRom(
+          file.size,
+          async () => new Uint8Array(await (await handle.getFile()).arrayBuffer()),
+          rel,
+        ),
+      );
       onFile?.(rel);
     }
   }
@@ -381,11 +404,13 @@ export async function countRomDirectory(
       const rel = prefix ? `${prefix}/${name}` : name;
       const isInsideHomebrew = hbPrefixes.includes(prefix);
       if (handle.kind === "directory") {
-        if (!isInsideHomebrew) await walkCount(handle as FsDirHandle, rel);
+        await walkCount(handle as FsDirHandle, rel);
       } else {
-        if (isInsideHomebrew) {
+        if (isInsideHomebrew || hbPrefixes.some((p) => rel.startsWith(`${p}/`))) {
           const isCoverImage = /\.(png|jpe?g|img)$/i.test(name);
-          if (!(isCoverImage || homebrew.deviceFiles.has(name) || isHomebrewSourceFile(name))) continue;
+          const hbRoot = hbPrefixes.find((p) => rel === p || rel.startsWith(`${p}/`));
+          const hbKey = hbRoot ? rel.slice(hbRoot.length + 1) : name;
+          if (!(isCoverImage || homebrew.deviceFiles.has(hbKey) || isHomebrewSourceFile(name) || !!homebrew.owning(hbKey))) continue;
         }
         n++;
       }
@@ -444,7 +469,9 @@ export async function getValidRoot(
   reg: CoreRegistry = coreRegistry.current,
 ): Promise<FsDirHandle | null> {
   let hasConsoleDir = false;
+  let hasHomebrewDir = false;
   let romsFolder: FsDirHandle | null = null;
+  const hbDirs = [...new Set([...homebrewDirs(), "homebrews"])]
 
   for await (const [name, handle] of dir.entries()) {
     if (handle.kind === "directory") {
@@ -452,17 +479,19 @@ export async function getValidRoot(
         hasConsoleDir = true;
       } else if (name.toLowerCase() === "roms") {
         romsFolder = handle as FsDirHandle;
+      } else if (hbDirs.some((d) => !d.includes("/") && d.toLowerCase() === name.toLowerCase())) {
+        hasHomebrewDir = true;
       }
     }
   }
 
   // If we found actual console folders (nes, md, doom, …) at the root, it's valid.
-  if (hasConsoleDir) return dir;
+  if (hasConsoleDir || hasHomebrewDir) return dir;
 
   // Otherwise, if there is a 'roms' folder, check inside it for console folders.
   if (romsFolder) {
     for await (const [name, handle] of romsFolder.entries()) {
-      if (handle.kind === "directory" && isKnownConsoleDir(name, reg)) {
+      if (handle.kind === "directory" && (isKnownConsoleDir(name, reg) || hbDirs.some((d) => d.toLowerCase() === `roms/${name.toLowerCase()}`))) {
         return dir;
       }
     }
@@ -512,6 +541,7 @@ class InputDirHandle implements FsDirHandle {
 
 class InputFileHandle implements FsFileHandle {
   kind = "file" as const;
+  readonly eager = true;
   name: string;
   private file: File;
   constructor(name: string, file: File) {
@@ -785,5 +815,26 @@ export async function deleteFileFromDir(dir: RomDirHandle | null | undefined, re
   } catch (e) {
     if (e instanceof DOMException && e.name === "NotFoundError") return;
     throw e;
+  }
+}
+
+/** Remove empty parent directories below the card's top-level directory. */
+export async function pruneEmptyParents(dir: RomDirHandle | null | undefined, relativePath: string): Promise<void> {
+  if (!dir || !dirSupportsWriteBack(dir)) return;
+  const parts = relativePath.split("/");
+  // Keep the top-level directory (homebrews, roms, etc.) as part of the card layout.
+  for (let depth = parts.length - 2; depth >= 1; depth--) {
+    let parent: any = dir;
+    try {
+      for (let i = 0; i < depth; i++) parent = await parent.getDirectoryHandle(parts[i]);
+      const candidate = await parent.getDirectoryHandle(parts[depth]);
+      let empty = true;
+      for await (const _ of candidate.entries()) { empty = false; break; }
+      if (!empty) break;
+      await parent.removeEntry(parts[depth]);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "NotFoundError") break;
+      throw e;
+    }
   }
 }

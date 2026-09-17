@@ -2,10 +2,10 @@
 // layer; read everywhere. Drives the structural model accent.
 import type { GnwFlasher, DeviceInfo } from "@gnw/gnw-flasher";
 import type { LittlefsTreeNode } from "@gnw/fs-builders";
-import { connectProbe, getKnownProbes, serialTransport, type ProbeHandle, type SerialTransport } from "./engine/transport.js";
+import { connectProbe, getKnownProbes, serialTransport, chooseProbe, type ProbeHandle, type SerialTransport } from "./engine/transport.js";
 import { bootStub, readInfo, dumpRegion, attachFlasher, isStubAlive, pingTarget } from "./engine/flasher.js";
 import { scanExtflashPartitions, type ExtPartition } from "./engine/fsscan.js";
-import { scanIntflashBanks, type IntflashBank } from "./engine/intflashscan.js";
+import { scanIntflashBanks, INT_BANK_BASES, type IntflashBank } from "./engine/intflashscan.js";
 import type { FirmwareAbi } from "./engine/firmwareAbi.js";
 import { classifyDevice, type DeviceClass } from "./engine/classify.js";
 import { captureScreenshot as _captureScreenshot } from "./engine/screenshot.js";
@@ -70,6 +70,14 @@ class DeviceStore {
    *  installer defaults to flash when this isn't true. */
   sdPresent = $state<boolean | null>(null);
   probeName = $state<string | null>(null);
+  private selectedAdapter: USBDevice | null = null;
+  private adapterPollTimer: ReturnType<typeof setInterval> | null = null;
+  private adapterPollBusy = false;
+  /** SWD clock used when attaching to the debug adapter. Persisted as a user preference. */
+  adapterFrequencyHz = $state<number>((() => {
+    const saved = loadSel("adapterFrequencyHz", 4_000_000);
+    return saved >= 1_000_000 && saved <= 10_000_000 ? saved : 4_000_000;
+  })());
   runtimeKind = $state<RuntimeKind>("unknown");
   runtimeBank = $state<1 | 2 | null>(null);
   retroGoActivity = $state<string | null>(null);
@@ -246,6 +254,8 @@ class DeviceStore {
    *  `_doScan()`'s tail (Flash/LittleFS) and `scanSdCardGames()` (SD-card files). Null until
    *  the first check completes; best-effort, never blocks or fails a scan. */
   coreVersionCheck = $state<CoreVersionCheck | null>(null);
+  /** Paths seen on the selected SD card during its last scan (covers included). */
+  sdInstalledPaths = $state<Set<string>>(new Set());
   /** Bumped on every disconnect/reconnect/rescan. Background FS-stat reads capture the
    *  generation they started in and drop their result if it's stale by the time they
    *  resolve (device gone, or a newer scan superseded them) — see [[swd-connection-model]]. */
@@ -275,6 +285,8 @@ class DeviceStore {
    *  call sites in engine/flashInstall.ts, engine/ofw.ts, etc. — wiring that through would
    *  cross the engine/state layering boundary; left as a follow-up, see final report). */
   private _banksScannedAt = 0;
+  private _quickScanReady = false;
+  private _useQuickBanks = false;
   /** Skip re-scanning intflash banks in _doScan() if the last scan is still this fresh. */
   private static readonly BANK_RESCAN_SKIP_WINDOW_MS = 90_000;
   /** Wall-clock time _doScan() last completed (attempted, even if it errored partway) — 0 =
@@ -318,6 +330,12 @@ class DeviceStore {
   }
 
   get retroGoRunning(): boolean { return this.runtimeKind === "retro-go"; }
+  noteBankStarted(bank: 1 | 2): void {
+    this.utilLoaded = false;
+    this.runtimeBank = bank;
+    const record = this.banks.find((b) => b.index === bank);
+    this.runtimeKind = record?.retroGoVersion ? "retro-go" : record?.ofw ? "stock-ofw" : "unknown";
+  }
   private updateRetroGoActivity(text: string): void {
     this.retroGoActivity = retroGoActivityFromLog(text);
   }
@@ -377,7 +395,7 @@ class DeviceStore {
   private _connectPromise: Promise<void> | null = null;
 
   /** Attach to a probe ONLY — the RAM util loads later, on demand (see ensureStub). */
-  connect(log?: (m: string) => void, opts?: { forcePicker?: boolean }): Promise<void> {
+  connect(log?: (m: string) => void, opts?: { forcePicker?: boolean; swdClockHz?: number }): Promise<void> {
     // Dedupe by the in-flight promise ALONE, not by `connection === "connecting"`. A lost link
     // starts reconnectLoop() while the USB `connect` event independently fires connectSilent();
     // connectSilent's "am I still lost?" guard is checked BEFORE its own await of
@@ -419,10 +437,16 @@ class DeviceStore {
         // safe mailbox RAM read to detect an already-running RAM util, raced against a short
         // timeout so a stalled read can never hang us. If the util's up, reuse it (no re-boot,
         // no modal) and scan; otherwise attach only and load it on demand via ensureStub().
-        this.probe = await connectProbe(opts);
+        this.probe = await connectProbe({ ...opts, device: opts?.forcePicker ? undefined : (this.selectedAdapter ?? undefined), swdClockHz: opts?.swdClockHz ?? this.adapterFrequencyHz });
         this.probeName = this.probe.probeName;
         navigator.usb.addEventListener("disconnect", this.onUsbDisconnect);
         this.transport = serialTransport(this.probe.transport);
+        // The probe can remain connected while the console is power-cycled. In that
+        // case the previous bank snapshot is still within the freshness window even
+        // though the target may now be running a different bank/firmware. Force the
+        // lightweight intflash pass on every new attach so runtime/version detection
+        // and the device log are refreshed immediately after reconnect.
+        this._banksScannedAt = 0;
         const transport = this.transport;
         const utilUp = await Promise.race([
           isStubAlive(transport),
@@ -443,9 +467,16 @@ class DeviceStore {
         this.connection = "connected";
         this.everConnected = true;
         this.startPoll();
-        // AUTO: a reconnect can land mid-install (a stub boot re-enumerates the probe by
-        // design), and a scan must never compete with the write that is already running.
-        void this.runScan("connect", { auto: true }); // we can always scan intflash
+        // A full geometry scan is intentionally expensive. Read only the live VTOR
+        // and the small version field at VTOR+0x400 first, so a running Retro-Go
+        // becomes identifiable immediately after a power cycle and the device-log
+        // pane can select its layout without waiting for geometry.
+        await this.quickRuntimeProbe(transport);
+        // A reconnect can land mid-install (a stub boot re-enumerates the probe by design), so
+        // normal firmware connections use the quick scan and never compete with a write. When
+        // the probe is already attached to a live stub, startup is an explicit Recovery Mode
+        // state and should establish the complete geometry before the UI settles.
+        void this.runScan("connect", { auto: !utilUp });
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e);
         // INTO THE LOG TOO. `this.error` is write-only (no component reads it), and every
@@ -454,7 +485,13 @@ class DeviceStore {
         // failure and goes to the debug channel instead, where it costs nothing and cannot
         // ring the bell.
         if (isPickerDismissal(e)) dbg(`[connect] the device chooser was dismissed`);
-        else auditLog.add("error", "device", msg((t) => t.shared.auditLog.connectFailed, this.error));
+        else {
+          // A probe can remain enumerated while the console is powered off. The first
+          // transaction then reports "Transfer count mismatch"; that is an expected
+          // unavailable-device state, not failed work and must not raise an error notification.
+          const unavailable = /Transfer count mismatch/i.test(this.error);
+          auditLog.add(unavailable ? "warning" : "error", "device", msg((t) => t.shared.auditLog.connectFailed, this.error));
+        }
         // Plain teardown — NOT the public disconnect(): a failed connect attempt (bad probe,
         // WebUSB error) is not a "manual disconnect" and must not suppress auto-retry for a
         // caller (e.g. the reconnect loop below) that's about to try again.
@@ -467,6 +504,112 @@ class DeviceStore {
     return this._connectPromise;
   }
 
+  /** Authorize a probe without attempting to connect to the console. */
+  async chooseAdapter(): Promise<void> {
+    const selected = await chooseProbe();
+    this.selectedAdapter = selected;
+    this.probeName = selected.productName || "CMSIS-DAP";
+  }
+
+  /** Look for the selected, authorized adapter without opening a chooser. */
+  startAdapterPoll(): void {
+    if (this.adapterPollTimer) return;
+    this.adapterPollTimer = setInterval(() => {
+      if (this.adapterPollBusy || this.isConnected || this.connection === "connecting") return;
+      this.adapterPollBusy = true;
+      void getKnownProbes().then((known) => {
+        if (this.isConnected || known.length === 0) return;
+        const probe = this.selectedAdapter && known.includes(this.selectedAdapter)
+          ? this.selectedAdapter
+          : known.length === 1 ? known[0] : null;
+        if (!probe) return;
+        this.selectedAdapter = probe;
+        return this.connectSilent();
+      }).catch(() => {}).finally(() => { this.adapterPollBusy = false; });
+    }, 1000);
+  }
+
+  private async quickRuntimeProbe(transport: typeof this.transport): Promise<void> {
+    if (!transport) return;
+    const t0 = Date.now();
+    dbg(`[quickscan] start`);
+    try {
+      const quickBanks: IntflashBank[] = [];
+      for (let i = 0; i < 2; i++) {
+        const base = INT_BANK_BASES[i];
+        const head = await transport.readMemory(base, 8);
+        dbg(`[quickscan] bank${i + 1} vector ${Date.now() - t0}ms`);
+        const sp = new DataView(head.buffer, head.byteOffset, head.byteLength).getUint32(0, true);
+        const pc = new DataView(head.buffer, head.byteOffset, head.byteLength).getUint32(4, true);
+        const model = sp === 0x20011330 ? "mario" : sp === 0x2001b620 ? "zelda" : null;
+        const erased = sp === 0xffffffff && pc === 0xffffffff;
+        let patched = true;
+        if (model) {
+          try {
+            const marker = await transport.readMemory(base + (128 << 10) - 4, 4);
+            patched = marker[3] !== 0xff;
+            dbg(`[quickscan] bank${i + 1} marker ${Date.now() - t0}ms`);
+          } catch {
+            // Keep the conservative patched/unknown result; the full scan is authoritative.
+          }
+        }
+        quickBanks.push({
+          index: (i + 1) as 1 | 2,
+          base,
+          // The quick pass deliberately does not measure occupancy. Keep the geometry
+          // visualization stable at the known bank capacity until a full scan replaces it.
+          dataSize: erased ? 0 : 256 << 10,
+          type: erased ? "empty" : model ? `${model === "mario" ? "Mario" : "Zelda"} OFW (${patched ? "patched" : "stock"})` : "unknown data",
+          ofw: model ? { model, patched } : undefined,
+        });
+      }
+      const vtor = (await transport.readWord(0xe000ed08)) >>> 0;
+      const bankIndex = vtor >= INT_BANK_BASES[1] ? 2 : vtor >= INT_BANK_BASES[0] ? 1 : null;
+      this.banks = quickBanks;
+      this._quickScanReady = true;
+      // Publish the bank/header classification immediately; the later full scan may add
+      // geometry and partitions, but the status header should not wait for those.
+      this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
+      if (this.deviceClass.ofw) this.model = this.deviceClass.ofw.model;
+      if (!bankIndex) { dbg(`[quickscan] no flash VTOR (${Date.now() - t0}ms)`); return; }
+      // GIT_TAG is a compiler-placed literal, not a fixed field. Current release
+      // link layouts place it in the 0x30000 region, so inspect one small window
+      // there for the fast path; the authoritative full scan remains responsible
+      // for unusual/foreign layouts.
+      let match: RegExpMatchArray | null = null;
+      const raw = await transport.readMemory(INT_BANK_BASES[bankIndex - 1] + 0x30000, 0x8000);
+      const text = new TextDecoder("latin1").decode(raw);
+      match = text.match(/Retro-Go (?:SD )?(v\d[\w.+-]*)/);
+      dbg(`[quickscan] VTOR=${vtor.toString(16)} version search ${Date.now() - t0}ms`);
+      if (!match || this.connection !== "connected") {
+        const active = this.banks.find((b) => b.index === bankIndex);
+        this.runtimeKind = active?.ofw ? "stock-ofw" : "unknown";
+        this.runtimeBank = bankIndex;
+        this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
+        dbg(`[quickscan] no Retro-Go version (${Date.now() - t0}ms)`);
+        return;
+      }
+      const bank = this.banks.find((b) => b.index === bankIndex);
+      if (bank) {
+        bank.retroGoVersion = match[1];
+        bank.type = "Retro-Go";
+      } else return;
+      this.runtimeKind = "retro-go";
+      this.runtimeBank = bankIndex;
+      this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
+      dbg(`[quickscan] complete bank=${bankIndex} version=${match[1]} ${Date.now() - t0}ms`);
+    } catch {
+      // This is a best-effort hint; the full scan remains authoritative.
+      dbg(`[quickscan] failed ${Date.now() - t0}ms`);
+    }
+  }
+
+  /** Refresh only the live-bank/version hint; callers entering device management use this
+   * before the slower full geometry scan is explicitly requested. */
+  async refreshRuntimeHint(): Promise<void> {
+    if (this.transport) await this.quickRuntimeProbe(this.transport);
+  }
+
   /** Silently attach to a probe ONLY if exactly one trusted adapter is already authorized.
    *  Never shows a USB picker. Safe to call fire-and-forget on navigation or USB reconnect. */
   async connectSilent(): Promise<void> {
@@ -474,7 +617,8 @@ class DeviceStore {
     if (this._suppressAutoRetry) return; // manual disconnect — user must reconnect explicitly
     try {
       const known = await getKnownProbes();
-      if (known.length !== 1) return; // 0 = nothing to auto-attach; 2+ = ambiguous
+      if (known.length === 0) return;
+      if (known.length !== 1 && (!this.selectedAdapter || !known.includes(this.selectedAdapter))) return;
       // Re-check the guard AFTER the await. This is the second half of the "adapter reconnects
       // two or three times" report: the USB `connect` event fires connectSilent() at the same
       // moment handleLost()'s reconnectLoop is retrying. connectSilent passed its guard while
@@ -540,7 +684,7 @@ class DeviceStore {
    *   for a flasher-getter passed into an already-confirmed, already-in-flight operation
    *   (consent for Recovery Mode was already granted once for this operation; a reboot needed
    *   mid-operation to recover from a stale/dead stub should happen silently, not re-prompt). */
-  async ensureStub(log?: (m: string) => void, forceReboot = false, silent = false): Promise<GnwFlasher> {
+  async ensureStub(log?: (m: string) => void, forceReboot = false, silent = false, allowReboot = true): Promise<GnwFlasher> {
     if (!this.probe || !this.transport) throw new Error("Not connected.");
     // THE POLL MUST NOT RUN DURING A STUB BOOT, and this is the chokepoint that guarantees it.
     //
@@ -565,13 +709,13 @@ class DeviceStore {
     // the cached-flasher probes and readInfo are covered too.
     this.suspendPoll();
     try {
-      return await this._ensureStubInner(log, forceReboot, silent);
+      return await this._ensureStubInner(log, forceReboot, silent, allowReboot);
     } finally {
       this.resumePoll();
     }
   }
 
-  private async _ensureStubInner(log?: (m: string) => void, forceReboot = false, silent = false): Promise<GnwFlasher> {
+  private async _ensureStubInner(log?: (m: string) => void, forceReboot = false, silent = false, allowReboot = true): Promise<GnwFlasher> {
     if (!this.probe || !this.transport) throw new Error("Not connected.");
     // Reuse the cached stub ONLY if it's alive AND has a free context. A wedged stub (after a failed
     // flash), dirty contexts, or a power-cycled device → re-boot a clean stub (clears contexts +
@@ -607,6 +751,9 @@ class DeviceStore {
       this.utilLoaded = false;
       reboot = true;
     }
+    if (reboot && !allowReboot) {
+      throw new Error("Recovery stub is unavailable; restart Recovery Mode before flashing.");
+    }
     if (!reboot && !silent) {
       // First load — confirm via the modal (loading the util resets the device).
       dbg("[ensureStub] awaiting confirm → bootStub");
@@ -634,6 +781,13 @@ class DeviceStore {
     try {
       this.flasher = await bootStub(bootTransport, dbgLog("stub", log));
     } catch (e) {
+      // A failed RAM write must never leave the previous session's utility state
+      // visible. Otherwise the header continues to claim Recovery Mode while the
+      // target is actually running unknown code or is unreachable.
+      this.flasher = null;
+      this.utilLoaded = false;
+      this.runtimeKind = "unknown";
+      this.runtimeBank = null;
       // A teardown/rescan bumped `_gen` under us — the link really did go away mid-boot, so
       // whatever the transport threw is a symptom. Report the cause instead.
       // The boot failed AND a drop was seen while it ran: the link really did go away
@@ -752,6 +906,9 @@ class DeviceStore {
           await this.ensureStub(undefined, true);
           break;
         } catch (e) {
+          // Only a genuinely dead USB handle is safe to recover automatically. Target-side
+          // halt/reset failures leave the live session in an unknown state; tearing it down
+          // and reconnecting here races the library scanner and produces a reconnect storm.
           if (!isDeadHandleError(e) || attempt >= 3) throw e;
           dbg(`[recovery] stale USB handle during stub boot; reattaching (retry ${attempt}/2)`);
           await this._teardownConnection();
@@ -910,7 +1067,52 @@ class DeviceStore {
       dbg(`[scan] #${seq} ${reason}: starting ${sinceLast} ms after scan #${seq - 1} ended`);
     }
     const t0 = Date.now();
-    this._scanPromise = this._doScan();
+    this._useQuickBanks = !!opts.auto;
+    this._scanPromise = (async () => {
+      let mismatchRecoveryAttempts = 0;
+      let adapterResetAttempted = false;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await this._doScan();
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          if (/Transfer count mismatch/i.test(message) && this.utilLoaded) {
+            // A live Recovery Mode stub can survive this transport-level mismatch, but the
+            // target is left with no usable screen and an indeterminate mailbox state. Re-send
+            // the stub immediately; waiting for the generic retry timeout leaves the user staring
+            // at a black screen and can make the next operation race the half-reset target.
+            if (mismatchRecoveryAttempts < 2) {
+              mismatchRecoveryAttempts++;
+              dbg(
+                `[scan] ${reason}: Transfer count mismatch; restarting Recovery Mode stub ` +
+                  `(retry ${mismatchRecoveryAttempts}/2)`,
+              );
+              await this.ensureStub(undefined, true, true);
+              continue;
+            }
+
+            // Two stub restarts did not recover the link. Reset the adapter session once, then
+            // make one final recovery-mode attempt. If that fails, the original error is fatal
+            // and is allowed to reach the caller.
+            if (adapterResetAttempted) {
+              dbg(`[scan] ${reason}: Transfer count mismatch persisted after adapter reset; failing`);
+              throw e;
+            }
+            adapterResetAttempted = true;
+            dbg(`[scan] ${reason}: stub retries exhausted; resetting adapter session`);
+            await this._teardownConnection();
+            this.connection = "lost";
+            await this.connect();
+            await this.ensureStub(undefined, true, true);
+            dbg(`[scan] ${reason}: adapter session reset; final scan attempt`);
+            continue;
+          }
+          if (attempt >= 2 || !/Transfer response FAULT/i.test(message)) throw e;
+          dbg(`[scan] ${reason}: transient transfer error; retrying once`);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+    })();
     try {
       await this._scanPromise;
     } finally {
@@ -929,6 +1131,17 @@ class DeviceStore {
           (this._scanSawWrite ? ", OVERLAPPED A DEVICE WRITE" : ""),
       );
     }
+  }
+
+  /** User-requested rescan: use the deepest scan that matches the currently running image. */
+  async rescan(reason = "rescan"): Promise<void> {
+    // Preserve the state before ensureStub(), since booting the stub would otherwise make a
+    // normal Retro-Go session look like Recovery Mode and incorrectly promote this to a full
+    // geometry walk.
+    const stubWasRunning = this.utilLoaded;
+    await this.ensureStub();
+    await this.refreshRuntimeHint();
+    await this.runScan(reason, { auto: !stubWasRunning });
   }
   /**
    * Hold an automatic scan until nothing is writing to the device.
@@ -1009,9 +1222,11 @@ class DeviceStore {
       // recently in this same connection (see `_banksScannedAt`'s doc comment above); Tier 2
       // (below) still runs in full regardless.
       const banksFresh =
+        (this._useQuickBanks && this._quickScanReady && this.banks.length > 0) ||
         this.banks.length > 0 &&
         this._banksScannedAt > 0 &&
         Date.now() - this._banksScannedAt < DeviceStore.BANK_RESCAN_SKIP_WINDOW_MS;
+      dbg(`[quickscan] bank phase: ${banksFresh ? "using quick bank snapshot" : "running full bank geometry"}`);
       if (!banksFresh) {
         // The bank scan has no progress of its own and is not quick: an unrecognised bank is
         // DOWNLOADED IN FULL to search it for Retro-Go strings (intflashscan.ts's
@@ -1039,6 +1254,8 @@ class DeviceStore {
         );
         this._banksScannedAt = Date.now();
       }
+      this._quickScanReady = false;
+      this._useQuickBanks = false;
       const runtime = await detectRuntime(transport, this.banks);
       this.runtimeKind = runtime.kind;
       this.runtimeBank = runtime.bank;
@@ -1105,8 +1322,14 @@ class DeviceStore {
       // `scanError` is drawn by exactly ONE surface (RomSection's advanced view), so a scan
       // that failed while the user was anywhere else in the app said nothing. Everything
       // downstream reads a half-filled device model without being told why.
-      auditLog.add("error", "device", msg((t) => t.shared.auditLog.scanFailed, this.scanError));
+      const transferMismatch = /Transfer count mismatch/i.test(this.scanError);
+      auditLog.add(transferMismatch ? "warning" : "error", "device", msg((t) => t.shared.auditLog.scanFailed, this.scanError));
+      // Let runScan() perform its Recovery Mode contingency for the one transport error that
+      // leaves the target reachable but black-screened. Other scan failures retain the existing
+      // best-effort behavior and remain represented by scanError only.
+      if (transferMismatch && this.utilLoaded) throw e;
     } finally {
+      this._useQuickBanks = false;
       // Arrive. A scan that stops at 0.84 because its last phase threw looks like a hang.
       phase("games", 1);
       this.scanning = false;
@@ -1206,17 +1429,24 @@ class DeviceStore {
   async scanSdCardGames(): Promise<void> {
     if (this.targetMedia !== 'sd' || !this.sdHandle) {
       this.installedGames = [];
+      this.sdInstalledPaths = new Set();
       return;
     }
     const gen = ++this._gen; // supersede any in-flight background reads from a prior SD scan
     this.scanning = true;
     try {
       const { scanRomDirectory, getValidRoot, checkSdCoreVersions } = await import("./romScan.js");
-      const root = await getValidRoot(this.sdHandle);
+      const validatedRoot = await getValidRoot(this.sdHandle);
+      // An empty/fresh card has no console directory yet.  Root validation is a provisioning
+      // signal for the sync path, not a reason to throw away the card handle or hide content.
+      // Scan the selected root in that case as well; this keeps a newly provisioned homebrew-only
+      // card visible across reloads while the next sync supplies the missing bundle directories.
+      const root = validatedRoot ?? this.sdHandle;
       if (root) {
         // The card's homebrew directory is the manifest's (`/homebrews`); romScan deliberately
         // does not know that -- see LEGACY_HOMEBREW_PREFIXES for why it must not import it.
         const scan = await scanRomDirectory(root, null, homebrewScanPrefixes());
+        this.sdInstalledPaths = new Set(scan.userRoms.keys());
         const games: InstalledGame[] = [];
         // Classification is `devicePaths.ts`'s job, not this loop's: the directories are the
         // firmware's (manifest `paths`), and the asset skips and the system/name split have to
@@ -1249,11 +1479,12 @@ class DeviceStore {
         // retro-go right now (same intflash read as Flash mode); a bare SD card with no live
         // device falls back to cross-checking cores against each other (see coreVersion.ts).
         const firmwareVersion = this.banks.map((b) => b.retroGoVersion).find(Boolean) ?? null;
-        checkSdCoreVersions(root, firmwareVersion).then((res) => {
+        // Finish the metadata-only core pass before returning. Keeping this read detached left
+        // File System Access handles active after a sync, which could prevent the user from
+        // unmounting the card until the site was closed.
+        await checkSdCoreVersions(root, firmwareVersion).then((res) => {
           if (gen === this._gen) this.coreVersionCheck = res;
-        }).catch((e) => dbg(`[scanSdCardGames] Core version check failed: ${e}`));
-      } else {
-        this.installedGames = [];
+        });
       }
     } catch (e) {
       dbg(`[scanSdCardGames] SD scan failed: ${e}`);
@@ -1380,7 +1611,9 @@ class DeviceStore {
       deviceSafety.markQuiet();
 
       // Check what is running to update UI state:
-      const utilAlive = await isStubAlive(this.transport);
+      // After the target leaves the RAM utility, its mailbox read may never complete.
+      // Keep the poll cycle bounded so runtime VTOR detection can immediately take over.
+      const utilAlive = await raceWithFallback(isStubAlive(this.transport), 300, false);
       if (utilAlive) {
         this.runtimeKind = "recovery";
         this.runtimeBank = null;
@@ -1635,6 +1868,12 @@ class DeviceStore {
     lipProgress.reset();
   }
 
+  setAdapterFrequency(hz: number): void {
+    if (!Number.isFinite(hz) || hz < 1_000_000 || hz > 10_000_000) return;
+    this.adapterFrequencyHz = hz;
+    saveSel("adapterFrequencyHz", hz);
+  }
+
   async resetDevice(): Promise<void> {
     // Trigger a CPU system reset. The SWD DAP drops immediately after — the throw is expected.
     if (this.transport) {
@@ -1696,8 +1935,12 @@ class DeviceStore {
       try {
         const known = await getKnownProbes();
         if (known.length === 1) await this.connect();
-      } catch {
-        // fall through to the modal
+      } catch (e) {
+        // The adapter may still be plugged in while the console is powered off.
+        // Do not immediately open a chooser in Overview for that expected state;
+        // the user can reconnect from the header when the device is powered again.
+        if (/Transfer count mismatch/i.test(e instanceof Error ? e.message : String(e))) return;
+        // Other failures fall through to the explicit connect modal.
       }
     }
     if (this.isConnected) return;

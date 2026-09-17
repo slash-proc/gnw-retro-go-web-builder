@@ -4,7 +4,7 @@
  * Contract: `docs/FIRMWARE_DIST.md` in game-and-watch-retro-go-sd, "The install marker".
  * An SD card alone cannot say what firmware the device runs: the ABI struct and the baked
  * version string live in internal flash, which is not on the card. The firmware therefore
- * writes this 76-byte record at boot whenever it disagrees with the running build, so it is
+ * writes this 80-byte record at boot whenever it disagrees with the running build, so it is
  * correct however the device was flashed.
  *
  * TWO RULES FROM THE DOC, both easy to get wrong:
@@ -26,7 +26,7 @@
 import { superblockCrc32 } from "@gnw/gnw-patch";
 
 /**
- * Byte layout, verbatim from the doc's table (76 bytes, little-endian, packed):
+ * Byte layout, verbatim from the doc's table (80 bytes, little-endian, packed):
  *
  * | Offset | Size | Field |
  * |---|---|---|
@@ -37,13 +37,14 @@ import { superblockCrc32 } from "@gnw/gnw-patch";
  * | `7`  | 1  | `reserved` — zero |
  * | `8`  | 4  | `abi_version` — matches `providesAbi.version` |
  * | `12` | 4  | `abi_size` — matches `providesAbi.size` |
- * | `16` | 2  | `core_meta_version` — matches `coreMetaVersion` |
- * | `18` | 2  | `reserved2` — zero |
- * | `20` | 48 | `git_tag` — NUL-padded; matches `firmware.gitTag` byte for byte |
- * | `68` | 4  | `installed_at` — Unix seconds; `0` when the RTC is not set |
- * | `72` | 4  | `crc32` — over all 76 bytes with this field zeroed |
+ * | `16` | 4  | `superblock_offset` — byte offset from the bank base |
+ * | `20` | 2  | `core_meta_version` — matches `coreMetaVersion` |
+ * | `22` | 2  | `reserved2` — zero |
+ * | `24` | 48 | `git_tag` — NUL-padded; matches `firmware.gitTag` byte for byte |
+ * | `72` | 4  | `installed_at` — Unix seconds; `0` when the RTC is not set |
+ * | `76` | 4  | `crc32` — over all 80 bytes with this field zeroed |
  */
-export const INSTALL_MARKER_SIZE = 76;
+export const INSTALL_MARKER_SIZE = 80;
 /** `"RGIN"` as a LE uint32 at offset 0. Also `manifest.firmware.installFile.magic`. */
 export const INSTALL_MARKER_MAGIC = 0x4e494752;
 /** The only `version` this parser understands. Also `installFile.version`. */
@@ -58,12 +59,13 @@ const OFF_STORAGE = 6;
 const OFF_RESERVED = 7;
 const OFF_ABI_VERSION = 8;
 const OFF_ABI_SIZE = 12;
-const OFF_CORE_META = 16;
-const OFF_RESERVED2 = 18;
-const OFF_GIT_TAG = 20;
+const OFF_SUPERBLOCK = 16;
+const OFF_CORE_META = 20;
+const OFF_RESERVED2 = 22;
+const OFF_GIT_TAG = 24;
 const GIT_TAG_SIZE = 48;
-const OFF_INSTALLED_AT = 68;
-const OFF_CRC = 72;
+const OFF_INSTALLED_AT = 72;
+const OFF_CRC = 76;
 
 /** `storage`: `0` = flash, `1` = sd. Anything else is not a storage this build knows. */
 export type InstallMarkerStorage = "flash" | "sd";
@@ -79,6 +81,8 @@ export interface InstallMarker {
   storageByte: number;
   /** The ABI the running firmware provides. Compatibility rests on THIS, not on `gitTag`. */
   providesAbi: { version: number; size: number };
+  /** Byte offset of the embedded layout superblock from the bank base. */
+  superblockOffset: number;
   /** `GNW_CORE_META_VERSION` — the core container format. */
   coreMetaVersion: number;
   /**
@@ -117,7 +121,7 @@ function markerCrc(bytes: Uint8Array): number {
 /**
  * Parse and verify a `/data/INSTALL` image.
  *
- * @returns the marker, or `null` for ANY of: no bytes at all, fewer than 76, a wrong magic,
+ * @returns the marker, or `null` for ANY of: no bytes at all, fewer than 80, a wrong magic,
  *          a `version` this parser does not understand, or a CRC that does not recompute.
  *          All of those mean "this card does not identify its firmware" — never a throw, and
  *          never a reason to fail an install flow.
@@ -144,6 +148,7 @@ export function readInstallMarker(bytes: Uint8Array | null | undefined): Install
       version: dv.getUint32(OFF_ABI_VERSION, true),
       size: dv.getUint32(OFF_ABI_SIZE, true),
     },
+    superblockOffset: dv.getUint32(OFF_SUPERBLOCK, true),
     coreMetaVersion: dv.getUint16(OFF_CORE_META, true),
     gitTag: new TextDecoder().decode(tagBytes.subarray(0, end)),
     installedAt: dv.getUint32(OFF_INSTALLED_AT, true),
@@ -168,6 +173,7 @@ export function writeInstallMarker(m: {
   bank: number;
   storage: InstallMarkerStorage;
   providesAbi: { version: number; size: number };
+  superblockOffset: number;
   coreMetaVersion: number;
   gitTag: string;
   installedAt: number;
@@ -181,6 +187,7 @@ export function writeInstallMarker(m: {
   dv.setUint8(OFF_RESERVED, 0);
   dv.setUint32(OFF_ABI_VERSION, m.providesAbi.version >>> 0, true);
   dv.setUint32(OFF_ABI_SIZE, m.providesAbi.size >>> 0, true);
+  dv.setUint32(OFF_SUPERBLOCK, m.superblockOffset >>> 0, true);
   dv.setUint16(OFF_CORE_META, m.coreMetaVersion, true);
   dv.setUint16(OFF_RESERVED2, 0, true);
   const tag = new TextEncoder().encode(m.gitTag);

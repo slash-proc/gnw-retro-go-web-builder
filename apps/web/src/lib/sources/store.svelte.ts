@@ -20,6 +20,7 @@ import { resolveSource, resolveVersion, normaliseRepoRef, versionsUrlFor } from 
 import { importBundle, type BundleImport } from "./bundle.js";
 import { forgetBundle, keepBundle, restoreBundle } from "./bundleStore.js";
 import { announceSourceRemoved } from "./sourceRemoval.js";
+import { localFolders } from "./localFolders.svelte.js";
 import { AutoDownloader, autoDownloader, shouldAutoDownload } from "./autoDownload.js";
 import { buildCoreRegistry, isCoreKind } from "./coreRegistry.js";
 import { manifestNeedsUserFiles } from "./needsUserFiles.js";
@@ -107,6 +108,27 @@ export interface SourceCard {
    * written before the picker existed; both simply render the resolved version and no control.
    */
   versions?: VersionOption[];
+  /** Raw CORE fallback metadata for rows created before manifest persistence was added. */
+  rawArtifacts?: { filename: string; bytes: number }[];
+}
+
+export function rawManifestFromCard(card: SourceCard): Manifest {
+  return {
+    schemaVersion: 1,
+    project: card.title,
+    title: card.title,
+    source: { repo: card.title, commit: "raw", ref: "raw" },
+    tools: [],
+    targets: [{
+      id: "game-and-watch",
+      platform: "game-and-watch",
+      label: card.title,
+      kind: "core",
+      requiresAbi: { version: card.abiVersion, minSize: card.abiMinSize ?? 0 },
+      artifacts: (card.rawArtifacts ?? []).map((a) => ({ filename: a.filename, bytes: a.bytes, sha256: "", url: "https://raw.invalid/" })),
+      systems: card.systems.map((s) => ({ id: s.id, longName: s.longName, shortName: s.shortName, extensions: s.extensions, browse: s.browse === "directory" ? "directory" : "file", compression: false })),
+    }],
+  };
 }
 
 export type SourceStatus = "idle" | "loading" | "ok" | "error";
@@ -124,7 +146,11 @@ export type SourceStatus = "idle" | "loading" | "ok" | "error";
  *      "Label an imported bundle as unverified. Do not present it as equivalent to a fetched
  *      release." A row that could not say where it came from could not carry that label.
  */
-export type SourceOrigin = "url" | "bundle";
+export type SourceOrigin = "url" | "bundle" | "raw";
+
+export function sourceDisplayName(row: Pick<SourceRow, "repo" | "origin">): string {
+  return row.origin === "raw" ? "Raw binary" : row.repo;
+}
 
 interface Persisted {
   repo: string;
@@ -134,6 +160,8 @@ interface Persisted {
   card?: SourceCard;
   /** Absent in rows written before bundles existed; those are all network-resolved. */
   origin?: SourceOrigin;
+  /** Raw CORE metadata is self-contained and persisted so its detail/registry rows survive reload. */
+  manifest?: Manifest;
   /**
    * The version the user PINNED with the detail view's picker, when it is not the newest.
    *
@@ -228,6 +256,16 @@ function toCard(r: ResolvedSource, origin: SourceOrigin): SourceCard {
             publishedAt: v.publishedAt,
             prerelease: v.prerelease,
           })),
+        }
+      : {}),
+    ...(origin === "raw"
+      ? {
+          // Preserve artifacts from every target. Raw CORE imports are persisted and later
+          // reconstructed from this card; restricting this to the display target made valid
+          // containers reload as zero-artifact sources when their platform spelling differed.
+          rawArtifacts: r.manifest.targets.flatMap((t) =>
+            (t.artifacts ?? []).map((a) => ({ filename: a.filename, bytes: a.bytes })),
+          ),
         }
       : {}),
   };
@@ -342,12 +380,34 @@ class SourcesStore {
     const stored = loadSel<Persisted[]>(STORAGE_KEY, []);
     this.rows = stored
       .filter((s): s is Persisted => !!s && typeof s.repo === "string")
-      .map((s) => ({
+      .map((s) => {
+        // Older raw rows may have persisted the manifest before rawArtifacts was added to the
+        // card. Backfill the card from that manifest so both the Release and install sections
+        // have the same artifact metadata after a reload.
+        const rawArtifacts = s.origin === "raw" && s.manifest
+          ? (s.manifest.targets.find((t) => t.platform === "game-and-watch") ?? s.manifest.targets[0])?.artifacts
+          : undefined;
+        const card = s.card && s.origin === "raw" && !s.card.rawArtifacts && rawArtifacts
+          ? { ...s.card, rawArtifacts: rawArtifacts.map((a) => ({ filename: a.filename, bytes: a.bytes })) }
+          : s.card;
+        const restoredManifest = s.origin === "raw" && card && (!s.manifest?.targets?.[0]?.artifacts?.length)
+          ? rawManifestFromCard(card)
+          : s.manifest;
+        if (restoredManifest && s.origin === "raw") {
+          const hash = s.repo.startsWith("raw/") ? s.repo.slice(4) : "";
+          for (const a of restoredManifest.targets.flatMap((t) => t.artifacts ?? [])) {
+            if (!a.sha256 && hash) a.sha256 = hash;
+          }
+        }
+        return {
         repo: s.repo,
-        active: s.active === true,
+        // Raw CORE imports are explicit user additions; older persisted raw rows may predate
+        // the active flag and must remain installable after reload.
+        active: s.origin === "raw" ? s.active !== false : s.active === true,
         ...(s.curated === true ? { curated: true } : {}),
-        card: s.card,
-        origin: s.origin === "bundle" ? ("bundle" as const) : ("url" as const),
+        card,
+        origin:
+          s.origin === "bundle" ? ("bundle" as const) : s.origin === "raw" ? ("raw" as const) : ("url" as const),
         ...(typeof s.pinnedTag === "string" ? { pinnedTag: s.pinnedTag } : {}),
         // A restored bundle row has its card but not yet its manifest: the manifest is
         // in-memory only (see `SourceRow.manifest`), and the payloads it named lived in blob
@@ -355,7 +415,13 @@ class SourcesStore {
         // "loading" until that answers, and honestly back to "idle" (the UI's "re-import to
         // install") if nothing was kept or the bytes no longer verify.
         status: s.card ? (s.origin === "bundle" ? "loading" : "ok") : "idle",
-      }));
+        ...(s.origin === "raw" && restoredManifest
+          ? { manifest: restoredManifest }
+          : s.origin === "raw" && card
+            ? { manifest: rawManifestFromCard(card) }
+            : {}),
+      };
+      });
     for (const row of this.rows) {
       if (row.origin === "bundle") void this.restore(row.repo);
       else void this.refresh(row.repo);
@@ -543,12 +609,13 @@ class SourcesStore {
   private persist(): void {
     saveSel(
       STORAGE_KEY,
-      this.rows.map(({ repo, active, curated, card, origin, pinnedTag }) => ({
+      this.rows.map(({ repo, active, curated, card, origin, pinnedTag, manifest }) => ({
         repo,
         active,
         ...(curated === true ? { curated: true } : {}),
         card,
         origin,
+        ...(origin === "raw" && manifest ? { manifest } : {}),
         pinnedTag,
       })),
     );
@@ -636,6 +703,29 @@ class SourcesStore {
       return true;
     }
     this.keepResolved(repo, resolved);
+    return true;
+  }
+
+  /** Keep a locally imported CORE container as an unverified, non-refreshable source. */
+  addRawCore(resolved: ResolvedSource, release: () => void): boolean {
+    this.addError = null;
+    const existing = this.get(resolved.repo);
+    existing?.releaseBundle?.();
+    const row: SourceRow = {
+      repo: resolved.repo,
+      active: existing ? existing.active : true,
+      card: toCard(resolved, "raw"),
+      manifest: resolved.manifest,
+      origin: "raw",
+      status: "ok",
+      releaseBundle: release,
+    };
+    this.rows = existing
+      ? this.rows.map((r) => (r.repo === resolved.repo ? row : r))
+      : [...this.rows, row];
+    this.selected = resolved.repo;
+    this.undismiss(resolved.repo);
+    this.persist();
     return true;
   }
 
@@ -731,7 +821,7 @@ class SourcesStore {
     if (!row) return;
     // A bundle has no mirror behind it. Refreshing would either 404 or quietly swap the
     // imported copy for the live release; the way to update one is to import a newer zip.
-    if (row.origin === "bundle") return;
+    if (row.origin === "bundle" || row.origin === "raw") return;
     row.status = "loading";
     row.errorCode = undefined;
     try {
@@ -844,7 +934,7 @@ class SourcesStore {
    */
   async selectVersion(repo: string, tag: string): Promise<void> {
     const row = this.get(repo);
-    if (!row || row.origin === "bundle") return;
+    if (!row || row.origin === "bundle" || row.origin === "raw") return;
     if (row.card?.tag === tag && !row.errorCode) return;
     row.status = "loading";
     row.errorCode = undefined;
@@ -881,6 +971,7 @@ class SourcesStore {
 
   remove(repo: string): void {
     const row = this.get(repo);
+    const targetKeys = row?.manifest?.targets.map((target) => `${repo}#${target.id}`) ?? [];
     row?.releaseBundle?.();
     this.downloader.cancel(repo);
     // Removing a source removes its bytes. Leaving a multi-megabyte zip behind for a row the
@@ -893,6 +984,7 @@ class SourcesStore {
     this.dismissed.add(repo);
     saveSel(DISMISSED_KEY, [...this.dismissed]);
     this.persist();
+    void localFolders.removeOwnedBy(repo, targetKeys);
     // Others were keeping things on this source's behalf -- `prepareState` alone holds its
     // prepared bytes, their provenance, its verdicts and a persisted converted pointer. Left
     // behind they kept the Library showing a removed source's games. Announced rather than

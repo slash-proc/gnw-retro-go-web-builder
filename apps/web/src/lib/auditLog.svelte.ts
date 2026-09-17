@@ -600,7 +600,7 @@ class AuditLog {
    * showed a crop warning. Anything drawing the bell reads this; nothing re-derives it.
    */
   get notifications(): AuditEntry[] {
-    return this.entries.filter((e) => !e.seen && e.severity === "error");
+    return this.entries.filter((e) => !e.seen && (e.severity === "error" || e.severity === "warning"));
   }
 
   /** The badge. Counts exactly what `notifications` lists, because it IS that list. */

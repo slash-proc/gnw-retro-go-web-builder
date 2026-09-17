@@ -80,6 +80,9 @@ const Ctx = {
  * iteration, which is microseconds -- this is a thousandfold margin, not a tuning knob.
  */
 const CONTEXT_PICKUP_GRACE_MS = 2000;
+const VTOR_ADDR = 0xe000ed08;
+const RAM_STUB_START = 0x24000000;
+const RAM_STUB_END = 0x24100000;
 
 const N_CONTEXTS = 2;
 const CONTEXT_HDR_STRIDE = 1024; // context i header @ MAILBOX_ADDR + (i+1)*1024
@@ -554,17 +557,19 @@ export class GnwFlasher {
    */
   private stallWatch(timeoutMs: number, log: LogFn, what: string) {
     let deadline = Date.now() + timeoutMs;
+    let warningAt = Date.now() + Math.min(10_000, timeoutMs);
     let warned = false;
     return {
       progress(): void {
         deadline = Date.now() + timeoutMs;
+        warningAt = Date.now() + Math.min(10_000, timeoutMs);
         warned = false;
       },
       check(statusLabel: string): void {
         const left = deadline - Date.now();
-        if (!warned && left <= timeoutMs / 2) {
+        if (!warned && Date.now() >= warningAt) {
           warned = true;
-          log(`warning: ${what} has not advanced for ${(timeoutMs / 2000).toFixed(0)}s (status ${statusLabel})`);
+          log(`warning: ${what} has not advanced for ${Math.min(10_000, timeoutMs) / 1000}s (status ${statusLabel})`);
         }
         if (left <= 0) {
           // A stall at IDLE is almost always the CONTEXT COUNTER, not a wedged device. The stub
@@ -591,8 +596,23 @@ export class GnwFlasher {
   async waitForIdle(timeoutMs = 20000, log: LogFn = () => {}): Promise<void> {
     const stall = this.stallWatch(timeoutMs, log, "the device");
     let last: number | null = null;
+    let nextVtorCheck = 0;
     for (;;) {
       const status = (await this.transport.readWord(this.addr(Field.STATUS))) >>> 0;
+      // If the target reset out of the RAM stub during erase/program, the mailbox can retain
+      // its last ERASE value and otherwise look alive. VTOR is the immediate, non-halting
+      // witness: the stub runs from 0x240xxxxx; the bootloader/firmware does not. Surface this
+      // as soon as it is observed so flashImage() restarts the stub immediately rather than
+      // waiting for the no-progress timeout.
+      if (status !== STATUS_IDLE && status !== 0 && Date.now() >= nextVtorCheck) {
+        // Avoid adding a second SWD read to every 10 ms mailbox poll while still detecting a
+        // reset within one normal polling interval.
+        nextVtorCheck = Date.now() + 100;
+        const vtor = (await this.transport.readWord(VTOR_ADDR)) >>> 0;
+        if (vtor < RAM_STUB_START || vtor >= RAM_STUB_END) {
+          throw new Error(`[gnw-flasher] RAM stub exited during ${statusName(status)} (VTOR=0x${vtor.toString(16)})`);
+        }
+      }
       if (status !== last) {
         log(`status: ${statusName(status)}`);
         last = status;
@@ -883,7 +903,9 @@ export class GnwFlasher {
     // the progress bar visibly winding back and re-filling), up to maxAttempts=3 — and each
     // retry forces a stub reboot, i.e. a device reset, which is what turned an already-
     // completed flash into a wedged target. Observed on hardware, 2026-08.
-    await this.waitForIdle(120000, log);
+    // A stalled erase must surface to the caller; retrying here reboots the RAM
+    // utility and starts the whole image again, which is unsafe after a bank write.
+    await this.waitForIdle(15000, log);
   }
 
   /**

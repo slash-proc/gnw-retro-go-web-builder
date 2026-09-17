@@ -15,7 +15,7 @@
   // untrusted third-party text. It is interpolated with `{...}`, which is textContent
   // semantics — never {@html}.
   import { locale } from "../i18n/locale.svelte.js";
-  import { sources, type SourceRow } from "../sources/store.svelte.js";
+  import { rawManifestFromCard, sources, sourceDisplayName, type SourceRow } from "../sources/store.svelte.js";
   import { library } from "../library.svelte.js";
   import { device } from "../device.svelte.js";
   import { abiSatisfies } from "../engine/firmwareAbi.js";
@@ -484,8 +484,15 @@
   }
 
   /** This device family's target, the same pick `store.svelte.ts`'s `toCard` makes. */
+  // Raw CORE rows can predate manifest persistence, and a restored row may therefore have
+  // only its card. Reconstruct the same synthetic manifest used by the store so the detail
+  // page still has an artifact list instead of showing release metadata with no install rows.
+  const effectiveManifest = $derived.by(() =>
+    detail?.manifest ?? (detail?.origin === "raw" && detail.card ? rawManifestFromCard(detail.card) : undefined),
+  );
+
   const target = $derived.by<Target | undefined>(() => {
-    const targets = detail?.manifest?.targets;
+    const targets = effectiveManifest?.targets;
     if (!targets || targets.length === 0) return undefined;
     return targets.find((t2) => t2.platform === "game-and-watch") ?? targets[0];
   });
@@ -503,8 +510,10 @@
    */
   const installRows = $derived.by(() =>
     composeInstallRows(
-      target,
-      detail?.manifest,
+      target && detail?.origin === "raw" && target.artifacts.length === 0 && detail.card?.rawArtifacts
+        ? { ...target, artifacts: detail.card.rawArtifacts }
+        : target,
+      effectiveManifest,
       (filename) => prepareState.get(filename)?.length,
       // A derived output is named by its run, never by the manifest, so its rows come from the
       // run's provenance. Without this the page listed a source's shipped binary and dropped
@@ -706,7 +715,7 @@
         <div class="dident">
           <h2 class="dtitle">{detail.card?.title ?? detail.repo}</h2>
           <div class="dmeta">
-            <span class="repo">{detail.repo}</span>
+            <span class="repo">{sourceDisplayName(detail)}</span>
             <span class="kind"
               >{isCoreKind(detail.card?.kind) ? t.colCores : t.colHomebrew}</span
             >
@@ -1011,7 +1020,7 @@
               <div class="main">
                 <div class="identity">
                   <div class="name">{row.card?.title ?? row.repo}</div>
-                  <div class="repo">{row.repo}</div>
+                  <div class="repo">{sourceDisplayName(row)}</div>
                 </div>
                 {#if segments.length > 0}
                   <div class="meta" class:bad={row.status === "error"}>

@@ -161,7 +161,7 @@
   {#if device.scanning}
     <div class="placeholder">{locale.t.flashSection.scanningDevice}</div>
   {:else if !device.utilLoaded}
-    <Button variant="action" onclick={() => device.ensureStub()}>{locale.t.flashSection.enterRecoveryMode}</Button>
+    <Button variant="action" onclick={() => void device.startRecoveryMode()}>{locale.t.flashSection.enterRecoveryMode}</Button>
   {:else}
   <div class="stack">
     <div class="bars">

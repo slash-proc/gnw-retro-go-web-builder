@@ -173,6 +173,7 @@ export const sourcesUk: SourcesStrings = {
     usedBy: "Використовується",
     biosGroup: "Системні файли",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'Резервна копія OFW',
     any: "Будь-які",
     count: (n: number) => `${n} ${plural(n, "тека", "теки", "тек")}`,
     addDirectoryTitle: "Додати теку",

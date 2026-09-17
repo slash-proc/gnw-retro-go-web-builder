@@ -89,6 +89,9 @@ function makeFake(loopDivider = 0) {
   setStatus(STATUS_IDLE);
   ww(MAILBOX_ADDR + F.FLASH_SIZE, 64 * 1024 * 1024);
   ww(MAILBOX_ADDR + F.MIN_ERASE_SIZE, 4096);
+  // The flasher now checks VTOR while waiting on a non-idle status to detect a target reset.
+  // Keep the fake target's vector table inside the RAM-stub window.
+  ww(0xe000ed08, 0x240e6800);
 
   const tick = () => {
     dev.ticks += 1;

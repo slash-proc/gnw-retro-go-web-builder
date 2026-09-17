@@ -221,6 +221,7 @@ export const sourcesEn = {
     usedBy: "Used by",
     biosGroup: "System files",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'OFW Backup',
     any: "Any",
     count: (n: number) => (n === 1 ? "1 folder" : `${n} folders`),
     // The add-a-directory page (SourcesAddRoms / SourcesAddHomebrewDir artboards, now one

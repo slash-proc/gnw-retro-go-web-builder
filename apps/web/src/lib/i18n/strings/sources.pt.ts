@@ -155,6 +155,7 @@ export const sourcesPt: SourcesStrings = {
     usedBy: "Usada por",
     biosGroup: "Ficheiros de sistema",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'Backup OFW',
     any: "Qualquer",
     count: (n: number) => (n === 1 ? "1 pasta" : `${n} pastas`),
     addDirectoryTitle: "Adicionar uma diretoria",

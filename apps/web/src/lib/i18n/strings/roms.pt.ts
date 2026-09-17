@@ -90,7 +90,7 @@ export const romsPt: RomsStrings = {
   sdSync: {
     // Followed directly by a <select> of core versions, so this fragment ends on the
     // preposition, exactly as the English does.
-    upgradeLabelPre: "Atualizar o Retro-Go e os cores para",
+    upgradeLabelPre: "Atualizar o Retro-Go para",
     updatesWhenBoots: "(aplicado no próximo arranque da G&W)",
     downloadZipButton: "Transferir ZIP do SD",
     nothingToSyncTitle: "Não mudaram jogos, cores, capas nem cheats, por isso não há nada para sincronizar.",

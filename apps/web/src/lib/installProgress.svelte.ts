@@ -133,6 +133,15 @@ export type VersionPicker = {
   refreshLabel: string;
 };
 
+/** A small choice picker shown in the confirm step when the caller needs an explicit
+ *  selection before starting a destructive operation. */
+export type ChoicePicker = {
+  label: string;
+  options: () => { value: string; label: string }[];
+  selected: () => string;
+  onSelect: (value: string) => void;
+};
+
 interface PromptConfig {
   title: string;
   body: string;
@@ -145,6 +154,7 @@ interface PromptConfig {
   checkboxes: CheckboxDef[];
   confirmGate: ConfirmGate | null;
   versionPicker: VersionPicker | null;
+  choicePicker: ChoicePicker | null;
   exec: (r: PhaseReporter) => Promise<void>;
   resolve: () => void;
   reject: (e: Error) => void;
@@ -170,6 +180,8 @@ class InstallProgressStore {
   /** Single shared, tagged, always-visible audit trail for the WHOLE operation — replaces the
    *  old per-phase `lines`/`expanded` log-box concept. */
   auditLog = $state<LogLine[]>([]);
+  /** Wall-clock start of the active flash/sync, set only after confirmation. */
+  startedAt = $state<number | null>(null);
 
   /** Whether the shared audit log is expanded. Sticky across separate operations (unlike the
    *  rest of this store's state, which `run()` resets each time) — persisted via persist.ts,
@@ -217,10 +229,12 @@ class InstallProgressStore {
     checkboxes?: CheckboxDef[];
     confirmGate?: ConfirmGate;
     versionPicker?: VersionPicker;
+    choicePicker?: ChoicePicker;
     exec: (r: PhaseReporter) => Promise<void>;
   }): Promise<void> {
     return new Promise((resolve, reject) => {
       this.modalPhase = "confirm";
+      this.startedAt = null;
       this.phaseState = Object.fromEntries(
         opts.phases.map((p) => [
           p.id,
@@ -252,6 +266,7 @@ class InstallProgressStore {
         checkboxes,
         confirmGate: opts.confirmGate ?? null,
         versionPicker: opts.versionPicker ?? null,
+        choicePicker: opts.choicePicker ?? null,
         exec: opts.exec,
         resolve,
         reject,
@@ -384,6 +399,7 @@ class InstallProgressStore {
     const p = this.prompt;
     if (!p) return;
     this.modalPhase = "running";
+    this.startedAt = Date.now();
     // Per run, and handed to exec through the reporter. Made HERE rather than in run() so that
     // a prompt sitting unconfirmed on screen holds no controller at all.
     this.controller = new AbortController();

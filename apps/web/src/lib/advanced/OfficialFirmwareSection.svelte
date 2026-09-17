@@ -23,6 +23,7 @@
   import { locale } from "../i18n/locale.svelte.js";
   import { formatSize } from "../util.js";
   import PaneFooter from "./PaneFooter.svelte";
+  import { localFolders } from "../sources/localFolders.svelte.js";
 
   // Official Firmware — a staged, progressive-disclosure flow:
   //   1. Firmware Backup  — pick a folder; validate existing backups or take a fresh one.
@@ -148,8 +149,7 @@
     recoveryErr = null;
     enteringRecovery = true;
     try {
-      await device.ensureStub();
-      await device.runScan("ofw section");
+      await device.startRecoveryMode();
     } catch (e) {
       if (!(e instanceof Error && e.message.includes("cancelled"))) {
         recoveryErr = e instanceof Error ? e.message : String(e);
@@ -179,6 +179,7 @@
       dir = d;
       pendingDir = null;
       void saveDir("ofwBackupDir", d);
+      await localFolders.adoptOfwBackup(d);
       patched = false;
       await rescan();
     } catch (e) {
@@ -199,6 +200,7 @@
     if (!handle || dir) return;
     if (await handlePermission(handle, "readwrite", false)) {
       dir = handle;
+      await localFolders.adoptOfwBackup(handle);
       await rescan();
     } else {
       pendingDir = handle;
@@ -211,6 +213,7 @@
     if (await handlePermission(handle, "readwrite", true)) {
       pendingDir = null;
       dir = handle;
+      await localFolders.adoptOfwBackup(handle);
       await rescan();
     }
   }

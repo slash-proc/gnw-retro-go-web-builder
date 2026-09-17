@@ -166,6 +166,7 @@ export const sourcesPl: SourcesStrings = {
     usedBy: "Używany przez",
     biosGroup: "Pliki systemowe",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'Kopia OFW',
     any: "Dowolne",
     count: (n: number) => {
       if (n === 1) return "1 folder";

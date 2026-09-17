@@ -39,17 +39,8 @@
   // disconnected states we show. The same test `Landing.svelte` gates its card on.
   const webusbSupported = typeof navigator !== "undefined" && !!navigator.usb;
 
-  // This tab is a dead end without a device — auto-surface the shared connect gate the moment
-  // it is viewed while disconnected (no click required). No-ops instantly if already connected.
-  let gateActive = false;
-  $effect(() => {
-    if (device.isConnected || gateActive) return;
-    gateActive = true;
-    device
-      .ensureConnectGate()
-      .catch(() => {})
-      .finally(() => (gateActive = false));
-  });
+  // Overview is passive. It must not open the shared connection gate merely because
+  // navigation landed here; device actions and explicit feature requests own that prompt.
 
   // --- the screen dock ---------------------------------------------------------------------
   let isCapturingScreenshot = $state(false);

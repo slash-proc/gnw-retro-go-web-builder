@@ -33,7 +33,6 @@ import {
   type FirmwareVersionsFile,
   type ProvidesAbi,
   type RemoteAsset,
-  type SdUpdate,
 } from "./types.js";
 
 // --- primitives -------------------------------------------------------------------------
@@ -218,18 +217,6 @@ function member(v: unknown, where: string): BundleMember {
   };
 }
 
-function sdUpdateOf(v: unknown, where: string): SdUpdate {
-  const o = obj(v, where);
-  const base = member(v, where);
-  const filename = str(o.filename, `${where}.filename`);
-  // The one load-bearing filename in the format, matched literally by the on-device updater
-  // (firmware_update.c:20,24). Anything else would be written and never found.
-  if (filename !== "update_bank1.bin" && filename !== "update_bank2.bin") {
-    throw new FirmwareDistError("malformed", `${where}.filename: ${filename}`);
-  }
-  return { ...base, filename };
-}
-
 function contentOf(v: unknown, where: string): ContentEntry {
   const o = obj(v, where);
   const entry: ContentEntry = {
@@ -279,22 +266,6 @@ function buildOf(v: unknown, base: string, i: number): FirmwareBuild {
     seen.add(e.install);
   }
   const image = member(o.image, `${w}.image`);
-  // sdUpdate is required on SD builds and forbidden on flash builds (schema `allOf`).
-  const hasUpdate = o.sdUpdate !== undefined;
-  if (storage === "sd" && !hasUpdate) {
-    throw new FirmwareDistError("malformed", `${w}.sdUpdate: missing on an sd build`);
-  }
-  if (storage === "flash" && hasUpdate) {
-    throw new FirmwareDistError("malformed", `${w}.sdUpdate: present on a flash build`);
-  }
-  const upd = hasUpdate ? sdUpdateOf(o.sdUpdate, `${w}.sdUpdate`) : undefined;
-  // May share the image's zip entry — but then it must be the same bytes.
-  if (upd && upd.path === image.path && upd.sha256 !== image.sha256) {
-    throw new FirmwareDistError(
-      "malformed",
-      `${w}.sdUpdate: shares the image zip entry with a different sha256`,
-    );
-  }
   const result: FirmwareBuild = {
     id,
     storage: storage as FirmwareStorage,
@@ -305,11 +276,10 @@ function buildOf(v: unknown, base: string, i: number): FirmwareBuild {
     littlefsBlockSize: int(o.littlefsBlockSize, `${w}.littlefsBlockSize`),
     buildFlags: str(o.buildFlags, `${w}.buildFlags`),
     bundle: asset(o.bundle, base, `${w}.bundle`),
-    debug: asset(o.debug, base, `${w}.debug`),
+    ...(o.debug === undefined ? {} : { debug: asset(o.debug, base, `${w}.debug`) }),
     image,
     content: entries,
   };
-  if (upd) result.sdUpdate = upd;
   return result;
 }
 
@@ -361,6 +331,9 @@ export function parseManifest(doc: unknown, manifestUrl: string): FirmwareManife
   const builds = arr(o.builds, "manifest.json.builds").map((b, i) =>
     buildOf(b, manifestUrl, i),
   );
+  const updates = obj(o.updates, "manifest.json.updates");
+  const bank1 = asset(updates.bank1, manifestUrl, "updates.bank1");
+  const bank2 = asset(updates.bank2, manifestUrl, "updates.bank2");
   if (builds.length === 0) {
     throw new FirmwareDistError("malformed", "manifest.json.builds: empty");
   }
@@ -412,6 +385,7 @@ export function parseManifest(doc: unknown, manifestUrl: string): FirmwareManife
     paths,
     languages,
     builds,
+    updates: { bank1, bank2 },
     builtAt: str(o.builtAt, "manifest.json.builtAt"),
     url: manifestUrl,
   };
@@ -472,14 +446,6 @@ export function contentForLanguages(
 ): ContentEntry[] {
   const want = new Set(languages);
   return build.content.filter((e) => !e.language || want.has(e.language));
-}
-
-/**
- * True when `sdUpdate` points at the same zip entry as `image` — the normal case. Extract that
- * one entry and write it under BOTH `image`'s destination and `sdUpdate.filename`.
- */
-export function sdUpdateSharesImage(build: FirmwareBuild): boolean {
-  return build.sdUpdate !== undefined && build.sdUpdate.path === build.image.path;
 }
 
 // --- projects.json ------------------------------------------------------------------------

@@ -2,7 +2,7 @@
   import { sources } from "../sources/store.svelte.js";
   import { BIOS_USED_BY_KEY, isCoreKind, systemKey, targetOf } from "../sources/types.js";
   import { homebrew } from "../sources/homebrewTitles.svelte.js";
-  import { targetKey } from "../sources/localFolders.svelte.js";
+  import { targetKey, OFW_BACKUP_USED_BY_KEY } from "../sources/localFolders.svelte.js";
 
   /** One pickable association: a manifest target key and the label to draw for it. */
   export interface UsedByOption {
@@ -113,6 +113,11 @@
     return { key: BIOS_USED_BY_KEY, label };
   }
 
+  /** The firmware backup directory association, always offered with system files. */
+  export function ofwBackupOption(label: string): UsedByOption {
+    return { key: OFW_BACKUP_USED_BY_KEY, label };
+  }
+
   /** Every homebrew title, from the catalogue that already derives them from the manifests. */
   export function homebrewOptions(): UsedByOption[] {
     return homebrew.titles.map((t) => ({ key: t.key, label: t.label })).sort(byLabel);
@@ -164,10 +169,12 @@
   const homebrews = $derived(homebrewOptions());
   /** What the boxes are drawn from: the stored value with legacy target keys expanded. */
   const bios = $derived(biosOption(t.folders.biosUsedBy));
-  const selected = $derived(expandSelection(value, [...cores, ...homebrews, bios]));
+  const ofwBackup = $derived(ofwBackupOption(t.folders.ofwBackupUsedBy));
+  const selected = $derived(expandSelection(value, [...cores, ...homebrews, bios, ofwBackup]));
 
   let open = $state(false);
   let menuEl = $state<HTMLDivElement | null>(null);
+  let rootEl = $state<HTMLDivElement | null>(null);
 
   $effect(() => {
     // Reads `open` and `menuEl` and writes neither, so this cannot re-trigger itself.
@@ -178,7 +185,7 @@
    *  the empty one — "Any" — and no artboard states a summary line for a narrowed folder, so
    *  the picked labels themselves stand in rather than a count sentence nobody wrote. */
   const chosen = $derived(
-    [...cores, ...homebrews, bios].filter((o) => selected.includes(o.key)).map((o) => o.label),
+    [...cores, ...homebrews, bios, ofwBackup].filter((o) => selected.includes(o.key)).map((o) => o.label),
   );
 
   function toggle(key: string): void {
@@ -188,7 +195,12 @@
   }
 </script>
 
-<div class="usedby" class:open>
+<svelte:window onpointerdown={(event) => {
+  if (!open || !rootEl || !(event.target instanceof Node)) return;
+  if (!rootEl.contains(event.target)) open = false;
+}} />
+
+<div class="usedby" class:open bind:this={rootEl}>
   <button class="field" type="button" aria-expanded={open} onclick={() => (open = !open)}>
     {#if chosen.length === 0}
       <span class="any">{t.folders.any}</span>
@@ -233,6 +245,10 @@
       <button class="opt" type="button" onclick={() => toggle(bios.key)}>
         <span class="box" class:on={selected.includes(bios.key)}></span>
         <span class="optlabel">{bios.label}</span>
+      </button>
+      <button class="opt" type="button" onclick={() => toggle(ofwBackup.key)}>
+        <span class="box" class:on={selected.includes(ofwBackup.key)}></span>
+        <span class="optlabel">{ofwBackup.label}</span>
       </button>
     </div>
   {/if}

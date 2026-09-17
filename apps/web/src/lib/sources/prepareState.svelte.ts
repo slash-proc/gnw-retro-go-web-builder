@@ -33,6 +33,8 @@
 import { scoped } from "../storageScope.js";
 import { locale } from "../i18n/locale.svelte.js";
 import { convertHomebrewTitle } from "./homebrewConvert.js";
+import { blobCache } from "./blobCache.js";
+import { rawCorePayload } from "./rawCore.js";
 import { ConverterError } from "./converter.js";
 import { fetchTargetArtifacts } from "./installArtifacts.js";
 import { fetchVerified } from "./client.js";
@@ -1076,7 +1078,19 @@ class PrepareState {
       mappedByName.set(a.filename, a.relocBase === undefined ? {} : { relocBase: a.relocBase });
     }
     const written: string[] = [];
-    for (const [fname, data] of await fetchTargetArtifacts(target)) {
+    let fetched: Map<string, Uint8Array>;
+    if (key.startsWith("raw/")) {
+      fetched = new Map();
+      for (const a of target.artifacts ?? []) {
+        // Older persisted raw rows reconstructed metadata without a hash. The repo key is
+        // the container SHA-256, so use it as the cache key in that case.
+        const hash = a.sha256 || key.slice("raw/".length).split("#", 1)[0];
+        const data = rawCorePayload(hash) ?? await blobCache().get(hash);
+        if (data) fetched.set(a.filename, data);
+      }
+      if (fetched.size !== (target.artifacts ?? []).length) fetched = await fetchTargetArtifacts(target);
+    } else fetched = await fetchTargetArtifacts(target);
+    for (const [fname, data] of fetched) {
       const k = `${artKey}/${fname}`;
       this.assets.set(k, data);
       this.assetSource.set(k, "artifact");

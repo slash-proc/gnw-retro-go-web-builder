@@ -191,6 +191,17 @@ await check("every device call the SD path can reach is behind a media guard", (
   ok(seen.size >= 3, `the walk only visited ${seen.size} function(s); it is not walking`);
 });
 
+await check("a fresh SD ROM install includes the shared fonts and language bundle", () => {
+  ok(/const freshSdTarget\s*=\s*\$derived\(device\.installedGames\.length\s*===\s*0\)/.test(tabSrc),
+    "the SD sync has no explicit fresh-target test");
+  ok(/const needsBundle\s*=\s*syncCores\s*\|\|\s*freshTarget\s*\|\|\s*preparedMissingCores\s*\|\|\s*coreFilesNeedWrite/.test(tabSrc),
+    "a fresh SD target does not force the release bundle to be fetched");
+  ok(/bundle\.contentFor\(syncBank,\s*true\)/.test(tabSrc),
+    "the fresh SD path does not take content from the SD release bundle");
+  ok(/if \(coreFilesNeedWrite\) \{/.test(tabSrc),
+    "the fresh SD path fetches the bundle but does not write it");
+});
+
 // ----------------------------------------------------------------------------------------------
 for (const f of failures) console.log(`  FAIL ${f}`);
 console.log(`sd sync device: ${passed} passed, ${failures.length} failed`);

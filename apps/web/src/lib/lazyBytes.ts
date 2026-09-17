@@ -18,6 +18,8 @@ export interface LazyBytes {
   /** UNCOMPRESSED length, known without reading the payload. */
   readonly length: number;
   bytes(): Promise<Uint8Array>;
+  /** Release an optional decoded cache when a caller has finished a one-shot transform. */
+  release?(): void;
 }
 
 /** Either already-read bytes, or a handle that can produce them. */

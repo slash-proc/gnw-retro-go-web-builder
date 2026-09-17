@@ -87,7 +87,7 @@ export const romsZhHant: RomsStrings = {
   },
   sdSync: {
     // 模板後面接的是版本下拉選單，中文的「升級到」同樣以受詞結尾，順序對得上。
-    upgradeLabelPre: "將 Retro-Go 與核心升級到",
+    upgradeLabelPre: "將 Retro-Go 升級到",
     updatesWhenBoots: "（G&W 下次開機時套用）",
     downloadZipButton: "下載 SD ZIP",
     nothingToSyncTitle: "遊戲、核心、封面與金手指都沒有變動，沒有要同步的內容。",

@@ -93,6 +93,8 @@ export interface DiscoveredFile {
   path: string;
   folderId: string;
   match: DiscoveryMatch;
+  /** SHA-1 settled by the input gate; used to collapse overlapping-source duplicates. */
+  sha1?: string;
   /** The matched variant's id, for a `"variant"` match. */
   variantId?: string;
   /** That variant's canonical `filename`, when it declares one. */
@@ -291,7 +293,8 @@ export async function discoverInput(
     const file = offered[i];
     if (!acceptedSet.has(file)) return;
     files.push(file);
-    found.push(f);
+    const verdict = gate.verdicts[i];
+    found.push(verdict?.sha1 === undefined ? f : { ...f, sha1: verdict.sha1 });
   });
 
   return {

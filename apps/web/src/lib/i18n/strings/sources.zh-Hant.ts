@@ -149,6 +149,7 @@ export const sourcesZhHant: SourcesStrings = {
     usedBy: "使用對象",
     biosGroup: "系統檔案",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'OFW 備份',
     any: "不限",
     count: (n: number) => `${n} 個資料夾`,
     addDirectoryTitle: "新增一個目錄",

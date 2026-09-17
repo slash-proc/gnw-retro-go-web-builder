@@ -108,12 +108,25 @@ export async function discoverForSource(
       // `found[]` also names the matched VARIANT, not just its declared output filename, and a
       // discovered row leads with that variant's label exactly as a picked one does. Same
       // one-per-file ordering, so the index is the pairing.
-      const files = r.files.map((f, i) => {
+      const keep: number[] = [];
+      const seen = new Set<string>();
+      r.found.forEach((f, i) => {
+        const file = r.files[i];
+        const key = f.sha1 === undefined
+          ? `${file.filename.toLowerCase()}\u0000${i}`
+          : `${file.filename.toLowerCase()}\u0000${f.sha1}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        keep.push(i);
+      });
+      const files = keep.map((i) => {
+        const f = r.files[i];
         const id = r.found[i]?.variantId;
         return id === undefined ? f : { ...f, variantId: id };
       });
       prepareState.setDiscovered(repo, r.inputId, files, r.unrecognised);
-      for (const f of r.found) {
+      for (const i of keep) {
+        const f = r.found[i];
         if (f.variantFilename) hints.set(f.path, { variantFilename: f.variantFilename });
       }
     }

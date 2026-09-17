@@ -72,6 +72,35 @@ one.**
 - `references/` is gitignored local clones, not submodules. A fresh clone or an agent worktree
   has none, so the reference-oracle tests only run from the main clone.
 
+## Official curated distribution retrieval
+
+When obtaining a curated core or homebrew artifact, use the project's published GitHub Pages
+distribution metadata. Never guess a GitHub release URL, tag asset path, repository name, or
+GitHub API endpoint, and never treat a device copy as the original distribution artifact.
+
+The discovery chain is:
+
+1. Start with the Retro-Go SD distribution index hard-coded by the app:
+   `https://slash-proc.github.io/game-and-watch-retro-go-sd/dist/versions.json`.
+2. Select the requested firmware entry (the newest default is `versions[0]`; there is no
+   `latest` file), resolve its `manifest` relative to that index URL, then resolve the
+   manifest's `projects` URL relative to the manifest URL.
+3. For a curated project, use the exact absolute `versionsUrl` published in `projects.json`.
+   For example, if the curated list publishes
+   `https://slash-proc.github.io/ccleste-retro-go-sd/dist/versions.json`, fetch that URL;
+   do not reconstruct it from memory.
+4. In that project's `versions.json`, select the exact requested tag (for example `v0.0.4`,
+   `v0.2.0`, or `v1.1.2`). Resolve its manifest relative to the project's `versions.json`,
+   then resolve every artifact URL relative to that manifest URL.
+5. Download and verify the manifest-declared artifact bytes (including `sha256` and size) via
+   the source client path. If an exact tag is absent, report it unavailable rather than
+   silently substituting another release.
+
+The implementation of this protocol is in `apps/web/src/lib/firmwareDist/client.ts` and
+`curated.ts` for the Retro-Go SD index and curated project list, and
+`apps/web/src/lib/sources/client.ts` for project `versions.json`, manifests, URL resolution,
+and artifact verification (`resolveVersion`/`fetchTargetArtifacts`).
+
 ## Memory
 
 Durable project facts live in `.claude/projects/.../memory/`. Consult them before re-deriving

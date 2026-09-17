@@ -156,6 +156,7 @@ export const sourcesJa: SourcesStrings = {
     usedBy: "使用先",
     biosGroup: "システムファイル",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'OFWバックアップ',
     any: "すべて",
     count: (n: number) => `${n} 個のフォルダー`,
     addDirectoryTitle: "ディレクトリを追加",

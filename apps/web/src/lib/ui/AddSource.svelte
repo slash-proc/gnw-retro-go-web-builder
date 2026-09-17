@@ -21,6 +21,7 @@
   import { errorText } from "../sources/errorText.js";
   import { normaliseRepoRef, resolveSource } from "../sources/client.js";
   import { SourceError, isCoreKind, type ResolvedSource, type Target } from "../sources/types.js";
+  import { parseRawCore, rawCoreSource } from "../sources/rawCore.js";
   import { device } from "../device.svelte.js";
   import { abiSatisfies } from "../engine/firmwareAbi.js";
   import { formatSize } from "../util.js";
@@ -38,15 +39,16 @@
 
   const t = $derived(locale.t.sources);
 
-  let addMode = $state<"url" | "bundle">("url");
+  let addMode = $state<"url" | "bundle" | "raw">("url");
   let urlInput = $state("");
   /** The look-up result. Cleared the moment the URL it describes stops being the typed one. */
   let found = $state<ResolvedSource | null>(null);
+  let foundRelease = $state<(() => void) | null>(null);
   let looking = $state(false);
 
   const busy = $derived(looking || sources.adding);
   $effect(() => {
-    canAdd = addMode === "url" && found !== null && !busy;
+    canAdd = (addMode === "url" || addMode === "raw") && found !== null && !busy;
   });
 
   /** Resolve the typed repo WITHOUT keeping it. Errors land in the same place add's do. */
@@ -74,9 +76,13 @@
   /** The footer bar's Add. Exposed to the owner through `bind:this`. */
   export async function submit(): Promise<void> {
     if (!canAdd) return;
-    if (found && sources.addResolved(found)) {
+    if (found && addMode === "url" && sources.addResolved(found)) {
       urlInput = "";
       found = null;
+      onDone();
+    } else if (found && addMode === "raw" && foundRelease && sources.addRawCore(found, foundRelease)) {
+      found = null;
+      foundRelease = null;
       onDone();
     }
   }
@@ -97,6 +103,24 @@
     const data = new Uint8Array(await file.arrayBuffer());
     input.value = "";
     if (await sources.importBundleFile(data)) onDone();
+  }
+
+  async function pickRawCore(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file || sources.adding) return;
+    const data = new Uint8Array(await file.arrayBuffer());
+    input.value = "";
+    sources.addError = null;
+    try {
+      const descriptor = parseRawCore(data, file.name);
+      const imported = await rawCoreSource(descriptor);
+      found = imported.resolved;
+      foundRelease = imported.release;
+    } catch (err) {
+      const e2 = err instanceof SourceError ? err : new SourceError("raw-core-invalid");
+      sources.addError = { code: e2.code, detail: e2.detail };
+    }
   }
 
   /** This device family's target, the same pick `store.svelte.ts`'s `toCard` makes. */
@@ -145,6 +169,7 @@
       class:on={addMode === "bundle"}
       onclick={() => (addMode = "bundle")}>{t.modeBundle}</button
     >
+    <button type="button" class="mode" class:on={addMode === "raw"} onclick={() => (addMode = "raw")}>Raw binary</button>
   </div>
 
   {#if addMode === "url"}
@@ -211,7 +236,7 @@
     {#if sources.addError}
       <p class="err">{errorText(t, sources.addError.code, sources.addError.detail)}</p>
     {/if}
-  {:else}
+  {:else if addMode === "bundle"}
     <!-- The offline path (spec/06-bundle.md). Everything the manifest names is verified
          against its declared size and sha256 during the import, so a large bundle spends a
          visible moment here; `sources.adding` is what the label reflects. -->
@@ -225,6 +250,27 @@
       />
     </label>
     {#if sources.adding}<p class="hint">{t.importing}</p>{/if}
+    {#if sources.addError}
+      <p class="err">{errorText(t, sources.addError.code, sources.addError.detail)}</p>
+    {/if}
+  {:else}
+    <label class="field">
+      <span class="label">CORE binary</span>
+      <input type="file" accept=".core,application/octet-stream" onchange={pickRawCore} disabled={sources.adding} />
+    </label>
+    {#if found}
+      {@const target = foundTarget}
+      <div class="section">
+        <div class="cap">CORE binary</div>
+        <div class="panel">
+          <div class="prow"><span class="plabel">Name</span><span class="pval">{found.manifest.title}</span></div>
+          <div class="prow"><span class="plabel">Version</span><span class="pval">{found.entry.tag}</span></div>
+          <div class="prow"><span class="plabel">Systems</span><span class="pval">{(target?.systems ?? []).map((s) => s.longName).join(", ")}</span></div>
+          {#if target && target.artifacts.length > 0}<div class="prow"><span class="plabel">File</span><span class="pval mono">{target.artifacts[0].filename} ({formatSize(target.artifacts[0].bytes)}</span></div>{/if}
+        </div>
+      </div>
+    {/if}
+    {#if sources.adding}<p class="hint">Reading CORE binary…</p>{/if}
     {#if sources.addError}
       <p class="err">{errorText(t, sources.addError.code, sources.addError.detail)}</p>
     {/if}

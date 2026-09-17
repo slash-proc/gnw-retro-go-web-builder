@@ -95,7 +95,7 @@ export const romsRu: RomsStrings = {
     wontFitDetail: "Не помещается в доступное место. Снимите выбор с части игр.",
   },
   sdSync: {
-    upgradeLabelPre: "Обновить Retro-Go и ядра до",
+    upgradeLabelPre: "Обновить Retro-Go до",
     updatesWhenBoots: "(применится при следующем запуске G&W)",
     downloadZipButton: "Скачать ZIP для SD",
     nothingToSyncTitle: "Игры, ядра, обложки и читы не менялись, синхронизировать нечего.",

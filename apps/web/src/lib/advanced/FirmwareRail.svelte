@@ -131,37 +131,39 @@
   </nav>
 
   <div class="pane" class:narrow={selected === "install"}>
-    <div class="panebody">
-    <header class="pagehead">
-      <h2 class="pagetitle">{pagehead.title}</h2>
-      {#if pagehead.subtitle}<p class="pagesub">{pagehead.subtitle}</p>{/if}
-    </header>
-    {#if selected === "ofw"}
-      <OfficialFirmwareSection />
-    {:else if selected === "install"}
-      <RetroGoTab onRunning={(r: boolean) => onRunning("install", r)} />
-    {:else if selected === "lfs"}
-      <div class:disabled={gated} aria-disabled={gated}>
-        {#if device.utilLoaded}
-          <FileBrowserSection />
-        {:else}
-          <Button variant="action" onclick={() => device.ensureStub()}>{locale.t.retroGoTab.enterRecoveryMode}</Button>
-        {/if}
+    {#key selected}
+      <div class="panebody">
+      <header class="pagehead">
+        <h2 class="pagetitle">{pagehead.title}</h2>
+        {#if pagehead.subtitle}<p class="pagesub">{pagehead.subtitle}</p>{/if}
+      </header>
+      {#if selected === "ofw"}
+        <OfficialFirmwareSection />
+      {:else if selected === "install"}
+        <RetroGoTab onRunning={(r: boolean) => onRunning("install", r)} />
+      {:else if selected === "lfs"}
+        <div class:disabled={gated} aria-disabled={gated}>
+          {#if device.utilLoaded}
+            <FileBrowserSection />
+          {:else}
+            <Button variant="action" onclick={() => void device.startRecoveryMode()}>{locale.t.retroGoTab.enterRecoveryMode}</Button>
+          {/if}
+        </div>
+      {:else if selected === "flash-image"}
+        <FlashSection onRunning={(r: boolean) => onRunning("flash-image", r)} />
+      {:else if selected === "dump"}
+        <DumpSection onRunning={(r: boolean) => onRunning("dump", r)} />
+      {:else}
+        <EraseSection onRunning={(r: boolean) => onRunning("erase-flash", r)} />
+      {/if}
       </div>
-    {:else if selected === "flash-image"}
-      <FlashSection onRunning={(r: boolean) => onRunning("flash-image", r)} />
-    {:else if selected === "dump"}
-      <DumpSection onRunning={(r: boolean) => onRunning("dump", r)} />
-    {:else}
-      <EraseSection onRunning={(r: boolean) => onRunning("erase-flash", r)} />
-    {/if}
-    </div>
-    {#if footer.content || footer.summary}
-      <div class="panefoot">
-        <span class="sum">{footer.summary ?? ""}</span>
-        {#if footer.content}<div class="actions">{@render footer.content()}</div>{/if}
-      </div>
-    {/if}
+      {#if footer.content || footer.summary}
+        <div class="panefoot">
+          <span class="sum">{footer.summary ?? ""}</span>
+          {#if footer.content}<div class="actions">{@render footer.content()}</div>{/if}
+        </div>
+      {/if}
+    {/key}
   </div>
 </div>
 

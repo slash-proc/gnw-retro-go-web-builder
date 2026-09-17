@@ -86,7 +86,7 @@ export const romsFr: RomsStrings = {
     wontFitDetail: "Ne tient pas dans l'espace disponible. Désélectionnez des jeux.",
   },
   sdSync: {
-    upgradeLabelPre: "Mettre à niveau Retro-Go et les cœurs vers",
+    upgradeLabelPre: "Mettre à niveau Retro-Go vers",
     updatesWhenBoots: "(mise à jour au prochain démarrage du G&W)",
     downloadZipButton: "Télécharger le ZIP SD",
     nothingToSyncTitle: "Aucun jeu, cœur, jaquette ou cheat n'a changé, il n'y a donc rien à synchroniser.",

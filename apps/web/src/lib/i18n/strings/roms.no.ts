@@ -86,7 +86,7 @@ export const romsNo: RomsStrings = {
     wontFitDetail: "Får ikke plass på ledig område. Fjern noen spill fra utvalget.",
   },
   sdSync: {
-    upgradeLabelPre: "Oppgrader Retro-Go og kjerner til",
+    upgradeLabelPre: "Oppgrader Retro-Go til",
     updatesWhenBoots: "(oppdateres neste gang G&W starter)",
     downloadZipButton: "Last ned SD-ZIP",
     nothingToSyncTitle: "Ingen spill, kjerner, omslag eller juksekoder er endret, så det er ingenting å synkronisere.",

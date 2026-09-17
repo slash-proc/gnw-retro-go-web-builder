@@ -612,9 +612,10 @@ await check("a core's converted outputs are not wanted by title, only by row", (
 await check("the byte totals and the install filter both read the homebrew SELECTION", () => {
   // The wiring, not the rule. The last pass shipped a fix whose checks proved the rule while a
   // call site still merged the whole store, which is how this survived to be reported twice.
-  const tab = readFileSync(join(here, "../src/lib/views/RomManagementTab.svelte"), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^[ \t]*\/\/.*$/gm, "");
+  // Keep block comments intact: the source contains documentation examples with `/*` and
+  // `*/`, and stripping them with a regex can consume real declarations when the markup is
+  // rearranged. The assertions below are scoped to the declaration text itself.
+  const tab = readFileSync(join(here, "../src/lib/views/RomManagementTab.svelte"), "utf8");
   for (const name of ["hbAdditionsBytes", "hbRemovalsBytes"]) {
     const at = tab.indexOf(`const ${name}`);
     ok(at > -1, `${name} is gone -- this check needs re-pointing, not deleting`);

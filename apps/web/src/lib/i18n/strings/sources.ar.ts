@@ -151,6 +151,7 @@ export const sourcesAr: SourcesStrings = {
     usedBy: "يُستخدم لـ",
     biosGroup: "ملفات النظام",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'نسخة OFW الاحتياطية',
     any: "الكل",
     count: (n: number) => (n === 1 ? "مجلد واحد" : `${n} مجلدات`),
     addDirectoryTitle: "إضافة مجلد",

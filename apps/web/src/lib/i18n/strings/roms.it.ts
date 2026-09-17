@@ -86,7 +86,7 @@ export const romsIt: RomsStrings = {
     wontFitDetail: "Non entra nello spazio disponibile. Deselezionare alcuni giochi.",
   },
   sdSync: {
-    upgradeLabelPre: "Aggiorna Retro-Go e i core alla versione",
+    upgradeLabelPre: "Aggiorna Retro-Go alla versione",
     updatesWhenBoots: "(si applica al prossimo avvio del G&W)",
     downloadZipButton: "Scarica ZIP per SD",
     nothingToSyncTitle: "Non sono cambiati giochi, core, copertine o cheat, quindi non c’è nulla da sincronizzare.",

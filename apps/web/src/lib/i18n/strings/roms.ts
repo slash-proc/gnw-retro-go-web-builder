@@ -72,7 +72,7 @@ export const romsEn = {
     installFirstPrompt: "This device has no cores/saves partition, so install Retro-Go first.",
     calculatingLayout: "Calculating layout…",
     lzmaCheckboxLabel: "Compress ROMs with LZMA ",
-    lzmaSoon: "uncompressed for now",
+    lzmaSoon: "currently disabled",
     syncLibraryButton: "Sync Library",
     installTitle: "Installation",
     installBody: "Games, BIOS and languages will be installed to the device.",
@@ -100,7 +100,7 @@ export const romsEn = {
     wontFitDetail: "Won't fit the available space. Deselect some games.",
   },
   sdSync: {
-    upgradeLabelPre: "Upgrade Retro-Go and Cores to",
+    upgradeLabelPre: "Upgrade Retro-Go",
     updatesWhenBoots: "(updates when G&W next boots)",
     downloadZipButton: "Download SD ZIP",
     nothingToSyncTitle: "No games, cores, covers, or cheats have changed, so there is nothing to sync.",

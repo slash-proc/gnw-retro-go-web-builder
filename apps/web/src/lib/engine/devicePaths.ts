@@ -140,6 +140,8 @@ export function homebrewScanPrefixes(paths: InstallPaths = deviceInstallPaths())
     out.add(dir);
     out.add(asScanKey(dir));
   }
+  // The modern manifest location must be scanned even before its paths have been learned.
+  out.add("homebrews");
   return [...out];
 }
 

@@ -88,7 +88,7 @@
   async function enterRecovery() {
     error = null;
     try {
-      await device.ensureStub();
+      await device.startRecoveryMode();
     } catch (e) {
       if (!(e instanceof Error && e.message.includes("cancelled"))) {
         error = e instanceof Error ? e.message : String(e);

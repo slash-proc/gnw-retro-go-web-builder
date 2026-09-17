@@ -83,9 +83,13 @@
   const intSegs = $derived(intflashSegments(device.banks));
   const bank1Segs = $derived(intSegs.filter((s) => s.bank === 1));
   const bank2Segs = $derived(intSegs.filter((s) => s.bank === 2));
+  // Scan failures carry their transport error in the type (for example
+  // `unreadable (Transfer response WAIT)`), so an exact string comparison would
+  // accidentally offer a boot action for a bank we could not read.
+  const bankUnreadable = (type: string) => type === "unreadable" || type.startsWith("unreadable (");
   const bootableBank = (n: 1 | 2) =>
     device.banks.some(
-      (b) => b.index === n && b.type !== "empty" && b.type !== "unknown" && b.type !== "unreadable",
+      (b) => b.index === n && b.type !== "empty" && b.type !== "unknown" && !bankUnreadable(b.type),
     );
   // Bank order is fixed: every Overview board draws Bank 1 left, Bank 2 right.
   const BANKS: (1 | 2)[] = [1, 2];
@@ -113,7 +117,7 @@
   // whose version string did not parse, which leaves kind as "unknown" — still not an empty slot.
   const appPresent = $derived(
     device.banks.some(
-      (b) => !["empty", "unknown", "unreadable"].includes(b.type) && !b.type.includes("OFW"),
+      (b) => b.type !== "empty" && b.type !== "unknown" && !bankUnreadable(b.type) && !b.type.includes("OFW"),
     ),
   );
   const nothingInstalled = $derived(
@@ -272,6 +276,8 @@
 
   function handleDblClickInt(s: GeoSegment) {
     if (s.bank) {
+      const bank = device.banks.find((b) => b.index === s.bank);
+      if (!bank || bank.type === "empty" || bank.type === "unknown" || bankUnreadable(bank.type)) return;
       bootBank = s.bank;
       bootTargetName = s.label || ov.bootModal.bankFallbackLabel(s.bank);
       bootTargetAddr = s.detail[1]?.split("·")[0]?.trim() || (s.bank === 1 ? "0x08000000" : "0x08100000");
@@ -293,6 +299,7 @@
     if (!device.transport) throw new Error("Not connected.");
     const flasher = device.flasher ?? attachFlasher(device.transport);
     await flasher.startBank(bootBank);
+    device.noteBankStarted(bootBank);
   }
 
   /**
@@ -329,8 +336,7 @@
   async function enterRecoveryToScan() {
     extScanErr = null;
     try {
-      await device.ensureStub();
-      await device.runScan("details pane");
+      await device.startRecoveryMode();
     } catch (e) {
       if (e instanceof Error && e.message.includes("cancelled")) return;
       extScanErr = e instanceof Error ? e.message : String(e);
@@ -409,7 +415,7 @@
 
 {#snippet bankFooterBody(index: 1 | 2, addr: string, prompt: BankPrompt | null)}
   {#each device.banks.filter((b) => b.index === index) as bank (bank.index)}
-    {#if bank.type !== "empty" && bank.type !== "unknown" && bank.type !== "unreadable"}
+    {#if bank.type !== "empty" && bank.type !== "unknown" && !bankUnreadable(bank.type)}
       <button
         class="bank-action"
         onclick={() => {
@@ -473,7 +479,7 @@
      the same string and the same operation the Status pane's footer runs. -->
 <PaneFooter>
   <button class="footlink" type="button" onclick={copyDetails}>{t.copyDetails}</button>
-  <Button variant="action" disabled={!device.isConnected} onclick={() => void device.runScan("details rescan button")}>
+  <Button variant="action" disabled={!device.isConnected} onclick={() => void device.rescan("details rescan button")}>
     {ov.status.rescan}
   </Button>
 </PaneFooter>

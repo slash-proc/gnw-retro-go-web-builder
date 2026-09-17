@@ -41,6 +41,8 @@ export interface NodeDirHandle {
 
 class NodeFile implements NodeFileHandle {
   readonly kind = "file" as const;
+  /** Test/node shim already owns the bytes; romScan may keep its historical eager semantics. */
+  readonly eager = true;
   readonly name: string;
   constructor(private readonly path: string) {
     this.name = basename(path);

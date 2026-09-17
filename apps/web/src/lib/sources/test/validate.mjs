@@ -164,7 +164,7 @@ await esbuild.build({
   // `platform: neutral` build cannot work and switching the whole build to `platform: node`
   // to accommodate it would weaken what the other entry points are compiled as. Node resolves
   // it at import time instead — see the node_modules link below.
-  external: ["jszip"],
+  external: ["jszip", "module"],
   logLevel: "warning",
 });
 
@@ -2035,6 +2035,7 @@ await esbuild.build({
   splitting: true,
   format: "esm",
   platform: "neutral",
+  external: ["module"],
   target: "es2022",
   logLevel: "warning",
 });
@@ -2336,6 +2337,7 @@ await esbuild.build({
   splitting: true,
   format: "esm",
   platform: "neutral",
+  external: ["module"],
   target: "es2022",
   logLevel: "warning",
 });
@@ -3041,7 +3043,7 @@ await esbuild.build({
   format: "esm",
   platform: "neutral",
   target: "es2022",
-  external: ["jszip"],
+  external: ["jszip", "module"],
   // The runes, defined away: `$state(x)` becomes `x` and the store's assignments are plain.
   define: { $state: "__rune" },
   banner: { js: "const __rune = (v) => v;" },
@@ -3129,6 +3131,7 @@ await esbuild.build({
   bundle: true,
   format: "esm",
   platform: "neutral",
+  external: ["module"],
   target: "es2022",
   logLevel: "warning",
 });
@@ -3706,6 +3709,7 @@ await esbuild.build({
   format: "esm",
   platform: "neutral",
   target: "es2022",
+  external: ["module"],
   define: { $state: "__rune" },
   banner: { js: "const __rune = (v) => v;" },
   logLevel: "warning",
@@ -4299,7 +4303,7 @@ check("files: required covers conditional-hit but not an untriggered conditional
 // two never drift. `errorMessageKind()` is the RULE (which codes share a message);
 // `errorText()` is the LOOKUP against a caller-supplied strings table. Both get guarded here.
 //
-// Keep in sync: SourceErrorCode in ../types.ts currently has exactly these 11 members. If a
+// Keep in sync: SourceErrorCode in ../types.ts currently has exactly these 12 members. If a
 // code is added or removed there without updating this list, ALL_CODES.length below fails —
 // that's the point: a new code with no message assigned must be caught, not silently absorbed
 // by the `network` fallback.
@@ -4315,6 +4319,7 @@ const ALL_CODES = [
   "bundle-invalid",
   "bundle-missing-file",
   "bundle-conflict",
+  "raw-core-invalid",
   // `undefined` is also a legal input (a SourceError-less row) — included via UNDEF below.
 ];
 const IDENTITY_CODES = [
@@ -4339,8 +4344,8 @@ const KIND_SET = new Set([
   "network",
 ]);
 
-check("errorText: types.ts still declares exactly 11 SourceErrorCode members", () => {
-  eq(ALL_CODES.length, 11, "ALL_CODES must be kept in sync with SourceErrorCode in ../types.ts");
+check("errorText: types.ts still declares exactly 12 SourceErrorCode members", () => {
+  eq(ALL_CODES.length, 12, "ALL_CODES must be kept in sync with SourceErrorCode in ../types.ts");
 });
 
 // 18a. Identity arm: each of these codes must map to ITSELF as a kind. This is what stops
@@ -7385,6 +7390,7 @@ await esbuild.build({
   bundle: true,
   format: "esm",
   platform: "neutral",
+  external: ["module"],
   target: "es2022",
   define: { $derived: "__derived", $state: "__rune" },
   banner: {
@@ -7596,6 +7602,7 @@ await esbuild.build({
   bundle: true,
   format: "esm",
   platform: "neutral",
+  external: ["module"],
   target: "es2022",
   define: { $state: "__rune", $derived: "__rune" },
   // The derived fields are stubbed to `[]` rather than evaluated: they run at construction,

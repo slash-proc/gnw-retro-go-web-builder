@@ -30,6 +30,17 @@
   const auditText = $derived(installProgress.logText(locale.t));
   const logOpen = $derived(installProgress.logOpen);
   const errorBlocks = $derived(installProgress.errorBlocks);
+  let clock = $state(Date.now());
+  $effect(() => {
+    if (modalPhase !== "running") return;
+    const id = setInterval(() => (clock = Date.now()), 1000);
+    return () => clearInterval(id);
+  });
+  const elapsed = $derived(installProgress.startedAt ? Math.max(0, clock - installProgress.startedAt) : 0);
+  function elapsedText(ms: number): string {
+    const total = Math.floor(ms / 1000);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  }
 
   // The failed blocks are named against the SAME GeoSegment[] the geometry bars draw, so the
   // table's region column reads in the settled segment vocabulary ("Games & Homebrew" /
@@ -65,17 +76,31 @@
     return "○";
   }
 
-  /** Percent shown inline on a phase row (and driving its bar). Mirrored from whichever
-   *  declared sub-step is currently active — the artboard's "Flashing Retro-Go 46%" over
-   *  "Games, BIOS, languages [1.6/3.4 MB]" is exactly that mirror — and otherwise taken from
-   *  the phase's own counter. The active sub-step wins so that a phase which reports at BOTH
-   *  levels (Wizard step 2's flash: intflash at phase level, frogfs/littlefs per sub-step)
-   *  doesn't keep showing the stale phase-level total once a sub-step takes over. Null =
-   *  nothing measurable to show. */
+  /** Aggregate declared substeps into one phase percentage. Completed work stays counted, so
+   *  the parent bar advances continuously instead of restarting for each child. */
   function phasePct(s: PhaseState): number | null {
-    const active = s.substeps.find((sub) => s.substepStatus[sub.id] === "active");
-    let p: SubstepProgress | undefined = active ? s.substepProgress[active.id] : undefined;
-    if (!p) p = s.progress;
+    const measured = s.substeps.map((sub) => s.substepProgress[sub.id]).filter((p): p is SubstepProgress => !!p && p.max > 0);
+    if (measured.length > 0) {
+      // Keep the parent scale stable. Child totals often arrive lazily (for example after image
+      // construction); switching from equal shares to byte weighting mid-step makes the bar
+      // visibly shrink. Until totals are explicitly known at phase creation, every declared
+      // substep therefore gets an equal share. Its own byte bar remains exact.
+      const weight = 1;
+      let done = 0, total = 0;
+      for (const sub of s.substeps) {
+        const p = s.substepProgress[sub.id];
+        const w = weight;
+        const fraction = s.substepStatus[sub.id] === "done" ? 1 : (p && p.max > 0 ? Math.max(0, Math.min(1, p.value / p.max)) : 0);
+        done += w * fraction;
+        total += w;
+      }
+      return total > 0 ? Math.min(100, Math.round((100 * done) / total)) : null;
+    }
+    if (!s.progress || s.progress.max <= 0) return null;
+    return Math.min(100, Math.round((100 * s.progress.value) / s.progress.max));
+  }
+
+  function progressPct(p: SubstepProgress | undefined): number | null {
     if (!p || p.max <= 0) return null;
     return Math.min(100, Math.round((100 * p.value) / p.max));
   }
@@ -137,13 +162,25 @@
             <RefreshButton onRefresh={vp.onRefresh} label={vp.refreshLabel} />
           </div>
         {/if}
+        {#if prompt.choicePicker}
+          {@const cp = prompt.choicePicker}
+          <div class="confirm-version">
+            <label for="install-choice">{cp.label}</label>
+            <select id="install-choice" value={cp.selected()} onchange={(e) => cp.onSelect(e.currentTarget.value)}>
+              {#each cp.options() as o (o.value)}
+                <option value={o.value}>{o.label}</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
         {#if prompt.checkboxes.length > 0}
           <div class="confirm-checkboxes">
             {#each prompt.checkboxes as cb (cb.id)}
-              <label>
+              <label class:disabled={cb.id === "migrateGames"}>
                 <input
                   type="checkbox"
                   checked={installProgress.checkboxValues[cb.id]}
+                  disabled={cb.id === "migrateGames"}
                   onchange={(e) => installProgress.setCheckbox(cb.id, e.currentTarget.checked)}
                 />
                 {cb.label}
@@ -165,7 +202,10 @@
         </div>
       {:else}
         {#if modalPhase === "running"}
-          <p class="muted">{locale.t.shared.common.workingNotePre}<strong>{locale.t.shared.common.workingNoteBold}</strong>{locale.t.shared.common.workingNotePost}</p>
+          <div class="running-meta">
+            <p class="muted">{locale.t.shared.common.workingNotePre}<strong>{locale.t.shared.common.workingNoteBold}</strong>{locale.t.shared.common.workingNotePost}</p>
+            <span class="elapsed mono" aria-label="Elapsed time">{elapsedText(elapsed)}</span>
+          </div>
         {/if}
         <!-- Flat, always-visible checklist — every phase and every declared sub-step is a row
              at all times (done ✓ / active ● / pending ○), with its counter inline on the row.
@@ -199,6 +239,10 @@
                   <span class="label">{sub.label}</span>
                   {#if subProgress}<span class="count mono">{counter(subProgress)}</span>{/if}
                 </div>
+                {@const subPct = subStatus === "active" ? progressPct(subProgress) : null}
+                {#if subPct !== null}
+                  <div class="bar-row substep-bar"><div class="track"><div class="fill" style:width="{subPct}%"></div></div></div>
+                {/if}
               {/each}
             {/if}
           {/each}
@@ -421,6 +465,10 @@
     gap: 0.35rem;
     cursor: pointer;
   }
+  .confirm-checkboxes label.disabled {
+    color: var(--ink-faint);
+    cursor: not-allowed;
+  }
   /* ModalInstallConfirm.dc.html:243 — the action row sits 22px below the body with a 20px
      gap between Cancel and the confirm button. */
   .actions {
@@ -614,6 +662,9 @@
     padding-block: 2px 8px;
     padding-inline: 23px 0;
   }
+  .substep-bar {
+    margin-inline-start: 2.15rem;
+  }
   .track {
     height: 4px;
     border-radius: 2px;
@@ -644,6 +695,18 @@
     display: flex;
     align-items: baseline;
     gap: 12px;
+  }
+  .running-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .running-meta .muted { margin: 0; }
+  .elapsed {
+    color: var(--ink-dim);
+    font-size: var(--fs-micro);
+    white-space: nowrap;
   }
   /* Board: 12px `#9a9aa0`. That is `--ink-dim` (#9a9a9a, "de-emphasised captions"), NOT
      `--ink-faint`, whose own token comment says it is "NOT for anything that must be read" --

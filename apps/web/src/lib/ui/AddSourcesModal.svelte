@@ -16,8 +16,10 @@
    * text and is interpolated as text — never {@html}, never a path.
    */
   import { locale } from "../i18n/locale.svelte.js";
-  import { sources, type SourceRow } from "../sources/store.svelte.js";
+  import { sources, sourceDisplayName, type SourceRow } from "../sources/store.svelte.js";
   import { isCoreKind } from "../sources/types.js";
+  import { SourceError } from "../sources/types.js";
+  import { parseRawCore, rawCoreSource } from "../sources/rawCore.js";
   import ModalShell from "./ModalShell.svelte";
   import Button from "./Button.svelte";
 
@@ -34,8 +36,9 @@
   const t = $derived(locale.t.sources);
   const ts = $derived(locale.t.shared.common);
 
-  let mode = $state<"url" | "bundle">("url");
+  let mode = $state<"url" | "bundle" | "raw">("url");
   let urlInput = $state("");
+  let rawPending = $state<Awaited<ReturnType<typeof rawCoreSource>> | null>(null);
 
   sources.load();
 
@@ -58,6 +61,8 @@
         return t.errBundleMissingFile;
       case "bundle-conflict":
         return t.errBundleConflict;
+      case "raw-core-invalid":
+        return t.errMalformed;
       case "artifact-size-mismatch":
         return t.errMalformed;
       default:
@@ -90,6 +95,21 @@
     input.value = "";
     await sources.importBundleFile(data);
   }
+
+  async function pickRaw(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file || sources.adding) return;
+    const data = new Uint8Array(await file.arrayBuffer());
+    input.value = "";
+    try {
+      rawPending?.release();
+      rawPending = await rawCoreSource(parseRawCore(data, file.name));
+    } catch (err) {
+      const e2 = err instanceof SourceError ? err : new SourceError("raw-core-invalid");
+      sources.addError = { code: e2.code, detail: e2.detail };
+    }
+  }
 </script>
 
 <ModalShell onDismiss={onClose} maxWidth="32.5rem">
@@ -106,6 +126,7 @@
         class:on={mode === "bundle"}
         onclick={() => (mode = "bundle")}>{t.modeBundle}</button
       >
+      <button type="button" class="mode" class:on={mode === "raw"} onclick={() => (mode = "raw")}>Raw binary</button>
     </div>
 
     {#if mode === "url"}
@@ -121,7 +142,7 @@
           {sources.adding ? t.adding : t.add}
         </Button>
       </form>
-    {:else}
+    {:else if mode === "bundle"}
       <label class="field">
         <span class="label">{t.bundleLabel}</span>
         <input
@@ -132,6 +153,16 @@
         />
       </label>
       {#if sources.adding}<p class="hint">{t.importing}</p>{/if}
+    {:else}
+      <label class="field">
+        <span class="label">CORE binary</span>
+        <input type="file" accept=".core,application/octet-stream" onchange={pickRaw} disabled={sources.adding} />
+      </label>
+      {#if sources.adding}<p class="hint">Reading CORE binary…</p>{/if}
+      {#if rawPending}
+        <div class="rawsummary"><strong>{rawPending.resolved.manifest.title}</strong> ({rawPending.resolved.entry.tag}</div>
+        <Button variant="action" onclick={() => { if (sources.addRawCore(rawPending!.resolved, rawPending!.release)) rawPending = null; }}>Add</Button>
+      {/if}
     {/if}
 
     {#if sources.addError}
@@ -151,7 +182,7 @@
               <div class="list">
                 {#each rows as row (row.repo)}
                   <div class="row">
-                    <span class="repo">{row.repo}</span>
+                    <span class="repo">{sourceDisplayName(row)}</span>
                     {#if group.key === "core"}<span class="systems">{systemsOf(row)}</span>{/if}
                   </div>
                 {/each}

@@ -72,7 +72,8 @@ check("a nested boot inside an install cannot clear it", () => {
 
 // --- the wiring ---------------------------------------------------------------------------
 check("a completed stub boot attests", () => {
-  const at = store.indexOf("this._banksScannedAt = 0;");
+  const inner = store.indexOf("private async _ensureStubInner");
+  const at = store.indexOf("this._banksScannedAt = 0;", inner);
   ok(at >= 0, "the stub boot no longer drops bank freshness; this check is looking in the wrong place");
   const after = store.slice(at, at + 1200);
   ok(/deviceSafety\.markQuiet\(\)/.test(after),

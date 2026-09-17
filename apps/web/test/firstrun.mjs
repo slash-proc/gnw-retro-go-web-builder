@@ -307,6 +307,13 @@ check("sources step: a successful curated pull is what marks it done", () => {
     "the FIRST .then arm (fulfilment) must set curatedReady from the resolved curated list, not from a literal");
 });
 
+check("Return to Stock backup step: a validated backup marks it done", () => {
+  const m = wizardBare.match(/\{@const stepDone =([\s\S]*?)\}\n/);
+  ok(m, "the spine's stepDone @const is present");
+  ok(/id === "select-backup" && restoreValid/.test(m[1]),
+    'stepDone must include `id === "select-backup" && restoreValid`');
+});
+
 check("sources step: an in-flight or unattempted pull is NOT done", () => {
   ok(/let curatedReady = \$state\(false\)/.test(wizardBare),
     "curatedReady must start false, or the step is green before the walk answers");

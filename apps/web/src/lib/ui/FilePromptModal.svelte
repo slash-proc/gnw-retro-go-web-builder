@@ -331,6 +331,16 @@
     const taken = result.files.slice(0, room === Infinity ? undefined : room);
     const unrecognised = new Set(result.unrecognised);
     for (const [i, file] of taken.entries()) {
+      // Discovery may already have prefilled this exact file from a broader registered source
+      // (for example Downloads). Choosing its narrower folder must not append a second slot.
+      const duplicate = slots.some((slot) =>
+        slot.inputId === spec.id &&
+        slot.filename.toLowerCase() === file.filename.toLowerCase() &&
+        slot.bytes !== undefined &&
+        slot.bytes.length === file.bytes.length &&
+        slot.bytes.every((value, index) => value === file.bytes[index]),
+      );
+      if (duplicate) continue;
       slots = [
         ...slots,
         {

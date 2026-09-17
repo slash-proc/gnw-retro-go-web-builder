@@ -156,6 +156,7 @@ export const sourcesKo: SourcesStrings = {
     usedBy: "사용 대상",
     biosGroup: "시스템 파일",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'OFW 백업',
     any: "모두",
     count: (n: number) => `폴더 ${n}개`,
     addDirectoryTitle: "디렉터리 추가",

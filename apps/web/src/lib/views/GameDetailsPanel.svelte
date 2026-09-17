@@ -28,6 +28,7 @@
   import { basePath } from "../sources/libraryScan.js";
   import { coreRegistry } from "../sources/coreRegistry.svelte.js";
   import { saveFileToDirOrDownload, nativeFolderPickerSupported, romBytes } from "../romScan.js";
+  import { isLazy } from "../lazyBytes.js";
   import { obfuscate, deobfuscate } from "../localCrypt.js";
   import { download } from "../util.js";
   import JSZip from "jszip";
@@ -662,7 +663,7 @@
           }
         }
         
-        await saveFileToDirOrDownload(library.scan.dir, relativePath, previewCoverBlob);
+        await saveFileToDirOrDownload(library.writeDirFor(rowPath) ?? library.scan.dir, relativePath, previewCoverBlob);
       } catch (e) {
         // The owner reported covers that "work for the session and then disappear". A
         // write-back that failed said so only in devtools, which a deployed build has no
@@ -762,12 +763,13 @@
     const filesToScrape: File[] = [];
     const keysToImport = [...importSelected].filter(key => !skipExistingCovers || !hasLocalCover(key));
     for (const key of keysToImport) {
-      const buffer = library.scan?.userRoms.get(key);
-      if (!buffer) continue;
+      const entry = library.scan?.userRoms.get(key);
+      if (!entry) continue;
+      const buffer = await romBytes(entry);
       const parts = key.split("/");
       const filename = parts.pop();
       if (!filename) continue;
-      const file = new File([buffer as any], filename);
+      const file = new File([buffer as BlobPart], filename);
       
       // Same rule as generatePreview(): a homebrew with no `originalSystem` has no art
       // library to search, so it is SKIPPED rather than scraped blind by name. The directory
@@ -781,6 +783,9 @@
       
       Object.defineProperty(file, 'webkitRelativePath', { value: webkitPath });
       filesToScrape.push(file);
+      // The scraper now owns this File copy for the batch. Release the decoded source cache so
+      // a large mass import does not retain two copies of every selected ROM.
+      if (isLazy(entry)) entry.release?.();
     }
 
     importProgress = { current: 0, total: filesToScrape.length };
@@ -896,7 +901,7 @@
                 }
               }
               
-              await saveFileToDirOrDownload(library.scan.dir, relativePath, blob);
+              await saveFileToDirOrDownload(library.writeDirFor(relPath) ?? library.scan.dir, relativePath, blob);
             } catch (e) {
               dbg(`[covers] writing a scraped cover to disk failed: ${e instanceof Error ? e.message : String(e)}`);
             }
@@ -1714,11 +1719,13 @@
 {#if showImportModal}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showImportModal = false; }}>
+  <!-- The import dialog is deliberately modal: clicking the dimmed page must not discard the
+       user's selection or stop a running batch. The explicit X is the dismissal control. -->
+  <div class="modal-backdrop">
     <div class="modal-content import">
       <div class="import-head">
         <h3 class="import-title">{locale.t.roms.gameDetailsPanel.importModal.title}</h3>
-        <button aria-label={locale.t.shared.common.close} onclick={() => { if (!isImporting) showImportModal = false; }} class="modal-close" disabled={isImporting}>
+        <button aria-label={locale.t.shared.common.close} onclick={() => showImportModal = false} class="modal-close">
           <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>

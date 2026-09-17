@@ -16,6 +16,7 @@ import {
 } from "./romScan.js";
 import { saveDir, loadDir, handlePermission } from "./persist.js";
 import { toGWCover } from "./screenscraper/gw.js";
+import { isLazy } from "./lazyBytes.js";
 import { device } from "./device.svelte.js";
 import { dbg } from "./debug.js";
 import { lipProgress } from "./lipProgress.svelte.js";
@@ -71,7 +72,8 @@ async function convertCoversInMap(userRoms: Map<string, LibraryFile>): Promise<v
 
   for (const path of toConvert) {
     try {
-      const data = await romBytes(userRoms.get(path)!);
+      const source = userRoms.get(path)!;
+      const data = await romBytes(source);
       const blob = new Blob([data as BlobPart]);
       const gwBlob = await toGWCover(blob);
       if (gwBlob) {
@@ -83,6 +85,9 @@ async function convertCoversInMap(userRoms: Map<string, LibraryFile>): Promise<v
         // but generate the .img sidecar for flashing.
         userRoms.set(imgPath, new Uint8Array(await gwBlob.arrayBuffer()));
       }
+      // The original remains available through its file handle. Do not retain a second full
+      // decoded copy for every cover after the background conversion pass.
+      if (isLazy(source)) source.release?.();
     } catch (e) {
       dbg(`[covers] converting ${path} failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -145,6 +150,12 @@ class LibraryStore {
   /** A folder has been picked + scanned. */
   get selected(): boolean {
     return this.scan !== null;
+  }
+
+  /** Source folder that owns a scanned path; falls back to the legacy primary folder. */
+  writeDirFor(path: string): RomDirHandle | null {
+    const id = this.fileOrigin.get(path);
+    return (id ? localFolders.get(id)?.handle : undefined) as RomDirHandle | null ?? this.scan?.dir ?? null;
   }
 
   /**

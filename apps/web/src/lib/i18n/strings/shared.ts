@@ -38,7 +38,7 @@ export const sharedEn = {
     rescan: "Rescan",
     restartRecoveryMode: "Restart Recovery Mode",
     startRecoveryMode: "Start Recovery Mode",
-    changeAdapter: "Change Adapter",
+    changeAdapter: "Configure Adapter",
     disconnectDevice: "Disconnect Device",
   },
   stubLoadModal: {

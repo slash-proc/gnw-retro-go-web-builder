@@ -18,4 +18,5 @@ export * from "./select.js";
 export * from "./extract.js";
 export * from "./compare.js";
 export * from "./installMarker.js";
+export * from "./sdUpdatePackage.js";
 export * from "./memo.js";

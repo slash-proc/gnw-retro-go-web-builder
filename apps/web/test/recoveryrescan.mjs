@@ -184,8 +184,9 @@ function realEnsureStubWrapper() {
     .replace(/: Promise<GnwFlasher>/g, "")
     .replace(/log\?: \(m: string\) => void/g, "log")
     .replace(/forceReboot = false/g, "forceReboot")
-    .replace(/silent = false/g, "silent");
-  return new Function(`return async function (log, forceReboot, silent) {${body}}`)();
+    .replace(/silent = false/g, "silent")
+    .replace(/allowReboot = true/g, "allowReboot");
+  return new Function(`return async function (log, forceReboot, silent, allowReboot = true) {${body}}`)();
 }
 let ensureStubWrapper;
 try {

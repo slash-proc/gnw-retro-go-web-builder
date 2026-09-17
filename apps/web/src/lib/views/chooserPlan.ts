@@ -91,7 +91,8 @@ export type SpineId =
   | "roms"
   | "select-backup"
   | "restore"
-  | "remove-rgo";
+  | "remove-rgo"
+  | "remove-bank2";
 
 /**
  * The steps a path produces.
@@ -102,9 +103,15 @@ export type SpineId =
  * underneath them. The preview column is the one place it IS derived live, because nobody is
  * standing on a plan they have not chosen yet.
  */
-export function spineFor(path: ChooserCard, showBackupStep: boolean): SpineId[] {
+export function spineFor(path: ChooserCard, showBackupStep: boolean, removeBank2 = false): SpineId[] {
   if (path === "stock") return ["select-backup", "restore", "remove-rgo"];
-  return [...(showBackupStep ? (["backup"] as SpineId[]) : []), "install", "sources", "roms"];
+  return [
+    ...(showBackupStep ? (["backup"] as SpineId[]) : []),
+    "install",
+    ...(removeBank2 ? (["remove-bank2"] as SpineId[]) : []),
+    "sources",
+    "roms",
+  ];
 }
 
 /**

@@ -211,6 +211,11 @@ await check("clearing the label falls back to the folder's own name", async () =
   eq(displayName(store.get(row.id)), "Games", "falls back to folderName");
 });
 
+await check("internal OFW backup metadata never leaks into the displayed name", async () => {
+  eq(displayName({ name: "", folderName: "__ofw_backup__" }), "OFW Backup",
+    "the reserved backup folder key must have a user-facing label");
+});
+
 await check("remove round-trips: the row is gone after a reload", async () => {
   const s = makeStorage();
   const a = new LocalFolderStore(s.deps);

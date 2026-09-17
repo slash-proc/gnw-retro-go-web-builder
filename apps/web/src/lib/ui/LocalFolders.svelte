@@ -26,6 +26,8 @@
   import {
     localFolders,
     displayName,
+    OFW_BACKUP_FOLDER_NAME,
+    OFW_BACKUP_USED_BY_KEY,
     type LocalFolderRow,
   } from "../sources/localFolders.svelte.js";
 
@@ -46,6 +48,7 @@
   /** Key -> label for every association a card might name. Manifest text, rendered as text. */
   const labels = $derived.by(() => {
     const map = new Map<string, string>();
+    map.set(OFW_BACKUP_USED_BY_KEY, t.folders.ofwBackupUsedBy);
     for (const o of [...coreOptions(), ...homebrewOptions()]) map.set(o.key, o.label);
     return map;
   });
@@ -69,7 +72,17 @@
    * through to the raw key is still the last resort for a source that is gone or unresolved.
    */
   function chipsOf(f: LocalFolderRow): string[] {
+    // Older backup rows were persisted as a shared folder with the reserved name instead of
+    // carrying the association. Recover that meaning at render time so the source of truth is
+    // still the directory row and the internal key never turns into "Any" in the UI.
+    if (f.usedBy.length === 0 && (f.name === OFW_BACKUP_USED_BY_KEY || f.folderName === OFW_BACKUP_FOLDER_NAME)) {
+      return [labels.get(OFW_BACKUP_USED_BY_KEY) ?? "OFW Backup"];
+    }
     return f.usedBy.map((k) => labels.get(k) ?? byTarget.get(k) ?? k);
+  }
+
+  function folderPath(f: LocalFolderRow): string {
+    return f.folderName === OFW_BACKUP_FOLDER_NAME ? "OFW Backup" : f.folderName;
   }
 
   /** Configure. A `needs-permission` row re-asks first — this click is the user gesture. */
@@ -91,6 +104,9 @@
    * neither, and stays untagged as that artboard has it.
    */
   function tagOf(f: LocalFolderRow): "shared" | "dedicated" | null {
+    if (f.usedBy.length === 0 && (f.name === OFW_BACKUP_USED_BY_KEY || f.folderName === OFW_BACKUP_FOLDER_NAME)) {
+      return "dedicated";
+    }
     if (f.usedBy.length === 0) return "shared";
     // Counted by TARGET, not by key: a folder marked Game Boy and Game Boy Color is dedicated
     // to one core, and it read as "dedicated" before the menu split a core into its systems.
@@ -128,7 +144,7 @@
           >
         {/if}
       </div>
-      <span class="path">{f.folderName}</span>
+      <span class="path">{folderPath(f)}</span>
       <div class="used">
         <span class="usedlabel">{t.folders.usedBy}</span>
         {#if chips.length === 0}

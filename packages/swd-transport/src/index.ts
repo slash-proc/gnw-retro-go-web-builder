@@ -169,12 +169,18 @@ abstract class BaseTransport implements SwdTransport {
     // Announce at 0 so the indicator appears when the transfer STARTS, not when its first
     // chunk lands -- a 16 MB read would otherwise show nothing for its first chunk's latency.
     if (reportProgress) emitTransfer("read", 0, len);
-    for (let off = 0; off < len; off += this.CHUNK) {
-      const n = Math.min(this.CHUNK, len - off);
+    let off = 0;
+    while (off < len) {
+      // Keep a request inside the probe's 1 KiB transfer boundary. FrogFS
+      // retained-file addresses are commonly unaligned; crossing that boundary
+      // has produced periodic corruption in returned payloads on these probes.
+      const boundary = 1024 - ((addr + off) & 1023);
+      const n = Math.min(this.CHUNK, boundary, len - off);
       out.set(await this._readMemRaw(addr + off, n), off);
       onProgress?.(off + n, len);
       if (reportProgress) emitTransfer("read", off + n, len);
       if (len > this.CHUNK) await new Promise((r) => setTimeout(r, 10));
+      off += n;
     }
     return out;
   }
@@ -243,8 +249,18 @@ abstract class BaseTransport implements SwdTransport {
   /** Reset and halt at the reset vector (DEMCR.VC_CORERESET + SYSRESETREQ). */
   async reset(): Promise<void> {
     await this.halt();
-    await this.writeWord(DEMCR, VC_CORERESET);
-    await this.writeWord(AIRCR, AIRCR_VECTKEY | SYSRESETREQ);
+    // PyOCD preserves the existing DEMCR bits while arming vector catch.
+    const demcrBefore = (await this.readWord(DEMCR)) >>> 0;
+    await this.writeWord(DEMCR, demcrBefore | VC_CORERESET);
+    // SYSRESETREQ can reset the target before the SWD write response is returned. PyOCD
+    // explicitly treats that transfer fault as expected, flushes its DP queue, and proceeds
+    // with reset recovery; propagating it makes a healthy reset look like a failed recovery.
+    try {
+      await this.writeWord(AIRCR, AIRCR_VECTKEY | SYSRESETREQ);
+    } catch {
+      /* expected when reset tears down the in-flight SWD transaction */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
     let halted = false;
     for (let i = 0; i < POLL_TRIES; i++) {
       if ((await this.readWord(DHCSR)) & S_HALT) {
@@ -252,7 +268,7 @@ abstract class BaseTransport implements SwdTransport {
         break;
       }
     }
-    await this.writeWord(DEMCR, 0); // restore: stop catching the reset vector
+    await this.writeWord(DEMCR, demcrBefore); // restore the caller's reset-catch state
     if (!halted) throw new Error("[swd-transport] core did not re-halt after reset");
   }
 }
@@ -298,6 +314,19 @@ export class DapjsTransport extends BaseTransport {
     await this.cortexM.connect?.();
   }
 
+  private async transferWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { return await fn(); } catch (e) {
+        last = e;
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!/Transfer count mismatch|Transfer response FAULT/i.test(msg) || attempt === 2) throw e;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    throw last;
+  }
+
   async readWord(addr: number): Promise<number> {
     return (await this.cortexM.readMem32(addr)) >>> 0;
   }
@@ -307,7 +336,7 @@ export class DapjsTransport extends BaseTransport {
 
   protected async _readMemRaw(addr: number, len: number): Promise<Uint8Array> {
     if (typeof this.cortexM.readBlock === "function") {
-      const words = await this.cortexM.readBlock(addr, len / 4);
+      const words = await this.transferWithRetry(() => this.cortexM.readBlock!(addr, len / 4));
       return u32ToU8LE(words);
     }
     const out = new Uint8Array(len);
@@ -318,7 +347,7 @@ export class DapjsTransport extends BaseTransport {
 
   protected async _writeMemRaw(addr: number, data: Uint8Array): Promise<void> {
     if (typeof this.cortexM.writeBlock === "function") {
-      await this.cortexM.writeBlock(addr, u8ToU32LE(data));
+      await this.transferWithRetry(() => this.cortexM.writeBlock!(addr, u8ToU32LE(data)));
       return;
     }
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);

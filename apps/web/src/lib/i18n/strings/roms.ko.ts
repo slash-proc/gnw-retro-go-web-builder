@@ -86,7 +86,7 @@ export const romsKo: RomsStrings = {
     wontFitDetail: "사용 가능한 공간에 맞지 않아요. 게임 일부를 선택 해제하세요.",
   },
   sdSync: {
-    upgradeLabelPre: "Retro-Go와 코어를 다음 버전으로 업그레이드:",
+    upgradeLabelPre: "Retro-Go를 다음 버전으로 업그레이드:",
     updatesWhenBoots: "(다음에 G&W가 부팅될 때 적용돼요)",
     downloadZipButton: "SD ZIP 다운로드",
     nothingToSyncTitle: "변경된 게임, 코어, 커버, 치트가 없어서 동기화할 항목이 없어요.",

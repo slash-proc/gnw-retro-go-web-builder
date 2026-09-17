@@ -20,7 +20,7 @@
   import type { LittlefsTreeNode } from "@gnw/fs-builders";
   import { homebrew } from "../sources/homebrewTitles.svelte.js";
   import { prepareState } from "../sources/prepareState.svelte.js";
-  import { sources } from "../sources/store.svelte.js";
+  import { rawManifestFromCard, sources } from "../sources/store.svelte.js";
   import { deviceInstallPaths } from "../engine/devicePaths.js";
   import { isCoreKind, type Target } from "../sources/types.js";
   import type { MappedSpec } from "@gnw/fs-builders";
@@ -322,14 +322,9 @@
     // partitions list.
     if (deviceHasRetroGoInstalled && !device.scanning && !migrateDefaultsApplied) {
       migrateDefaultsApplied = true;
-      migrateGames = device.partitions.some((p) => p.fs === "frogfs");
+      migrateGames = false;
       migrateLfs = device.partitions.some((p) => p.fs === "littlefs");
     }
-  });
-
-  $effect(() => {
-    // Same-version "repair" still implies keeping what's there.
-    if (isSameVersion) migrateGames = true;
   });
 
   const supported = folderPickerSupported();
@@ -352,9 +347,10 @@
   const frogfsPart = $derived(device.partitions.find((p) => p.fs === "frogfs"));
   const littlefsPart = $derived(device.partitions.find((p) => p.fs === "littlefs"));
   const reservedEnd = $derived(
-    device.partitions
+    Math.max(device.partitions
       .filter((p) => p.fs !== "littlefs" && p.fs !== "frogfs")
       .reduce((m, p) => Math.max(m, p.offset + p.size), 0),
+      bank1AnyOfw ? (bank1AnyOfw.model === "zelda" ? 4 : 1) * (1 << 20) : 0),
   );
   const reservedEndAligned = $derived(Math.ceil(reservedEnd / blockSize) * blockSize);
   const defaultFrogfsOffset = $derived(
@@ -548,7 +544,7 @@
       await device.ensureUnlocked();
       report.start("prepare");
       report.log("prepare", msg((t) => t.romSection.logConnectingFlashUtil));
-      const flasher = await device.ensureStub();
+      const flasher = await device.ensureStub(undefined, false, true, false);
       report.log("prepare", msg((t) => t.romSection.logFlashUtilReady, extBytes, blockSize));
       report.finish("prepare");
 
@@ -587,16 +583,23 @@
       // again. It preserves saves and takes seconds.
       await prepareState.restore(homebrew.titles);
       const coreTargets: { key: string; target: Target }[] = [];
+      dbgLog("[install] core source inventory:", sources.rows.map((r) => ({ repo: r.repo, origin: r.origin, active: r.active, targets: r.manifest?.targets.length ?? 0, artifacts: r.manifest?.targets.reduce((n, t) => n + (t.artifacts?.length ?? 0), 0) ?? 0 })));
       for (const row of sources.rows) {
         if (!row.active || !row.manifest) continue;
-        for (const target of row.manifest.targets) {
-          if (!isCoreKind(target.kind)) continue;
+        const manifest = (row.origin === "raw" && row.card &&
+          row.manifest.targets.every((t) => (t.artifacts?.length ?? 0) === 0))
+          ? rawManifestFromCard(row.card)
+          : row.manifest;
+        for (const target of manifest.targets) {
+          // Raw CORE imports are valid external core containers even when an older
+          // reconstructed manifest omitted `kind`; their origin is authoritative.
+          if (!isCoreKind(target.kind) && row.origin !== "raw" && !row.repo.startsWith("raw/")) continue;
           if ((target.artifacts?.length ?? 0) === 0) continue;
           coreTargets.push({ key: `${row.repo}#${target.id}`, target });
         }
       }
       for (const { key, target } of coreTargets) {
-        if (prepareState.preparedBytesFor(key) !== undefined) continue;
+        if ((target.artifacts ?? []).every((a) => prepareState.assets.has(`cores/${a.filename}`))) continue;
         try {
           await prepareState.prepareCoreArtifacts(key, target);
         } catch (e) {
@@ -611,6 +614,7 @@
         userRoms.set(k, v);
         coreCount++;
       }
+      if (pendingSdContent) for (const [k, v] of userRoms) pendingSdContent.set(k, v);
       dbgLog("[install] cores packed into the LittleFS image:", coreCount, "file(s) from", coreTargets.length, "core source(s)");
       const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
 
@@ -645,7 +649,10 @@
         isSameVersion
           ? msg((t) => t.romSection.logSameVersionRepair, selectedVersionTag)
           : msg((t) => t.romSection.logMigrateSummary, selectedVersionTag, migrateGames, migrateLfs));
-      if (isRetroGo) {
+      // Only carry the existing writable state forward when the user selected
+      // "Keep saves and settings".  The old path extracted data/ and CONFIG for
+      // every reinstall, so an unchecked migration still preserved saves.
+      if (isRetroGo && migrateLfs) {
         report.subStart("migrate-scan", "frogfs-state");
         const stateWindow = extBytes - defaultFrogfsOffset;
         try {
@@ -687,15 +694,44 @@
 
       report.subStart("migrate-scan", "games-migrate");
       if (isRetroGo && migrateGames && device.installedGames.length > 0) {
-        for (const g of device.installedGames) {
+        // Report the actual migration work as it happens. This sub-step used to emit only a
+        // completion log, so the checklist showed no bar while each game was being read back.
+        const toMigrate = device.installedGames.filter((g) => !userRoms.has(`${g.system}/${g.name}`));
+        let migrated = 0;
+        report.progress("migrate-scan", 0, toMigrate.length, "games-migrate");
+        for (const g of toMigrate) {
           const path = `${g.system}/${g.name}`;
-          if (!userRoms.has(path)) {
-            userRoms.set(path, await readGameData(read, defaultFrogfsOffset, g));
-          }
+          userRoms.set(path, await readGameData(read, defaultFrogfsOffset, g));
+          migrated++;
+          report.progress("migrate-scan", migrated, toMigrate.length, "games-migrate");
         }
-        report.log("migrate-scan", msg((t) => t.romSection.logMigratedGames, device.installedGames.length), "games-migrate");
+        report.log("migrate-scan", msg((t) => t.romSection.logMigratedGames, migrated), "games-migrate");
       } else {
         report.log("migrate-scan", msg((t) => t.romSection.logSkippedGameMigration, isRetroGo && migrateGames, device.installedGames.length), "games-migrate");
+      }
+      // Preserve the rest of the existing FrogFS tree (covers, fonts, BIOS, etc.).  The
+      // installed-games list intentionally contains only ROM/homebrew entries, so relying on
+      // it alone silently dropped covers during a reinstall.  Source-provided bytes already in
+      // userRoms win; only device files with no replacement are read back.
+      if (isRetroGo && migrateGames && device.installedFrogfs?.files) {
+        let preserved = 0;
+        for (const f of device.installedFrogfs.files) {
+          if (f.path.startsWith("cores/")) continue;
+          // Do not preserve the duplicate font paths produced by the old migration bug. The
+          // release bundle supplies the canonical root fonts/ tree.
+          if (
+            f.path.startsWith("fonts/") ||
+            f.path.startsWith("font/") ||
+            f.path.startsWith("roms/fonts/") ||
+            f.path.startsWith("roms/font/")
+          ) continue;
+          const rawPath = f.path;
+          const key = rawPath.startsWith("homebrews/") ? `homebrew/${rawPath.slice(10)}` : rawPath;
+          if (userRoms.has(key)) continue;
+          userRoms.set(key, await read(f.dataOffs + defaultFrogfsOffset, f.dataSize));
+          preserved++;
+        }
+        dbgLog("[install] preserved non-core FrogFS files:", preserved);
       }
       report.subFinish("migrate-scan", "games-migrate");
       report.finish("migrate-scan");
@@ -728,6 +764,7 @@
         opts: {
           selectedHomebrew,
           homebrewTitles: homebrew.titles,
+          installAllCores: true,
         },
         onStep: (step) => {
           if (step === "frogfs") {
@@ -806,7 +843,7 @@
         // granted via "prepare"'s unforced ensureStub() call above; any mid-flash reboot
         // needed to recover from a stall must never re-prompt, but this must still reuse the
         // live cached stub whenever possible rather than resetting the device on every call.
-        (force) => device.ensureStub(undefined, force, true),
+        (force) => device.ensureStub(undefined, force, true, force),
         inst,
         (phase, d, t) => {
           report.progress("flash", d, t, phase, "bytes");
@@ -1008,8 +1045,8 @@
     {#if installMode === "flash" && deviceHasRetroGoInstalled}
       <!-- Firmware.dc.html:100 — the two option rows are one column at `gap: 14px`. -->
       <div class="field optgroup" style="flex-direction: column; align-items: flex-start;">
-        <label class="row" style="cursor: {frogfsPart ? 'pointer' : 'not-allowed'};" class:migrate-disabled={!frogfsPart}>
-          <input type="checkbox" bind:checked={migrateGames} disabled={!frogfsPart} />
+        <label class="row" style="cursor: pointer;" class:migrate-disabled={false}>
+          <input type="checkbox" bind:checked={migrateGames} />
           <span>{locale.t.romSection.migrateGamesLabel}</span>
         </label>
         <label class="row" style="cursor: {littlefsPart ? 'pointer' : 'not-allowed'};" class:migrate-disabled={!littlefsPart}>

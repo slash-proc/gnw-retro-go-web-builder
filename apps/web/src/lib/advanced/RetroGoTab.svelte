@@ -22,7 +22,7 @@
   {:else if device.utilLoaded}
     <RomSection installMode={device.targetMedia} {onRunning} />
   {:else}
-    <div><Button variant="action" onclick={() => device.ensureStub()}>{locale.t.retroGoTab.enterRecoveryMode}</Button></div>
+    <div><Button variant="action" onclick={() => void device.startRecoveryMode()}>{locale.t.retroGoTab.enterRecoveryMode}</Button></div>
   {/if}
 </div>
 

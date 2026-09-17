@@ -5,7 +5,7 @@
  * The doc's rule, in order:
  *   1. Check `bundle.sha256` BEFORE opening the archive. A bundle whose bytes do not match
  *      is refused, not unpacked — the zip reader never sees it.
- *   2. Check the `sha256` of every `image`, `sdUpdate` and `content[]` entry AFTER
+ *   2. Check the `sha256` of every `image` and `content[]` entry AFTER
  *      extracting.
  *   3. Hashes are lowercase hex over the raw file bytes.
  *
@@ -14,13 +14,7 @@
  * the device). `install` is carried through on the result untouched, for a later step to act
  * on; nothing here joins it onto anything.
  *
- * `sdUpdate.path` normally names the SAME zip entry as `image.path` — the build copies the
- * intflash image to `update_bank<n>.bin` and the zip stores it once. That case extracts the
- * entry once and offers it a second time under `sdUpdate.filename`; when the two diverge the
- * zip carries both and each is read from its own `path`. Either way this module reads `path`
- * and assumes neither shape.
- *
- * Nothing here writes to a device or a card, patches a superblock, or touches
+ *  * Nothing here writes to a device or a card, patches a superblock, or touches
  * `/data/INSTALL`. It reuses `src/lib/unzip.ts` (the in-browser zip reader `artifacts.ts`
  * already uses) and `sources/blobCache.ts`'s `blobKey()` for the digest, so there is exactly
  * one sha256 helper in the app. Both are injectable, for tests and for a future worker.
@@ -35,7 +29,6 @@
  */
 import { unzip as defaultUnzip } from "../unzip.js";
 import { blobKey } from "../sources/blobCache.js";
-import { sdUpdateSharesImage } from "./parse.js";
 import type { BundleMember, ContentEntry, FirmwareBuild } from "./types.js";
 
 /** The subset of `src/lib/unzip.ts` this module uses. Injected so a test can count calls. */
@@ -44,8 +37,8 @@ export type UnzipLike = (buf: Uint8Array) => Promise<Map<string, Uint8Array>>;
 /** Lowercase-hex sha256 over the raw bytes. Defaults to `blobCache.ts`'s `blobKey`. */
 export type DigestLike = (bytes: Uint8Array) => Promise<string>;
 
-/** Which declaration a file came from. `image`/`sdUpdate` are singular; `content` is indexed. */
-export type MemberRole = "image" | "sdUpdate" | "content";
+/** Which declaration a file came from. */
+export type MemberRole = "image" | "content";
 
 /**
  * Names one declared member of a build, so a refusal can say exactly which entry failed
@@ -72,8 +65,6 @@ export interface ExtractedFile {
   sha256: string;
   /** `content[]` only: where the bytes go on the device, relative to the storage root. */
   install?: string;
-  /** `sdUpdate` only: the one load-bearing filename the on-device updater looks for. */
-  filename?: string;
   /** `content[]` only, on `lang/*.bin`: the language this blob is for. Per-build; never shared. */
   language?: string;
   /** `content[]` only: its position in the manifest's array. */
@@ -143,14 +134,6 @@ export interface BundleExtraction {
   buildId: string;
   /** The intflash image. Still unpatched — the superblock pass is a later step. */
   image: ExtractedFile;
-  /**
-   * SD builds only. When `sdUpdateSharedImage` is true these are the image's bytes, read
-   * once, offered again under `sdUpdate.filename`.
-   */
-  sdUpdate?: ExtractedFile;
-  content: ExtractedFile[];
-  /** Whether `sdUpdate.path` named the same zip entry as `image.path` (the normal case). */
-  sdUpdateSharedImage: boolean;
   /** Every zip entry that was actually read, once each. */
   entriesRead: string[];
 }
@@ -230,7 +213,7 @@ function isRefusal(v: ExtractedFile | ExtractRefusal): v is ExtractRefusal {
  * Verify the bundle, open it, and verify every declared member.
  *
  * Returns a `BundleExtraction` or the FIRST refusal, in the doc's own order: the bundle's
- * hash, then the archive's readability, then `image`, `sdUpdate` and `content[]` in turn.
+ * hash, then the archive's readability, then `image` and `content[]` in turn.
  * Stopping at the first failure is deliberate — a bundle with one bad entry is not a bundle
  * a partial install may proceed from.
  */
@@ -264,27 +247,6 @@ export async function extractBundle(
 
   const entriesRead = [build.image.path];
 
-  let sdUpdate: ExtractedFile | undefined;
-  const shared = sdUpdateSharesImage(build);
-  if (build.sdUpdate) {
-    if (shared) {
-      // Same zip entry, stored once: reuse the bytes already read and verified rather than
-      // hashing them a second time under a different name.
-      sdUpdate = { ...image, role: "sdUpdate", filename: build.sdUpdate.filename };
-    } else {
-      const taken = await takeMember(
-        build.id,
-        entries,
-        build.sdUpdate,
-        { role: "sdUpdate", path: build.sdUpdate.path },
-        digest,
-      );
-      if (isRefusal(taken)) return taken;
-      sdUpdate = { ...taken, filename: build.sdUpdate.filename };
-      entriesRead.push(build.sdUpdate.path);
-    }
-  }
-
   const content: ExtractedFile[] = [];
   for (let i = 0; i < build.content.length; i++) {
     const decl: ContentEntry = build.content[i];
@@ -300,9 +262,7 @@ export async function extractBundle(
     ok: true,
     buildId: build.id,
     image,
-    sdUpdate,
     content,
-    sdUpdateSharedImage: shared,
     entriesRead,
   };
 }

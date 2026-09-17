@@ -158,6 +158,7 @@ export const sourcesFr: SourcesStrings = {
     usedBy: "Utilisé par",
     biosGroup: "Fichiers systeme",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'Sauvegarde OFW',
     any: "Tous",
     count: (n: number) => (n === 1 ? "1 dossier" : `${n} dossiers`),
     addDirectoryTitle: "Ajouter un dossier",

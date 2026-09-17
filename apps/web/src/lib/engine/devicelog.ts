@@ -17,6 +17,16 @@ import { versionToken } from "../firmwareDist/compare.js";
 import { FIRMWARE_VERSIONS_URL } from "../firmwareDist/types.js";
 import { dbg } from "../debug.js";
 
+// Device-log polling runs continuously while Retro-Go is active. Keep diagnostics useful by
+// emitting each steady-state observation once, then only logging it again when its value changes.
+// Without this, a 1–2 second poll interval floods the debug/audit log with identical reads.
+const lastDebugByKey = new Map<string, string>();
+function dbgStable(key: string, message: string): void {
+  if (lastDebugByKey.get(key) === message) return;
+  lastDebugByKey.set(key, message);
+  dbg(message);
+}
+
 const LOGBUF_SIZE = 4096;
 /**
  * The current retro-go-sd ELF puts the persistent section in AHB SRAM. The DTCM pair is kept
@@ -217,7 +227,7 @@ export async function readLogFromTransport(
   // A symbol-resolved layout is authoritative. If its buffer is currently empty, do not let
   // stale bytes at a fallback address masquerade as a live log.
   if (preferred) {
-    dbg("[devicelog] preferred layout", preferred);
+    dbgStable("preferred-layout", `[devicelog] preferred layout ${JSON.stringify(preferred)}`);
     try {
       const idx = (await transport.readWord(preferred.index)) >>> 0;
       if (idx <= preferred.size) {
@@ -227,11 +237,11 @@ export async function readLogFromTransport(
         const readLength = idx === 0 ? preferred.size : idx;
         const buf = await readLogBytes(transport, preferred.buffer, readLength, quiet);
         const text = idx === 0 ? decodeLogPrefix(buf) : decodeLog(buf);
-        dbg(`[devicelog] preferred read index=0x${preferred.index.toString(16)} idx=${idx} bytes=${buf.length} text=${text.length}`);
+        dbgStable("preferred-read", `[devicelog] preferred read index=0x${preferred.index.toString(16)} idx=${idx} bytes=${buf.length} text=${text.length}`);
         if (text.length > 0) return { text, idx };
       }
     } catch {
-      dbg("[devicelog] preferred read failed");
+      dbgStable("preferred-read-failed", "[devicelog] preferred read failed");
       // If the symbol-resolved address cannot be read, fall back to the historical pairs below.
     }
   }
@@ -242,11 +252,12 @@ export async function readLogFromTransport(
   for (const layout of layouts) {
     try {
       const idx = (await transport.readWord(layout.index)) >>> 0;
-      dbg(`[devicelog] candidate index=0x${layout.index.toString(16)} buffer=0x${layout.buffer.toString(16)} idx=${idx}`);
+      const candidateKey = `candidate-index-${layout.index.toString(16)}`;
+      dbgStable(candidateKey, `[devicelog] candidate index=0x${layout.index.toString(16)} buffer=0x${layout.buffer.toString(16)} idx=${idx}`);
       if (idx > layout.size) continue;
       if (idx === 0) {
         const text = decodeLogPrefix(await readLogBytes(transport, layout.buffer, layout.size, quiet));
-        dbg(`[devicelog] zero-index scan bytes=${layout.size} text=${text.length}`);
+        dbgStable(`zero-index-${layout.index.toString(16)}`, `[devicelog] zero-index scan bytes=${layout.size} text=${text.length}`);
         if (text.length > 0) return { text, idx };
         selected ??= { idx, text: "" };
         continue;
@@ -257,12 +268,12 @@ export async function readLogFromTransport(
       // one containing a plausible log. This mirrors symbol discovery without shipping an ELF
       // parser in the browser.
       if (text.length > 0) {
-        dbg(`[devicelog] candidate decoded bytes=${buf.length} text=${text.length}`);
+        dbgStable(`candidate-decoded-${layout.index.toString(16)}`, `[devicelog] candidate decoded bytes=${buf.length} text=${text.length}`);
         selected = { idx, text };
         break;
       }
     } catch {
-      dbg(`[devicelog] candidate read failed index=0x${layout.index.toString(16)}`);
+      dbgStable(`candidate-failed-${layout.index.toString(16)}`, `[devicelog] candidate read failed index=0x${layout.index.toString(16)}`);
       // An older target may not expose the current layout; try the legacy symbol pair.
     }
   }

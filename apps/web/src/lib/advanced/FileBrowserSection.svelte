@@ -5,11 +5,17 @@
   import { extflashSegments, intflashSegments } from "../engine/classify.js";
   import { INT_BAR_NOTE, INT_BAR_SIZE, EXT_BAR_NOTE, extBarSize } from "./addr.js";
   import type { FrogfsFile, LittlefsTreeNode } from "@gnw/fs-builders";
+  import { LittleFsImage } from "@gnw/fs-builders";
   import { dumpRegion } from "../engine/flasher.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import { download, formatSize } from "../util.js";
   import { locale } from "../i18n/locale.svelte.js";
   import PaneFooter from "./PaneFooter.svelte";
+  import Button from "../ui/Button.svelte";
+  import ModalShell from "../ui/ModalShell.svelte";
+  import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
+  import { flashImage } from "../engine/flasher.js";
+  import { deviceSafety } from "../installProgress.svelte.js";
 
   let selectedFs = $state<string | null>(null);
   // The clicked segment, kept so the bar can draw it as selected. Nothing reads it for I/O.
@@ -129,6 +135,80 @@
   );
 
   let downloading = $state<string | null>(null);
+  let mutating = $state<string | null>(null);
+  let uploadDir = $state<string | null>(null);
+  let uploadFile = $state<File | null>(null);
+  let uploadInput = $state<HTMLInputElement | null>(null);
+  let mutationError = $state<string | null>(null);
+
+  const canMutate = $derived(selectedFs === "littlefs" && device.utilLoaded && !mutating);
+
+  function openUpload(dir: TreeNode) {
+    if (!canMutate || dir.path === "") return;
+    uploadDir = dir.path;
+    uploadFile = null;
+    mutationError = null;
+  }
+
+  async function submitUpload() {
+    if (!uploadDir || !uploadFile || !canMutate) return;
+    mutating = `upload:${uploadDir}`;
+    mutationError = null;
+    deviceSafety.hold();
+    try {
+      const bytes = new Uint8Array(await uploadFile.arrayBuffer());
+      await writeFilesToDeviceLfs((force) => device.ensureStub(undefined, force, true, force), [{ path: `${uploadDir}/${uploadFile.name}`, data: bytes }]);
+      uploadDir = null;
+      lfsTree = null;
+      device.installedLfsTree = null;
+      await loadLittleFs();
+    } catch (e) {
+      mutationError = e instanceof Error ? e.message : String(e);
+    } finally {
+      deviceSafety.release();
+      mutating = null;
+    }
+  }
+
+  async function deleteFile(node: TreeNode) {
+    if (!canMutate || node.isDirectory || !confirm(`Delete ${node.path}?`)) return;
+    mutating = `delete:${node.path}`;
+    mutationError = null;
+    deviceSafety.hold();
+    try {
+      const tree = await ensureLfsTree();
+      const files = new Map<string, Uint8Array>();
+      async function collect(n: LittlefsTreeNode, prefix: string) {
+        for (const c of n.children ?? []) {
+          const p = `${prefix}${c.name}`;
+          if (c.isDirectory) await collect(c, `${p}/`);
+          else if (p !== node.path) files.set(p, await readLfsFile(p));
+        }
+      }
+      await collect(tree, "");
+      const part = device.partitions.find((p) => p.fs === "littlefs");
+      if (!part) throw new Error("LittleFS partition not found.");
+      const bs = part.meta?.blockSize ?? device.info?.minEraseSizeBytes ?? 4096;
+      const bc = part.meta?.blockCount ?? Math.floor(part.size / bs);
+      const image = await LittleFsImage.create(bs, bc);
+      const dirs = new Set<string>(["cores", "data"]);
+      for (const p of files.keys()) {
+        const bits = p.split("/");
+        for (let i = 1; i < bits.length; i++) dirs.add(bits.slice(0, i).join("/"));
+      }
+      for (const d of [...dirs].sort((a, b) => a.split("/").length - b.split("/").length)) image.mkdir(`/${d}`);
+      for (const [p, data] of files) image.writeFile(`/${p}`, data);
+      await flashImage((force) => device.ensureStub(undefined, force, true, force), 0, part.offset, image.finish(), undefined, undefined, { compress: true, verify: false });
+      lfsTree = null;
+      device.installedLfsTree = null;
+      await loadLittleFs();
+    } catch (e) {
+      mutationError = e instanceof Error ? e.message : String(e);
+    } finally {
+      deviceSafety.release();
+      mutating = null;
+    }
+  }
 
   async function downloadFile(node: TreeNode) {
     if (!canDownload || downloading) return;
@@ -204,24 +284,24 @@
             <div class="row folder" class:busy={node.loading} onclick={() => toggleNode(node)}>
               {@render folderIcon()}
               <span class="name">{node.name}</span>
+              {#if canMutate && node.path !== ""}
+                <button class="mini-action" type="button" title={`Upload into ${node.path}`} onclick={(e) => { e.stopPropagation(); openUpload(node); }}>＋</button>
+              {/if}
             </div>
             {#if openDirs.has(node.path) && node.children}
               {@render renderTree(node.children)}
             {/if}
           {:else if canDownload}
-            <button
-              class="row file downloadable"
+            <div class="row file downloadable"
               class:busy={downloading === node.path}
-              type="button"
-              disabled={downloading !== null}
               title={locale.t.fileBrowserSection.downloadTitle(node.path)}
-              onclick={() => downloadFile(node)}
             >
               {@render fileIcon()}
               <span class="name">{node.name}</span>
               <span class="size">{formatSize(node.size ?? 0)}</span>
-              {@render downloadIcon()}
-            </button>
+              <button class="mini-action" type="button" disabled={downloading !== null || mutating !== null} title={locale.t.fileBrowserSection.downloadTitle(node.path)} onclick={() => void downloadFile(node)}>{@render downloadIcon()}</button>
+              <button class="mini-action danger" type="button" disabled={mutating !== null} title={`Delete ${node.path}`} onclick={() => void deleteFile(node)}>×</button>
+            </div>
           {:else}
             <div
               class="row file"
@@ -236,6 +316,21 @@
       {/each}
     </ul>
   {/snippet}
+
+  {#if uploadDir !== null}
+    <ModalShell onDismiss={mutating ? null : () => (uploadDir = null)} maxWidth="30rem">
+      {#snippet children()}
+        <h3>Upload to /{uploadDir}</h3>
+        <p class="muted">Choose one file to add to this LittleFS directory.</p>
+        <input bind:this={uploadInput} type="file" onchange={(e) => (uploadFile = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
+        {#if mutationError}<p class="error">{mutationError}</p>{/if}
+        <div class="actions">
+          <Button variant="cancel" onclick={() => (uploadDir = null)} disabled={!!mutating}>Cancel</Button>
+          <Button variant="action" onclick={() => void submitUpload()} disabled={!uploadFile || !!mutating}>Upload</Button>
+        </div>
+      {/snippet}
+    </ModalShell>
+  {/if}
 
   <!-- FileBrowser.dc.html:83-84 — an uppercase caption naming the partition, the read
        status right-aligned opposite it, then a 4px read-progress track, then the white
@@ -392,16 +487,29 @@
     opacity: 0.6;
   }
   .folder:hover,
-  button.file:hover:not(:disabled) {
+  .file.downloadable:hover {
     color: var(--model-accent);
   }
-  button.file {
+  .mini-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--zelda-green);
     cursor: pointer;
+    font-size: 1.2rem;
+    line-height: 1;
   }
-  button.file:disabled {
-    cursor: default;
-    opacity: 0.6;
-  }
+  .mini-action:hover:not(:disabled) { color: var(--model-accent); }
+  .mini-action:disabled { opacity: 0.45; cursor: default; }
+  .mini-action.danger { color: var(--action-red); }
+  .actions { display: flex; justify-content: flex-end; gap: 1.25rem; margin-top: 1.25rem; }
+  h3 { margin: 0 0 0.5rem; font-size: var(--fs-title); }
+  input[type="file"] { width: 100%; margin-top: 0.75rem; }
   .size {
     font-family: var(--font-mono);
     font-size: var(--fs-micro);

@@ -44,6 +44,7 @@ import {
   type BackupDir,
   type BackupProbeHit,
 } from "./engine/ofw.js";
+import { localFolders, OFW_BACKUP_USED_BY_KEY } from "./sources/localFolders.svelte.js";
 
 /** The IndexedDB key `advanced/OfficialFirmwareSection.svelte` already stores the folder under.
  *  Shared on purpose: picking a folder there and reading it here must never disagree. */
@@ -83,7 +84,15 @@ class BackupPresenceStore {
     }
     this.busy = true;
     try {
-      const handle = this.handle ?? ((await loadDir(HANDLE_KEY)) as BackupDir | null);
+      await localFolders.load();
+      let source = localFolders.folders.find((f) => f.usedBy.includes(OFW_BACKUP_USED_BY_KEY));
+      let legacy = (await loadDir(HANDLE_KEY)) as BackupDir | null;
+      // Migrate the old standalone backup handle exactly once. Removing the OFW source clears
+      // this key, so an intentional removal cannot be resurrected on the next startup.
+      if (!source && !this.handle && legacy) {
+        source = await localFolders.adoptOfwBackup(legacy);
+      }
+      const handle = (source?.handle as BackupDir | null) ?? legacy;
       if (!handle) {
         this.state = { kind: "disconnected" };
         return;
@@ -125,7 +134,9 @@ class BackupPresenceStore {
   async adopted(): Promise<BackupDir | null> {
     if (!backupPickerSupported()) return null;
     try {
-      const handle = this.handle ?? ((await loadDir(HANDLE_KEY)) as BackupDir | null);
+      await localFolders.load();
+      const source = localFolders.folders.find((f) => f.usedBy.includes(OFW_BACKUP_USED_BY_KEY));
+      const handle = (source?.handle as BackupDir | null) ?? ((await loadDir(HANDLE_KEY)) as BackupDir | null);
       if (!handle) return null;
       if (!(await handlePermission(handle, "readwrite", false))) return null;
       this.handle = handle;
@@ -141,6 +152,7 @@ class BackupPresenceStore {
     if (!picked) return; // cancelled
     this.handle = picked;
     await saveDir(HANDLE_KEY, picked);
+    await localFolders.adoptOfwBackup(picked);
     await this.refresh();
   }
 

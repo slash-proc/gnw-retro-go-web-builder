@@ -3,15 +3,23 @@
   import FlashChipIcon from "../ui/FlashChipIcon.svelte";
   import SdCardIcon from "../ui/SdCardIcon.svelte";
   import { locale } from "../i18n/locale.svelte.js";
+  import { loadSel, saveSel } from "../persist.js";
   import { onMount } from "svelte";
 
-  let { onNavigate }: { onNavigate: (target: 'device' | 'device-advanced' | 'games', media: 'flash' | 'sd') => void } = $props();
+  let { onNavigate, resetToMedia = false }: {
+    onNavigate: (target: 'device' | 'device-advanced' | 'games', media: 'flash' | 'sd') => void;
+    resetToMedia?: boolean;
+  } = $props();
 
   const webusb = typeof navigator !== "undefined" && !!navigator.usb;
   let knownDevices = $state<USBDevice[]>([]);
   let step = $state<'media' | 'action'>('media');
 
   onMount(() => {
+    // Keep the entry wizard on its second step after the user has chosen Flash or SD.
+    // This restores presentation only: adapter discovery still starts exclusively from
+    // handleNavigate(), after the user chooses an action on this step.
+    if (!resetToMedia && loadSel("landing-media-chosen", false)) step = 'action';
     if (webusb) {
       navigator.usb.getDevices().then(devs => knownDevices = devs).catch(() => {});
     }
@@ -19,6 +27,7 @@
 
   function selectMedia(media: 'flash' | 'sd') {
     device.targetMedia = media;
+    saveSel("landing-media-chosen", true);
     step = 'action';
   }
 </script>

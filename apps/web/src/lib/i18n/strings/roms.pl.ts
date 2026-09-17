@@ -93,7 +93,7 @@ export const romsPl: RomsStrings = {
     wontFitDetail: "Nie mieści się w dostępnym miejscu. Odznacz kilka gier.",
   },
   sdSync: {
-    upgradeLabelPre: "Zaktualizuj Retro-Go i rdzenie do",
+    upgradeLabelPre: "Zaktualizuj Retro-Go do",
     updatesWhenBoots: "(zaktualizuje się przy następnym uruchomieniu G&W)",
     downloadZipButton: "Pobierz ZIP karty SD",
     nothingToSyncTitle: "Żadne gry, rdzenie, okładki ani cheaty się nie zmieniły, więc nie ma nic do synchronizacji.",

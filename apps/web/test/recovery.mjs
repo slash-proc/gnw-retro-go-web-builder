@@ -62,6 +62,7 @@ const STUBS = {
   "./engine/transport.js": `
     export const connectProbe = (opts) => globalThis.__fake.connectProbe(opts);
     export const getKnownProbes = () => globalThis.__fake.getKnownProbes();
+    export const chooseProbe = async () => globalThis.__fake.chooseProbe?.();
     export const serialTransport = (t) => t;
     export const isDeadHandleError = () => false;`,
   "./engine/flasher.js": `
@@ -72,7 +73,7 @@ const STUBS = {
     export const isStubAlive = async () => globalThis.__fake.stubAlive;
     export const pingTarget = async () => true;`,
   "./engine/fsscan.js": `export const scanExtflashPartitions = async () => [];`,
-  "./engine/intflashscan.js": `export const scanIntflashBanks = async () => [];`,
+  "./engine/intflashscan.js": `export const scanIntflashBanks = async () => []; export const INT_BANK_BASES = [0x08032000, 0x08122000];`,
   "./engine/classify.js": `export const classifyDevice = () => null;`,
   "./engine/screenshot.js": `export const captureScreenshot = async () => null;`,
   "./engine/frogfsDevice.js": `export const readInstalledFrogfs = async () => null;`,

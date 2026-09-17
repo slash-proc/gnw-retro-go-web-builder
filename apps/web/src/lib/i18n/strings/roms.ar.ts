@@ -96,7 +96,7 @@ export const romsAr: RomsStrings = {
     wontFitDetail: "لن يتسع في المساحة المتاحة. ألغِ تحديد بعض الألعاب.",
   },
   sdSync: {
-    upgradeLabelPre: "ترقية Retro-Go والأنوية إلى",
+    upgradeLabelPre: "ترقية Retro-Go إلى",
     updatesWhenBoots: "(يُطبَّق عند إقلاع G&W التالي)",
     downloadZipButton: "تنزيل ملف SD المضغوط",
     nothingToSyncTitle: "لم تتغير أي ألعاب أو أنوية أو أغلفة أو أكواد غش، فلا شيء لمزامنته.",

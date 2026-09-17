@@ -151,6 +151,7 @@ export const sourcesZhHans: SourcesStrings = {
     usedBy: "使用方",
     biosGroup: "系统文件",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'OFW 备份',
     any: "任意",
     count: (n: number) => `${n} 个文件夹`,
     addDirectoryTitle: "添加目录",

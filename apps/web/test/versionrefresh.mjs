@@ -213,7 +213,7 @@ await check("the dual-boot backup step is done on bank-1 patch evidence", () => 
   const m = wiz.match(/let step1Done = \$derived\(([\s\S]*?)\);/);
   assert(m, "step1Done is gone or reshaped");
   assert(!/isPatched/.test(m[1]), `step1Done still depends on isPatched (and so on hasAssets): ${m[1].trim()}`);
-  assert(/path === "rgo" \? backupTaken : !!device\.deviceClass\?\.ofw\?\.patched/.test(m[1]),
+  assert(/path === "rgo" \? backupTaken \|\| backupPresent : !!device\.deviceClass\?\.ofw\?\.patched/.test(m[1]),
     `step1Done must use bank-1 patch evidence for dual boot and the backup flag only for Retro-Go: ${m[1].trim()}`);
 });
 

@@ -158,6 +158,7 @@ export const sourcesEs: SourcesStrings = {
     usedBy: "Usada por",
     biosGroup: "Archivos de sistema",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'Copia OFW',
     any: "Cualquiera",
     count: (n: number) => (n === 1 ? "1 carpeta" : `${n} carpetas`),
     addDirectoryTitle: "Añadir un directorio",

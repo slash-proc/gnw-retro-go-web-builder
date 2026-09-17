@@ -99,7 +99,7 @@ function audit(src) {
   if (!/report\.subStart\("flash", "cores"\)/.test(src)) {
     problems.push("nothing starts the cores substep, so it never lights up");
   }
-  if (!/report\.progress\("flash", done, total, "cores"\)/.test(src)) {
+  if (!/report\.progress\("flash", done, total, "cores"(?:,\s*"bytes")?\)/.test(src)) {
     problems.push("the LittleFS write reports no progress into its own substep");
   }
 

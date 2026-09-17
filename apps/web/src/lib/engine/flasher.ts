@@ -5,6 +5,10 @@ import type { SwdTransport } from "@gnw/swd-transport";
 import { lzmaCompress, preloadLzma } from "./lzma.js";
 import firmwareUrl from "@gnw/gnw-flasher/blobs/firmware.bin?url";
 
+// Keep the host watchdog aligned with gnw-flasher's 30-second no-progress phase
+// budget. A wedged erase must surface promptly instead of holding the UI for two minutes.
+const FLASH_STALL_MS = 15_000;
+
 export type { DeviceInfo };
 export { preloadLzma };
 
@@ -140,6 +144,14 @@ export async function flashImage(
         flasher = flasherOrGetter;
       }
 
+      // Erase/program status is reported independently of byte-progress callbacks. An erase
+      // can legitimately take longer than the host progress watchdog interval, so status
+      // traffic must count as liveness; otherwise the watchdog aborts a healthy erase and the
+      // retry path resets the device before the first block completes.
+      const flashLog = (line: string) => {
+        lastProgressTime = Date.now();
+        log?.(line);
+      };
       const flashPromise = flasher.flash(bank, offset, data, {
         compress: compress ? (d) => {
           const res = lzmaCompress(d);
@@ -149,20 +161,19 @@ export async function flashImage(
         verify,
         onProgress: progressWrapper,
         abortSignal: opts.abortSignal,
-        log,
+        log: flashLog,
       });
 
-      // Reverted from a same-day 15s reduction (was 120s) — that change was chasing a symptom
-      // (frequent stalls/reboots) whose actual root cause was the per-chunk read-back verify
-      // above being removed just now; an 8x-more-trigger-happy watchdog on top of that was
-      // aborting/rebooting far more often than warranted for ordinary transient slowness. Back
-      // to the original, well-tested threshold.
+      // Keep this host-side guard at the same 15-second no-progress budget as the
+      // flasher's waitForIdle() guard. It is only a backstop for a transport call that
+      // never returns; normal phase progress resets lastProgressTime.
       let intervalId: any;
       const watchdogPromise = new Promise<void>((_, reject) => {
         intervalId = setInterval(() => {
-          if (Date.now() - lastProgressTime > 120000) {
+          if (Date.now() - lastProgressTime > FLASH_STALL_MS) {
             clearInterval(intervalId);
-            reject(new Error("Flash stalled for 120 seconds without progress (WebUSB lockup)."));
+            log?.(`[flashtrace] host watchdog fired after ${FLASH_STALL_MS / 1000}s without progress`);
+            reject(new Error(`Flash stalled for ${FLASH_STALL_MS / 1000} seconds without progress (WebUSB lockup).`));
           }
         }, 1000);
       });

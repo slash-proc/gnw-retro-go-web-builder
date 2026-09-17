@@ -108,9 +108,6 @@ export interface BundleMember {
  * format. `path` normally points at the SAME zip entry as `image.path` (same bytes, stored
  * once) — read `path`, do not assume either case.
  */
-export interface SdUpdate extends BundleMember {
-  filename: string;
-}
 
 /**
  * Everything else that lands on the device. Three distinct fields, and mixing them up is the
@@ -145,11 +142,9 @@ export interface FirmwareBuild {
   /** The literal make command line. Provenance — do not parse it. */
   buildFlags: string;
   bundle: RemoteAsset;
-  /** The ELF zip. Never installed. */
-  debug: RemoteAsset;
+  /** Optional debug artifact; release manifests may omit it. */
+  debug?: RemoteAsset;
   image: BundleMember;
-  /** SD builds only. */
-  sdUpdate?: SdUpdate;
   content: ContentEntry[];
 }
 
@@ -203,6 +198,8 @@ export interface FirmwareManifest {
   /** Every UI language the release offers, sorted. `en_us` is in rodata and has no blob. */
   languages: string[];
   builds: FirmwareBuild[];
+  /** Bank-specific complete SD updater archives. Required by the current manifest contract. */
+  updates: { bank1: RemoteAsset; bank2: RemoteAsset };
   builtAt: string;
   /** The curated core/homebrew list, published beside this manifest. */
   projects?: RemoteAsset;

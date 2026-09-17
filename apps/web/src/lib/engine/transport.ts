@@ -8,9 +8,9 @@ import * as libstlink from "@webstlink/lib/package.js";
 const ST_LINK_VENDOR_ID = 0x0483;
 const RASPBERRY_PI_VENDOR_ID = 0x2e8a;
 // Shared SWD clock for both probe families. Out of the box dapjs runs at 10 MHz and
-// the ST-Link at 1.8 MHz; 4 MHz is the ST-Link table maximum and our default for both.
+// the ST-Link at 1.8 MHz; 4 MHz is the default (ST-Link clamps higher requests).
 // Tune here if flying leads corrupt transfers — lower is more reliable (e.g. 2_000_000).
-const SWD_CLOCK_HZ = 4_000_000;
+export const DEFAULT_SWD_CLOCK_HZ = 4_000_000;
 
 export interface ProbeHandle {
   transport: SwdTransport;
@@ -108,7 +108,7 @@ async function withTimeoutAndRetry<T>(
   throw lastError;
 }
 
-export async function connectProbe(opts: { forcePicker?: boolean } = {}): Promise<ProbeHandle> {
+export async function connectProbe(opts: { forcePicker?: boolean; swdClockHz?: number; device?: USBDevice } = {}): Promise<ProbeHandle> {
   if (typeof navigator === "undefined" || !navigator.usb) {
     throw new Error("WebUSB unavailable — use Chrome, Edge, or Opera.");
   }
@@ -117,7 +117,9 @@ export async function connectProbe(opts: { forcePicker?: boolean } = {}): Promis
   // already-authorized probe is connected (the picker shows only for 0 → grant a new
   // one, or 2+ → let the user select).
   let dev: USBDevice;
-  if (opts.forcePicker) {
+  if (opts.device) {
+    dev = opts.device;
+  } else if (opts.forcePicker) {
     dev = await navigator.usb.requestDevice({ filters });
   } else {
     const known = (await navigator.usb.getDevices()).filter((d) => matchesFilters(d, filters));
@@ -147,7 +149,7 @@ export async function connectProbe(opts: { forcePicker?: boolean } = {}): Promis
 
     const ll = stlink._stlink;
     // attach() inits at the 1.8 MHz default — override to our shared SWD clock.
-    await ll.set_swd_freq(SWD_CLOCK_HZ);
+    await ll.set_swd_freq(opts.swdClockHz ?? DEFAULT_SWD_CLOCK_HZ);
     return {
       transport: new WebStlinkTransport(ll),
       probeName: `ST-Link/${ll.ver_str}`,
@@ -161,7 +163,7 @@ export async function connectProbe(opts: { forcePicker?: boolean } = {}): Promis
     async () => {
       cortexM = new CortexM(new WebUSB(dev));
       // @ts-expect-error dapjs exposes clockFrequency on the instance.
-      cortexM.clockFrequency = SWD_CLOCK_HZ;
+      cortexM.clockFrequency = opts.swdClockHz ?? DEFAULT_SWD_CLOCK_HZ;
       await cortexM.connect();
     },
     1000,
@@ -176,4 +178,13 @@ export async function connectProbe(opts: { forcePicker?: boolean } = {}): Promis
     device: dev,
     dispose: () => cortexM.disconnect().catch(() => {}),
   };
+}
+
+/** Open the WebUSB chooser and return the authorized probe without touching the target. */
+export async function chooseProbe(): Promise<USBDevice> {
+  if (typeof navigator === "undefined" || !navigator.usb) {
+    throw new Error("WebUSB unavailable — use Chrome, Edge, or Opera.");
+  }
+  const filters = [...libstlink.usb.filters, { vendorId: RASPBERRY_PI_VENDOR_ID }];
+  return navigator.usb.requestDevice({ filters });
 }

@@ -87,7 +87,7 @@ export const romsZhHans: RomsStrings = {
   },
   sdSync: {
     // 模板中这一句后面紧跟版本下拉框。
-    upgradeLabelPre: "将 Retro-Go 和核心升级到",
+    upgradeLabelPre: "将 Retro-Go 升级到",
     updatesWhenBoots: "（G&W 下次启动时生效）",
     downloadZipButton: "下载 SD ZIP",
     nothingToSyncTitle: "游戏、核心、封面和金手指都没有变化，无需同步。",

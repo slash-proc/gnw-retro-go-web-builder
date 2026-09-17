@@ -16,7 +16,7 @@
   // See memory: romgr-install-architecture.
   import { onMount } from "svelte";
   import { library } from "../library.svelte.js";
-  import { nativeFolderPickerSupported, pickFolder, saveFileToDirOrDownload, deleteFileFromDir, readTextFromDir, scanRomDirectory, getValidRoot, dirSupportsWriteBack, romBytes, materialize, type LibraryFile } from "../romScan.js";
+  import { nativeFolderPickerSupported, pickFolder, saveFileToDirOrDownload, deleteFileFromDir, pruneEmptyParents, readTextFromDir, scanRomDirectory, getValidRoot, dirSupportsWriteBack, romBytes, romBytesIfLoaded, materialize, type LibraryFile } from "../romScan.js";
   import { deviceInstallPaths, rememberInstallPaths, sdDestPath } from "../engine/devicePaths.js";
   import {
     scanLegacyHomebrew,
@@ -30,17 +30,20 @@
     LEGACY_HOMEBREW_DIR,
   } from "../sdHomebrewMigration.js";
   import { fetchVersions, fetchManifest } from "../firmwareDist/client.js";
-  import { resolveInstallPaths, type InstallPaths } from "@gnw/fs-builders";
+  import { resolveInstallPaths, parseFrogfs, type InstallPaths } from "@gnw/fs-builders";
+  import { sha256Hex } from "../sources/client.js";
   import { sdStorage } from "../sdStorage.svelte.js";
   import { HOMEBREW_KEY_PREFIX } from "../sources/placement.js";
   import { favorites, toDevicePath, isFavoritable, FAVORITES_DEVICE_PATH } from "../favorites.svelte.js";
   import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
-  import { readLfsFile } from "../engine/lfsBrowser.js";
+  import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import type { StagedFile } from "@gnw/fs-builders";
   import { device } from "../device.svelte.js";
   import { locale } from "../i18n/locale.svelte.js";
-  import { romSelection, type Game, classifyContentPath, type ContentCategory, pressAddsBytes } from "../romSelection.svelte.js";
+  import { romSelection, type Game, classifyContentPath, coverOwnerOf, type ContentCategory, pressAddsBytes } from "../romSelection.svelte.js";
   import { buildFrogfsImage, flashFrogfsRegion } from "../engine/flashInstall.js";
+  import { buildCoresLittlefs } from "@gnw/fs-builders";
+  import { flashImage } from "../engine/flasher.js";
   import type { MappedSpec } from "@gnw/fs-builders";
   import { readGameData, type InstalledGame } from "../engine/frogfsDevice.js";
   import { homebrew, type HomebrewTitle } from "../sources/homebrewTitles.svelte.js";
@@ -50,13 +53,17 @@
   import { type OfferedFile } from "../sources/inputGate.js";
   import { prepareState, type ShippedGameFetch } from "../sources/prepareState.svelte.js";
   import { selectedPreparedAssets } from "../sources/selectedAssets.js";
-  import { applyCorePolicy, strandedCoreKeys, unusedCores } from "../sources/coreGate.js";
+  import { strandedCoreKeys, unusedCores } from "../sources/coreGate.js";
   import { adoptInputFolder, discoverForSource, discoverySignature } from "../sources/discoveryWire.svelte.js";
   import { dumpRegion } from "../engine/flasher.js";
   import { dbg, dbgLog } from "../debug.js";
+  import { auditLog } from "../auditLog.svelte.js";
+  import { literal } from "../logEntry.js";
+  import { readInstallMarker } from "../firmwareDist/installMarker.js";
   import { diffFrogfs, movedCategories } from "../frogfsDiff.js";
   import type { FlashAssemblyPlan } from "@gnw/fs-builders";
-  import { listVersions, fetchBundle, type FirmwareVersion } from "../artifacts.js";
+  import { listVersions, fetchBundle, fetchUpdateArchive, type FirmwareVersion } from "../artifacts.js";
+  import { replaceTarMember } from "../firmwareDist/sdUpdatePackage.js";
   import { installProgress, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
   import { msg, errText, sumBytes } from "../logEntry.js";
   import { isStubAlive } from "../engine/flasher.js";
@@ -443,9 +450,15 @@ import { navigate } from "../nav.js";
   // reserved-region end UP to the erase block.
   const eraseBlock = $derived(device.info?.minEraseSizeBytes || 4096);
   const reservedEnd = $derived(
-    device.partitions
+    Math.max(device.partitions
       .filter((p) => p.fs !== "littlefs" && p.fs !== "frogfs")
       .reduce((m, p) => Math.max(m, p.offset + p.size), 0),
+      // If the extflash signature probe missed OFW assets, keep a conservative bottom reserve
+      // whenever bank 1 is known to contain OFW. This prevents FrogFS/LittleFS from clobbering
+      // dual-boot assets on an otherwise valid device.
+      device.banks.find((b) => b.index === 1)?.ofw
+        ? (device.banks.find((b) => b.index === 1)!.ofw!.model === "zelda" ? 4 : 1) * (1 << 20)
+        : 0),
   );
   const reservedEndAligned = $derived(Math.ceil(reservedEnd / eraseBlock) * eraseBlock);
   const frogfsOffset = $derived(frogfsPart?.offset ?? reservedEndAligned);
@@ -794,6 +807,7 @@ import { navigate } from "../nav.js";
   // image, and reusing the image while dropping this list is exactly the silent-drop bug the
   // list exists to close.
   let builtPendingLfs = $state<StagedFile[]>([]);
+  let builtMappedDestPaths = $state<string[]>([]);
   let newFrogfsLen = $state<number | null>(null);
   let building = $state(false);
   let buildErr = $state<string | null>(null);
@@ -911,7 +925,10 @@ import { navigate } from "../nav.js";
       for (const g of sys.shippedGames) {
         const key = `${sys.folder}/${g.filename}`;
         if (!romSelection.selectedKeys.has(key)) continue;
-        if (prepareState.preparedBytesFor(key) !== undefined) continue;
+        // Shipped games are cached under their install path (`doom/<file>`), not under the
+        // owning core's artifact directory. There is no target object in this loop; using one
+        // here caused Doom's built-in shareware row to throw before its bytes were fetched.
+        if (prepareState.assets.has(key)) continue;
         out.push({ key, url: g.url, sha256: g.sha256 });
       }
     }
@@ -972,7 +989,7 @@ import { navigate } from "../nav.js";
         if (seen.has(key)) continue;
         seen.add(key);
         // Already held: costs no request, exactly as the shipped-game list skips its own.
-        if (prepareState.preparedBytesFor(key) !== undefined) continue;
+        if ((target.artifacts ?? []).every((a) => prepareState.assets.has(`cores/${a.filename}`))) continue;
         out.push({ key, target });
       }
     }
@@ -994,21 +1011,35 @@ import { navigate } from "../nav.js";
         dbg("[summary] device core artifacts unavailable:", key, errText(e));
       }
     }
+    // Raw CORE sources are not part of the Retro-Go bundle. They are ordinary active sources
+    // and must be staged explicitly or a LittleFS rebuild would silently omit them.
+    for (const row of sources.rows) {
+      if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
+      for (const target of row.manifest.targets) {
+        const key = `${row.repo}#${target.id}`;
+        if ((target.artifacts ?? []).every((a) => prepareState.assets.has(`cores/${a.filename}`))) continue;
+        try {
+          await prepareState.prepareCoreArtifacts(key, target);
+        } catch (e) {
+          dbg("[summary] raw core unavailable:", key, errText(e));
+        }
+      }
+    }
   }
 
   const selectedAssets = $derived.by(() =>
-    applyCorePolicy(
-      selectedPreparedAssets({
-        assets: extractedAssets,
-        sourceOf: (k) => prepareState.assetSourceOf(k),
-        producedBy: (k) => prepareState.producedKeys(k),
-        rows: romSelection.rows,
-        selectedRowKeys: romSelection.selectedKeys,
-        selectedTitleKeys: romSelection.selectedHomebrewKeys,
-        shippedGameKeys: shippedGameKeys(),
-      }),
-      unusedCoreKeys,
-    ),
+    // Library Sync is additive for cores: preserve every prepared/device core and only add
+    // missing ones. Keep `unusedCoreKeys` computed for the future small-NOR space policy, but
+    // do not apply that removal policy until the user explicitly opts into it.
+    selectedPreparedAssets({
+      assets: extractedAssets,
+      sourceOf: (k) => prepareState.assetSourceOf(k),
+      producedBy: (k) => prepareState.producedKeys(k),
+      rows: romSelection.rows,
+      selectedRowKeys: romSelection.selectedKeys,
+      selectedTitleKeys: romSelection.selectedHomebrewKeys,
+      shippedGameKeys: shippedGameKeys(),
+    }),
   );
 
   /**
@@ -1147,7 +1178,16 @@ import { navigate } from "../nav.js";
       }
       
       if (matchPath) {
-        const url = URL.createObjectURL(new Blob([library.scan!.userRoms.get(matchPath) as any]));
+        const entry = library.scan!.userRoms.get(matchPath)!;
+        const coverBytes = romBytesIfLoaded(entry);
+        if (!coverBytes) {
+          void romBytes(entry).then((bytes) => {
+            if (!cache.has(gameKey)) cache.set(gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])));
+            coverVersion++;
+          });
+          return "";
+        }
+        const url = URL.createObjectURL(new Blob([coverBytes as BlobPart]));
         cache.set(gameKey, url);
         return url;
       }
@@ -1287,6 +1327,11 @@ import { navigate } from "../nav.js";
   // is still null. Nothing else in this signature is device-derived, so the preview built in
   // that window was a cache hit forever after and the stale number never settled.
   const selSig = $derived([
+    // Geometry is part of the image contract: a fresh pre-install scan may move the FrogFS
+    // boundary when OFW assets are discovered, so a preview built against the old offset cannot
+    // be reused for the write.
+    frogfsOffset,
+    ceilingOffset,
     ...romSelection.selectedKeys, 
     ...romSelection.selectedHomebrewKeys, 
     ...extractedAssets.keys(),
@@ -1530,6 +1575,7 @@ import { navigate } from "../nav.js";
       if (token !== buildToken) return;
       builtFrogfs = frogfs;
       builtPendingLfs = previewPlan.pendingLfsFiles;
+      builtMappedDestPaths = previewPlan.mappedDests.map((m) => m.dest);
       newFrogfsLen = frogfs.length;
       builtFor = sig;
       reportNetChange(previewPlan, combinedRoms);
@@ -1537,6 +1583,7 @@ import { navigate } from "../nav.js";
       if (token !== buildToken) return;
       builtFrogfs = null;
       builtPendingLfs = [];
+      builtMappedDestPaths = [];
       newFrogfsLen = null;
       buildErr = e instanceof Error ? e.message : String(e);
     } finally {
@@ -1761,7 +1808,7 @@ import { navigate } from "../nav.js";
         rememberInstallPaths(bundle.manifest?.dist?.paths);
         coreBundleInfo = {
           tag,
-          fileCount: bundle.contentFor(installBank, true).size,
+          fileCount: bundle.contentFor(syncBank, true).size,
           coreCount: bundle.manifest.cores.length,
         };
       })
@@ -1779,6 +1826,24 @@ import { navigate } from "../nav.js";
   // at bank-specific absolute addresses, so this must track where Retro-Go actually lives
   // — the wrong tree hardfaults on the first core callback, it doesn't merely degrade.
   const installBank = $derived<1 | 2>(isBank2Install ? 2 : 1);
+  // SD cards without a valid /data/INSTALL marker need an explicit target bank.
+  let selectedSdBank = $state<1 | 2>(1);
+  let installedSdBank = $state<1 | 2 | null>(null);
+  $effect(() => {
+    const handle = device.sdHandle;
+    if (!handle || device.targetMedia !== "sd") { installedSdBank = null; return; }
+    (async () => {
+      try {
+        let dir: any = handle;
+        for (const part of ["data"]) dir = await dir.getDirectoryHandle(part);
+        const file = await (await dir.getFileHandle("INSTALL")).getFile();
+        const marker = readInstallMarker(new Uint8Array(await file.arrayBuffer()));
+        installedSdBank = marker?.bank ?? null;
+        if (marker) selectedSdBank = marker.bank;
+      } catch { installedSdBank = null; }
+    })();
+  });
+  const syncBank = $derived<1 | 2>(device.targetMedia === "sd" ? selectedSdBank : installBank);
 
   // Sub-steps for the two system-level items (Cores, Firmware Update) only appear in the
   // checklist at all when their corresponding checkbox is actually on — otherwise they're
@@ -1849,15 +1914,26 @@ import { navigate } from "../nav.js";
     if (!hb) return 0;
     const prepared = prepareState.preparedBytesFor(hbKey);
     if (prepared !== undefined) return prepared;
-    // Nothing prepared this session: the shipped files, plus whatever the device already holds
-    // under a name this title declares.
-    let total = 0;
-    for (const f of hb.deviceFiles) {
-      const g = deviceHomebrew.find(x => x.name === f);
-      if (g) total += g.size;
-    }
-    return total;
+    // After reload, derived outputs are not in prepared state or deviceFiles. Attribute every
+    // on-device homebrew entry through the same owner rule used by the Library, including
+    // OpenLara's open-ended `openlara/*.PKD` data directory.
+    return deviceHomebrew
+      .filter((g) => homebrew.owning(g.name)?.key === hbKey)
+      .reduce((total, g) => total + g.size, 0);
   }
+
+  const homebrewRemovalFiles = $derived.by(() => {
+    const out: { key: string; size: number }[] = [];
+    for (const g of deviceHomebrew) {
+      const owner = homebrew.owning(g.name);
+      if (owner && !romSelection.selectedHomebrewKeys.has(owner.key)) {
+        out.push({ key: `homebrew/${g.name}`, size: g.size });
+      } else if (!owner && romSelection.deletedUnknownHomebrew.has(g.name)) {
+        out.push({ key: `homebrew/${g.name}`, size: g.size });
+      }
+    }
+    return out;
+  });
 
   const hbAdditionsBytes = $derived.by(() => {
     let bytes = 0;
@@ -1919,6 +1995,51 @@ import { navigate } from "../nav.js";
   // so it stayed permanently clickable regardless of whether the selection actually differed
   // from what's already installed — including right after a successful install, since nothing
   // ever signaled "you're already caught up."
+  // A device can have ROMs while its core partition is empty (for example after a
+  // partial migration). In that state there are no selection deltas, but Sync Library
+  // still needs to run so the required cores can be fetched and installed. Only treat
+  // the inventory as empty once the asynchronous core scan has completed; an unknown
+  // inventory must not make the button appear dirty during startup.
+  const requiredCoreTargetKeys = $derived.by(() => {
+    const out = new Set<string>();
+    for (const system of coreRegistry.current.systems) {
+      if (selectedSystems.has(system.folder.toLowerCase())) out.add(system.targetKey);
+    }
+    return out;
+  });
+
+  const installedCoreNames = $derived.by(() => {
+    const out = new Set<string>();
+    for (const path of device.coreVersionCheck ? Object.keys(device.coreVersionCheck.cores) : []) {
+      if (path.startsWith("cores/")) out.add(path.slice("cores/".length));
+    }
+    for (const path of deviceCoreFiles()) {
+      if (path.startsWith("cores/")) out.add(path.slice("cores/".length));
+    }
+    return out;
+  });
+
+  const missingCoreTargetCount = $derived.by(() => {
+    if (!device.coreVersionCheck || requiredCoreTargetKeys.size === 0) return 0;
+    let missing = 0;
+    for (const targetKey of requiredCoreTargetKeys) {
+      let present = false;
+      for (const row of sources.rows) {
+        if (!row.manifest) continue;
+        const target = row.manifest.targets.find((t) => `${row.repo}#${t.id}` === targetKey);
+        if (!target) continue;
+        if ((target.artifacts ?? []).some((a) => installedCoreNames.has(a.filename))) {
+          present = true;
+          break;
+        }
+      }
+      if (!present) missing++;
+    }
+    return missing;
+  });
+
+  const installedGamesNeedCores = $derived(missingCoreTargetCount > 0);
+
   const flashSyncHasChanges = $derived.by(() => {
     const freshTarget = device.installedGames.length === 0;
     const sel = romSelection.selectedKeys.size + romSelection.selectedHomebrewKeys.size;
@@ -1927,7 +2048,8 @@ import { navigate } from "../nav.js";
       romSelection.additions.length + hbAdditions > 0 ||
       romSelection.removals.length + hbRemovals > 0 ||
       library.dirtyFiles.size > 0 ||
-      cheatsHaveChanges
+      cheatsHaveChanges ||
+      installedGamesNeedCores
     );
   });
 
@@ -1943,9 +2065,14 @@ import { navigate } from "../nav.js";
     return (
       romSelection.additions.length + hbAdditions > 0 ||
       romSelection.removals.length + hbRemovals > 0 ||
+      (device.targetMedia === "sd" && library.scan !== null && [...library.scan.userRoms.keys()].some((path) => {
+        const cls = classifyContentPath(path);
+        return cls.category === "cover" && cls.isDeviceCover && coverBelongsToInstalledOrSelected(path) && !device.sdInstalledPaths.has(path);
+      })) ||
       syncCores ||
       library.dirtyFiles.size > 0 ||
-      cheatsHaveChanges
+      cheatsHaveChanges ||
+      installedGamesNeedCores
     );
   });
 
@@ -2004,6 +2131,23 @@ import { navigate } from "../nav.js";
 
   /** The artboard's side note: the first outstanding slot, named. */
   const biosMissing = $derived(biosState.outstanding[0]);
+  let lastBiosWarning = "";
+  $effect(() => {
+    const missing = biosMissing;
+    if (!missing) { lastBiosWarning = ""; return; }
+    const key = `${missing.systemId}:${missing.filenames.join(",")}`;
+    if (key === lastBiosWarning) return;
+    lastBiosWarning = key;
+    const day = new Date().toISOString().slice(0, 10);
+    const noticeKey = `gnw.bios-warning.${day}.${key}`;
+    try {
+      if (localStorage.getItem(noticeKey) === "1") return;
+      localStorage.setItem(noticeKey, "1");
+    } catch {
+      // Notifications remain best-effort if storage is unavailable.
+    }
+    auditLog.add("warning", "sources", literal(`BIOS file needed for ${missing.systemName}: ${missing.filenames.join(" or ")}`), missing.systemId);
+  });
 
   /**
    * BIOS IS NOT IN THIS LIST. The owner: "We should only have installable ROMs/Homebrew in the
@@ -2185,11 +2329,18 @@ import { navigate } from "../nav.js";
     // Covers touched THIS SESSION (via library.markDirty(), GameDetailsPanel's cover-edit path) —
     // not a static total of every cover file on disk, which never changes and tells you
     // nothing about what a sync/install would actually do.
-    let coversChanged = 0;
+    const changedCoverPaths = new Set<string>();
     for (const path of library.dirtyFiles) {
       const cls = classifyContentPath(path);
-      if (cls.category === "cover" && cls.isDeviceCover) coversChanged++;
+      if (cls.category === "cover" && cls.isDeviceCover) changedCoverPaths.add(path);
     }
+    if (device.targetMedia === "sd" && library.scan) {
+      for (const path of library.scan.userRoms.keys()) {
+        const cls = classifyContentPath(path);
+        if (cls.category === "cover" && cls.isDeviceCover && coverBelongsToInstalledOrSelected(path) && !device.sdInstalledPaths.has(path)) changedCoverPaths.add(path);
+      }
+    }
+    const coversChanged = changedCoverPaths.size;
     // Games whose cheat list actually differs from what's on the device right now — reuses
     // changedCheatEntries()'s baseline diff (already computed for SD sync gating) instead of
     // a static "how many configured" count that doesn't reflect session activity.
@@ -2219,7 +2370,16 @@ import { navigate } from "../nav.js";
       ? Object.keys(device.coreVersionCheck.cores).length
       : null;
     let coresStatus: string;
-    if (syncCores) {
+    let coresToAdd: number | null = null;
+    if (installedGamesNeedCores) {
+      // The existing games are valid content, but there is no core inventory to run them.
+      // Keep this row numeric: show the number of core files the prepared bundle will install,
+      // falling back to the same calculating state used while the bundle is being prepared.
+      // The sync only adds the targets required by the selected games. Bundle metadata may
+      // describe every available core, so the actual delta comes from the missing-target check.
+      coresToAdd = missingCoreTargetCount;
+      coresStatus = String((device.coreVersionCheck ? Object.keys(device.coreVersionCheck.cores).length : 0) + coresToAdd);
+    } else if (syncCores && ((device.coreVersionCheck?.mismatches.length ?? 0) > 0)) {
       coresStatus = coreBundleErr
         ? locale.t.roms.summary.errorFetchingVersionInfo
         : coreBundleInfo && coreBundleInfo.tag === selectedCoreVersionTag
@@ -2237,6 +2397,7 @@ import { navigate } from "../nav.js";
       label: locale.t.roms.summary.coresLabel,
       status: coresStatus,
       kind: syncCores && coreBundleErr ? "warn" : "info",
+      delta: installedGamesNeedCores && coresToAdd !== null ? changeDelta(coresToAdd, 0) : undefined,
       detail: syncCores && isBank2Install ? locale.t.roms.summary.includesFirmwareUpdate : undefined,
     };
 
@@ -2512,8 +2673,24 @@ import { navigate } from "../nav.js";
     bios: "added-or-dirty",
     cover: "added-or-dirty", // homebrew covers get an additional carve-out below
     cheat: "always",
-    homebrew: "always",
+    homebrew: "added-or-dirty",
   };
+
+  function coverBelongsToInstalledOrSelected(path: string): boolean {
+    const owner = coverOwnerOf(path);
+    const owners = new Set<string>();
+    for (const key of romSelection.selectedKeys) owners.add(coverOwnerOf(basePath(key)));
+    for (const game of device.installedGames) {
+      const stem = game.name.replace(/\.[^/.]+$/, "");
+      owners.add(`${game.system}/${stem}`.toLowerCase());
+    }
+    for (const key of romSelection.selectedHomebrewKeys) {
+      const hb = homebrew.find(key);
+      if (hb) owners.add(`homebrew/${hb.displayName}`.toLowerCase());
+    }
+    for (const game of deviceHomebrew) owners.add(`homebrew/${game.name.replace(/\.[^/.]+$/, "")}`.toLowerCase());
+    return owners.has(owner);
+  }
 
   /** Narrow the full selection down to what actually needs (re)writing to the SD card this
    *  time. A blanket rewrite of every selected ROM/cover/cheat file on every sync is slow and
@@ -2521,7 +2698,10 @@ import { navigate } from "../nav.js";
    *  into romSelection/roms so the "what's new since last SD sync" concept stays local to the
    *  one place that needs it (Flash mode's FrogFS rebuild has no equivalent cost problem: it's
    *  a single monolithic image regenerated from scratch either way). */
-  function changedSdUserRoms(userRoms: Map<string, Uint8Array>): Map<string, Uint8Array> {
+  function changedSdUserRoms(
+    userRoms: Map<string, Uint8Array>,
+    existingSdPaths: Set<string> = new Set(),
+  ): Map<string, Uint8Array> {
     // No games recorded on the SD card at all yet (e.g. a freshly formatted/picked folder) —
     // treat this as a first-time prep and write everything selected, bios included.
     const freshTarget = device.installedGames.length === 0;
@@ -2551,7 +2731,7 @@ import { navigate } from "../nav.js";
         SD_SYNC_POLICY[cls.category] === "always" ||
         addedKeys.has(path) ||
         library.dirtyFiles.has(path) ||
-        isNewHomebrewCover;
+        isNewHomebrewCover || (cls.category === "cover" && !existingSdPaths.has(path));
       if (included) out.set(path, data);
     }
     return out;
@@ -2565,23 +2745,69 @@ import { navigate } from "../nav.js";
     // renamed around and never silently reduced to one — see romSelection.installNameError().
     const nameClash = romSelection.installNameError();
     if (nameClash) throw nameClash;
-    // Same reason as the ROM install: `coreGate` keeps prepared cores, it cannot fetch one, and
-    // a core with no bytes writes nothing. The gate is a no-op on SD (every core ships), which
-    // makes the fetch matter here too.
-    void (await ensureCoresPrepared(report));
+    // When this sync writes the complete bundle, that bundle already contains the cores;
+    // preparing individual artifacts here would fetch and stage the same cores a second time.
+    // Incremental SD syncs still need the selected core artifacts prepared explicitly.
+    const freshTarget = device.installedGames.length === 0;
+    // Core files are additive and independent of the Retro-Go firmware checkbox. Prepare any
+    // cores required by the selected games first; when that discovers a missing core, the
+    // write phase fetches the bundle and adds it automatically.
+    let preparedMissingCores = false;
+    if (!syncCores && !freshTarget) preparedMissingCores = await ensureCoresPrepared(report);
     // User content: ROMs + bios (only the changed subset — see changedSdUserRoms), covers,
     // homebrew assets (always freshly-prepared, see prepareTitle), cheats (only the games
     // whose overlay actually differs from the on-device baseline — see changedCheatEntries).
     // Categorize the flat diff by content type so the checklist accurately shows what's
     // actually changing, not just a total file count.
     report.start("scan");
-    const freshTarget = device.installedGames.length === 0;
     // filterInstall is a no-op on SD by design: an active source's BIOS is written whether or
     // not the user has games for it, because ROMs reach a card outside this app.
-    const userRoms = changedSdUserRoms(await materialize(biosState.filterInstall(romSelection.selectedFolderRoms())));
-    for (const [k, v] of selectedAssets) userRoms.set(k, v);
+    // Installed-game scans intentionally omit cover entries, so take a metadata-only SD scan
+    // here to distinguish a genuinely missing cover from an unchanged one. Without this, a
+    // cover selected for a newly provisioned title was silently skipped unless it was dirty.
+    let existingSdPaths = new Set<string>();
+    if (device.sdHandle) {
+      const root = await getValidRoot(device.sdHandle);
+      if (root) existingSdPaths = new Set((await scanRomDirectory(root)).userRoms.keys());
+    }
+    const selectedFolder = biosState.filterInstall(romSelection.selectedFolderRoms());
+    // Keep covers sourced from the library scan even if the install-name planner omitted them
+    // because its game key was represented by a device-preserved variant. Covers follow the
+    // selected title, so re-add only matching cover sidecars before applying the SD diff.
+    if (library.scan) {
+      for (const [path, data] of library.scan.userRoms) {
+        if (classifyContentPath(path).category !== "cover") continue;
+        if (coverBelongsToInstalledOrSelected(path)) selectedFolder.set(path, data);
+      }
+    }
+    const userRoms = changedSdUserRoms(await materialize(selectedFolder), existingSdPaths);
+    // Prepare active raw CORE artifacts even when the published bundle is being synced.
+    for (const row of sources.rows) {
+      if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
+      for (const target of row.manifest.targets) {
+        const key = `${row.repo}#${target.id}`;
+        if (prepareState.preparedBytesFor(key) === undefined) await prepareState.prepareCoreArtifacts(key, target);
+      }
+    }
+    // Prepared assets are not a sync diff. Add only missing core/homebrew artifacts; shipped
+    // games and already-present converted payloads must flow through changedSdUserRoms above.
+    // The scan records core paths with their `cores/` prefix. Keep that exact shape here;
+    // comparing a basename to the path map made every core look absent and caused every SD
+    // sync to rewrite the whole selected core set. A core is eligible when it is missing, or
+    // when an explicitly requested core resync found that its embedded version disagrees.
+    const installedCorePaths = new Set(Object.keys(device.coreVersionCheck?.cores ?? {}));
+    const mismatchedCorePaths = new Set(device.coreVersionCheck?.mismatches ?? []);
+    const installedHomebrewFiles = new Set(deviceHomebrew.map((g) => g.name));
+    for (const [k, v] of selectedAssets) {
+      if (k.startsWith("cores/")) {
+        if (!installedCorePaths.has(k) || mismatchedCorePaths.has(k)) userRoms.set(k, v);
+      } else if (k.startsWith("homebrews/") && !installedHomebrewFiles.has(k.slice("homebrews/".length))) {
+        userRoms.set(k, v);
+      }
+    }
     const { changed: changedCheatFiles, toRemove: cheatsToRemove } = changedCheatEntries();
     for (const [k, v] of changedCheatFiles) userRoms.set(k, v);
+    const coreFilesNeedWrite = freshTarget || preparedMissingCores || [...userRoms.keys()].some((k) => k.startsWith("cores/"));
 
     const changedGames = new Map<string, Uint8Array>(); // roms/ + bios/ + homebrew/
     const changedCovers = new Map<string, Uint8Array>();
@@ -2603,6 +2829,7 @@ import { navigate } from "../nav.js";
       if (cls.category === "cover" && !cls.isDeviceCover) continue;
       SD_WRITE_BUCKET[cls.category].set(path, data);
     }
+    // Raw CORE packages are outside the published bundle; ensure they are included on SD too.
 
     report.subStart("scan", "games");
     report.log(
@@ -2627,7 +2854,7 @@ import { navigate } from "../nav.js";
 
     report.log(
       "scan",
-      syncCores || freshTarget
+      coreFilesNeedWrite
         ? msg((t) => t.roms.sdSync.logCoresWillResync, isBank2Install)
         : msg((t) => t.roms.sdSync.logCoresSkipped));
     report.finish("scan");
@@ -2642,25 +2869,40 @@ import { navigate } from "../nav.js";
     try {
     // The first ROM install also fetches the bundle so fonts/ and lang/ are present on a
     // genuinely fresh card.  Subsequent syncs retain the opt-in core upgrade behavior.
-    const needsBundle = syncCores || freshTarget;
+    const needsBundle = syncCores || freshTarget || preparedMissingCores || coreFilesNeedWrite;
     let sdContent: Map<string, Uint8Array> = new Map();
-    let sd2Blob: Uint8Array | undefined;
+    let sdUpdateArchive: Uint8Array | undefined;
     if (needsBundle) {
       const tag = selectedCoreVersionTag || (await listVersions())[0]?.tag;
       report.log("write", msg((t) => t.roms.sdSync.logFetchingBundle, tag), "cores");
       const bundle = await fetchBundle(tag);
       rememberInstallPaths(bundle.manifest?.dist?.paths);
-      if (syncCores || freshTarget) sdContent = bundle.contentFor(installBank, true);
-      sd2Blob = bundle.blobs.sd_2;
+      if (freshTarget) {
+        sdContent = bundle.contentFor(syncBank, true);
+      } else if (syncCores) {
+        // An upgrade may carry changed core binaries, but its fonts/lang/BIOS payload belongs
+        // to the firmware updater archive. Add only core files that are missing or whose
+        // installed header disagrees; never rewrite the whole system bundle on every sync.
+        const bundleContent = bundle.contentFor(syncBank, true);
+        const installed = new Set(Object.keys(device.coreVersionCheck?.cores ?? {}));
+        const mismatched = new Set(device.coreVersionCheck?.mismatches ?? []);
+        sdContent = new Map(
+          [...bundleContent].filter(([path]) =>
+            path.startsWith("cores/") && (!installed.has(path) || mismatched.has(path)),
+          ),
+        );
+      }
+      if (syncCores) sdUpdateArchive = await fetchUpdateArchive(tag, syncBank);
     }
 
     // Pre-seed known totals for the per-file substeps so the checklist shows "[0/N]" for each
     // even before it goes active (owner's mockup: "Remove de-selected games [0/2]" shown while
     // still pending) — the counts are already known from the diff, no need to wait.
-    report.progress("write", 0, changedGames.size, "games");
-    report.progress("write", 0, changedCovers.size, "covers");
-    report.progress("write", 0, changedCheats.size, "cheats");
-    report.progress("write", 0, romSelection.removals.length, "remove");
+    const bytesTotal = (m: Map<string, Uint8Array>) => [...m.values()].reduce((n, d) => n + d.length, 0);
+    report.progress("write", 0, bytesTotal(changedGames), "games", "bytes");
+    report.progress("write", 0, bytesTotal(changedCovers), "covers", "bytes");
+    report.progress("write", 0, bytesTotal(changedCheats), "cheats", "bytes");
+    report.progress("write", 0, romSelection.removals.length + homebrewRemovalFiles.length, "remove");
 
     // A directory handle is not automatically a WRITABLE one: on non-Chromium, pickFolder()
     // returns the `<input webkitdirectory>` shim tree (romScan.ts) and pickSdCardFolder
@@ -2674,14 +2916,14 @@ import { navigate } from "../nav.js";
       report.log("write", changedGames.size > 0 ? msg((t) => t.roms.sdSync.logWritingGames, changedGames.size) : msg((t) => t.roms.sdSync.logNoGameChanges), "games");
       {
         let done = 0;
-        const total = changedGames.size;
+        const total = bytesTotal(changedGames);
         for (const [key, data] of changedGames) {
           const path = toSdPath(key);
           dbg("[sd-sync] game", path);
           report.log("write", path, "games");
           await saveFileToDirOrDownload(sdHandle, path, data);
-          done++;
-          report.progress("write", done, total, "games");
+          done += data.length;
+          report.progress("write", done, total, "games", "bytes");
         }
       }
       report.subFinish("write", "games");
@@ -2690,14 +2932,14 @@ import { navigate } from "../nav.js";
       report.log("write", changedCovers.size > 0 ? msg((t) => t.roms.sdSync.logWritingCovers, changedCovers.size) : msg((t) => t.roms.sdSync.logNoCoverChanges), "covers");
       {
         let done = 0;
-        const total = changedCovers.size;
+        const total = bytesTotal(changedCovers);
         for (const [key, data] of changedCovers) {
           const path = toSdPath(key);
           dbg("[sd-sync] cover", path);
           report.log("write", path, "covers");
           await saveFileToDirOrDownload(sdHandle, path, data);
-          done++;
-          report.progress("write", done, total, "covers");
+          done += data.length;
+          report.progress("write", done, total, "covers", "bytes");
         }
       }
       report.subFinish("write", "covers");
@@ -2706,14 +2948,14 @@ import { navigate } from "../nav.js";
       report.log("write", changedCheats.size > 0 ? msg((t) => t.roms.sdSync.logWritingCheats, changedCheats.size) : msg((t) => t.roms.sdSync.logNoCheatChanges), "cheats");
       {
         let done = 0;
-        const total = changedCheats.size;
+        const total = bytesTotal(changedCheats);
         for (const [key, data] of changedCheats) {
           const path = toSdPath(key);
           dbg("[sd-sync] cheat", path);
           report.log("write", path, "cheats");
           await saveFileToDirOrDownload(sdHandle, path, data);
-          done++;
-          report.progress("write", done, total, "cheats");
+          done += data.length;
+          report.progress("write", done, total, "cheats", "bytes");
         }
       }
       report.subFinish("write", "cheats");
@@ -2735,15 +2977,19 @@ import { navigate } from "../nav.js";
       }
 
       report.subStart("write", "remove");
-      if (romSelection.removals.length > 0) {
-        report.log("write", msg((t) => t.roms.sdSync.logRemoving, romSelection.removals.length), "remove");
+      const removals = [
+        ...romSelection.removals.map((g) => ({ path: toSdPath(g.key) })),
+        ...homebrewRemovalFiles.map((g) => ({ path: toSdPath(g.key) })),
+      ];
+      if (removals.length > 0) {
+        report.log("write", msg((t) => t.roms.sdSync.logRemoving, removals.length), "remove");
         let done = 0;
-        const total = romSelection.removals.length;
-        for (const g of romSelection.removals) {
-          const path = toSdPath(g.key);
+        const total = removals.length;
+        for (const { path } of removals) {
           dbg("[sd-sync] remove", path);
           try {
             await deleteFileFromDir(sdHandle, path);
+            await pruneEmptyParents(sdHandle, path);
             report.log("write", msg((t) => t.roms.sdSync.logRemoved, path), "remove");
           } catch (e) {
             report.log("write", msg((t) => t.roms.sdSync.logCouldNotRemove, path, errText(e)), "remove");
@@ -2769,19 +3015,19 @@ import { navigate } from "../nav.js";
 
       // "cores"/"fw-update" only exist as checklist items when their checkbox is on (see
       // sdPhases) — only report through them when that's actually the case.
-      if (syncCores || freshTarget) {
+      if (coreFilesNeedWrite) {
         report.subStart("write", "cores");
         if (sdContent.size > 0) {
           report.log("write", msg((t) => t.roms.sdSync.logWritingCores, sdContent.size, sumBytes(sdContent)), "cores");
           let done = 0;
-          const total = sdContent.size;
-          report.progress("write", 0, total, "cores");
+          const total = bytesTotal(sdContent);
+          report.progress("write", 0, total, "cores", "bytes");
           for (const [path, data] of sdContent) {
             dbg("[sd-sync] core", path);
             report.log("write", path, "cores");
             await saveFileToDirOrDownload(sdHandle, path, data);
-            done++;
-            report.progress("write", done, total, "cores");
+            done += data.length;
+            report.progress("write", done, total, "cores", "bytes");
           }
         } else {
           report.log("write", msg((t) => t.roms.sdSync.logCoresSkippedWrite), "cores");
@@ -2789,13 +3035,11 @@ import { navigate } from "../nav.js";
         report.subFinish("write", "cores");
       }
 
-      if (syncCores && isBank2Install) {
+      if (syncCores) {
         report.subStart("write", "fw-update");
-        if (sd2Blob) {
-          // update_bank2.bin = raw intflash binary; the on-device firmware_update app
-          // checks for this file directly and flashes it to bank2.
-          report.log("write", msg((t) => t.roms.sdSync.logWritingFwUpdate, sd2Blob!.length), "fw-update");
-          await saveFileToDirOrDownload(sdHandle, "update_bank2.bin", sd2Blob);
+        if (sdUpdateArchive) {
+          report.log("write", msg((t) => t.roms.sdSync.logWritingFwUpdate, sdUpdateArchive.length), "fw-update");
+          await saveFileToDirOrDownload(sdHandle, `retro-go_update-bank${syncBank}.bin`, sdUpdateArchive);
         } else {
           report.log("write", msg((t) => t.roms.sdSync.logFwUpdateSkipped), "fw-update");
         }
@@ -2807,8 +3051,8 @@ import { navigate } from "../nav.js";
       const zip = new JSZip();
       for (const [path, data] of sdContent) zip.file(path, data);
       for (const [key, data] of [...changedGames, ...changedCovers, ...changedCheats]) zip.file(toSdPath(key), data);
-      if (syncCores && isBank2Install && sd2Blob) {
-        zip.file("update_bank2.bin", sd2Blob);
+      if (syncCores && sdUpdateArchive) {
+        zip.file(`retro-go_update-bank${syncBank}.bin`, sdUpdateArchive);
       }
       // Phase-level (no substepId): this Firefox branch writes no per-file substeps at all,
       // and InstallProgressModal draws the phase bar unconditionally. JSZip's percent is
@@ -2901,6 +3145,24 @@ import { navigate } from "../nav.js";
         report?.log("build", `core artifacts unavailable: ${key}: ${errText(e)}`, "pack");
       }
     }
+    // Raw CORE containers are outside the published bundle. Include every active raw source
+    // in the same preparation pass so an install cannot rebuild LittleFS without its binary.
+    for (const row of sources.rows) {
+      if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
+      for (const target of row.manifest.targets) {
+        const key = `${row.repo}#${target.id}`;
+        if (prepareState.preparedBytesFor(key) !== undefined) continue;
+        try {
+          if (await prepareState.prepareCoreArtifacts(key, target)) {
+            got.push(key);
+            fetched = true;
+          }
+        } catch (e) {
+          dbg("[install] raw core artifacts unavailable:", key, errText(e));
+          report?.log("build", `raw core artifacts unavailable: ${key}: ${errText(e)}`, "pack");
+        }
+      }
+    }
     // Raw diagnostic text, not UI copy: the flasher's own device lines go into this log the
     // same way (`report.log("flash", line)`), so this needs no string-table entry. Logged even
     // when everything succeeds, because three steps can drop a core and each was silent.
@@ -2924,11 +3186,18 @@ import { navigate } from "../nav.js";
     report.start("prepare");
     report.log("prepare", msg((t) => t.roms.install.logConnecting));
     dbg("[install] start", { frogfsOffset: hex(frogfsOffset), ceiling: hex(ceilingOffset ?? 0), eraseBlock, extBytes: device.extFlashBytes });
-    const flasher = await device.ensureStub();
+    // Flashing must never perform an incidental reset. Recovery Mode is an explicit
+    // prerequisite; a restart is allowed only after the active write reports a real stall.
+    const flasher = await device.ensureStub(undefined, false, true, false);
     report.log("prepare", msg((t) => t.roms.install.logFlashUtilReady, hex(frogfsOffset), eraseBlock, device.extFlashBytes));
     report.finish("prepare");
 
     report.start("budget");
+    // Geometry is safety-critical, but must belong to this visible phase rather than running when
+    // the user merely opens Sync Library. Refresh here so the OFW reserve and LittleFS ceiling
+    // are current immediately before the budget decision and image build.
+    report.log("budget", msg((t) => t.roms.install.logRescanning));
+    await device.runScan("before ROM install");
     // Raw byte counts, not formatted sizes: these are the numbers you compare against a
     // manifest or an offset when a budget check goes wrong. "?" when the ceiling is unknown.
     const gapBytes = ceilingOffset !== null ? String(ceilingOffset - frogfsOffset) : "?";
@@ -2942,6 +3211,14 @@ import { navigate } from "../nav.js";
     report.start("build");
     const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
     const userRoms = await materialize(biosState.filterInstall(romSelection.selectedFolderRoms()));
+    // Raw CORE packages are outside the published bundle; merge cached raw artifacts explicitly.
+    for (const row of sources.rows) {
+      if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
+      for (const target of row.manifest.targets) for (const artifact of target.artifacts ?? []) {
+        const data = prepareState.assets.get(`cores/${artifact.filename}`);
+        if (data) userRoms.set(`cores/${artifact.filename}`, data);
+      }
+    }
     dbg("[install] folder roms:", userRoms.size, "retained:", romSelection.retainedFromDevice.length);
     // Preserve on-device-only selected games by re-reading their bytes from the device FrogFS.
     // Fetch the artifacts of every core this selection needs, BEFORE anything reads
@@ -2958,10 +3235,21 @@ import { navigate } from "../nav.js";
     // a fetch adds them -- so reusing the preview shipped the ROM with no core even though the
     // fetch had just succeeded. That was the second report of this same symptom.
     const fetchedCores = await ensureCoresPrepared(report);
+    // ensureCoresPrepared may have fetched raw CORE artifacts just above; merge them after that
+    // preparation pass as well as the pre-cache merge, otherwise a newly fetched core misses
+    // this install's image.
+    for (const row of sources.rows) {
+      if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
+      for (const target of row.manifest.targets) for (const artifact of target.artifacts ?? []) {
+        const data = prepareState.assets.get(`cores/${artifact.filename}`);
+        if (data) userRoms.set(`cores/${artifact.filename}`, data);
+      }
+    }
     if (fetchedCores) {
       dbg("[install] cores fetched during install -> rebuilding, the preview predates them");
       builtFrogfs = null;
       builtPendingLfs = [];
+      builtMappedDestPaths = [];
     }
 
     report.subStart("build", "retain");
@@ -3035,7 +3323,9 @@ import { navigate } from "../nav.js";
             report.progress("build", Math.min(base + d, totalBytes), totalBytes, "retain", "bytes");
         });
       for (const r of toRead) {
-        userRoms.set(r.path, await readGameData(readTracked, frogfsOffset, r.dev));
+        const bytes = await readGameData(readTracked, frogfsOffset, r.dev);
+        dbg("[frogfs-debug] retained-read", r.path, bytes.length, await sha256Hex(bytes));
+        userRoms.set(r.path, bytes);
         base = Math.min(base + r.dev.size, totalBytes);
         report.progress("build", base, totalBytes, "retain", "bytes");
       }
@@ -3048,6 +3338,10 @@ import { navigate } from "../nav.js";
     const preserved = retained.length > 0 || deviceHomebrew.length > 0;
     let frogfs = !preserved && !fetchedCores && builtFrogfs && builtFor === selSig ? builtFrogfs : null;
     let pendingLfs: StagedFile[] = frogfs ? [...builtPendingLfs] : [];
+    // Keep the mapped destination paths beside the cached preview. The mapping metadata is
+    // keyed by source asset key, while pendingLfs paths are resolved device paths; comparing
+    // those two namespaces was the regression that duplicated `cores/gba.xip` into LittleFS.
+    let mappedDestPaths = new Set<string>(frogfs ? builtMappedDestPaths : []);
     if (!frogfs) {
       report.log("build", msg((t) => t.roms.install.logBuildingImage, userRoms.size), "pack");
       const versions = await listVersions();
@@ -3055,6 +3349,10 @@ import { navigate } from "../nav.js";
       const bundle = await fetchBundle(versions[0].tag);
       rememberInstallPaths(bundle.manifest?.dist?.paths);
       for (const [k, v] of selectedAssets.entries()) userRoms.set(k, v);
+      for (const path of [...new Set([...toRead.map((r) => r.path), ...deviceHomebrew.map((g) => `${g.system}/${g.name}`)])]) {
+        const bytes = userRoms.get(path);
+        if (bytes) dbg("[frogfs-debug] pre-pack", path, bytes.length, await sha256Hex(bytes));
+      }
       injectCheats(userRoms);
       const built = await buildFrogfsImage(bundle, installBank, userRoms, {
         installAllCores,
@@ -3064,6 +3362,16 @@ import { navigate } from "../nav.js";
         frogfsOffset
       }, previousFrogfsState);
       frogfs = built.frogfs;
+      const packedFiles = parseFrogfs(frogfs).files;
+      for (const path of [...new Set([...toRead.map((r) => r.path), ...deviceHomebrew.map((g) => `${g.system}/${g.name}`)])]) {
+        const entry = packedFiles.find((f) => f.path === path);
+        if (entry) {
+          const bytes = frogfs.subarray(entry.dataOffs, entry.dataOffs + entry.dataSize);
+          dbg("[frogfs-debug] post-pack", path, bytes.length, await sha256Hex(bytes), "@", `0x${entry.dataOffs.toString(16)}`);
+        }
+      }
+      report.progress("build", 0, frogfs.length, "pack", "bytes");
+      report.progress("build", frogfs.length, frogfs.length, "pack", "bytes");
       // dbg(), not report.log(): an audit-log line is user-visible copy, and nothing in the
       // string tables says this yet. See docs/MAPPED_ARTIFACTS.md §7.
       for (const m of built.mappedPlaced) {
@@ -3074,6 +3382,7 @@ import { navigate } from "../nav.js";
       // firmware install already wrote them); these are not, and are written file-by-file into
       // the live partition after the FrogFS write below.
       pendingLfs = built.plan.pendingLfsFiles;
+      mappedDestPaths = new Set(built.plan.mappedDests.map((m) => m.dest));
       // What the packer actually decided, beside what the selection asked for. `coreFiles` is
       // everything bound for LittleFS; `pendingLfsFiles` is the subset a ROM install writes.
       const packed = JSON.stringify({
@@ -3153,7 +3462,7 @@ import { navigate } from "../nav.js";
         // granted via the unforced ensureStub() call above; any mid-flash reboot needed to
         // recover from a stall must never re-prompt, but this must still reuse the live cached
         // stub whenever possible rather than resetting the device on every call.
-        (force) => device.ensureStub(undefined, force, true),
+        (force) => device.ensureStub(undefined, force, true, force),
         frogfs,
         { frogfsOffset, ceilingOffset: ceilingOffset! },
         // Phase-level, NOT substep-level: `flashPhases`'s "flash" entry declares no substeps
@@ -3162,85 +3471,66 @@ import { navigate } from "../nav.js";
         // DECLARED `substeps` array. The result was a flash phase with no progress bar at all.
         // No label is passed: the phase row already names this write, and the old hardcoded
         // English label would become newly-visible untranslated copy.
-        (d, t) => report.progress("flash", d, t),
+        (d, t) => report.progress("flash", d, t, "frogfs", "bytes"),
         log,
         report.signal,
       );
     } finally {
       device.resumePoll();
     }
-    // The LittleFS half of the same write. It runs inside the flash phase, after FrogFS, and
-    // adds files to the live partition rather than rebuilding it -- that partition holds the
-    // user's saves. See engine/lfsWrite.ts. Reported through dbg() only: this is a new state
-    // and nothing in the string tables names it yet (docs/UI_VOICE.md).
-    // DISABLED after two device LittleFS losses on 2026-09-10, and STILL DISABLED.
-    //
-    // The first loss was a stale `device.lfsBlockCache`: a browse filled it, a firmware install
-    // A ROM INSTALL DOES NOT WRITE LITTLEFS. Cores ride in the LittleFS image a firmware
-    // install flashes whole (advanced/RomSection.svelte), which is the owner's ruling after
-    // living with the alternative.
-    //
-    // The alternative was writing into the device's live filesystem, because this path cannot
-    // rebuild the partition: it holds the user's saves. That meant mounting littlefs over SWD,
-    // and it is slow for a structural reason rather than a tunable one. Our block device faults
-    // at BLOCK granularity (`wasm/lfs_wrapper.c`'s `bd_read` returns LFS_ERR_IO and the host
-    // fetches 4096 bytes), while littlefs asks for `read_size` 16 and `cache_size` 64 -- so
-    // every read amplifies 64x, and a comparison of file contents reads the whole payload back.
-    // gnwmanager is fast because its driver reads and programs exactly the bytes littlefs asks
-    // for (`gnwmanager/filesystem.py`, LfsDriverContext), with no whole-block erase per write.
-    //
-    // Matching that means rewriting the block device to fault at littlefs's granularity and to
-    // program byte ranges rather than diffing whole blocks at the end. That is a real change to
-    // failure behaviour (writes would leave the device mid-operation rather than as a verified
-    // block diff), so it is not something to slip in beside a install fix.
-    //
-    // `pendingLfsFiles` still reports what a core would need, so nothing is silently skipped.
-    const LFS_WRITE_ENABLED = false;
-    // Say so when there is nothing to write. An install that skipped this step silently looked
-    // exactly like one that wrote successfully, which is how "lfs cores still empty" took three
-    // rounds to localise.
+    // Rebuild and flash LittleFS wholesale only when its core payload actually changes. Library
+    // sync must preserve saves/settings while adding/updating cores, but an unchanged core set
+    // should not pay for another full partition write.
     report.subFinish("flash", "frogfs");
-    report.subStart("flash", "cores");
-    if (pendingLfs.length === 0) {
-      dbg("[install] littlefs: nothing to write (no core files in the plan)");
-      report.log("flash", "littlefs: nothing to write (no core files in the plan)", "cores");
+    // Mapped artifacts (for example gba.xip) are relocated into FrogFS and must never be
+    // duplicated in LittleFS. pendingLfs contains the packer's ordinary core list, so apply the
+    // same mapped-artifact authority used by buildFrogfsImage before rebuilding this partition.
+    // `pendingLfs` is already the packer's ordinary LittleFS subset. Filter by the packer's
+    // resolved destination list as a defensive guard for cached/legacy plans; mapped metadata
+    // itself is keyed by source asset identity and can never match these paths.
+    const lfsFiles: StagedFile[] = pendingLfs.filter((f) => !mappedDestPaths.has(f.path));
+    try {
+      const tree = await ensureLfsTree();
+      async function collect(node: any, prefix: string): Promise<void> {
+        for (const child of node.children ?? []) {
+          const path = `${prefix}${child.name}`;
+          if (child.isDirectory) await collect(child, `${path}/`);
+          else if (!mappedDestPaths.has(path) && !lfsFiles.some((f) => f.path === path)) {
+            // Preserve every existing LittleFS file, including cores. A staged replacement
+            // wins by occupying the path first; everything else is carried forward verbatim.
+            lfsFiles.push({ path, data: await readLfsFile(path) });
+          }
+        }
+      }
+      await collect(tree, "");
+    } catch (e) {
+      dbg("[install] unable to preserve LittleFS files:", e);
     }
-    if (LFS_WRITE_ENABLED && pendingLfs.length > 0) {
-      // This write happens AFTER the FrogFS flash, inside the same phase. Until it reported
-      // anything the bar reached 100% and then visibly kept working, with no indication of what
-      // or for how long -- reported as "it never ends now" and "the second hidden flash phase".
-      // Raw diagnostic text into the phase log, like the flasher's own device lines.
-      report.log(
-        "flash",
-        `littlefs: ${pendingLfs.length} file(s) queued: ${pendingLfs.map((f) => f.path).join(", ")}`,
-        "cores",
-      );
-      const t0 = Date.now();
+    const lfsBlockSize = littlefsPart?.meta?.blockSize ?? device.info?.minEraseSizeBytes ?? 4096;
+    const lfsBlockCount = littlefsPart?.meta?.blockCount ?? (littlefsPart ? Math.floor(littlefsPart.size / lfsBlockSize) : 0);
+    if (!littlefsPart || lfsBlockCount === 0) throw new Error("LittleFS partition not found.");
+    const existingCorePaths = new Set(Object.keys(device.coreVersionCheck?.cores ?? {}));
+    const desiredCoreFiles = lfsFiles.filter((f) => f.path.startsWith("cores/"));
+    // The scan's core inventory is intentionally sufficient for the common case: a missing
+    // path or a version mismatch means a write is needed. A mapped artifact is part of FrogFS
+    // and is already covered by the FrogFS image write above.
+    const coreWriteNeeded = desiredCoreFiles.some((f) => !existingCorePaths.has(f.path)) ||
+      (device.coreVersionCheck?.mismatches.length ?? 0) > 0;
+    if (coreWriteNeeded) {
+      report.subStart("flash", "cores");
+      const lfsImage = await buildCoresLittlefs(lfsFiles, { blockSize: lfsBlockSize, blockCount: lfsBlockCount, moduleOpts: {} }, ["cores", "data"]);
+      report.progress("flash", 0, lfsImage.length, "cores", "bytes");
       device.suspendPoll();
       try {
-        const r = await writeFilesToDeviceLfs(
-          (force) => device.ensureStub(undefined, force, true),
-          pendingLfs,
-          (done, total, phase) => {
-            // Both halves drive the same substep bar. The read half has no honest total (the
-            // mount decides how much of the partition it needs), so it reports against the
-            // partition size and simply advances; the write half is exact.
-            report.progress("flash", done, total, "cores");
-          },
-          log,
-          report.signal,
-        );
-        dbg("[install] littlefs:", r.filesWritten, "files,", r.blocksRead, "blocks read,", r.blocksWritten, "written");
-        report.log(
-          "flash",
-          `littlefs: ${r.filesWritten} file(s) written, ${r.skipped} unchanged, ${r.blocksRead} blocks read, ${r.blocksWritten} blocks written, ${Date.now() - t0} ms`,
-          "cores",
-        );
+        await flashImage((force) => device.ensureStub(undefined, force, true, force), 0, littlefsPart.offset, lfsImage, (done, total) => report.progress("flash", done, total, "cores", "bytes"), dbgLog("flash", (m) => report.log("flash", m, "cores")), { compress: true, verify: false, abortSignal: report.signal });
       } finally {
         device.resumePoll();
       }
+      report.subFinish("flash", "cores");
+    } else {
+      report.log("flash", "cores: unchanged, skipping LittleFS write");
     }
-    report.subFinish("flash", "cores");
+
     report.finish("flash");
 
     report.start("rescan");
@@ -3262,20 +3552,6 @@ import { navigate } from "../nav.js";
 
 <!-- The LibrarySummary artboard's caution aside beside the install summary: the first
      outstanding BIOS slot, named. Status only — see the BIOS block in the script above. -->
-{#snippet biosMissingNote()}
-  {#if biosMissing}
-    <!-- Actionable, not just informative: the note itself opens the prompt that supplies the
-         file. No added copy — the artboard shows no button here, and inventing one would be
-         inventing copy. -->
-    <button type="button" class="bios-missing" onclick={() => void openBiosPrompt(biosMissing)}>
-      <span class="bm-label">
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3.5 18 17H2z"></path><path d="M10 8.5v3.5"></path><path d="M10 14.3v.2"></path></svg>
-        {locale.t.sources.bios.missingFile}
-      </span>
-      <span class="bm-text">{locale.t.sources.bios.missingDetail(biosMissing.systemName, biosMissing.filenames[0])}</span>
-    </button>
-  {/if}
-{/snippet}
 
 
 <section class="roms">
@@ -3289,7 +3565,7 @@ import { navigate } from "../nav.js";
       >
         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
-      <p class="note" style="margin: 0; color: var(--caution); padding-right: 1.5rem;">
+      <p class="note" style="margin: 0; color: var(--caution); padding-inline-end: 1.5rem;">
         <strong>{locale.t.roms.firefoxWarning.boldLead}</strong>{locale.t.roms.firefoxWarning.body}
       </p>
     </div>
@@ -3721,7 +3997,6 @@ import { navigate } from "../nav.js";
                         <span class="drawer-title">{locale.t.roms.summary.summaryDrawerTitle}</span>
                         <div class="summary-layout">
                           <StatPanel rows={summaryGridRows} variant="grid" />
-                          {@render biosMissingNote()}
                         </div>
                         {#if device.targetMedia !== "sd"}
                           {#if building}<p class="note" style="margin-top: 0.5rem;">{locale.t.roms.install.calculatingLayout}</p>{/if}
@@ -3737,28 +4012,52 @@ import { navigate } from "../nav.js";
                              so its box ships disabled. Each mode shows the one that is real for it
                              rather than a control that cannot act. -->
                         {#if device.targetMedia === "sd"}
-                          <label class="lzma">
-                            <input type="checkbox" bind:checked={syncCores} />
-                            {locale.t.roms.sdSync.upgradeLabelPre}
-                            {#if coreVersions.length > 0}
-                              <select
-                                class="mono core-version-select"
-                                bind:value={selectedCoreVersionTag}
-                                onchange={(e) => { selectedCoreVersionUserSet = true; selectedCoreVersionTag = e.currentTarget.value; }}
-                                onclick={(e) => e.stopPropagation()}
-                              >
-                                {#each coreVersions as v (v.tag)}
-                                  <option value={v.tag}>{v.tag}{v.prerelease ? " (pre)" : ""}</option>
-                                {/each}
-                              </select>
-                            {/if}
+                          <div class="upgrade-card">
+                            <label class="upgrade-card-head">
+                              <input type="checkbox" bind:checked={syncCores} />
+                              <span>{locale.t.roms.sdSync.upgradeLabelPre}</span>
+                            </label>
+                            <div class="upgrade-card-options">
+                              <label class="upgrade-option">
+                                <span class="upgrade-option-label">Target bank</span>
+                                <select class="mono core-version-select" aria-label="SD bank" bind:value={selectedSdBank}>
+                                <option value={1}>Bank 1{installedSdBank === 1 ? " (installed)" : ""}</option>
+                                <option value={2}>Bank 2{installedSdBank === 2 ? " (installed)" : ""}</option>
+                                </select>
+                              </label>
+                              {#if coreVersions.length > 0}
+                                <label class="upgrade-option">
+                                  <span class="upgrade-option-label">Release</span>
+                                  <select
+                                    class="mono core-version-select"
+                                    bind:value={selectedCoreVersionTag}
+                                    onchange={(e) => { selectedCoreVersionUserSet = true; selectedCoreVersionTag = e.currentTarget.value; }}
+                                    onclick={(e) => e.stopPropagation()}
+                                  >
+                                    {#each coreVersions as v (v.tag)}
+                                      <option value={v.tag}>{v.tag}{v.prerelease ? " (pre)" : ""}</option>
+                                    {/each}
+                                  </select>
+                                </label>
+                              {/if}
+                            </div>
                             <span class="soon">{locale.t.roms.sdSync.updatesWhenBoots}</span>
-                          </label>
+                          </div>
+                          <div class="upgrade-card lzma-card">
+                            <label class="upgrade-card-head">
+                              <input type="checkbox" disabled checked={false} />
+                              <span>{locale.t.roms.install.lzmaCheckboxLabel}</span>
+                            </label>
+                            <span class="soon">{locale.t.roms.install.lzmaSoon}</span>
+                          </div>
                         {:else}
-                          <label class="lzma">
-                            <input type="checkbox" disabled checked={false} />
-                            {locale.t.roms.install.lzmaCheckboxLabel}<span class="soon">{locale.t.roms.install.lzmaSoon}</span>
-                          </label>
+                          <div class="upgrade-card lzma-card">
+                            <label class="upgrade-card-head">
+                              <input type="checkbox" disabled checked={false} />
+                              <span>{locale.t.roms.install.lzmaCheckboxLabel}</span>
+                            </label>
+                            <span class="soon">{locale.t.roms.install.lzmaSoon}</span>
+                          </div>
                         {/if}
                       </div>
                     </div>
@@ -3957,13 +4256,12 @@ import { navigate } from "../nav.js";
     align-items: flex-start;
     gap: 0.15rem;
     margin-top: 0.6rem;
-    /* A button only so the note is clickable — it must still look exactly like the note. */
     background: none;
     border: 0;
     padding: 0;
     text-align: start;
     font: inherit;
-    cursor: pointer;
+    cursor: default;
   }
   .bm-label {
     /* Artboard: a 13px caution triangle sits 6px before the label. */
@@ -4278,8 +4576,53 @@ import { navigate } from "../nav.js";
     display: flex;
     align-items: baseline;
     gap: 0.4rem;
+    flex-wrap: wrap;
+    line-height: 1.35;
     font-size: var(--fs-caption);
     color: var(--ink-soft);
+  }
+  .upgrade-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    padding: 0.9rem 1rem 0.8rem;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-card);
+    background: color-mix(in srgb, var(--surface) 82%, var(--model-accent) 18%);
+  }
+  .upgrade-card-head {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--ink);
+    font-size: var(--fs-caption);
+    font-weight: 650;
+  }
+  .upgrade-card-disabled {
+    opacity: 0.55;
+  }
+  .lzma-card {
+    opacity: 0.55;
+  }
+  .upgrade-card-disabled .upgrade-card-head {
+    color: var(--ink-soft);
+  }
+  .upgrade-card-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+  .upgrade-option {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+  .upgrade-option-label {
+    color: var(--ink-soft);
+    font-size: var(--fs-micro);
+    font-weight: 650;
+    letter-spacing: 0.02em;
   }
   .note,
   .err {
@@ -4322,6 +4665,8 @@ import { navigate } from "../nav.js";
     border-color: var(--model-accent);
   }
   .soon {
+    display: block;
+    padding-inline-start: 1.7rem;
     font-size: var(--fs-micro);
     font-weight: 400;
     color: var(--ink-soft);
@@ -4414,6 +4759,9 @@ import { navigate } from "../nav.js";
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    /* Reserve the two-line metadata footprint so changing filenames never moves the pane. */
+    min-height: 4.5rem;
+    justify-content: center;
   }
   /* Artboard (RomsNewSystem): 24px / 600 / -0.015em, centred. */
   .info-title {
@@ -4437,6 +4785,8 @@ import { navigate } from "../nav.js";
   .info-system {
     font-size: var(--fs-caption);
     color: var(--ink-soft);
+    white-space: nowrap;
+    flex: 0 0 auto;
   }
   .info-dot {
     width: 3px;
@@ -4761,9 +5111,8 @@ import { navigate } from "../nav.js";
     color: var(--ink-soft);
     stroke: var(--ink-soft);
     overflow: visible;
-    position: relative;
-    inset-inline-start: -10px;
-    inset-block-start: -12px;
+    position: static;
+    margin-inline-start: 2px;
   }
   /* Artboard (LibrarySummary) gives the drawer a height envelope — it never collapses
      below 180px and never eats more than 46% of the viewport — and scrolls its BODY,
@@ -4824,7 +5173,7 @@ import { navigate } from "../nav.js";
      its `uncompressed for now` caption measures about 314px at 14px/12px, so at 300px the label
      wrapped to a second line -- and being a flex item it shrinks below max-content to do it.
      A fixed wider number would only move the cliff to whichever locale is longest, so the track
-     is a share with a floor: it takes about 437px of a 1440px window, never less than 340px,
+     is a share with a floor: it takes about 437px of a 1440px window, never less than 400px,
      and it stops being the narrowest thing on the row. That also closes the void the board's
      300px left between a table that does not fill its track and a column jammed against the
      right edge.
@@ -4833,8 +5182,8 @@ import { navigate } from "../nav.js";
      numeric columns and would otherwise refuse to shrink. */
   .drawer-cols {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(340px, 0.5fr);
-    gap: 48px;
+    grid-template-columns: minmax(0, 1fr) minmax(400px, 0.62fr);
+    gap: 40px;
     align-items: start;
   }
   /* One column at narrow widths: 300px beside a table that already carries two numeric columns
@@ -4850,6 +5199,9 @@ import { navigate } from "../nav.js";
     flex-direction: column;
     gap: 12px;
     min-width: 0;
+  }
+  .drawer-col:last-child {
+    padding-inline-end: 1.25rem;
   }
   /* Artboard label scale: 11px / 0.11em, like every other small-caps section label. */
   .drawer-title {

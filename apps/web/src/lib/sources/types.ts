@@ -328,6 +328,7 @@ export type SourceErrorCode =
   // The manifest names a file the zip does not contain. A bundle is supposed to be the WHOLE
   // directory, so this is an error rather than something to skip (spec/06, step 4).
   | "bundle-missing-file"
+  | "raw-core-invalid"
   // The project this bundle describes is already in the list as a network-resolved source.
   | "bundle-conflict";
 

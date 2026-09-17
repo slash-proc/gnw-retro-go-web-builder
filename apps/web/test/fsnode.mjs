@@ -175,6 +175,12 @@ await mkdir(join(barren, "photos"), { recursive: true });
 ok((await getValidRoot(nodeDirHandle(barren), reg)) === null,
   "and refuses one that holds no console directory at all");
 
+const homebrewOnly = await mkdtemp(join(tmpdir(), "fsnode-homebrew-"));
+await mkdir(join(homebrewOnly, "homebrews"), { recursive: true });
+await writeFile(join(homebrewOnly, "homebrews/OpenLara.bin"), Buffer.from([1, 2, 3]));
+ok((await getValidRoot(nodeDirHandle(homebrewOnly), reg)) !== null,
+  "accepts an SD root containing only the manifest homebrew directory");
+
 // --- 5. A symlink is skipped, not followed -------------------------------------------------------
 // Not a browser concern; a real path can contain a loop, and a scan that hangs is worse than one
 // that misses a file.

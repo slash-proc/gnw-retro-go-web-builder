@@ -86,7 +86,7 @@ export const romsJa: RomsStrings = {
     wontFitDetail: "空き容量に収まりません。ゲームの選択を減らしてください。",
   },
   sdSync: {
-    upgradeLabelPre: "Retro-Goとコアを次のバージョンにアップグレード：",
+    upgradeLabelPre: "Retro-Goを次のバージョンにアップグレード：",
     updatesWhenBoots: "（次回G&W起動時に反映されます）",
     downloadZipButton: "SD ZIPをダウンロード",
     nothingToSyncTitle: "ゲーム、コア、カバー、チートのいずれも変更されていないため、同期する内容はありません。",

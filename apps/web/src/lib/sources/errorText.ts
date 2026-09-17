@@ -54,6 +54,8 @@ export function errorMessageKind(
     case "bundle-missing-file":
     case "bundle-conflict":
       return code;
+    case "raw-core-invalid":
+      return "malformed";
     case "artifact-size-mismatch":
       return "malformed";
     default:

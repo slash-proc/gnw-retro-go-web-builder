@@ -177,6 +177,7 @@ export const sourcesRu: SourcesStrings = {
     usedBy: "Используется",
     biosGroup: "Системные файлы",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'Копия OFW',
     any: "Любые",
     count: (n: number) => {
       const d = n % 10, h = n % 100;

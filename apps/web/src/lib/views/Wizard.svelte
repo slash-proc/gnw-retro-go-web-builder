@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { device, modelLabel } from "../device.svelte.js";
   import { backupPresence } from "../backupPresence.svelte.js";
+  import { localFolders } from "../sources/localFolders.svelte.js";
   import Button from "../ui/Button.svelte";
   import AddSourcesModal from "../ui/AddSourcesModal.svelte";
   import { installProgress, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
@@ -18,7 +19,7 @@
   import { versionRelation, versionActionFace } from "../firmwareDist/compare.js";
   import { curatedProjects } from "../firmwareDist/curated.js";
   import { dbgLog } from "../debug.js";
-  import { isStubAlive, dumpRegion } from "../engine/flasher.js";
+  import { isStubAlive, dumpRegion, flashImage } from "../engine/flasher.js";
   import { raceWithFallback } from "../engine/timeout.js";
   import { saveFileToDirOrDownload, nativeFolderPickerSupported, pickSdCardFolder } from "../romScan.js";
   import { download } from "../util.js";
@@ -27,7 +28,8 @@
   import { scanReservedOffset, defaultLittlefsLength } from "../flashLayout.js";
   import { readGameData } from "../engine/frogfsDevice.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
-  import type { LittlefsTreeNode } from "@gnw/fs-builders";
+  import type { LittlefsTreeNode, MappedSpec } from "@gnw/fs-builders";
+  import { prepareState } from "../sources/prepareState.svelte.js";
   import JSZip from "jszip";
   import logoRgo from "../../assets/logo-rgo.png";
   import logoGnw from "../../assets/logo-gnw-badge.svg";
@@ -57,6 +59,21 @@
 
   /** The "Add Software Sources" spine step's modal (ModalSources artboard). */
   let sourcesModalOpen = $state(false);
+
+  // Source-fetched core artifacts keep their mapping facts in prepareState. The firmware
+  // installer must pass those facts through too: otherwise a mapped `cores/*.xip` artifact is
+  // treated as an ordinary LittleFS core during a fresh/reinstall build.
+  function mappedArtifactsIn(roms: Map<string, Uint8Array>): Map<string, MappedSpec> | undefined {
+    const all = prepareState.mappedArtifactMap();
+    if (all.size === 0) return undefined;
+    const out = new Map<string, MappedSpec>();
+    for (const [key, data] of roms) {
+      const spec = all.get(key);
+      if (!spec) continue;
+      out.set(key, { ...(spec.relocBase === undefined ? {} : { relocBase: spec.relocBase }), bytes: data.length });
+    }
+    return out.size > 0 ? out : undefined;
+  }
 
   /**
    * The "Add Software Sources" step is satisfied by the CURATED LIST having been pulled, not
@@ -103,10 +120,16 @@
   // patched-OFW dual-boot chainloader in place.
   const isPatched = $derived(!!device.deviceClass?.ofw?.patched && hasAssets);
 
+  // The classifier can describe orphaned external-flash files as `retrogo-sd` (for
+  // example, a FrogFS/LittleFS partition left behind after an incomplete flash).
+  // That is not evidence that a bootable Retro-Go image is installed.  Guided Setup
+  // must only offer Reinstall after the internal-flash scan found the Retro-Go
+  // signature *and* a version in a sane bank record; unknown-data banks deliberately
+  // remain eligible for Install.
   const isInstalled = $derived(
-    device.deviceClass 
-      ? device.deviceClass.kind === "retrogo-sd" || device.deviceClass.kind === "retrogo-old" 
-      : false
+    !!device.deviceClass &&
+      (device.deviceClass.kind === "retrogo-sd" || device.deviceClass.kind === "retrogo-old") &&
+      device.banks.some((b) => b.type === "Retro-Go" && /^v\d/.test(b.retroGoVersion ?? "")),
   );
 
   const isBroken = $derived(
@@ -166,6 +189,12 @@
   // lives in the device store (localStorage, keyed by the unit's STM32 UID) rather than the
   // session `$state` it used to be, which forgot across every reload.
   const backupTaken = $derived(device.backupTaken);
+  // Backups selected elsewhere in the app are also valid completion evidence for the
+  // Retro-Go-only plan. The shared probe updates this independently of the guided flow.
+  const backupPresent = $derived(backupPresence.state.kind === "present");
+  $effect(() => {
+    untrack(() => void backupPresence.refresh());
+  });
 
   // Step 1: Backup & Patch
   // Manual escape hatch: detection can be wrong (or the user knows better) — lets them
@@ -193,7 +222,7 @@
    * Zelda/Mario device look unfinished after a reload or when prepared by another session.
    */
   let step1Done = $derived(
-    step1Skipped || (path === "rgo" ? backupTaken : !!device.deviceClass?.ofw?.patched),
+    step1Skipped || (path === "rgo" ? backupTaken || backupPresent : !!device.deviceClass?.ofw?.patched),
   );
   let step1Active = $derived(!step1Done);
 
@@ -207,6 +236,8 @@
   // standing on and renumber the spine underneath them. A reload re-evaluates it — which is
   // exactly what persisting `backupTaken` buys.
   let rgoNeedsBackup = $state(false);
+  let rgoNeedsBank2Cleanup = $state(false);
+  let bank2CleanupDone = $state(false);
   const showBackupStep = $derived(path === "dual" || (path === "rgo" && rgoNeedsBackup));
   const canSkipBackup = $derived(path === "rgo");
   let skipExpanded = $state(false);
@@ -278,6 +309,8 @@
       report.finish("locate-backup");
       return;
     }
+
+    await localFolders.adoptOfwBackup(dir);
 
     const found = await scanBackupFolder(dir);
     const chosen = defaultBackup(found, device.model);
@@ -470,7 +503,7 @@
       : defaultLittlefsLength({
           extflashSize: device.extFlashBytes,
           blockSize,
-          reservedOffset: chosenReserved,
+          reservedOffset: path === "rgo" ? 0 : chosenReserved,
         }),
   );
 
@@ -628,7 +661,7 @@
       },
       checkboxes: canMigrate
         ? [
-            { id: "migrateGames", label: locale.t.wizard.step2.checkboxMigrateGames, default: true },
+            { id: "migrateGames", label: locale.t.wizard.step2.checkboxMigrateGames, default: false },
             { id: "migrateSaves", label: locale.t.wizard.step2.checkboxMigrateSaves, default: true },
           ]
         : [],
@@ -709,7 +742,9 @@
     // bottom-reserved size this device already has, and `installLittlefsLength` the computed
     // read-write partition — null only when the chip geometry was not layoutable, in which
     // case buildFlashInstall falls back to its own cores+headroom sizing.
-    const reservedOffset = chosenReserved;
+    // Retro-Go Only overwrites stock firmware and therefore owns extflash from offset 0.
+    // Dual Boot must preserve the scanned OFW/assets reservation.
+    const reservedOffset = path === "rgo" ? 0 : chosenReserved;
 
     const userRoms = new Map<string, Uint8Array>();
     const lfsData = new Map<string, Uint8Array>();
@@ -717,6 +752,8 @@
 
     // Read live from the confirm modal's own checkboxes (rendered inside InstallProgressModal
     // itself, not on this card) rather than local component state.
+    // Temporarily disabled while FrogFS game migration is being repaired. Keep the option
+    // visible as a reminder, but never allow a stale checkbox value to enable it.
     const migrateGames = installProgress.checkboxValues.migrateGames ?? false;
     const migrateSaves = installProgress.checkboxValues.migrateSaves ?? false;
 
@@ -734,7 +771,7 @@
 
     if (canMigrate && (migrateGames || migrateSaves)) {
       report.start("migrate-scan");
-      const flasher = await device.ensureStub();
+      const flasher = await device.ensureStub(undefined, false, true, false);
       const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
 
       if (migrateSaves) {
@@ -797,6 +834,26 @@
       } else {
         report.log("migrate-scan", msg((t) => t.wizard.step2.logSkippingGameMigration, migrateGames, device.installedGames.length), "games-migrate");
       }
+      // Keep non-core FrogFS assets (especially covers) with migrated games.  They are not
+      // present in device.installedGames, so a rebuild based only on that list loses them.
+      if (migrateGames && device.installedFrogfs?.files) {
+        let preserved = 0;
+        for (const f of device.installedFrogfs.files) {
+          if (f.path.startsWith("cores/")) continue;
+          if (
+            f.path.startsWith("fonts/") ||
+            f.path.startsWith("font/") ||
+            f.path.startsWith("roms/fonts/") ||
+            f.path.startsWith("roms/font/")
+          ) continue;
+          const rawPath = f.path;
+          const key = rawPath.startsWith("homebrews/") ? `homebrew/${rawPath.slice(10)}` : rawPath;
+          if (userRoms.has(key)) continue;
+          userRoms.set(key, await read(f.dataOffs + reservedOffset, f.dataSize));
+          preserved++;
+        }
+        dbgLog(`[wizard] preserved non-core FrogFS files: ${preserved}`);
+      }
       report.subFinish("migrate-scan", "games-migrate");
       report.finish("migrate-scan");
     }
@@ -823,11 +880,12 @@
     report.subStart("build", device.targetMedia === "sd" ? "sdcache" : "frogfs");
     const install = await buildFlashInstall({
       bundle,
-      bank: 2,
+      bank: path === "rgo" ? 1 : 2,
       extflashSize: device.extFlashBytes,
       blockSize,
       reservedOffset,
       userRoms,
+      mappedArtifacts: mappedArtifactsIn(userRoms),
       frogfsState,
       lfsData,
       ...(installLittlefsLength !== null ? { littlefsLength: installLittlefsLength } : {}),
@@ -870,7 +928,7 @@
     // Automatic unlock: a locked device is unlocked before this write, never after it
     // (engine/unlockGate.ts owns the backup-first ordering). No-op when already unlocked.
     await device.ensureUnlocked();
-    const flasher = await device.ensureStub();
+    await device.ensureStub(undefined, false, true, false);
     report.start("flash");
     const regions = flashRegionsForPhase;
 
@@ -884,7 +942,7 @@
         // on every call.
         (progressReport, signal) =>
           flashInstallToDevice(
-            (force) => device.ensureStub(undefined, force, true),
+            (force) => device.ensureStub(undefined, force, true, force),
             install,
             progressReport as any,
             dbgLog("flash", (m) => report.log("flash", m)),
@@ -948,6 +1006,50 @@
     }
   }
 
+  const bank2CleanupPhases: PhaseDef[] = [
+    { id: "erase-bank2", label: locale.t.eraseSection.phaseErase },
+    { id: "rescan-bank2", label: locale.t.eraseSection.phaseRescan },
+  ];
+
+  async function runBank2Cleanup(report: PhaseReporter) {
+    await device.ensureUnlocked();
+    await device.ensureStub();
+    const data = new Uint8Array(0x40000).fill(0xff);
+    report.start("erase-bank2");
+    device.suspendPoll();
+    try {
+      await flashImage(
+        (force) => device.ensureStub(undefined, force, true),
+        2,
+        0,
+        data,
+        (done, total) => report.progress("erase-bank2", done, total, undefined, "bytes"),
+        dbgLog("guided-bank2-erase", (line) => report.log("erase-bank2", line)),
+        { compress: true, verify: false, abortSignal: report.signal },
+      );
+    } finally {
+      device.resumePoll();
+    }
+    report.finish("erase-bank2");
+    report.start("rescan-bank2");
+    await device.runScan("guided bank 2 cleanup");
+    report.finish("rescan-bank2");
+  }
+
+  function openBank2Cleanup() {
+    void installProgress.run({
+      title: w.spine.removeRetroGo,
+      body: locale.t.eraseSection.modalBody(false),
+      danger: true,
+      confirmText: locale.t.eraseSection.modalConfirmText,
+      phases: bank2CleanupPhases,
+      exec: async (report) => {
+        await runBank2Cleanup(report);
+        bank2CleanupDone = true;
+      },
+    });
+  }
+
   // Step 3: Install ROMs
   let step3Active = $derived(isInstalled);
 
@@ -960,12 +1062,16 @@
   // firmware can observe, so we don't offer it. See engine/ofw.ts's restoreStock() for the
   // full list of what is deliberately left in place.
   let restoreBackup = $state<FoundBackup | null>(null);
+  let restoreBackups = $state<FoundBackup[]>([]);
+  let restoreModelChoice = $state<"mario" | "zelda">("zelda");
   let restoreScanned = $state(false); // a folder has been picked and scanned at least once
   let restoreDone = $state(false);
 
   async function readRestoreDir(dir: BackupDir) {
     const found = await scanBackupFolder(dir);
+    restoreBackups = found;
     restoreBackup = defaultBackup(found, device.model);
+    restoreModelChoice = restoreBackup?.model ?? "zelda";
     restoreScanned = true;
   }
 
@@ -987,6 +1093,7 @@
   async function pickRestoreBackup() {
     const dir = await pickBackupFolder();
     if (!dir) return; // cancelled — leave any previous selection alone
+    await localFolders.adoptOfwBackup(dir);
     await readRestoreDir(dir);
   }
 
@@ -1011,9 +1118,20 @@
     ),
   );
   const restoreValid = $derived(restoreVerdict.valid);
+  const restoreFoundLabel = $derived(
+    restoreBackup
+      ? [restoreBackup, ...restoreBackups.filter((backup) => backup.model !== restoreBackup!.model)]
+          .map((backup) => modelLabel(backup.model))
+          .join(", ")
+      : "",
+  );
   const restoreWrongHw = $derived(restoreVerdict.refusal === "wrong-hardware");
   const restoreTooBig = $derived(restoreVerdict.refusal === "too-big");
   const canRestore = $derived(restoreVerdict.allowed && device.isConnected && !restoreDone);
+  const restoreChoiceNeeded = $derived(
+    device.model === "unknown" &&
+      restoreBackups.filter((backup) => backup.internalOk && backup.externalOk).length > 1,
+  );
 
   // Only the two writes plus a rescan: unlike the patch flow there is nothing to compute, so
   // there is no "patch" phase to advertise.
@@ -1030,6 +1148,26 @@
       danger: true,
       confirmText: w.restore.confirm,
       phases: restorePhases,
+      choicePicker: restoreChoiceNeeded
+        ? {
+            label: w.spine.selectBackup,
+            options: () =>
+              restoreBackups
+                .filter((backup) => backup.internalOk && backup.externalOk)
+                .filter(
+                  (backup, index, backups) =>
+                    backups.findIndex((candidate) => candidate.model === backup.model) === index,
+                )
+                .map((backup) => ({ value: backup.model, label: modelLabel(backup.model) })),
+            selected: () => restoreModelChoice,
+            onSelect: (value: string) => {
+              if (value !== "mario" && value !== "zelda") return;
+              restoreModelChoice = value;
+              restoreBackup =
+                restoreBackups.find((backup) => backup.model === value) ?? restoreBackup;
+            },
+          }
+        : undefined,
       exec: async (report) => {
         await runRestore(report);
         restoreDone = true;
@@ -1107,7 +1245,9 @@
   }
 
   // ── Spine composition ─────────────────────────────────────────────────────
-  const spine = $derived<SpineId[]>(path === null ? [] : spineFor(path, showBackupStep));
+  const spine = $derived<SpineId[]>(
+    path === null ? [] : spineFor(path, showBackupStep, path === "rgo" && rgoNeedsBank2Cleanup),
+  );
 
   // ── The preview column ────────────────────────────────────────────────────
   // ChooseAndSee: the choices on the left, the steps they produce on the right, updating live.
@@ -1138,7 +1278,11 @@
   const previewSpine = $derived<SpineId[]>(
     previewPath === null
       ? []
-      : spineFor(previewPath, needsBackupStep(previewPath, { isStock, backupTaken })),
+      : spineFor(
+          previewPath,
+          needsBackupStep(previewPath, { isStock, backupTaken: backupTaken || backupPresent }),
+          previewPath === "rgo" && device.banks.some((b) => b.index === 2 && b.retroGoVersion),
+        ),
   );
 
   const w = $derived(locale.t.wizard);
@@ -1166,6 +1310,8 @@
         return w.spine.restoreOriginal;
       case "remove-rgo":
         return w.spine.removeRetroGo;
+      case "remove-bank2":
+        return w.spine.removeRetroGo;
     }
   }
 
@@ -1176,7 +1322,9 @@
     // is still unpatched stock on the device and no backup of THIS unit has been recorded.
     // Same predicate the preview column derives live, so the plan the user was shown is the
     // plan they get -- but read ONCE, here, and then frozen.
-    rgoNeedsBackup = p === "rgo" && needsBackupStep(p, { isStock, backupTaken });
+    rgoNeedsBackup = p === "rgo" && needsBackupStep(p, { isStock, backupTaken: backupTaken || backupPresent });
+    rgoNeedsBank2Cleanup = p === "rgo" && device.banks.some((b) => b.index === 2 && b.retroGoVersion);
+    bank2CleanupDone = false;
   }
 </script>
 
@@ -1296,13 +1444,15 @@
             {#each spine as id, i (id)}
               {@const stepDone =
                 (id === "backup" && step1Done) || (id === "install" && step2Done) || (id === "restore" && restoreDone) ||
-                (id === "sources" && curatedReady)}
+                (id === "sources" && curatedReady) || (id === "select-backup" && restoreValid) ||
+                (id === "remove-bank2" && bank2CleanupDone)}
               {@const stepActive =
                 !stepDone &&
                 ((id === "backup" && step1Active) ||
                   (id === "install" && step2Active) ||
                   (id === "roms" && step3Active) ||
                   id === "sources" ||
+                  (id === "remove-bank2" && !bank2CleanupDone) ||
                   (id === "select-backup" && !restoreDone) ||
                   (id === "restore" && restoreValid && !restoreDone))}
               {@const stepOptional = id === "sources" || id === "remove-rgo"}
@@ -1388,7 +1538,16 @@
                       </div>
                     {/if}
 
-                  {:else if id === "sources"}
+              {:else if id === "remove-bank2"}
+                {#if bank2CleanupDone}
+                  <Button variant="quiet" disabled>Erase Bank 2</Button>
+                {:else}
+                  <Button variant="action" disabled={!device.isConnected} onclick={openBank2Cleanup}>
+                    Erase Bank 2
+                  </Button>
+                {/if}
+
+              {:else if id === "sources"}
                     <Button variant="quiet" onclick={() => (sourcesModalOpen = true)}>{w.spine.sourcesButtonLabel}</Button>
 
                   {:else if id === "roms"}
@@ -1400,9 +1559,9 @@
                          3.8 fix on the backup step, rather than a disabled leftover. -->
                     {#if !restoreDone}
                       <div class="row">
-                        <Button variant="action" onclick={pickRestoreBackup}>{w.spine.selectFolderButtonLabel}</Button>
+                        <Button variant={restoreValid ? "quiet" : "action"} onclick={pickRestoreBackup}>{w.spine.selectFolderButtonLabel}</Button>
                         {#if restoreValid}
-                          <span class="found">{w.spine.backupFound(modelLabel(restoreBackup!.model))}</span>
+                          <span class="found">{w.spine.backupFound(restoreFoundLabel)}</span>
                         {/if}
                       </div>
                     {/if}

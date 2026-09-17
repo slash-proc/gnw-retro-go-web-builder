@@ -69,7 +69,6 @@ function ofwModel(sp: number): string | null {
 
 const STRIDE = 32 << 10;     // 32K strides
 const PROBE_SIZE = 4 << 10;  // 4K probes
-const MAX_EMPTY_RUN = 4;     // Stop after 4 empty strides (128K gap)
 
 /** Index of the last non-0xFF byte in `win`, or -1 if all erased. */
 function lastNonFF(win: Uint8Array): number {
@@ -90,7 +89,6 @@ function retroGoInfo(buf: Uint8Array): { present: boolean; version?: string; isS
 }
 
 async function getBankDataSize(read: IntReadFn, base: number, maxTop: number): Promise<number> {
-  let emptyRun = 0;
   let roughTop = 0;
 
   // 1. Quick Island Discovery (32K strides)
@@ -104,7 +102,10 @@ async function getBankDataSize(read: IntReadFn, base: number, maxTop: number): P
     }
     
     if (lastNonFF(win) < 0) {
-      if (++emptyRun >= MAX_EMPTY_RUN) break;
+      // Do not stop after an empty high region. A bank can legitimately contain
+      // data near its base with a large erased gap above it (for example a short
+      // or partially written image). Stopping after 128 KiB made that bank appear
+      // empty and hid the more useful "unknown data" classification.
     } else {
       roughTop = top;
       break;

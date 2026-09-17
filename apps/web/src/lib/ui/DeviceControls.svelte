@@ -12,10 +12,19 @@
   import { locale } from "../i18n/locale.svelte.js";
   import { auditLog } from "../auditLog.svelte.js";
   import { msg } from "../logEntry.js";
+  import ModalShell from "./ModalShell.svelte";
+  import { getKnownProbes } from "../engine/transport.js";
 
   let { statusColor = "red" }: { statusColor?: string } = $props();
 
   let open = $state(false);
+  let configureOpen = $state(false);
+  let configuring = $state(false);
+  let configureError = $state<string | null>(null);
+  let customFrequency = $state(4_000_000);
+  let customFrequencyMode = $state(false);
+  let selectedAdapterName = $state<string | null>(null);
+  let availableAdapterNames = $state<string[]>([]);
 
   function toggle() {
     open = !open;
@@ -36,7 +45,7 @@
 
   function rescan() {
     open = false;
-    device.ensureStub().then(() => device.runScan("device menu")).catch(() => {});
+    device.rescan("device menu").catch(() => {});
   }
   function toggleRecoveryMode() {
     open = false;
@@ -73,9 +82,40 @@
       auditLog.add("error", "device", msg((t) => t.shared.auditLog.recoveryFailed, device.error));
     });
   }
-  function changeAdapter() {
+  async function changeAdapter() {
     open = false;
-    void device.connect(undefined, { forcePicker: true });
+    configureError = null;
+    selectedAdapterName = device.probeName;
+    const known = await getKnownProbes();
+    availableAdapterNames = known.map((d) => d.productName || "CMSIS-DAP");
+    if (!selectedAdapterName && known.length === 1) selectedAdapterName = availableAdapterNames[0];
+    customFrequency = device.adapterFrequencyHz;
+    customFrequencyMode = ![1_000_000, 2_000_000, 4_000_000].includes(device.adapterFrequencyHz);
+    configureOpen = true;
+  }
+  function chooseFrequency(value: number): void {
+    customFrequencyMode = value === 0;
+    if (value !== 0) {
+      customFrequency = value;
+      device.setAdapterFrequency(value);
+    }
+  }
+  function applyCustomFrequency(): void {
+    const hz = Math.round(customFrequency);
+    if (hz >= 1_000_000 && hz <= 10_000_000) device.setAdapterFrequency(hz);
+  }
+  async function chooseAdapterOnly() {
+    device.startAdapterPoll();
+    configuring = true;
+    configureError = null;
+    try {
+      await device.chooseAdapter();
+      selectedAdapterName = device.probeName;
+    } catch (e) {
+      configureError = e instanceof Error ? e.message : String(e);
+    } finally {
+      configuring = false;
+    }
   }
   function disconnectDevice() {
     open = false;
@@ -119,8 +159,43 @@
         <button class="menu-item" role="menuitem" onclick={connect}>{locale.t.shared.common.connect}</button>
         <button class="menu-item" role="menuitem" onclick={changeAdapter}>{locale.t.shared.deviceControls.changeAdapter}</button>
       {/if}
-    </div>
-  {/if}
+  </div>
+{/if}
+
+{#if configureOpen}
+  <ModalShell onDismiss={() => !configuring && (configureOpen = false)} maxWidth="26rem">
+    {#snippet children()}
+      <div class="adapter-config">
+        <h3>Configure Adapter</h3>
+        <div class="adapter-row">
+          <span class="adapter-name">{selectedAdapterName ?? "No adapter selected"}</span>
+          <button class="choose-adapter" disabled={configuring} onclick={chooseAdapterOnly}>Choose</button>
+        </div>
+        {#if availableAdapterNames.length > 1}
+          <span class="available-adapters">Available adapters: {availableAdapterNames.join(", ")}</span>
+        {/if}
+        <label for="adapter-frequency">Adapter speed</label>
+        <select id="adapter-frequency" value={customFrequencyMode ? "custom" : String(device.adapterFrequencyHz)} onchange={(e) => chooseFrequency(e.currentTarget.value === "custom" ? 0 : Number(e.currentTarget.value))} disabled={configuring}>
+          <option value="1000000">1 MHz</option>
+          <option value="2000000">2 MHz</option>
+          <option value="4000000">4 MHz</option>
+          <option value="custom">Custom</option>
+        </select>
+        {#if customFrequencyMode}
+          <div class="custom-frequency">
+            <input aria-label="Custom adapter speed" type="number" min="1" max="10" step="0.1" value={customFrequency / 1_000_000} onchange={(e) => { customFrequency = Number(e.currentTarget.value) * 1_000_000; applyCustomFrequency(); }} disabled={configuring} />
+            <span>MHz (1–10 MHz)</span>
+          </div>
+        {/if}
+        {#if configureError}<p class="config-error">{configureError}</p>{/if}
+        <div class="config-actions">
+          <button class="config-cancel" disabled={configuring} onclick={() => (configureOpen = false)}>{locale.t.shared.common.cancel}</button>
+          <button class="config-connect" disabled={configuring} onclick={() => { if (customFrequencyMode) applyCustomFrequency(); device.setAdapterFrequency(device.adapterFrequencyHz); configureOpen = false; }}>OK</button>
+        </div>
+      </div>
+    {/snippet}
+  </ModalShell>
+{/if}
 </div>
 
 <style>
@@ -168,6 +243,25 @@
   .gw-icon-btn:active {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25) inset;
   }
+  .adapter-config {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .adapter-config h3 { margin: 0; font-size: var(--fs-title); }
+  .config-note { margin: 0 0 8px; color: var(--ink-soft); font-size: var(--fs-caption); }
+  .adapter-config label { font-size: var(--fs-caption); font-weight: 600; }
+  .adapter-config select { font: inherit; padding: 8px; }
+  .adapter-row { display: flex; align-items: center; gap: 10px; }
+  .adapter-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .choose-adapter { font: inherit; padding: 6px 10px; border-radius: var(--r-control); cursor: pointer; color: var(--ink); background: var(--silver); border: 1px solid var(--hairline); }
+  .custom-frequency { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: var(--fs-caption); }
+  .custom-frequency input { width: 9rem; font: inherit; padding: 7px; }
+  .config-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .config-cancel, .config-connect { font: inherit; padding: 8px 14px; border-radius: var(--r-control); cursor: pointer; }
+  .config-cancel { color: var(--ink); background: var(--silver); border: 1px solid var(--hairline); }
+  .config-connect { color: #fff; background: var(--zelda-green); border: 1px solid var(--zelda-green); }
+  .config-error { margin: 4px 0 0; color: var(--danger); font-size: var(--fs-caption); }
   /* No busy ring: HeaderBusy / GuidedFlashing / FlashingCancel / FlashingCancelConfirm all
      draw the writing chip with the SAME `1px solid rgba(0,0,0,0.35)` border and the same inset
      highlight as the idle chip — only the fill (amber) and the throb change. The caution ring

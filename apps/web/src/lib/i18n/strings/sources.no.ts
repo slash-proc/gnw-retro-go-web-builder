@@ -150,6 +150,7 @@ export const sourcesNo: SourcesStrings = {
     usedBy: "Brukes av",
     biosGroup: "Systemfiler",
     biosUsedBy: "BIOS",
+    ofwBackupUsedBy: 'OFW-sikkerhetskopi',
     any: "Alle",
     count: (n: number) => (n === 1 ? "1 mappe" : `${n} mapper`),
     addDirectoryTitle: "Legg til en katalog",

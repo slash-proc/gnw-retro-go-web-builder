@@ -61,6 +61,9 @@
 
   // Whether to show the initial Landing screen
   let showLanding = $state(true);
+  // Header "Change Method" returns to the media choice for this visit, while
+  // the normal landing entry still remembers the user's prior Flash/SD choice.
+  let resetLandingToMedia = $state(false);
   // Set when the user connects FROM the landing homepage
   let entryTab = $state<"info" | "device" | "roms" | undefined>(undefined);
 
@@ -105,6 +108,9 @@
     // comment). Applies to both targets: 'device' connectSilent()s directly below, 'games'
     // (Flash mode) does it via RomManagementTab's own autoProbeRoms() on mount.
     device.allowAutoReconnect();
+    // The landing wizard must remain passive. Once the user chooses a destination,
+    // begin watching an already-authorized adapter for the console to appear.
+    device.startAdapterPoll();
     device.targetMedia = media;
     device.firmwareMode = 'advanced';
     autoRouted = false;
@@ -132,7 +138,10 @@
   <ConnectGateModal />
   <InstallProgressModal />
   <header class="app-header">
-    <DeviceHeader showConnectButton={!showLanding} onNavigateHome={() => showLanding = true} />
+    <DeviceHeader
+      showConnectButton={!showLanding}
+      onNavigateHome={() => { resetLandingToMedia = true; showLanding = true; }}
+    />
 
     <!-- The face-plate lip: ONE 3px strip as the LAST child of the header band, never a gold
          background. See docs/design/mockups/README.md ("Gold is a 3px face-plate lip, not a
@@ -169,7 +178,7 @@
            two full-bleed regions (the nav band, the Firmware rail) and applies `.body` to the
            panes that are gridded, one at a time. -->
       <div class="page-body landing">
-        <Landing onNavigate={handleNavigate} />
+        <Landing onNavigate={handleNavigate} resetToMedia={resetLandingToMedia} />
       </div>
     {:else}
       <Advanced initialTab={entryTab} onInitialApplied={() => (entryTab = undefined)} />
