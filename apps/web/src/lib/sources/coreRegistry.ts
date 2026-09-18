@@ -418,7 +418,7 @@ export function isKnownConsoleDir(name: string, reg: CoreRegistry): boolean {
   // alongside the canonical `gbc` folder). Matching is case-insensitive and remains limited
   // to names declared by a source.
   if ([...reg.byFolder.values()].some((sys) =>
-    sys.longName.toLowerCase() === lower || sys.shortName.toLowerCase() === lower
+    (sys.longName || "").toLowerCase() === lower || (sys.shortName || "").toLowerCase() === lower
   )) return true;
   if ([...reg.declaredFolders].some((folder) => folder === lower)) return true;
   // Only before anything has resolved: we cannot yet tell "the user has no cores" from "the
@@ -457,7 +457,7 @@ export function classifyForRegistry(
 ): { system: RegisteredSystem; role: FileRole } | null {
   const lower = folder.toLowerCase();
   const sys = reg.byFolder.get(lower) ?? [...reg.byFolder.values()].find((candidate) =>
-    candidate.longName.toLowerCase() === lower || candidate.shortName.toLowerCase() === lower
+    (candidate.longName || "").toLowerCase() === lower || (candidate.shortName || "").toLowerCase() === lower
   );
   if (!sys) return null;
   const ext = extension.toLowerCase();
