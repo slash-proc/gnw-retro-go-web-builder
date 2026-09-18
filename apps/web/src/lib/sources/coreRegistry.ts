@@ -414,6 +414,13 @@ export const LEGACY_CONSOLE_DIRS: ReadonlySet<string> = new Set([
 export function isKnownConsoleDir(name: string, reg: CoreRegistry): boolean {
   const lower = name.toLowerCase();
   if (reg.byFolder.has(lower) || reg.declaredFolders.has(lower)) return true;
+  // Accept human-readable system names as folder aliases (for example `Game Boy Color`
+  // alongside the canonical `gbc` folder). Matching is case-insensitive and remains limited
+  // to names declared by a source.
+  if ([...reg.byFolder.values()].some((sys) =>
+    sys.longName.toLowerCase() === lower || sys.shortName.toLowerCase() === lower
+  )) return true;
+  if ([...reg.declaredFolders].some((folder) => folder === lower)) return true;
   // Only before anything has resolved: we cannot yet tell "the user has no cores" from "the
   // sources have not loaded", and a card that stopped being recognised mid-load is worse.
   return registryIsAuthoritative(reg) ? false : LEGACY_CONSOLE_DIRS.has(lower);
@@ -448,7 +455,10 @@ export function classifyForRegistry(
   folder: string,
   extension: string,
 ): { system: RegisteredSystem; role: FileRole } | null {
-  const sys = reg.byFolder.get(folder.toLowerCase());
+  const lower = folder.toLowerCase();
+  const sys = reg.byFolder.get(lower) ?? [...reg.byFolder.values()].find((candidate) =>
+    candidate.longName.toLowerCase() === lower || candidate.shortName.toLowerCase() === lower
+  );
   if (!sys) return null;
   const ext = extension.toLowerCase();
   if (sys.installable.includes(ext)) return { system: sys, role: "installable" };
