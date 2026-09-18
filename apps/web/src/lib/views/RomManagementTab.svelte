@@ -1111,6 +1111,23 @@ import { navigate } from "../nav.js";
   // Carousel State
   let coverUrls = new Map<string, string>();
   let coverLodUrls = new Map<string, string>();
+  const COVER_URL_CACHE_LIMIT = 96;
+  function cacheCoverUrl(cache: Map<string, string>, key: string, url: string) {
+    const old = cache.get(key);
+    if (old) URL.revokeObjectURL(old);
+    cache.set(key, url);
+    while (cache.size > COVER_URL_CACHE_LIMIT) {
+      const first = cache.keys().next().value as string | undefined;
+      if (!first) break;
+      const evicted = cache.get(first);
+      if (evicted) URL.revokeObjectURL(evicted);
+      cache.delete(first);
+    }
+  }
+  function clearCoverUrls(cache: Map<string, string>) {
+    for (const url of cache.values()) URL.revokeObjectURL(url);
+    cache.clear();
+  }
   let coverVersion = $state(0);
   let coverIndexMap: Map<string, LibraryFile> | null = null;
   let coverIndexSize = -1;
@@ -1182,13 +1199,13 @@ import { navigate } from "../nav.js";
         const coverBytes = romBytesIfLoaded(entry);
         if (!coverBytes) {
           void romBytes(entry).then((bytes) => {
-            if (!cache.has(gameKey)) cache.set(gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])));
+            if (!cache.has(gameKey)) cacheCoverUrl(cache, gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])));
             coverVersion++;
           });
           return "";
         }
         const url = URL.createObjectURL(new Blob([coverBytes as BlobPart]));
-        cache.set(gameKey, url);
+        cacheCoverUrl(cache, gameKey, url);
         return url;
       }
     }
@@ -4204,7 +4221,7 @@ import { navigate } from "../nav.js";
             coverUrl={getCoverUrl(activeGame.key, coverVersion)}
             bind:configuredCheats
             bind:configuredCheatFiles
-                onCoverChange={() => { coverUrls.clear(); coverLodUrls.clear(); coverVersion++; }}
+                onCoverChange={() => { clearCoverUrls(coverUrls); clearCoverUrls(coverLodUrls); coverVersion++; }}
           />
         {:else if activeHb}
           <GameDetailsPanel
@@ -4215,7 +4232,7 @@ import { navigate } from "../nav.js";
             coverUrl={getCoverUrl(activeHb.name, coverVersion)}
             bind:configuredCheats
             bind:configuredCheatFiles
-                onCoverChange={() => { coverUrls.clear(); coverLodUrls.clear(); coverVersion++; }}
+                onCoverChange={() => { clearCoverUrls(coverUrls); clearCoverUrls(coverLodUrls); coverVersion++; }}
           />
         {:else}
           <p class="note">{locale.t.roms.selectGames.infoEmpty}</p>
