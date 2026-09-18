@@ -761,6 +761,7 @@
     importPreviewMessage = null;
     
     const filesToScrape: File[] = [];
+    const coverSourceDirs = new Map<string, RomDirHandle>();
     const keysToImport = [...importSelected].filter(key => !skipExistingCovers || !hasLocalCover(key));
     for (const key of keysToImport) {
       const entry = library.scan?.userRoms.get(key);
@@ -783,6 +784,8 @@
       
       Object.defineProperty(file, 'webkitRelativePath', { value: webkitPath });
       filesToScrape.push(file);
+      const sourceDir = library.writeDirFor(key) ?? library.scan?.dir;
+      if (sourceDir) coverSourceDirs.set(key.toLowerCase(), sourceDir);
       // The scraper now owns this File copy for the batch. Release the decoded source cache so
       // a large mass import does not retain two copies of every selected ROM.
       if (isLazy(entry)) entry.release?.();
@@ -901,7 +904,10 @@
                 }
               }
               
-              await saveFileToDirOrDownload(library.writeDirFor(relPath) ?? library.scan.dir, relativePath, blob);
+              const coverSource = coverSourceDirs.get(relPath.toLowerCase())
+                ?? library.writeDirFor(relPath)
+                ?? library.scan.dir;
+              await saveFileToDirOrDownload(coverSource, relativePath, blob);
             } catch (e) {
               dbg(`[covers] writing a scraped cover to disk failed: ${e instanceof Error ? e.message : String(e)}`);
             }
