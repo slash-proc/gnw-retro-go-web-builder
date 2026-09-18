@@ -460,11 +460,8 @@ class LibraryStore {
       this.pendingHandle = null;
       this.clearDirty();
 
-      // Cover conversion is derived session data. Publish the library first, then build .img
-      // sidecars in the background so a large cover set cannot delay the first usable list.
-      void convertCoversInMap(userRoms).catch((e) => {
-        dbg(`[covers] background conversion failed: ${e instanceof Error ? e.message : String(e)}`);
-      });
+      // Cover conversion is deferred until an SD sync needs a device-format sidecar.
+      // Converting every full-size cover during startup retained gigabytes of image data.
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       // `library.error` is write-only: NO component reads it, so this was the quietest failure
