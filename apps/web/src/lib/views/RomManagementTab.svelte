@@ -1112,6 +1112,7 @@ import { navigate } from "../nav.js";
   let coverUrls = new Map<string, string>();
   let coverLodUrls = new Map<string, string>();
   const COVER_URL_CACHE_LIMIT = 96;
+  const coverLoads = new Set<string>();
   function cacheCoverUrl(cache: Map<string, string>, key: string, url: string) {
     const old = cache.get(key);
     if (old) URL.revokeObjectURL(old);
@@ -1198,10 +1199,14 @@ import { navigate } from "../nav.js";
         const entry = library.scan!.userRoms.get(matchPath)!;
         const coverBytes = romBytesIfLoaded(entry);
         if (!coverBytes) {
+          const loadKey = `${lowResolution ? "lod:" : "full:"}${gameKey}`;
+          if (cache.size + coverLoads.size >= COVER_URL_CACHE_LIMIT || coverLoads.has(loadKey)) return "";
+          coverLoads.add(loadKey);
           void romBytes(entry).then((bytes) => {
             if (!cache.has(gameKey)) cacheCoverUrl(cache, gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])));
+            coverLoads.delete(loadKey);
             coverVersion++;
-          });
+          }).catch(() => coverLoads.delete(loadKey));
           return "";
         }
         const url = URL.createObjectURL(new Blob([coverBytes as BlobPart]));
