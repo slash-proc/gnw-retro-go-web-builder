@@ -66,7 +66,7 @@ function saveZipScanCache(cache: Map<string, Map<string, ZipScanCacheEntry>>): v
  * Runs on ingest — originals on disk are untouched; only the in-memory session
  * cache holds the converted bytes.
  */
-async function convertCoversInMap(userRoms: Map<string, LibraryFile>): Promise<void> {
+export async function convertCoversInMap(userRoms: Map<string, LibraryFile>): Promise<void> {
   const derivedCoverCache = coverBlobStore();
   const toConvert: string[] = [];
   for (const path of userRoms.keys()) {

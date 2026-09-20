@@ -15,7 +15,7 @@
   // The ROM FOLDER is OPTIONAL. The on-device games come from device.installedGames (FrogFS read).
   // See memory: romgr-install-architecture.
   import { onMount } from "svelte";
-  import { library } from "../library.svelte.js";
+  import { convertCoversInMap, library } from "../library.svelte.js";
   import { nativeFolderPickerSupported, pickFolder, saveFileToDirOrDownload, deleteFileFromDir, pruneEmptyParents, readTextFromDir, scanRomDirectory, getValidRoot, dirSupportsWriteBack, romBytes, romBytesIfLoaded, materialize, type LibraryFile } from "../romScan.js";
   import { deviceInstallPaths, rememberInstallPaths, sdDestPath } from "../engine/devicePaths.js";
   import {
@@ -2860,6 +2860,9 @@ import { navigate } from "../nav.js";
     // because its game key was represented by a device-preserved variant. Covers follow the
     // selected title, so re-add only matching cover sidecars before applying the SD diff.
     if (library.scan) {
+      // Device-format sidecars are derived only when an SD sync needs them. Originals stay
+      // source-relative and lazy; conversion reuses the persistent OPFS cover cache.
+      await convertCoversInMap(library.scan.userRoms);
       for (const [path, data] of library.scan.userRoms) {
         if (classifyContentPath(path).category !== "cover") continue;
         if (coverBelongsToInstalledOrSelected(path)) selectedFolder.set(path, data);
