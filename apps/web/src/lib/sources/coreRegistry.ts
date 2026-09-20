@@ -43,6 +43,8 @@ export interface RegisteredSystem {
   /** `owner/repo#targetId` — the same key shape `usedBy` and `HomebrewTitle.key` use. */
   targetKey: string;
   repo: string;
+  /** How the source payload entered the source registry. */
+  sourceKind: "repository" | "bundle" | "raw-binary";
   /** The system's own id (`systems[].id`). */
   id: string;
   /**
@@ -149,6 +151,7 @@ export interface CoreRegistry {
 export interface RegistrySourceRow {
   repo: string;
   active: boolean;
+  origin?: "url" | "bundle" | "raw";
   card?: {
     kind: string;
     systems?: {
@@ -344,6 +347,7 @@ export function buildCoreRegistry(rows: readonly RegistrySourceRow[]): CoreRegis
         push({
           targetKey: `${row.repo}#${target.id}`,
           repo: row.repo,
+          sourceKind: row.origin === "bundle" ? "bundle" : row.origin === "raw" ? "raw-binary" : "repository",
           id: sys.id,
           folder: systemFolder(sys.id, (sys as { folder?: string }).folder),
           longName: sys.longName || sys.id,
@@ -370,6 +374,7 @@ export function buildCoreRegistry(rows: readonly RegistrySourceRow[]): CoreRegis
       push({
         targetKey: `${row.repo}#`,
         repo: row.repo,
+        sourceKind: row.origin === "bundle" ? "bundle" : row.origin === "raw" ? "raw-binary" : "repository",
         id: sys.id,
         folder: systemFolder(sys.id, sys.folder),
         longName: sys.longName || sys.id,

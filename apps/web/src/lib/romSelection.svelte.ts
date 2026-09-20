@@ -374,7 +374,7 @@ class RomSelectionStore {
       const coreSource: CoreSourceRef | undefined = registered && sourceKey && sourceTarget
         ? {
             id: sourceKey,
-            kind: "repository",
+            kind: registered.sourceKind,
             repository: registered.repo,
             targetId: sourceTarget[1] ?? "",
           }
