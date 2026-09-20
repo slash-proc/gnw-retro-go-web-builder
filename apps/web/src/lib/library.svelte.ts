@@ -13,6 +13,7 @@ import {
   type RomDirHandle,
   romBytes,
   type LibraryFile,
+  type ZipScanCacheEntry,
 } from "./romScan.js";
 import { saveDir, loadDir, deleteDir, handlePermission } from "./persist.js";
 import { toGWCover } from "./screenscraper/gw.js";
@@ -197,6 +198,8 @@ class LibraryStore {
   private syncPending = false;
   /** Per-source metadata cache. Values are lazy entries, never a second copy of ROM bytes. */
   private sourceFileCache = new Map<string, Map<string, LibraryFile>>();
+  /** ZIP central-directory metadata only; archive bytes are never retained here. */
+  private sourceZipCache = new Map<string, Map<string, ZipScanCacheEntry>>();
 
   private reuseUnchangedSourceFiles(sourceId: string, files: Map<string, LibraryFile>): Map<string, LibraryFile> {
     const previous = this.sourceFileCache.get(sourceId);
@@ -453,6 +456,8 @@ class LibraryStore {
             layer.phase = "Loading games";
             this.progress = { ...this.progress!, layers: [...layers] };
           }
+          const zipCache = this.sourceZipCache.get(src.id) ?? new Map<string, ZipScanCacheEntry>();
+          this.sourceZipCache.set(src.id, zipCache);
           const r = await scanRomDirectory(src.handle as RomDirHandle, (rel) => {
             doneFiles++;
             // Throttled: a 1000-ROM folder must not queue 1000 reactive updates. The COUNT is
@@ -465,7 +470,7 @@ class LibraryStore {
             }
             this.progress = { done: doneFiles, total: totalFiles, current: rel, folder: src.id, layers: [...layers], finalizing: null };
             if (totalFiles > 0) lipProgress.operationProgress("library-scan", doneFiles / totalFiles);
-          });
+          }, undefined, zipCache);
           if (layer) {
             layer.status = "done";
             layer.phase = "Ready";

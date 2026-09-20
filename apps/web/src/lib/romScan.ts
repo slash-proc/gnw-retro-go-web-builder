@@ -135,6 +135,13 @@ export class LazyRom implements LazyBytes {
 /** Anything the library map can hold: bytes already read, or a zip entry not yet inflated. */
 export type LibraryFile = MaybeLazy;
 
+/** ZIP central-directory metadata retained between scans; never archive payload bytes. */
+export interface ZipScanCacheEntry {
+  size: number;
+  lastModified?: number;
+  verdict: ZipRomVerdict;
+}
+
 /** The bytes of a library file, inflating it if that has not happened yet. */
 export const romBytes = resolveBytes;
 
@@ -168,8 +175,7 @@ export function romBytesIfLoaded(v: LibraryFile): Uint8Array | null {
 const ZIP_TAIL_STEPS = [4_096, 66_000] as const;
 
 /** The central directory of an archive, reading as little of it as possible. */
-async function readZipDirectory(handle: FsFileHandle): Promise<ZipEntry[]> {
-  const file = await handle.getFile();
+async function readZipDirectory(file: File): Promise<ZipEntry[]> {
   const size = file.size;
 
   for (let step = 0; step < ZIP_TAIL_STEPS.length; step++) {
@@ -310,10 +316,16 @@ async function walk(
       }
       if (/\.zip$/i.test(name)) {
         let verdict: ZipRomVerdict;
+        const file = await handle.getFile();
+        const cached = zipCache?.get(rel);
         try {
-          verdict = resolveZipRom(await readZipDirectory(handle));
+          verdict = cached && cached.size === file.size && cached.lastModified === file.lastModified
+            ? cached.verdict
+            : resolveZipRom(await readZipDirectory(file));
+          zipCache?.set(rel, { size: file.size, lastModified: file.lastModified, verdict });
         } catch (e) {
           verdict = { ok: false, reason: e instanceof Error ? e.message : String(e) };
+          zipCache?.set(rel, { size: file.size, lastModified: file.lastModified, verdict });
         }
         if (!verdict.ok) {
           dbg(`[scan] ${rel} skipped: ${verdict.reason}`);
@@ -432,6 +444,7 @@ export async function scanRomDirectory(
   dir: FsDirHandle,
   onFile: ScanProgressFn | null = null,
   hbPrefixes: readonly string[] = LEGACY_HOMEBREW_PREFIXES,
+  zipCache: Map<string, ZipScanCacheEntry> | undefined = undefined,
 ): Promise<RomScanResult> {
   const raw = new Map<string, LibraryFile>();
   await walk(dir, "", raw, onFile, hbPrefixes);
