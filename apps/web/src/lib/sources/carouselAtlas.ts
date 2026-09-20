@@ -7,6 +7,8 @@
  * images while the user is moving.
  */
 
+import { scoped } from "../storageScope.js";
+
 export interface CarouselAtlasInput {
   key: string;
   bytes: Uint8Array;
@@ -196,5 +198,57 @@ export function decodeCarouselAtlas(bytes: Uint8Array): CarouselAtlas | null {
     return { ...manifest, pages };
   } catch {
     return null;
+  }
+}
+
+const ATLAS_DIRECTORY = scoped("carousel-atlases");
+
+function atlasFileName(sourceId: string): string {
+  return `${encodeURIComponent(sourceId).replace(/%/g, "_")}.bin`;
+}
+
+async function atlasDirectory(create: boolean): Promise<FileSystemDirectoryHandle | null> {
+  if (typeof navigator === "undefined" || !navigator.storage?.getDirectory) return null;
+  try {
+    const root = await navigator.storage.getDirectory();
+    return await root.getDirectoryHandle(ATLAS_DIRECTORY, { create });
+  } catch {
+    return null;
+  }
+}
+
+/** Read one complete atlas bundle. A miss/corrupt file is a normal cache miss. */
+export async function readCarouselAtlas(sourceId: string): Promise<CarouselAtlas | null> {
+  try {
+    const directory = await atlasDirectory(false);
+    if (!directory) return null;
+    const file = await (await directory.getFileHandle(atlasFileName(sourceId))).getFile();
+    return decodeCarouselAtlas(new Uint8Array(await file.arrayBuffer()));
+  } catch {
+    return null;
+  }
+}
+
+/** Write a complete atlas bundle only after serialization has succeeded. */
+export async function writeCarouselAtlas(sourceId: string, atlas: CarouselAtlas): Promise<boolean> {
+  try {
+    const directory = await atlasDirectory(true);
+    if (!directory) return false;
+    const bytes = await encodeCarouselAtlas(atlas);
+    const name = atlasFileName(sourceId);
+    const tempName = `${name}.tmp-${Date.now()}`;
+    const temp = await directory.getFileHandle(tempName, { create: true });
+    const tempWriter = await temp.createWritable();
+    await tempWriter.write(bytes);
+    await tempWriter.close();
+    // FileSystem Access does not expose a portable file rename. Copy only after the complete
+    // temporary write succeeds, then remove the temporary artifact.
+    const targetWriter = await (await directory.getFileHandle(name, { create: true })).createWritable();
+    await targetWriter.write(bytes);
+    await targetWriter.close();
+    await directory.removeEntry(tempName);
+    return true;
+  } catch {
+    return false;
   }
 }
