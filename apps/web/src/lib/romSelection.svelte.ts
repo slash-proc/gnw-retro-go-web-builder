@@ -16,7 +16,7 @@ import { device } from "./device.svelte.js";
 import { consoleLabel } from "./engine/consoles.js";
 import { homebrew } from "./sources/homebrewTitles.svelte.js";
 import { displayName, localFolders } from "./sources/localFolders.svelte.js";
-import { libraryFileMeta, libraryFileMetaFromScan, libraryRomId, type LibraryRom } from "./sources/libraryModel.js";
+import { libraryCoverForPath, libraryFileMeta, libraryFileMetaFromScan, libraryRomId, type LibraryRom } from "./sources/libraryModel.js";
 import { basePath } from "./sources/libraryScan.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import {
@@ -377,6 +377,7 @@ class RomSelectionStore {
           primaryCoreSourceId: registered?.targetKey,
         },
         role: parsed.role,
+        cover: libraryCoverForPath(path),
         device: { installed },
       };
     };

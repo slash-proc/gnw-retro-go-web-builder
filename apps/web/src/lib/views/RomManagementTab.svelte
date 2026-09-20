@@ -1225,7 +1225,11 @@ import { navigate } from "../nav.js";
       : [".png", ".jpg", ".jpeg", ".img"];
     for (const ext of extensions) {
       const paths = [
-        ...(structuredRom ? coverPathsForRom(structuredRom, ext) : []),
+        ...(structuredRom
+          ? (lowResolution
+            ? [structuredRom.cover?.carouselPath, structuredRom.cover?.deviceImgPath].filter((p): p is string => !!p)
+            : (structuredRom.cover?.originalPaths ?? coverPathsForRom(structuredRom, ext)).filter((p) => p.toLowerCase().endsWith(ext)))
+          : []),
         ...systemAliases.flatMap((alias) => [
         `${alias}/${base}${ext}`,
         `covers/${alias}/${base}${ext}`,

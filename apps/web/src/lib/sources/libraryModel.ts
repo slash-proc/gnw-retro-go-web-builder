@@ -45,11 +45,11 @@ export interface LibraryConversion {
 
 /** Cover metadata only; image bytes and runtime URLs do not belong here. */
 export interface LibraryCover {
-  originalPath?: string;
+  originalPaths: string[];
   originalSize?: number;
   originalLastModified?: number;
-  carouselPath?: string;
-  deviceImgPath?: string;
+  carouselPath: string;
+  deviceImgPath: string;
 }
 
 /** The serializable representation of one Library file. */
@@ -86,6 +86,22 @@ export function coverPathsForRom(rom: Pick<LibraryRom, "file">, extension: strin
     `${stem}${ext}`,
     `covers/${stem}${ext}`,
   ];
+}
+
+/** Cover relationship known from ROM metadata alone; existence is resolved by the source index. */
+export function libraryCoverForPath(relativePath: string): LibraryCover {
+  const dot = relativePath.lastIndexOf(".");
+  const stem = dot > relativePath.lastIndexOf("/") ? relativePath.slice(0, dot) : relativePath;
+  const originalPaths = [".png", ".jpg", ".jpeg"].flatMap((extension) => [
+    `${stem}${extension}`,
+    `covers/${stem}${extension}`,
+  ]);
+  const carouselPath = `${stem}.img`;
+  return {
+    originalPaths,
+    carouselPath,
+    deviceImgPath: `covers/${stem}.img`,
+  };
 }
 
 /** Runtime-only byte access. Never serialize this into LibraryRom. */
