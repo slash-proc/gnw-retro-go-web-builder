@@ -281,6 +281,10 @@ class LibraryStore {
       } catch {
         // `scanAllFolders()` retains the guarded migration path and will report any real failure.
       }
+      // A prompt may have been created while the registry was still hydrating. Once sync has
+      // observed a registered directory, that setup prompt is stale and must not remain over the
+      // configured library.
+      if (localFolders.folders.length > 0 && this.folderGatePrompt) this.resolveFolderGate();
       do {
         this.syncPending = false;
         const sig = this.romFolderSignature;
@@ -629,3 +633,22 @@ class LibraryStore {
 }
 
 export const library = new LibraryStore();
+
+/** Read-only DevTools diagnostic for folder-gate/source-registration issues. */
+if (typeof window !== "undefined") {
+  (window as Window & { gnwLibraryState?: () => unknown }).gnwLibraryState = () => ({
+    folders: localFolders.folders.map(({ id, name, folderName, usedBy, status, handle }) => ({
+      id, name, folderName, usedBy: [...usedBy], status, hasHandle: !!handle,
+    })),
+    localFoldersReady: localFolders.ready,
+    prompt: library.folderGatePrompt ? { sd: library.folderGatePrompt.sd } : null,
+    selected: library.selected,
+    loaded: library.loaded,
+    error: library.error,
+    scanSkipped: library.scanSkipped,
+    sources: romFolderSources(localFolders.folders, coreRegistry.current).map(({ id, status, handle }) => ({
+      id, status, hasHandle: !!handle,
+    })),
+    listState: library.listState,
+  });
+}

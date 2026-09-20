@@ -281,6 +281,7 @@ async function walk(
   out: Map<string, LibraryFile>,
   onFile: ScanProgressFn | null,
   hbPrefixes: readonly string[],
+  zipCache?: Map<string, ZipScanCacheEntry>,
 ): Promise<void> {
   for await (const [name, handle] of dir.entries()) {
     if (isHidden(name)) continue; // .DS_Store, .git, … (the pipeline also drops .DS_Store)
@@ -292,7 +293,7 @@ async function walk(
 
     if (handle.kind === "directory") {
       // Do not recurse into subdirectories inside homebrew
-      await walk(handle, rel, out, onFile, hbPrefixes);
+      await walk(handle, rel, out, onFile, hbPrefixes, zipCache);
     } else {
       if (isInsideHomebrew || hbPrefixes.some((p) => rel.startsWith(`${p}/`))) {
         // Cover art (celeste.png, "Zelda 3.png", …) also lives directly in homebrew/ (see
@@ -447,7 +448,7 @@ export async function scanRomDirectory(
   zipCache: Map<string, ZipScanCacheEntry> | undefined = undefined,
 ): Promise<RomScanResult> {
   const raw = new Map<string, LibraryFile>();
-  await walk(dir, "", raw, onFile, hbPrefixes);
+  await walk(dir, "", raw, onFile, hbPrefixes, zipCache);
   
   const userRoms = new Map<string, LibraryFile>();
   let hasRomsPrefix = false;
