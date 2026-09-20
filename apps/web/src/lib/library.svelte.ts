@@ -195,6 +195,36 @@ class LibraryStore {
   private syncedSignature: string | null = null;
   private syncing = false;
   private syncPending = false;
+  /** Per-source metadata cache. Values are lazy entries, never a second copy of ROM bytes. */
+  private sourceFileCache = new Map<string, Map<string, LibraryFile>>();
+
+  private reuseUnchangedSourceFiles(sourceId: string, files: Map<string, LibraryFile>): Map<string, LibraryFile> {
+    const previous = this.sourceFileCache.get(sourceId);
+    if (!previous) {
+      this.sourceFileCache.set(sourceId, files);
+      return files;
+    }
+    const next = new Map<string, LibraryFile>();
+    for (const [path, entry] of files) {
+      const old = previous.get(path);
+      const oldModified = isLazy(old) ? (old as { lastModified?: number }).lastModified : undefined;
+      const newModified = isLazy(entry) ? (entry as { lastModified?: number }).lastModified : undefined;
+      const unchanged = isLazy(old) && isLazy(entry) && old.length === entry.length &&
+        oldModified !== undefined && oldModified === newModified;
+      if (unchanged) {
+        next.set(path, old);
+        if (entry !== old) entry.release?.();
+      } else {
+        next.set(path, entry);
+        if (old && old !== entry && isLazy(old)) old.release?.();
+      }
+    }
+    for (const [path, old] of previous) {
+      if (!next.has(path) && isLazy(old)) old.release?.();
+    }
+    this.sourceFileCache.set(sourceId, next);
+    return next;
+  }
 
   /**
    * THE library entry point for the UI. Rescans whenever the local-folder registry differs from
@@ -347,6 +377,12 @@ class LibraryStore {
       // passed so a folder dedicated to a single-system core files its loose ROMs under that
       // console instead of dropping them for having no console directory.
       const sources = romFolderSources(localFolders.folders, coreRegistry.current);
+      const activeSourceIds = new Set(sources.map((source) => source.id));
+      for (const [sourceId, cached] of this.sourceFileCache) {
+        if (activeSourceIds.has(sourceId)) continue;
+        for (const entry of cached.values()) if (isLazy(entry)) entry.release?.();
+        this.sourceFileCache.delete(sourceId);
+      }
       // WHERE A FOLDER'S LOOSE FILES ARE GOING, per folder, before a byte is read. A BIOS that
       // is in a marked folder and still reported missing fails somewhere between the marking and
       // the placement, and none of those steps says anything today. Prints the decision INPUTS
@@ -438,7 +474,10 @@ class LibraryStore {
           this.progress = { done: doneFiles, total: totalFiles, current: "", folder: src.id, layers: [...layers], finalizing: null };
           // `hasRomsPrefix` is kept PER FOLDER: one folder's `roms/` layout must never
           // reinterpret another's (scanRomDirectory has already stripped the prefix locally).
-          return { files: r.userRoms, hasRomsPrefix: !!r.hasRomsPrefix };
+          return {
+            files: this.reuseUnchangedSourceFiles(src.id, r.userRoms),
+            hasRomsPrefix: !!r.hasRomsPrefix,
+          };
         },
       });
 
