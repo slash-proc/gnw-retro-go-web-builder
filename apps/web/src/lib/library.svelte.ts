@@ -42,6 +42,7 @@ import {
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { dedicatedFolderPlacement, isLibrarySource } from "./sources/coreRegistry.js";
 import { coverBlobStore } from "./screenscraper/coverStore.js";
+import { libraryCoverCacheKey } from "./sources/libraryModel.js";
 
 const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".bmp"]);
 const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
@@ -98,8 +99,7 @@ export async function convertCoversInMap(
       const sourceStamp = typeof source === "object" && source !== null && "lastModified" in source
         ? (source as { lastModified?: number }).lastModified
         : undefined;
-      const origin = fileOrigin.get(path) ?? "unknown-source";
-      const cacheKey = `library-img:${origin}:${path}:${source.length}:${sourceStamp ?? 0}`;
+      const cacheKey = libraryCoverCacheKey(fileOrigin.get(path), path, source.length, sourceStamp);
       const cached = await derivedCoverCache.get(cacheKey);
       const imgPath = path.slice(0, path.lastIndexOf(".")) + ".img";
       const devicePath = imgPath.startsWith("covers/") ? imgPath : `covers/${imgPath}`;

@@ -117,6 +117,16 @@ export function libraryRomId(sourceId: string | undefined, relativePath: string)
   return `${sourceId ?? "device"}:${relativePath.toLowerCase()}`;
 }
 
+/** Identity for a derived device-cover cache entry; changes invalidate the derived bytes. */
+export function libraryCoverCacheKey(
+  sourceId: string | undefined,
+  relativePath: string,
+  size: number,
+  lastModified?: number,
+): string {
+  return `library-img:${sourceId ?? "unknown-source"}:${relativePath}:${size}:${lastModified ?? 0}`;
+}
+
 /** Create file metadata once, instead of repeatedly splitting/parsing the path in consumers. */
 export function libraryFileMeta(relativePath: string, size: number, lastModified?: number): LibraryFileMeta {
   const filename = relativePath.slice(relativePath.lastIndexOf("/") + 1);

@@ -22,6 +22,7 @@ const {
   coverPathsForRom,
   indexLibraryRoms,
   libraryCoverForPath,
+  libraryCoverCacheKey,
   libraryFileMeta,
   libraryRomId,
 } = await import(pathToFileURL(join(out, "libraryModel.js")).href);
@@ -53,6 +54,13 @@ check("ROM identity includes the DirectorySource", () => {
   const path = "Game Boy Advance/Game.gba";
   ok(libraryRomId("source-a", path) !== libraryRomId("source-b", path), "source collision");
   eq(libraryRomId("source-a", path), libraryRomId("source-a", path.toLowerCase()), "case-folded id");
+});
+
+check("derived cover identity includes source and file metadata", () => {
+  const key = libraryCoverCacheKey("source-a", "Game Boy Advance/Game.png", 123, 99);
+  eq(key, "library-img:source-a:Game Boy Advance/Game.png:123:99", "cache key");
+  ok(key !== libraryCoverCacheKey("source-b", "Game Boy Advance/Game.png", 123, 99), "source collision");
+  ok(key !== libraryCoverCacheKey("source-a", "Game Boy Advance/Game.png", 124, 99), "size invalidation");
 });
 
 check("cover paths remain beside the ROM with the legacy mirror fallback", () => {
