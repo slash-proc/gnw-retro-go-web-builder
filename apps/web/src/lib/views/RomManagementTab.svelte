@@ -1205,23 +1205,33 @@ import { navigate } from "../nav.js";
       base = baseName;
     }
 
+    // The scanner accepts a source's human-readable system directory (for example
+    // `Game Boy Advance`) and canonicalizes the ROM row to the registry folder (`gba`). Covers
+    // remain at their source path, so search the canonical and declared aliases rather than
+    // assuming every source was laid out with the device short name.
+    const registeredSystem = coreRegistry.current.byFolder.get(system.toLowerCase());
+    const systemAliases = [...new Set([
+      system,
+      registeredSystem?.shortName,
+      registeredSystem?.longName,
+    ].filter((value): value is string => !!value))];
+
     // Check both standard paths and inline paths (prefer high-quality originals, fallback to .img)
     const extensions = lowResolution
       ? [".img", ".jpg", ".jpeg", ".png"]
       : [".png", ".jpg", ".jpeg", ".img"];
     for (const ext of extensions) {
-      const inlinePath = `${system}/${base}${ext}`;
-      const coversPath = `covers/${system}/${base}${ext}`;
-
-      let matchPath = null;
-      if (library.scan?.userRoms.has(inlinePath)) matchPath = inlinePath;
-      else if (library.scan?.userRoms.has(coversPath)) matchPath = coversPath;
+      const paths = systemAliases.flatMap((alias) => [
+        `${alias}/${base}${ext}`,
+        `covers/${alias}/${base}${ext}`,
+      ]);
+      let matchPath = paths.find((candidate) => library.scan?.userRoms.has(candidate)) ?? null;
       // Directory scans preserve the spelling found on disk, while ROM keys and scraper output
       // can differ in case (Doom commonly mixes `DOOM.WAD` with `doom/doom.png`). Match the
       // canonical paths case-insensitively so a reload does not lose an otherwise present cover.
       if (!matchPath && library.scan) {
         ensureCoverIndex();
-        const wanted = new Set([inlinePath, coversPath].map((p) => p.toLowerCase()));
+        const wanted = new Set(paths.map((p) => p.toLowerCase()));
         for (const path of wanted) {
           const found = coverIndex.get(path);
           if (found) { matchPath = found; break; }
