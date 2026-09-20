@@ -64,8 +64,9 @@ function saveZipScanCache(cache: Map<string, Map<string, ZipScanCacheEntry>>): v
 
 /**
  * Convert all cover images in the userRoms map to retro-go .img (JPEG) format.
- * Runs on ingest — originals on disk are untouched; only the in-memory session
- * cache holds the converted bytes.
+ * Runs when an SD sync needs device-format covers — originals on disk are untouched;
+ * converted bytes are reused through the persistent OPFS cover cache and mirrored into
+ * the in-memory session map for the current install.
  */
 export async function convertCoversInMap(
   userRoms: Map<string, LibraryFile>,
