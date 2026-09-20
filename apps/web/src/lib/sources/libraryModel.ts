@@ -142,20 +142,25 @@ export function libraryFileMetaFromScan(
 /** Indexes used by the Library model; values remain serializable when converted to arrays. */
 export interface LibraryIndexes {
   byId: Map<string, LibraryRom>;
+  /** Source-qualified path index; unlike byPath it cannot collapse two folders' same path. */
+  bySourcePath: Map<string, LibraryRom>;
   byPath: Map<string, LibraryRom>;
   bySystem: Map<string, LibraryRom[]>;
 }
 
 export function indexLibraryRoms(roms: readonly LibraryRom[]): LibraryIndexes {
   const byId = new Map<string, LibraryRom>();
+  const bySourcePath = new Map<string, LibraryRom>();
   const byPath = new Map<string, LibraryRom>();
   const bySystem = new Map<string, LibraryRom[]>();
   for (const rom of roms) {
     byId.set(rom.id, rom);
+    const sourceId = rom.directorySource?.id ?? "device";
+    bySourcePath.set(`${sourceId}:${rom.file.relativePath.toLowerCase()}`, rom);
     byPath.set(rom.file.relativePath.toLowerCase(), rom);
     const list = bySystem.get(rom.system.folder) ?? [];
     list.push(rom);
     bySystem.set(rom.system.folder, list);
   }
-  return { byId, byPath, bySystem };
+  return { byId, bySourcePath, byPath, bySystem };
 }

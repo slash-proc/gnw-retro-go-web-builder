@@ -80,15 +80,19 @@ check("indexes expose identity, path and system views", () => {
   const a = {
     id: libraryRomId("source-a", "Game Boy Advance/A.gba"),
     file: libraryFileMeta("Game Boy Advance/A.gba", 1),
+    directorySource: { id: "source-a", name: "A", folderName: "A" },
     system, role: "installable", device: { installed: false },
   };
   const b = {
     id: libraryRomId("source-b", "Game Boy Advance/B.gba"),
     file: libraryFileMeta("Game Boy Advance/B.gba", 2),
+    directorySource: { id: "source-b", name: "B", folderName: "B" },
     system, role: "installable", device: { installed: false },
   };
   const indexes = indexLibraryRoms([a, b]);
   eq(indexes.byId.get(a.id), a, "id index");
+  eq(indexes.bySourcePath.get("source-a:game boy advance/a.gba"), a, "source path index");
+  eq(indexes.bySourcePath.get("source-b:game boy advance/b.gba"), b, "second source path index");
   eq(indexes.byPath.get("game boy advance/a.gba"), a, "path index");
   eq(indexes.bySystem.get("Game Boy Advance"), [a, b], "system index");
 });
