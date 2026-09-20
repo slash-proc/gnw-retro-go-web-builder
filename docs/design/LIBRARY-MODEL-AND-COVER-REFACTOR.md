@@ -339,8 +339,10 @@ resolution now lives on the Library store, and SD sync reuses the completed card
 of blindly rescanning the card. The cache contains
 only `{ relativePath, filename, extension, size, lastModified }` records keyed by DirectorySource;
 it never stores handles, byte providers, ROM payloads, or image data. `LibraryRom` construction is
-centralized in `libraryModel.ts`, while the remaining migration work is to make more consumers
-accept those records directly and remove their transitional path parsing.
+centralized in `libraryModel.ts`. Converter discovery is also metadata-first: merged-library
+candidates carry size plus deferred readers, and bytes are read only after extension/size
+narrowing. The remaining migration work is to make more consumers accept those records directly
+and remove their transitional path parsing.
 
 ## Non-goals
 
