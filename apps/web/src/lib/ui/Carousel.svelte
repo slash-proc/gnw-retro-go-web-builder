@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { Spring } from "svelte/motion";
   import { locale } from "../i18n/locale.svelte.js";
   
@@ -75,6 +75,15 @@
       pendingDecodes.delete(url);
     }
   }
+
+  onDestroy(() => {
+    fullPreloadGeneration++;
+    if (fullPreloadTimer) clearTimeout(fullPreloadTimer);
+    if (velocityTimer) clearTimeout(velocityTimer);
+    for (const image of pendingImages.values()) image.src = "";
+    pendingImages.clear();
+    pendingDecodes.clear();
+  });
 
   // The track only ever draws a small neighborhood around the focus. Iterating the complete
   // library in the template on every spring frame made 1,600-entry libraries noticeably slower
