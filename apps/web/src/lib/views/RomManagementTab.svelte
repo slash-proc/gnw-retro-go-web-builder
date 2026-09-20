@@ -4284,6 +4284,7 @@ import { navigate } from "../nav.js";
           <GameDetailsPanel
             bare
             gameKey={activeGame.key}
+            rom={activeGame.rom}
             gameName={activeGame.name}
             system={activeGame.system}
             coverUrl={getCoverUrl(activeGame.key, coverVersion)}

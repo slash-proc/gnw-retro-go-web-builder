@@ -24,7 +24,8 @@
   import { romSelection } from "../romSelection.svelte.js";
   import { library } from "../library.svelte.js";
   import { systemIdsFor, isKnownSystemFolder } from "../screenscraper/config.js";
-  import { coverSystemFor } from "../sources/coverSystem.js";
+import { coverSystemFor } from "../sources/coverSystem.js";
+import type { LibraryRom } from "../sources/libraryModel.js";
   import { basePath } from "../sources/libraryScan.js";
   import { coreRegistry } from "../sources/coreRegistry.svelte.js";
   import { saveFileToDirOrDownload, nativeFolderPickerSupported, romBytes } from "../romScan.js";
@@ -47,6 +48,7 @@
 
   let {
     gameKey,
+    rom,
     gameName,
     system,
     coverUrl,
@@ -56,6 +58,7 @@
     bare = false
   }: {
     gameKey: string;
+    rom?: LibraryRom;
     gameName: string;
     system: string;
     coverUrl: string | null;
@@ -463,7 +466,11 @@
       // "zelda3", it has "Celeste Classic" and "The Legend of Zelda - A Link to the Past".
       lookupName = hb.originalName ?? null;
     } else {
-      const romEntry = library.scan?.userRoms.get(gameKey);
+      // `gameKey` is the canonical device identity (`gba/Game.gba`), while a source may use
+      // `Game Boy Advance/Game.gba`. LibraryRom is the source-of-truth for reading the actual
+      // source file; the canonical key remains useful for device/system matching below.
+      const sourceRomPath = rom?.file.relativePath ?? basePath(gameKey);
+      const romEntry = library.scan?.userRoms.get(sourceRomPath) ?? library.scan?.userRoms.get(gameKey);
       buffer = romEntry ? await romBytes(romEntry) : undefined;
       if (!buffer) {
         previewError = locale.t.roms.gameDetailsPanel.coverArt.errRomNotFound;
@@ -472,7 +479,7 @@
       }
       // basePath first: a doubled ROM's key carries a `\0<id>` suffix, and handing that to the
       // scraper searches for a filename no database can hold.
-      const parts = basePath(gameKey).split("/");
+      const parts = sourceRomPath.split("/");
       filename = parts.pop() || "unknown.rom";
       // THE FOLDER IS NOT ALWAYS A CONSOLE. `doom/` is the Doom core's ingest folder, and
       // ScreenScraper has no `doom` platform, so deriving from the folder alone could only fail
