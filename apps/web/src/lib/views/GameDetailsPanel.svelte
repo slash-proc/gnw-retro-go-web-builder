@@ -471,8 +471,8 @@
       // source file; the canonical key remains useful for device/system matching below.
       const sourceRomPath = rom ? rom.file.relativePath : basePath(gameKey);
       const romEntry = rom
-        ? (library.fileForRom(rom) ?? library.scan?.userRoms.get(gameKey))
-        : library.scan?.userRoms.get(gameKey);
+        ? (library.fileForRom(rom) ?? library.fileForPath(gameKey))
+        : library.fileForPath(gameKey);
       buffer = romEntry ? await romBytes(romEntry) : undefined;
       if (!buffer) {
         previewError = locale.t.roms.gameDetailsPanel.coverArt.errRomNotFound;
@@ -784,8 +784,8 @@
     for (const key of keysToImport) {
       const selectedGame = importGamesList.find((game) => game.key === key);
       const entry = selectedGame?.rom
-        ? (library.fileForRom(selectedGame.rom) ?? library.scan?.userRoms.get(key))
-        : library.scan?.userRoms.get(key);
+        ? (library.fileForRom(selectedGame.rom) ?? library.fileForPath(key))
+        : library.fileForPath(key);
       if (!entry) continue;
       const buffer = await romBytes(entry);
       const parts = key.split("/");
