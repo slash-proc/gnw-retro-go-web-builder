@@ -984,7 +984,7 @@ import type { LibraryRom } from "../sources/libraryModel.js";
     }
   }
 
-  function hasLocalCover(gameKey: string) {
+  function hasLocalCover(gameKey: string, rom?: LibraryRom) {
     // Same sibling-path rule as applyPreview above: strip the duplicate id first, or a doubled
     // ROM reports no cover however many it has.
     const rowPath = basePath(gameKey);
@@ -1005,6 +1005,11 @@ import type { LibraryRom } from "../sources/libraryModel.js";
       inlinePathBase = prefix + "/" + baseName;
     }
 
+    // Prefer the source-relative relationship carried by LibraryRom. The legacy reconstruction
+    // below remains for homebrew/device-only rows that have no source ROM object.
+    const metadataPaths = rom?.cover
+      ? [...rom.cover.originalPaths, rom.cover.carouselPath, rom.cover.deviceImgPath]
+      : [];
     // Check both standard covers/ path and inline sibling path.
     // We also do a quick case-insensitive scan if exact matches fail, since directory scanning
     // preserves on-disk case while scraper outputs lowercase.
@@ -1013,6 +1018,7 @@ import type { LibraryRom } from "../sources/libraryModel.js";
       toCheck.push(`${coverPathBase}${ext}`);
       toCheck.push(`${inlinePathBase}${ext}`);
     }
+    toCheck.unshift(...metadataPaths);
 
     for (const path of toCheck) {
       if (library.scan?.userRoms.has(path)) return true;
@@ -1033,7 +1039,7 @@ import type { LibraryRom } from "../sources/libraryModel.js";
   let importGamesList = $derived.by(() => {
     return romSelection.games.map(g => ({
       ...g,
-      hasCover: hasLocalCover(g.key)
+      hasCover: hasLocalCover(g.key, g.rom)
     }));
   });
 
