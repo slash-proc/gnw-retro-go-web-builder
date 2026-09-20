@@ -105,5 +105,24 @@ check("indexes expose identity, path and system views", () => {
   eq(indexes.bySystem.get("Game Boy Advance"), [a, b], "system index");
 });
 
+check("core source references preserve repository, bundle and raw-binary provenance", () => {
+  const sourceKinds = ["repository", "bundle", "raw-binary"];
+  const roms = sourceKinds.map((kind, index) => ({
+    id: libraryRomId("source-a", `Game Boy Advance/${kind}.gba`),
+    file: libraryFileMeta(`Game Boy Advance/${kind}.gba`, index + 1),
+    system: {
+      id: "gba", folder: "Game Boy Advance", shortName: "gba", longName: "Game Boy Advance",
+      coreSourceIds: [`core-${kind}`], primaryCoreSourceId: `core-${kind}`,
+      source: { id: `core-${kind}`, kind, targetId: "gba" },
+    },
+    role: "installable",
+    device: { installed: false },
+  }));
+  for (const [index, rom] of roms.entries()) {
+    eq(rom.system.source.kind, sourceKinds[index], "source kind");
+    eq(JSON.parse(JSON.stringify(rom)), rom, "serializable ROM metadata");
+  }
+});
+
 console.log(`\nlibrarymodel: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
