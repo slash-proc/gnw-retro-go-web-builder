@@ -3505,7 +3505,7 @@ import { navigate } from "../nav.js";
         userRoms.get(path),
         selectedAssets.get(path),
         prepareState.assets.get(path),
-        library.scan?.userRoms.get(path),
+        library.fileForPath(path),
       ];
       for (const c of candidates) if (c && c.length === size) return await romBytes(c);
       return undefined;
