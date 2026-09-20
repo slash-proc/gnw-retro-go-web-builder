@@ -8,6 +8,7 @@
  */
 
 import { scoped } from "../storageScope.js";
+import type { MaybeLazy } from "../lazyBytes.js";
 
 export interface CarouselAtlasInput {
   key: string;
@@ -16,18 +17,14 @@ export interface CarouselAtlasInput {
 }
 
 /** Minimal lazy-file shape accepted by the collector; avoids coupling the atlas to romScan. */
-export interface CarouselAtlasSourceFile {
-  length: number;
-  lastModified?: number;
-  bytes(): Promise<Uint8Array>;
-}
+export type CarouselAtlasSourceFile = Exclude<MaybeLazy, Uint8Array>;
 
 /**
  * Select existing device-format cover entries from the library scan. This only inspects map keys;
  * payloads remain lazy until the caller deliberately starts atlas construction.
  */
 export function carouselAtlasFiles(
-  files: ReadonlyMap<string, CarouselAtlasSourceFile | Uint8Array>,
+  files: ReadonlyMap<string, MaybeLazy>,
   fileOrigin: ReadonlyMap<string, string> = new Map(),
   coverOwners: ReadonlyMap<string, string> = new Map(),
 ): { sourceId: string; key: string; file: CarouselAtlasSourceFile | Uint8Array }[] {

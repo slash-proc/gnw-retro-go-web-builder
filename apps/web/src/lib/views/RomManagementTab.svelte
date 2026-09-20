@@ -1248,7 +1248,7 @@ import { navigate } from "../nav.js";
       owners.set(rom.cover.carouselPath, rom.id);
       owners.set(rom.cover.deviceImgPath, rom.id);
     }
-    const entries = carouselAtlasFiles(scan.userRoms as any, library.fileOrigin, owners);
+    const entries = carouselAtlasFiles(scan.userRoms, library.fileOrigin, owners);
     if (entries.length === 0) return;
     const controller = new AbortController();
     atlasAbort = controller;
