@@ -47,6 +47,20 @@ export interface CarouselAtlasOptions {
   quality?: number;
 }
 
+const ATLAS_MAGIC = new Uint8Array([0x47, 0x4e, 0x57, 0x41, 0x54, 0x4c, 0x31, 0x00]); // GNWATL1\0
+const ATLAS_VERSION = 1;
+const atlasEncoder = new TextEncoder();
+const atlasDecoder = new TextDecoder();
+
+function atlasU32(view: DataView, offset: number, value: number): number {
+  view.setUint32(offset, value, true);
+  return offset + 4;
+}
+
+function readAtlasU32(view: DataView, offset: number): [number, number] {
+  return [view.getUint32(offset, true), offset + 4];
+}
+
 function canvasFor(width: number, height: number): HTMLCanvasElement {
   if (typeof document === "undefined") throw new Error("carousel atlas requires a browser");
   const canvas = document.createElement("canvas");
@@ -121,4 +135,66 @@ export async function buildCarouselAtlas(
   }
 
   return { cellWidth, cellHeight, columns, rows, placements, pages };
+}
+
+/** Serialize the atlas as one binary file: manifest first, then page blobs. */
+export async function encodeCarouselAtlas(atlas: CarouselAtlas): Promise<Uint8Array> {
+  const manifest = atlasEncoder.encode(JSON.stringify({
+    cellWidth: atlas.cellWidth,
+    cellHeight: atlas.cellHeight,
+    columns: atlas.columns,
+    rows: atlas.rows,
+    placements: atlas.placements,
+  }));
+  const pages = await Promise.all(atlas.pages.map(async (page) => new Uint8Array(await page.blob.arrayBuffer())));
+  const total = ATLAS_MAGIC.byteLength + 12 + manifest.byteLength + pages.reduce((n, page) => n + 12 + page.byteLength, 0);
+  const output = new Uint8Array(total);
+  const view = new DataView(output.buffer);
+  let offset = 0;
+  output.set(ATLAS_MAGIC, offset); offset += ATLAS_MAGIC.byteLength;
+  offset = atlasU32(view, offset, ATLAS_VERSION);
+  offset = atlasU32(view, offset, manifest.byteLength);
+  output.set(manifest, offset); offset += manifest.byteLength;
+  offset = atlasU32(view, offset, pages.length);
+  for (let i = 0; i < pages.length; i++) {
+    offset = atlasU32(view, offset, atlas.pages[i].width);
+    offset = atlasU32(view, offset, atlas.pages[i].height);
+    offset = atlasU32(view, offset, pages[i].byteLength);
+    output.set(pages[i], offset); offset += pages[i].byteLength;
+  }
+  return output;
+}
+
+/** Decode a complete atlas file. Page blobs remain one blob per atlas page, never one per cover. */
+export function decodeCarouselAtlas(bytes: Uint8Array): CarouselAtlas | null {
+  try {
+    if (bytes.byteLength < ATLAS_MAGIC.byteLength + 12 || !ATLAS_MAGIC.every((b, i) => bytes[i] === b)) return null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let offset = ATLAS_MAGIC.byteLength;
+    let value: number;
+    [value, offset] = readAtlasU32(view, offset);
+    if (value !== ATLAS_VERSION) return null;
+    let manifestLength: number;
+    [manifestLength, offset] = readAtlasU32(view, offset);
+    if (manifestLength > bytes.byteLength - offset) return null;
+    const manifest = JSON.parse(atlasDecoder.decode(bytes.subarray(offset, offset + manifestLength))) as Omit<CarouselAtlas, "pages">;
+    offset += manifestLength;
+    let pageCount: number;
+    [pageCount, offset] = readAtlasU32(view, offset);
+    const pages: CarouselAtlasPage[] = [];
+    for (let index = 0; index < pageCount; index++) {
+      let width: number; let height: number; let length: number;
+      [width, offset] = readAtlasU32(view, offset);
+      [height, offset] = readAtlasU32(view, offset);
+      [length, offset] = readAtlasU32(view, offset);
+      if (length > bytes.byteLength - offset) return null;
+      // Copy the page out of the bundle so the caller can release the full bundle after startup.
+      const pageBytes = bytes.slice(offset, offset + length);
+      offset += length;
+      pages.push({ index, width, height, blob: new Blob([pageBytes], { type: "image/webp" }) });
+    }
+    return { ...manifest, pages };
+  } catch {
+    return null;
+  }
 }
