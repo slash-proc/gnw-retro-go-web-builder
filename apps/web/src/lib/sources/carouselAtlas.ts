@@ -15,6 +15,28 @@ export interface CarouselAtlasInput {
   mime?: string;
 }
 
+/** Minimal lazy-file shape accepted by the collector; avoids coupling the atlas to romScan. */
+export interface CarouselAtlasSourceFile {
+  length: number;
+  bytes(): Promise<Uint8Array>;
+}
+
+/**
+ * Select existing device-format cover entries from the library scan. This only inspects map keys;
+ * payloads remain lazy until the caller deliberately starts atlas construction.
+ */
+export function carouselAtlasFiles(
+  files: ReadonlyMap<string, CarouselAtlasSourceFile | Uint8Array>,
+  fileOrigin: ReadonlyMap<string, string> = new Map(),
+): { sourceId: string; key: string; file: CarouselAtlasSourceFile | Uint8Array }[] {
+  const result: { sourceId: string; key: string; file: CarouselAtlasSourceFile | Uint8Array }[] = [];
+  for (const [key, file] of files) {
+    if (!/\.img$/i.test(key) || !key.toLowerCase().startsWith("covers/")) continue;
+    result.push({ sourceId: fileOrigin.get(key) ?? "unknown-source", key, file });
+  }
+  return result;
+}
+
 export interface CarouselAtlasPlacement {
   key: string;
   page: number;
