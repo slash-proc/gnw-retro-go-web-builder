@@ -1199,7 +1199,7 @@
 
   async function readSaveFileLocal(path: string): Promise<Uint8Array> {
     if (device.targetMedia === 'sd') {
-      const data = library.scan?.userRoms.get(path);
+      const data = library.fileForPath(path);
       if (!data) throw new Error("File not found on SD card: " + path);
       return await romBytes(data);
     } else {
