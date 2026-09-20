@@ -917,7 +917,7 @@
               library.scan?.userRoms.set(imgPath, converted);
               await cacheDerivedCover(
                 `${baseName}.png`,
-                originalKey ? library.fileOrigin.get(basePath(originalKey)) : undefined,
+                rom?.directorySource?.id,
                 blob.size,
                 converted,
               );
