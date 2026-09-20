@@ -378,7 +378,9 @@ class RomSelectionStore {
         },
         role: parsed.role,
         cover: libraryCoverForPath(path),
-        device: { installed },
+        device: installed
+          ? { installed, path, size }
+          : { installed },
       };
     };
     // Library folders are user-controlled and commonly spell the console directory as `NES`,
@@ -460,10 +462,14 @@ class RomSelectionStore {
       
       const key = `${parsed.system}/${parsed.name}`;
       const existing = findByCardKey(key);
-      if (existing) {
+      // A canonical path/name match is only an exact installed match when the byte size also
+      // agrees. The same filename can legitimately refer to a different dump or conversion.
+      if (existing && existing.rom.file.size === g.size) {
         existing.installed = true;
         existing.rom.device.installed = true;
-      } else {
+        existing.rom.device.path = path;
+        existing.rom.device.size = g.size;
+      } else if (!existing) {
         const rom = structuredRom(path, parsed, g.size, true);
         byKey.set(key, { key, system: parsed.system, name: parsed.name, size: g.size, inFolder: false, installed: true, role: parsed.role, rom });
       }
