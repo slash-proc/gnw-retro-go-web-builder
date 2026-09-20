@@ -248,20 +248,25 @@ class LibraryStore {
     return (id ? localFolders.get(id)?.handle : undefined) as RomDirHandle | null ?? this.scan?.dir ?? null;
   }
 
-  /** Resolve a model ROM to its lazy scanned entry without making UI consumers parse keys. */
-  fileForRom(rom: Pick<LibraryRom, "file" | "directorySource">): LibraryFile | null {
+  /** Resolve a source-relative path, including case-folded duplicate-key variants. */
+  fileForPath(relativePath: string, sourceId?: string): LibraryFile | null {
     const files = this.scan?.userRoms;
     if (!files) return null;
-    const exact = files.get(rom.file.relativePath);
-    if (exact && (!rom.directorySource || this.fileOrigin.get(rom.file.relativePath) === rom.directorySource.id)) {
+    const exact = files.get(relativePath);
+    if (exact && (!sourceId || this.fileOrigin.get(relativePath) === sourceId)) {
       return exact;
     }
     for (const [key, entry] of files) {
-      if (basePath(key).toLowerCase() !== rom.file.relativePath.toLowerCase()) continue;
-      if (rom.directorySource && this.fileOrigin.get(key) !== rom.directorySource.id) continue;
+      if (basePath(key).toLowerCase() !== relativePath.toLowerCase()) continue;
+      if (sourceId && this.fileOrigin.get(key) !== sourceId) continue;
       return entry;
     }
     return null;
+  }
+
+  /** Resolve a model ROM to its lazy scanned entry without making UI consumers parse keys. */
+  fileForRom(rom: Pick<LibraryRom, "file" | "directorySource">): LibraryFile | null {
+    return this.fileForPath(rom.file.relativePath, rom.directorySource?.id);
   }
 
   /**
