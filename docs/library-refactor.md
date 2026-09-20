@@ -39,12 +39,17 @@ only the visible rows and a small overscan window become DOM rows.
 Original PNG/JPEG cover files remain beside the ROM in their source directory and are addressed by
 the source-relative paths recorded in `LibraryRom.cover`. They are loaded lazily for the detail view.
 
-The carousel uses a derived device-format `.img` tier as its low-resolution scrub surface. Derived
-`.img` bytes are persisted through the existing OPFS cover cache and keyed by source ID, relative
-path, source size and modification time. A changed source file therefore produces a new cache key;
-different directory sources cannot reuse each other's derived art. Conversion is deferred until an
-SD sync needs device-format covers, so opening the library does not read or convert the full cover
-collection.
+The carousel has two derived tiers. The device-format `.img` tier is retained for Retro-Go
+installation and is persisted in the binary OPFS cover bundle (`coverBundleCache.ts`), keyed by a
+source aggregate signature. It is not itself the final browser scrub surface: it is still a
+compressed image and must be decoded before display.
+
+The browser scrub tier is a separate derived atlas of predecoded, fixed-cell low-resolution pixels.
+Atlas pages are persisted in OPFS and indexed by ROM key and cell coordinates. The carousel changes
+atlas coordinates while scrubbing instead of creating a Blob URL and decoding a new image for every
+tile. The atlas is disposable and rebuilt when the source aggregate signature changes. Conversion
+is deferred until an SD sync needs device-format covers; atlas generation is likewise a derived
+cache operation and never replaces the authoritative original cover.
 
 The UI keeps separate object-URL budgets for low-resolution and full-resolution art. Low-resolution
 art is allowed a broad neighborhood for smooth scrubbing; full-resolution art is LRU-bounded and
@@ -64,6 +69,8 @@ carousel responsive without imposing a limit on the number of ROMs.
 - A `LibraryRom` must remain serializable and metadata-only.
 - Original cover files are never replaced by conversion.
 - Derived cover cache entries are disposable; a miss regenerates the `.img`.
+- Device `.img` bytes and browser atlas pixels are separate derived representations.
+- Fast carousel movement must not depend on per-tile image decode completing during the gesture.
 - Rescanning an unchanged source reuses metadata and ZIP verdicts.
 - A source change does not require rescanning unrelated sources.
 - UI search and the `All` category operate on metadata, not loaded ROM bytes.
