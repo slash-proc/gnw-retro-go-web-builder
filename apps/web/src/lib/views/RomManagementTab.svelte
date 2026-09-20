@@ -15,6 +15,7 @@
   // The ROM FOLDER is OPTIONAL. The on-device games come from device.installedGames (FrogFS read).
   // See memory: romgr-install-architecture.
   import { onMount } from "svelte";
+  import { isLazy } from "../lazyBytes.js";
   import { convertCoversInMap, library } from "../library.svelte.js";
   import { nativeFolderPickerSupported, pickFolder, saveFileToDirOrDownload, deleteFileFromDir, pruneEmptyParents, readTextFromDir, scanRomDirectory, getValidRoot, dirSupportsWriteBack, romBytes, romBytesIfLoaded, materialize, type LibraryFile } from "../romScan.js";
   import { deviceInstallPaths, rememberInstallPaths, sdDestPath } from "../engine/devicePaths.js";
@@ -1267,12 +1268,18 @@ import { navigate } from "../nav.js";
             if (!cache.has(gameKey)) {
               cacheCoverUrl(cache, gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])), cacheLimit);
             }
+            // The object URL owns the Blob's data now. Do not retain the inflated archive/file
+            // bytes in LazyRom as well; scrubbing thousands of covers otherwise leaves every
+            // source buffer resident even though only the bounded URL cache is still needed.
+            if (isLazy(entry)) entry.release();
             coverLoads.delete(loadKey);
             coverVersion++;
           }).catch(() => coverLoads.delete(loadKey));
           return "";
         }
         const url = URL.createObjectURL(new Blob([coverBytes as BlobPart]));
+        // The object URL owns the Blob's data now. Release the duplicate LazyRom backing store.
+        if (isLazy(entry)) entry.release();
         cacheCoverUrl(cache, gameKey, url, lowResolution ? COVER_LOD_CACHE_LIMIT : COVER_FULL_CACHE_LIMIT);
         return url;
       }
