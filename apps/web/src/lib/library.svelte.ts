@@ -5,6 +5,7 @@
 import {
   pickAndScanRomFolder,
   scanRomDirectory,
+  countRomDirectory,
   folderPickerSupported,
   dirSupportsWriteBack,
   summarize,
@@ -538,7 +539,14 @@ class LibraryStore {
       const sourceTotals = new Map<string, number>();
       for (const src of sources) {
         if (src.status !== "ready") continue;
-        const count = this.sourceMetadataCache.get(src.id)?.size ?? 0;
+        let count = this.sourceMetadataCache.get(src.id)?.size ?? 0;
+        if (count === 0) {
+          try {
+            count = await countRomDirectory(src.handle as RomDirHandle);
+          } catch {
+            // The scan below reports unreadable sources through scanSkipped.
+          }
+        }
         sourceTotals.set(src.id, count);
         totalFiles += count;
       }
