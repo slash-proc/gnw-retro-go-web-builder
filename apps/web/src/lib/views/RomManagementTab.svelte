@@ -50,6 +50,8 @@
   import { homebrew, type HomebrewTitle } from "../sources/homebrewTitles.svelte.js";
 import { coreRegistry } from "../sources/coreRegistry.svelte.js";
 import { coverPathsForRom, type LibraryRom } from "../sources/libraryModel.js";
+  import { carouselAtlasFiles } from "../sources/carouselAtlas.js";
+  import { prepareCarouselAtlases } from "../sources/carouselAtlasWorker.js";
   import { localFolders, displayName } from "../sources/localFolders.svelte.js";
   import { sources } from "../sources/store.svelte.js";
   import { type OfferedFile } from "../sources/inputGate.js";
@@ -1165,6 +1167,11 @@ import { navigate } from "../nav.js";
     cache.clear();
   }
   let coverVersion = $state(0);
+  type AtlasCell = { url: string; x: number; y: number; width: number; height: number; pageWidth: number; pageHeight: number };
+  let atlasCells = $state(new Map<string, AtlasCell>());
+  let atlasPageUrls: string[] = [];
+  let atlasTimer: ReturnType<typeof setTimeout> | null = null;
+  let atlasAbort: AbortController | null = null;
   let coverIndexMap: Map<string, LibraryFile> | null = null;
   let coverIndexSize = -1;
   let coverIndex = new Map<string, string>();
@@ -1176,6 +1183,60 @@ import { navigate } from "../nav.js";
     coverIndex = new Map();
     for (const path of files.keys()) coverIndex.set(basePath(path).toLowerCase(), path);
   }
+
+  function releaseAtlas(): void {
+    for (const url of atlasPageUrls) URL.revokeObjectURL(url);
+    atlasPageUrls = [];
+    atlasCells = new Map();
+  }
+
+  // Atlas preparation is deliberately delayed until the library has become interactive. The
+  // worker owns decode/rasterization; this component only assembles metadata and receives page
+  // blobs. If the source changes, the old build is cancelled and can never replace the new one.
+  $effect(() => {
+    const scan = library.scan;
+    const games = visibleGames;
+    if (atlasTimer) clearTimeout(atlasTimer);
+    atlasAbort?.abort();
+    releaseAtlas();
+    if (!scan || games.length === 0) return;
+    const owners = new Map<string, string>();
+    for (const game of games) {
+      const rom = game.rom;
+      if (!rom?.cover) continue;
+      owners.set(rom.cover.carouselPath, rom.id);
+      owners.set(rom.cover.deviceImgPath, rom.id);
+    }
+    const entries = carouselAtlasFiles(scan.userRoms as any, library.fileOrigin, owners);
+    if (entries.length === 0) return;
+    const controller = new AbortController();
+    atlasAbort = controller;
+    atlasTimer = setTimeout(() => {
+      atlasTimer = null;
+      void prepareCarouselAtlases(entries, undefined, controller.signal).then((atlases) => {
+        if (controller.signal.aborted) return;
+        const nextCells = new Map<string, AtlasCell>();
+        const urls: string[] = [];
+        for (const atlas of atlases.values()) {
+          const pageUrls = atlas.pages.map((page) => URL.createObjectURL(page.blob));
+          urls.push(...pageUrls);
+          for (const placement of atlas.placements) {
+            const url = pageUrls[placement.page];
+            if (url) nextCells.set(placement.key, { url, x: placement.x, y: placement.y, width: placement.width, height: placement.height, pageWidth: placement.pageWidth, pageHeight: placement.pageHeight });
+          }
+        }
+        atlasPageUrls = urls;
+        atlasCells = nextCells;
+      }).catch(() => {
+        // A missing/failed derived atlas leaves the existing lazy cover path in place.
+      });
+    }, 1500);
+    return () => {
+      if (atlasTimer) clearTimeout(atlasTimer);
+      atlasTimer = null;
+      controller.abort();
+    };
+  });
 
   function getCoverUrl(key: string, _version = 0, lowResolution = false) {
     // A second folder's differing file under the same name is keyed `<path>\0<id>` (see
@@ -3971,6 +4032,7 @@ import { navigate } from "../nav.js";
                 onScrubState={onCarouselScrubState}
                 getUrl={(key) => getCoverUrl(key, coverVersion)}
                 getLodUrl={(key) => getCoverUrl(key, coverVersion, true)}
+                getAtlasCell={(key) => atlasCells.get(visibleGameByKey.get(key)?.rom?.id ?? "") ?? null}
                 systemLabel={(c) => c.system}
                 version={coverVersion}
               />
