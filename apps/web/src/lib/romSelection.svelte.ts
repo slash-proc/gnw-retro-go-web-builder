@@ -17,10 +17,7 @@ import { consoleLabel } from "./engine/consoles.js";
 import { homebrew } from "./sources/homebrewTitles.svelte.js";
 import { displayName, localFolders } from "./sources/localFolders.svelte.js";
 import {
-  libraryCoverForPath,
-  libraryFileMeta,
-  libraryFileMetaFromScan,
-  libraryRomId,
+  createLibraryRom,
   type CoreSourceRef,
   type LibraryRom,
 } from "./sources/libraryModel.js";
@@ -379,11 +376,15 @@ class RomSelectionStore {
             targetId: sourceTarget[1] ?? "",
           }
         : undefined;
-      return {
-        id: libraryRomId(sourceId ?? "device", path),
-        file: scanEntry ? libraryFileMetaFromScan(path, scanEntry) : libraryFileMeta(path, size),
-        directorySource: source
+      return createLibraryRom({
+        sourceId: sourceId ?? "device",
+        source: source
           ? { id: source.id, name: displayName(source), folderName: source.folderName }
+          : undefined,
+        path,
+        size,
+        lastModified: scanEntry && typeof scanEntry === "object" && "lastModified" in scanEntry
+          ? (scanEntry as { lastModified?: number }).lastModified
           : undefined,
         system: {
           id: registered?.id ?? parsed.system,
@@ -395,11 +396,10 @@ class RomSelectionStore {
           ...(coreSource ? { source: coreSource } : {}),
         },
         role: parsed.role,
-        cover: libraryCoverForPath(path),
-        device: installed
-          ? { installed, path, size }
-          : { installed },
-      };
+        installed,
+        devicePath: installed ? path : undefined,
+        deviceSize: installed ? size : undefined,
+      });
     };
     // Library folders are user-controlled and commonly spell the console directory as `NES`,
     // while the device reports its canonical short name as `nes`. The card filesystem is

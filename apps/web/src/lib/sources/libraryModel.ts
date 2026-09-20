@@ -77,6 +77,37 @@ export interface LibraryRom {
   cover?: LibraryCover;
 }
 
+/** Inputs needed to construct a serializable ROM record from a scan or device projection. */
+export interface LibraryRomBuildInput {
+  sourceId?: string;
+  source?: DirectorySourceRef;
+  path: string;
+  size: number;
+  lastModified?: number;
+  system: LibraryRom["system"];
+  role: FileRole;
+  installed: boolean;
+  devicePath?: string;
+  deviceSize?: number;
+}
+
+/** Single construction seam shared by scan, device reconciliation and UI projections. */
+export function createLibraryRom(input: LibraryRomBuildInput): LibraryRom {
+  return {
+    id: libraryRomId(input.sourceId, input.path),
+    file: libraryFileMeta(input.path, input.size, input.lastModified),
+    ...(input.source ? { directorySource: input.source } : {}),
+    system: input.system,
+    role: input.role,
+    cover: libraryCoverForPath(input.path),
+    device: {
+      installed: input.installed,
+      ...(input.devicePath ? { path: input.devicePath } : {}),
+      ...(input.deviceSize === undefined ? {} : { size: input.deviceSize }),
+    },
+  };
+}
+
 /** Source-relative cover candidates for a ROM. The first tier is beside the ROM; the second
  * preserves the app's existing optional `covers/` mirror layout. */
 export function coverPathsForRom(rom: Pick<LibraryRom, "file">, extension: string): string[] {
