@@ -128,6 +128,21 @@ export async function convertCoversInMap(
   }
 }
 
+/** Persist one already-converted device cover without forcing a whole-library conversion pass. */
+export async function cacheDerivedCover(
+  relativePath: string,
+  sourceId: string | undefined,
+  sourceSize: number,
+  bytes: Uint8Array,
+  lastModified?: number,
+): Promise<void> {
+  await coverBlobStore().put(
+    libraryCoverCacheKey(sourceId, relativePath, sourceSize, lastModified),
+    bytes,
+    "image/jpeg",
+  );
+}
+
 class LibraryStore {
   scan = $state<RomScanResult | null>(null);
   /** Set when a folder is required but not yet selected — drives FolderGateModal. */

@@ -22,7 +22,7 @@
   import { onMount } from "svelte";
   import { homebrew } from "../sources/homebrewTitles.svelte.js";
   import { romSelection } from "../romSelection.svelte.js";
-  import { library } from "../library.svelte.js";
+  import { cacheDerivedCover, library } from "../library.svelte.js";
   import { systemIdsFor, isKnownSystemFolder } from "../screenscraper/config.js";
   import { coverSystemFor } from "../sources/coverSystem.js";
   import type { LibraryRom } from "../sources/libraryModel.js";
@@ -913,7 +913,14 @@
           try {
             const gwBlob = await toGWCover(blob);
             if (gwBlob) {
-              library.scan?.userRoms.set(imgPath, new Uint8Array(await gwBlob.arrayBuffer()));
+              const converted = new Uint8Array(await gwBlob.arrayBuffer());
+              library.scan?.userRoms.set(imgPath, converted);
+              await cacheDerivedCover(
+                `${baseName}.png`,
+                originalKey ? library.fileOrigin.get(basePath(originalKey)) : undefined,
+                blob.size,
+                converted,
+              );
               if (library.scan) library.markDirty(imgPath);
             }
           } catch (e) {
