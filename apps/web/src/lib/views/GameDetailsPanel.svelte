@@ -470,7 +470,9 @@
       // `Game Boy Advance/Game.gba`. LibraryRom is the source-of-truth for reading the actual
       // source file; the canonical key remains useful for device/system matching below.
       const sourceRomPath = rom ? rom.file.relativePath : basePath(gameKey);
-      const romEntry = library.scan?.userRoms.get(sourceRomPath) ?? library.scan?.userRoms.get(gameKey);
+      const romEntry = rom
+        ? (library.fileForRom(rom) ?? library.scan?.userRoms.get(gameKey))
+        : library.scan?.userRoms.get(gameKey);
       buffer = romEntry ? await romBytes(romEntry) : undefined;
       if (!buffer) {
         previewError = locale.t.roms.gameDetailsPanel.coverArt.errRomNotFound;

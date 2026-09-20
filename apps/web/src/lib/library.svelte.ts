@@ -35,6 +35,7 @@ import {
   libraryListState,
   type LibraryListState,
   isDuplicateKey,
+  basePath,
   type DuplicateGroup,
   type PathCollision,
   type SkippedFolder,
@@ -42,7 +43,7 @@ import {
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { dedicatedFolderPlacement, isLibrarySource } from "./sources/coreRegistry.js";
 import { coverBlobStore } from "./screenscraper/coverStore.js";
-import { libraryCoverCacheKey, libraryFileMetaFromScan, sameLibraryFileMeta, type LibraryFileMeta } from "./sources/libraryModel.js";
+import { libraryCoverCacheKey, libraryFileMetaFromScan, sameLibraryFileMeta, type LibraryFileMeta, type LibraryRom } from "./sources/libraryModel.js";
 
 const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".bmp"]);
 const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
@@ -221,6 +222,22 @@ class LibraryStore {
   writeDirFor(path: string): RomDirHandle | null {
     const id = this.fileOrigin.get(path);
     return (id ? localFolders.get(id)?.handle : undefined) as RomDirHandle | null ?? this.scan?.dir ?? null;
+  }
+
+  /** Resolve a model ROM to its lazy scanned entry without making UI consumers parse keys. */
+  fileForRom(rom: Pick<LibraryRom, "file" | "directorySource">): LibraryFile | null {
+    const files = this.scan?.userRoms;
+    if (!files) return null;
+    const exact = files.get(rom.file.relativePath);
+    if (exact && (!rom.directorySource || this.fileOrigin.get(rom.file.relativePath) === rom.directorySource.id)) {
+      return exact;
+    }
+    for (const [key, entry] of files) {
+      if (basePath(key).toLowerCase() !== rom.file.relativePath.toLowerCase()) continue;
+      if (rom.directorySource && this.fileOrigin.get(key) !== rom.directorySource.id) continue;
+      return entry;
+    }
+    return null;
   }
 
   /**
