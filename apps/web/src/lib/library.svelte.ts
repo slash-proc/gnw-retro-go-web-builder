@@ -127,7 +127,7 @@ export async function convertCoversInMap(
     if (COVER_IMAGE_EXTS.has(ext)) toConvert.push(path);
   }
 
-  for (const path of toConvert) {
+  const convertOne = async (path: string): Promise<void> => {
     try {
       const source = userRoms.get(path)!;
       const sourceStamp = typeof source === "object" && source !== null && "lastModified" in source
@@ -140,7 +140,7 @@ export async function convertCoversInMap(
       if (cached) {
         userRoms.set(devicePath, cached.bytes);
         if (isLazy(source)) source.release?.();
-        continue;
+        return;
       }
       const data = await romBytes(source);
       const blob = new Blob([data as BlobPart]);
@@ -158,6 +158,13 @@ export async function convertCoversInMap(
     } catch (e) {
       dbg(`[covers] converting ${path} failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+  };
+  // Cover conversion is an SD-sync operation, not a reason to serialize hundreds of unrelated
+  // images. A small bounded batch keeps throughput high without creating an image decode and
+  // OPFS-write storm that competes with the rest of the sync UI.
+  const CONVERSION_CONCURRENCY = 4;
+  for (let i = 0; i < toConvert.length; i += CONVERSION_CONCURRENCY) {
+    await Promise.all(toConvert.slice(i, i + CONVERSION_CONCURRENCY).map(convertOne));
   }
 }
 
