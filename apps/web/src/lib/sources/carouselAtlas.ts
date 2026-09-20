@@ -32,6 +32,7 @@ export interface CarouselAtlasPage {
 }
 
 export interface CarouselAtlas {
+  sourceSignature: string;
   cellWidth: number;
   cellHeight: number;
   columns: number;
@@ -41,12 +42,29 @@ export interface CarouselAtlas {
 }
 
 export interface CarouselAtlasOptions {
+  /** Lazy metadata signature for the source that supplied these covers. */
+  sourceSignature?: string;
   /** Fixed cell size is intentional: scrubbing becomes a coordinate lookup. */
   cellWidth?: number;
   cellHeight?: number;
   columns?: number;
   rows?: number;
   quality?: number;
+}
+
+/** Cheap metadata-only signature; it never opens a cover or ROM payload. */
+export function carouselAtlasSignature(
+  sourceId: string,
+  entries: readonly { key: string; size: number; lastModified?: number }[],
+): string {
+  const ordered = [...entries].sort((a, b) => a.key.localeCompare(b.key));
+  let hash = 0xcbf29ce484222325n;
+  const text = `${sourceId}\n${ordered.map((entry) => `${entry.key}\0${entry.size}\0${entry.lastModified ?? 0}`).join("\n")}`;
+  for (const byte of new TextEncoder().encode(text)) {
+    hash ^= BigInt(byte);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, "0");
 }
 
 const ATLAS_MAGIC = new Uint8Array([0x47, 0x4e, 0x57, 0x41, 0x54, 0x4c, 0x31, 0x00]); // GNWATL1\0
@@ -136,12 +154,13 @@ export async function buildCarouselAtlas(
     pages.push({ index: page, blob: await canvasBlob(canvas, quality), width: pageWidth, height: pageHeight });
   }
 
-  return { cellWidth, cellHeight, columns, rows, placements, pages };
+  return { sourceSignature: options.sourceSignature ?? "", cellWidth, cellHeight, columns, rows, placements, pages };
 }
 
 /** Serialize the atlas as one binary file: manifest first, then page blobs. */
 export async function encodeCarouselAtlas(atlas: CarouselAtlas): Promise<Uint8Array> {
   const manifest = atlasEncoder.encode(JSON.stringify({
+    sourceSignature: atlas.sourceSignature,
     cellWidth: atlas.cellWidth,
     cellHeight: atlas.cellHeight,
     columns: atlas.columns,
