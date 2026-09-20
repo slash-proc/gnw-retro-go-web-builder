@@ -42,11 +42,27 @@ import {
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { dedicatedFolderPlacement, isLibrarySource } from "./sources/coreRegistry.js";
 import { coverBlobStore } from "./screenscraper/coverStore.js";
-import { libraryCoverCacheKey, libraryFileMetaFromScan, sameLibraryFileMeta } from "./sources/libraryModel.js";
+import { libraryCoverCacheKey, libraryFileMetaFromScan, sameLibraryFileMeta, type LibraryFileMeta } from "./sources/libraryModel.js";
 
 const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".bmp"]);
 const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
+const LIBRARY_METADATA_KEY = "library-metadata-index.v1";
 type PersistedZipScanCache = Record<string, Record<string, ZipScanCacheEntry>>;
+type PersistedLibraryMetadata = Record<string, Record<string, LibraryFileMeta>>;
+
+function loadLibraryMetadata(): Map<string, Map<string, LibraryFileMeta>> {
+  const persisted = loadSel<PersistedLibraryMetadata>(LIBRARY_METADATA_KEY, {});
+  return new Map(Object.entries(persisted).map(([sourceId, entries]) => [
+    sourceId,
+    new Map(Object.entries(entries)),
+  ]));
+}
+
+function saveLibraryMetadata(cache: Map<string, Map<string, LibraryFileMeta>>): void {
+  const persisted: PersistedLibraryMetadata = {};
+  for (const [sourceId, entries] of cache) persisted[sourceId] = Object.fromEntries(entries);
+  saveSel(LIBRARY_METADATA_KEY, persisted);
+}
 
 function loadZipScanCache(): Map<string, Map<string, ZipScanCacheEntry>> {
   const persisted = loadSel<PersistedZipScanCache>(ZIP_SCAN_CACHE_KEY, {});
@@ -248,6 +264,8 @@ class LibraryStore {
   private sourceFileCache = new Map<string, Map<string, LibraryFile>>();
   /** ZIP central-directory metadata only; archive bytes are never retained here. */
   private sourceZipCache = loadZipScanCache();
+  /** Persisted metadata only; no handles, providers or payload bytes. */
+  private sourceMetadataCache = loadLibraryMetadata();
 
   private reuseUnchangedSourceFiles(sourceId: string, files: Map<string, LibraryFile>): Map<string, LibraryFile> {
     const previous = this.sourceFileCache.get(sourceId);
@@ -438,6 +456,7 @@ class LibraryStore {
         if (activeSourceIds.has(sourceId)) continue;
         for (const entry of cached.values()) if (isLazy(entry)) entry.release?.();
         this.sourceFileCache.delete(sourceId);
+        this.sourceMetadataCache.delete(sourceId);
       }
       // WHERE A FOLDER'S LOOSE FILES ARE GOING, per folder, before a byte is read. A BIOS that
       // is in a marked folder and still reported missing fails somewhere between the marking and
@@ -524,6 +543,9 @@ class LibraryStore {
             this.progress = { done: doneFiles, total: totalFiles, current: rel, folder: src.id, layers: [...layers], finalizing: null };
             if (totalFiles > 0) lipProgress.operationProgress("library-scan", doneFiles / totalFiles);
           }, undefined, zipCache);
+          this.sourceMetadataCache.set(src.id, new Map(
+            [...r.userRoms.entries()].map(([path, entry]) => [path, libraryFileMetaFromScan(path, entry)]),
+          ));
           if (layer) {
             layer.status = "done";
             layer.phase = "Ready";
@@ -558,6 +580,7 @@ class LibraryStore {
       };
       this.fileOrigin = merged.origin;
       saveZipScanCache(this.sourceZipCache);
+      saveLibraryMetadata(this.sourceMetadataCache);
       this.pendingHandle = null;
       this.clearDirty();
 
