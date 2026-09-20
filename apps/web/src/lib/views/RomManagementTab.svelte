@@ -1337,6 +1337,9 @@ import { navigate } from "../nav.js";
     const extensions = lowResolution
       ? [".img", ".jpg", ".jpeg", ".png"]
       : [".png", ".jpg", ".jpeg", ".img"];
+    const modelCover = structuredRom
+      ? library.coverFileForRom(structuredRom, lowResolution)
+      : null;
     for (const ext of extensions) {
       const paths = [
         ...(structuredRom
@@ -1349,7 +1352,7 @@ import { navigate } from "../nav.js";
         `covers/${alias}/${base}${ext}`,
         ]),
       ];
-      let matchPath = paths.find((candidate) => library.scan?.userRoms.has(candidate)) ?? null;
+      let matchPath = modelCover?.path ?? paths.find((candidate) => library.fileForPath(candidate, structuredRom?.directorySource?.id)) ?? null;
       // Directory scans preserve the spelling found on disk, while ROM keys and scraper output
       // can differ in case (Doom commonly mixes `DOOM.WAD` with `doom/doom.png`). Match the
       // canonical paths case-insensitively so a reload does not lose an otherwise present cover.
@@ -1363,8 +1366,10 @@ import { navigate } from "../nav.js";
       }
 
       if (matchPath) {
-        const entry = library.fileForPath(matchPath, library.fileOrigin.get(matchPath))
-          ?? library.fileForPath(matchPath)!;
+        const entry = modelCover?.path === matchPath
+          ? modelCover.file
+          : library.fileForPath(matchPath, library.fileOrigin.get(matchPath))
+            ?? library.fileForPath(matchPath)!;
         const coverBytes = romBytesIfLoaded(entry);
         if (!coverBytes) {
           const loadKey = `${lowResolution ? "lod:" : "full:"}${gameKey}`;

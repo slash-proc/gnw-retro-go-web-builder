@@ -269,6 +269,23 @@ class LibraryStore {
     return this.fileForPath(rom.file.relativePath, rom.directorySource?.id);
   }
 
+  /** Resolve a ROM's source-side cover without making consumers rebuild sibling paths. */
+  coverFileForRom(
+    rom: Pick<LibraryRom, "file" | "directorySource" | "cover">,
+    lowResolution = false,
+  ): { path: string; file: LibraryFile } | null {
+    const cover = rom.cover;
+    if (!cover) return null;
+    const paths = lowResolution
+      ? [cover.carouselPath, cover.deviceImgPath, ...cover.originalPaths]
+      : [...cover.originalPaths, cover.carouselPath, cover.deviceImgPath];
+    for (const path of paths) {
+      const file = this.fileForPath(path, rom.directorySource?.id);
+      if (file) return { path, file };
+    }
+    return null;
+  }
+
   /**
    * The registry rows that feed the library, as one string. Reading this in an `$effect` is how
    * the UI subscribes to "the Sources list changed" — add/remove/repoint/grant all

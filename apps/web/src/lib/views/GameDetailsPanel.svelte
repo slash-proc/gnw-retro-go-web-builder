@@ -989,6 +989,7 @@
   }
 
   function hasLocalCover(gameKey: string, rom: LibraryRom | undefined) {
+    if (rom && library.coverFileForRom(rom, true)) return true;
     // Same sibling-path rule as applyPreview above: strip the duplicate id first, or a doubled
     // ROM reports no cover however many it has.
     const rowPath = basePath(gameKey);
