@@ -15,7 +15,7 @@ import {
   type LibraryFile,
   type ZipScanCacheEntry,
 } from "./romScan.js";
-import { saveDir, loadDir, deleteDir, handlePermission } from "./persist.js";
+import { saveDir, loadDir, deleteDir, handlePermission, loadSel, saveSel } from "./persist.js";
 import { toGWCover } from "./screenscraper/gw.js";
 import { isLazy } from "./lazyBytes.js";
 import { device } from "./device.svelte.js";
@@ -43,6 +43,22 @@ import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { dedicatedFolderPlacement, isLibrarySource } from "./sources/coreRegistry.js";
 
 const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".bmp"]);
+const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
+type PersistedZipScanCache = Record<string, Record<string, ZipScanCacheEntry>>;
+
+function loadZipScanCache(): Map<string, Map<string, ZipScanCacheEntry>> {
+  const persisted = loadSel<PersistedZipScanCache>(ZIP_SCAN_CACHE_KEY, {});
+  return new Map(Object.entries(persisted).map(([sourceId, entries]) => [
+    sourceId,
+    new Map(Object.entries(entries)),
+  ]));
+}
+
+function saveZipScanCache(cache: Map<string, Map<string, ZipScanCacheEntry>>): void {
+  const persisted: PersistedZipScanCache = {};
+  for (const [sourceId, entries] of cache) persisted[sourceId] = Object.fromEntries(entries);
+  saveSel(ZIP_SCAN_CACHE_KEY, persisted);
+}
 
 /**
  * Convert all cover images in the userRoms map to retro-go .img (JPEG) format.
@@ -199,7 +215,7 @@ class LibraryStore {
   /** Per-source metadata cache. Values are lazy entries, never a second copy of ROM bytes. */
   private sourceFileCache = new Map<string, Map<string, LibraryFile>>();
   /** ZIP central-directory metadata only; archive bytes are never retained here. */
-  private sourceZipCache = new Map<string, Map<string, ZipScanCacheEntry>>();
+  private sourceZipCache = loadZipScanCache();
 
   private reuseUnchangedSourceFiles(sourceId: string, files: Map<string, LibraryFile>): Map<string, LibraryFile> {
     const previous = this.sourceFileCache.get(sourceId);
@@ -504,6 +520,7 @@ class LibraryStore {
         hasRomsPrefix: merged.scanned[0].hasRomsPrefix,
       };
       this.fileOrigin = merged.origin;
+      saveZipScanCache(this.sourceZipCache);
       this.pendingHandle = null;
       this.clearDirty();
 
