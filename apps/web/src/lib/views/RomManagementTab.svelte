@@ -670,6 +670,23 @@ import { navigate } from "../nav.js";
   // Selection changes happen much more often than library changes while scrubbing. Keep a keyed
   // view of the visible rows so the details pane does not linearly search the full list each time.
   const visibleGameByKey = $derived.by(() => new Map(visibleGames.map((g) => [g.key, g])));
+  // The filtered/sorted list remains complete for search, selection and carousel indexing, but
+  // only the viewport neighborhood becomes DOM. A large library must not pay one Svelte row,
+  // button set and reactive action-state graph per ROM just because the user opened "All".
+  const ROW_HEIGHT = 50;
+  const ROW_OVERSCAN = 12;
+  let rowsScrollTop = $state(0);
+  let rowsViewportHeight = $state(600);
+  function onRowsScroll(event: Event): void {
+    const element = event.currentTarget as HTMLDivElement;
+    rowsScrollTop = element.scrollTop;
+    rowsViewportHeight = element.clientHeight || rowsViewportHeight;
+  }
+  const renderedGames = $derived.by(() => {
+    const first = Math.max(0, Math.floor(rowsScrollTop / ROW_HEIGHT) - ROW_OVERSCAN);
+    const count = Math.ceil(rowsViewportHeight / ROW_HEIGHT) + ROW_OVERSCAN * 2;
+    return { first, last: Math.min(visibleGames.length, first + count), items: visibleGames.slice(first, first + count) };
+  });
   const unknownHomebrewByName = $derived.by(() => new Map(unknownHomebrew.map((g) => [g.name, g])));
 
   // Follow the filtered list. When every visible row is selected this becomes a one-click clear
@@ -3807,8 +3824,11 @@ import { navigate } from "../nav.js";
                   </div>
                 </div>
 
-                <div class="rows">
-              {#each visibleGames as g (g.key)}
+                <div class="rows" onscroll={onRowsScroll}>
+              {#if renderedGames.first > 0}
+                <div class="virtual-spacer" style={`height: ${renderedGames.first * ROW_HEIGHT}px;`} aria-hidden="true"></div>
+              {/if}
+              {#each renderedGames.items as g (g.key)}
                 {@const state = getActionState(g)}
                 {@const starred = favorites.has(g.key)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -3868,6 +3888,10 @@ import { navigate } from "../nav.js";
                      the activity log holds what was said, and the bell raises errors only. -->
                 <!-- @NO-ROW-VERDICT (apps/web/test/auditlog.mjs guards this) -->
               {/each}
+
+              {#if renderedGames.last < visibleGames.length}
+                <div class="virtual-spacer" style={`height: ${(visibleGames.length - renderedGames.last) * ROW_HEIGHT}px;`} aria-hidden="true"></div>
+              {/if}
 
               {#if consoleFilter === "all" || consoleFilter === "homebrew"}
                 {#each unknownHomebrew as g (g.name)}
@@ -4546,6 +4570,8 @@ import { navigate } from "../nav.js";
     display: flex;
     align-items: center;
     flex-wrap: nowrap;
+    min-height: 50px;
+    box-sizing: border-box;
     /* Artboard: `padding: 11px 0; gap: 12px`. The horizontal 16px is carried here rather than
        on `.games-pane` so the rows line up with `.games-pane-header`'s own padding. */
     gap: 12px;
