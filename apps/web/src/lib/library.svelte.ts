@@ -112,7 +112,7 @@ async function convertCoversInMap(userRoms: Map<string, LibraryFile>): Promise<v
         // Retain the original high-quality image in userRoms for the UI to display,
         // but generate the .img sidecar for flashing.
         userRoms.set(devicePath, converted);
-        void derivedCoverCache.put(cacheKey, converted, "image/jpeg");
+        await derivedCoverCache.put(cacheKey, converted, "image/jpeg");
       }
       // The original remains available through its file handle. Do not retain a second full
       // decoded copy for every cover after the background conversion pass.
