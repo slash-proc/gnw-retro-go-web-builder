@@ -14,7 +14,7 @@ import {
   romBytes,
   type LibraryFile,
 } from "./romScan.js";
-import { saveDir, loadDir, handlePermission } from "./persist.js";
+import { saveDir, loadDir, deleteDir, handlePermission } from "./persist.js";
 import { toGWCover } from "./screenscraper/gw.js";
 import { isLazy } from "./lazyBytes.js";
 import { device } from "./device.svelte.js";
@@ -334,11 +334,14 @@ class LibraryStore {
       await localFolders.load();
 
       // Migration: a user who only ever had the single "romDir" folder keeps it, as an "Any"
-      // directory. Idempotent (isSameEntry against what is already registered), and the
-      // "romDir" key is deliberately left in place so this stays reversible.
+      // directory. Idempotent (isSameEntry against what is already registered). Once adopted,
+      // remove the legacy key so a later delete cannot resurrect the folder.
       // "romDir": storage key, not a name — see the note at the saveDir() call above.
       const legacy = (await loadDir("romDir")) as RomDirHandle | null;
-      if (legacy) await migrateLegacyRomDir(legacy, localFolders, defaultLibraryScanDeps);
+      if (legacy) {
+        await migrateLegacyRomDir(legacy, localFolders, defaultLibraryScanDeps);
+        await deleteDir("romDir");
+      }
 
       // The registry, and only the registry. See `romFolderSources` — the core registry is
       // passed so a folder dedicated to a single-system core files its loose ROMs under that

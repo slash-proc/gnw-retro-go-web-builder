@@ -455,6 +455,7 @@ export async function runCovers(opts, cb) {
     onCover({
       id: `${coverSeq++}:${rom.file.name}`,
       name: rom.file.name,
+      file: rom.file,
       blob,
       outputPath: name,
       systemeid: rom.systemeid,

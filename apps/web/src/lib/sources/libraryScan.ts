@@ -59,7 +59,7 @@
  * allowed to throw the whole scan (which would take the readable folders down with it).
  */
 import { sha1Hex } from "./inputGate.js";
-import { resolveBytes, type MaybeLazy as LibraryFile } from "../lazyBytes.js";
+import { isLazy, resolveBytes, type MaybeLazy as LibraryFile } from "../lazyBytes.js";
 import {
   dedicatedFolderPlacement,
   looseFileFolder,
@@ -334,8 +334,17 @@ export async function mergeFolderScans(
   // path has genuinely collided, which is the rare case the ordering already exists to protect.
   const hashOf = async (v: Kept): Promise<string> => {
     if (v.hash === null) {
-      v.hash = await deps.hash(await resolveBytes(v.bytes));
-      hashed++;
+      // Hashing is a scan-time duplicate check, not a request to keep the ROM resident. Native
+      // scans store LazyRom handles precisely so a large library stays cheap; without releasing
+      // this temporary read, merging two folders with the same paths inflated every colliding
+      // ROM and left its payload cached forever. Keep the digest, release only the decoded bytes.
+      const bytes = await resolveBytes(v.bytes);
+      try {
+        v.hash = await deps.hash(bytes);
+        hashed++;
+      } finally {
+        if (isLazy(v.bytes)) v.bytes.release?.();
+      }
     }
     return v.hash;
   };

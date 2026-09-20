@@ -408,6 +408,18 @@ class LocalFolderStore {
     if (row.usedBy.includes(OFW_BACKUP_USED_BY_KEY) || row.name === OFW_BACKUP_FOLDER_NAME || row.folderName === OFW_BACKUP_FOLDER_NAME) {
       await this.deps.deleteDir("ofwBackupDir");
     }
+
+    // The library scan runs `migrateLegacyRomDir` on every load, which re-adds the legacy `romDir`
+    // if it isn't currently in `folders`. If the user just explicitly deleted it, we MUST delete
+    // the legacy key too, or the next scan will immediately resurrect it.
+    try {
+      const legacy = await this.deps.loadDir("romDir");
+      if (legacy && row.handle && await this.deps.isSameEntry(legacy, row.handle)) {
+        await this.deps.deleteDir("romDir");
+      }
+    } catch {
+      // Ignore errors reading/deleting the legacy key
+    }
   }
 
   /** Re-grant permission for a restored handle. Call from a user gesture. */

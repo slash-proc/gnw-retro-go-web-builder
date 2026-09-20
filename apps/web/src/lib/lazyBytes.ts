@@ -25,6 +25,68 @@ export interface LazyBytes {
 /** Either already-read bytes, or a handle that can produce them. */
 export type MaybeLazy = Uint8Array | LazyBytes;
 
+interface LazyBytesStats {
+  reads: number;
+  readBytes: number;
+  releases: number;
+  releasedBytes: number;
+  byCaller: Map<string, { reads: number; bytes: number }>;
+}
+
+const stats: LazyBytesStats = {
+  reads: 0,
+  readBytes: 0,
+  releases: 0,
+  releasedBytes: 0,
+  byCaller: new Map(),
+};
+
+/** Runtime diagnostics for large-library investigations; intentionally does not retain ROM data. */
+export function lazyBytesReport(): {
+  reads: number;
+  readBytes: number;
+  releases: number;
+  releasedBytes: number;
+  byCaller: { caller: string; reads: number; bytes: number }[];
+} {
+  return {
+    reads: stats.reads,
+    readBytes: stats.readBytes,
+    releases: stats.releases,
+    releasedBytes: stats.releasedBytes,
+    byCaller: [...stats.byCaller.entries()]
+      .map(([caller, v]) => ({ caller, ...v }))
+      .sort((a, b) => b.bytes - a.bytes),
+  };
+}
+
+function lazyCaller(): string {
+  // Stack capture is cheap compared with reading a ROM and gives us the call site that caused
+  // the read. Strip this module's frames so the report groups by the application caller.
+  const stack = new Error().stack?.split("\n").slice(3).find((line) =>
+    !line.includes("lazyBytes") && !line.includes("romScan")
+  );
+  return stack?.trim() || "unknown";
+}
+
+export function noteLazyRead(bytes: number, caller = lazyCaller()): void {
+  stats.reads++;
+  stats.readBytes += bytes;
+  const row = stats.byCaller.get(caller) ?? { reads: 0, bytes: 0 };
+  row.reads++;
+  row.bytes += bytes;
+  stats.byCaller.set(caller, row);
+}
+
+export function noteLazyRelease(bytes: number): void {
+  stats.releases++;
+  stats.releasedBytes += bytes;
+}
+
+if (typeof window !== "undefined") {
+  (window as Window & { gnwLazyBytesReport?: () => ReturnType<typeof lazyBytesReport> }).gnwLazyBytesReport = lazyBytesReport;
+}
+
 /**
  * STRUCTURAL, never `instanceof`.
  *

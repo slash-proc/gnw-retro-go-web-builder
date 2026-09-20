@@ -348,6 +348,23 @@ class RomSelectionStore {
   /** Folder ROMs ∪ device-installed games (excludes `bios/` assets — not games). */
   readonly games: Game[] = $derived.by(() => {
     const byKey = new Map<string, Game>();
+    // Library folders are user-controlled and commonly spell the console directory as `NES`,
+    // while the device reports its canonical short name as `nes`. The card filesystem is
+    // case-insensitive, so use the parsed canonical system for identity rather than the raw
+    // source path. Keep the filename spelling for display, but match it case-insensitively too.
+    const canonicalKey = (path: string, parsed: ParsedRom): string => {
+      const slash = path.indexOf("/");
+      return `${parsed.system}/${slash >= 0 ? path.slice(slash + 1) : parsed.name}`;
+    };
+    const findByCardKey = (key: string): Game | undefined => {
+      const exact = byKey.get(key);
+      if (exact) return exact;
+      const folded = key.toLowerCase();
+      for (const [candidate, game] of byKey) {
+        if (candidate.toLowerCase() === folded) return game;
+      }
+      return undefined;
+    };
     const folder = library.scan?.userRoms;
     if (folder) {
       for (const [path, data] of folder) {
@@ -357,7 +374,10 @@ class RomSelectionStore {
         const parsed = parseRomPath(path);
         if (!parsed) continue;
 
-        byKey.set(path, { key: path, system: parsed.system, name: parsed.name, size: data.length, inFolder: true, installed: false, role: parsed.role });
+        const key = canonicalKey(path, parsed);
+        if (!findByCardKey(key)) {
+          byKey.set(key, { key, system: parsed.system, name: parsed.name, size: data.length, inFolder: true, installed: false, role: parsed.role });
+        }
       }
     }
     
@@ -401,8 +421,8 @@ class RomSelectionStore {
       const parsed = parseDeviceGamePath(path);
       if (!parsed) continue; // consistency with the folder side
       
-      const key = path;
-      const existing = byKey.get(key);
+      const key = `${parsed.system}/${parsed.name}`;
+      const existing = findByCardKey(key);
       if (existing) existing.installed = true;
       else byKey.set(key, { key, system: parsed.system, name: parsed.name, size: g.size, inFolder: false, installed: true, role: parsed.role });
     }

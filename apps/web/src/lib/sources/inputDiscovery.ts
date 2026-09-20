@@ -69,7 +69,7 @@
 import { gateInputs, type OfferedFile } from "./inputGate.js";
 import { targetOf } from "./types.js";
 import type { ConverterInput, InputVariant } from "./converterTypes.js";
-import { resolveBytes, type MaybeLazy } from "../lazyBytes.js";
+import { isLazy, resolveBytes, type MaybeLazy } from "../lazyBytes.js";
 
 /**
  * One file discovery may consider. `size` is known WITHOUT reading (a library entry already
@@ -84,6 +84,8 @@ export interface CandidateFile {
   folderId: string;
   size: number;
   read(): Promise<Uint8Array>;
+  /** Release a temporary lazy cache after discovery has hashed the candidate. */
+  release?(): void;
 }
 
 /** How a candidate came to be offered. Diagnostic; the acceptance verdict is the gate's. */
@@ -117,6 +119,13 @@ export interface InputDiscovery {
 export interface DiscoveryDeps {
   hash(bytes: Uint8Array): Promise<string>;
 }
+
+/**
+ * Automatic discovery must not turn a broad manifest extension into a startup dump. A small
+ * shelf (Doom's WADs, for example) is cheap and remains hash-discoverable; a large ambiguous
+ * shelf is left to the explicit file picker, which can read only the file the user chooses.
+ */
+export const AUTO_HASH_CANDIDATE_LIMIT = 64;
 
 /** `.WAD` and `wad` both mean `.wad`. */
 function normExt(ext: string): string {
@@ -236,9 +245,23 @@ export async function discoverInput(
   const seenVariants = new Set<string>();
   let hashed = 0;
 
-  for (const cand of sizePlausible(input.variants, byExtension)) {
+  const plausible = sizePlausible(input.variants, byExtension);
+  // Some manifests omit variant sizes, making every `.sfc`, `.gba`, etc. plausible. Hashing that
+  // set during library startup creates gigabytes of allocation churn even when every buffer is
+  // released afterward. Keep automatic discovery bounded; strict inputs defer to the picker,
+  // while non-strict inputs can still use the cheap filename/extension fallback below.
+  const hashCandidates = plausible.length <= AUTO_HASH_CANDIDATE_LIMIT ? plausible : [];
+  for (const cand of hashCandidates) {
     const bytes = await cand.read();
-    const sha1 = (await deps.hash(bytes)).toLowerCase();
+    let sha1: string;
+    try {
+      sha1 = (await deps.hash(bytes)).toLowerCase();
+    } finally {
+      // Discovery is a scan-time probe. It must not turn every extension-compatible ROM into a
+      // permanent cache entry merely because a manifest omitted variant sizes. Matched files are
+      // read again below when they are actually offered; unmatched candidates are discarded.
+      cand.release?.();
+    }
     hashed++;
     const variant = input.variants.find(
       (v) => v.sha1.toLowerCase() === sha1 && (v.bytes === undefined || v.bytes === cand.size),
@@ -431,6 +454,7 @@ export function libraryCandidates(
       // listed and filtered without being inflated, and read only if the user picks it.
       size: bytes.length,
       read: () => resolveBytes(bytes),
+      release: () => { if (isLazy(bytes)) bytes.release?.(); },
     });
   }
   return out;

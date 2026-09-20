@@ -242,7 +242,7 @@
     const idx = entry.indexOf(",");
     return idx >= 0 ? entry.slice(idx + 1).trim() : "";
   }
-  
+
   // --- Saves ---
   interface SaveSlot {
     slot: string; // "0", "1", "2", "3", "sram"
@@ -253,7 +253,7 @@
   let lfsTreeReady = $state(false);
   let lfsDataDir = $state<LittlefsTreeNode | null>(null);
   let loadingTree = $state(false);
-  
+
   async function fetchTreeOnce() {
     if (lfsTreeReady || loadingTree) return;
     if (device.targetMedia !== 'sd' && !device.utilLoaded) return;
@@ -310,7 +310,7 @@
 
   const gameSaves = $derived.by(() => {
     if (!lfsTreeReady || !lfsDataDir || !lfsDataDir.children) return [];
-    
+
     // Find console dir
     const consoleDirName = system === 'homebrew' ? 'homebrew' : system;
     const consoleDir = lfsDataDir.children.find(c => c.name === consoleDirName);
@@ -327,7 +327,7 @@
       }
     }
     let foundSlots: SaveSlot[] = [];
-    
+
     for (const file of consoleDir.children) {
       if (file.isDirectory) continue;
       let slot = "";
@@ -374,7 +374,7 @@
   let coverVariant = $state<"box" | "ss" | "mix3" | "mix4" | "mix5">("box");
   let lastScrapeLog = "";
   let missLog = "";
-  
+
   let previewCoverBlob = $state<Blob | null>(null);
   /** The preview came from the ladder's last rung, a name search with no system. A guess. */
   let previewIsGuess = $state(false);
@@ -388,7 +388,7 @@
     previewCoverBlob = new Blob([await file.arrayBuffer()], { type: file.type });
     await applyPreview();
   }
-  
+
   $effect(() => {
     if (previewCoverBlob) {
       const url = URL.createObjectURL(previewCoverBlob);
@@ -412,16 +412,16 @@
     /** The scraper's last line, so a miss can say WHICH miss. Cleared per run, not per app. */
     lastScrapeLog = "";
     missLog = "";
-    
+
     const hb = homebrew.find(basePath(gameKey));
     let buffer: Uint8Array | undefined;
-    
+
     let filename = "";
     let webkitPath = "";
     let sysId: number | null = null;
     /** The manifest's `originalName`, used AS GIVEN when stated. Null means "use the filename". */
     let lookupName: string | null = null;
-    
+
     if (hb && !hb.originalSystem) {
       // No `originalSystem` on the manifest (spec/03-manifest.md) means we have no idea which
       // art library this title belongs to, and a name-based search on a homebrew is a guess we
@@ -502,16 +502,22 @@
         const ids = systemIdsFor(resolved.system);
         sysId = ids.length > 0 ? ids[0] : null;
         lookupName = resolved.name ?? null;
+      } else if (resolved.kind === "folder") {
+        // Use the CANONICAL folder name (the shortName-based shortcode) so the scanner can look
+        // it up in the ScreenScraper system map. When the user's directory is named after the
+        // system's longName (e.g. `Game Boy Color/`), `resolved.system` is already normalised
+        // to the shortName-based folder (`gbc`), while `gameKey` still carries the display name.
+        webkitPath = `root/${resolved.system}/${filename}`;
       } else {
-        // A real console folder, or a folder nothing claims. Unchanged: the scraper derives the
-        // system from the path and, where it cannot, says so naming the folder.
+        // A folder nothing owns and no console claims. Unchanged: the scraper derives the system
+        // from the path and, where it cannot, says so naming the folder.
         webkitPath = "root/" + gameKey;
       }
     }
-    
+
     const file = new File([buffer as any], filename);
     Object.defineProperty(file, 'webkitRelativePath', { value: webkitPath });
-    
+
     try {
       await runCovers({
         files: [file],
@@ -560,7 +566,7 @@
         },
         shouldCancel: () => false
       });
-      
+
       if (!previewCoverBlob) {
         previewError = missLog
           ? locale.t.roms.gameDetailsPanel.coverArt.errPrefix(missLog.trim())
@@ -590,7 +596,7 @@
 
   async function applyPreview() {
     if (!previewCoverBlob) return;
-    
+
     let arr: Uint8Array;
     try {
       const gwBlob = await toGWCover(previewCoverBlob);
@@ -621,32 +627,32 @@
       baseName = filename.replace(/\.[^/.]+$/, "");
       coverPath = "covers/" + parts.slice(0, -1).join("/") + "/" + baseName + ".img";
     }
-    
+
     library.scan?.userRoms.set(coverPath, arr);
     library.markDirty(coverPath);
-    
+
     // Also save the high-res .png to memory so the UI prefers it immediately (since getCoverUrl checks .png first)
     const pngPath = coverPath.replace(/\.img$/, ".png");
     library.scan?.userRoms.set(pngPath, new Uint8Array(await previewCoverBlob.arrayBuffer()));
     library.markDirty(pngPath);
-    
+
     // If an inline cover exists in memory, remove it so the UI doesn't prioritize the old stale inline cover over the new covers/ one!
     let prefix = parts.slice(0, -1).join("/");
     if (hb) prefix = "homebrew";
-    
+
     const inlineImg = prefix ? `${prefix}/${baseName}.img` : `${baseName}.img`;
     const inlinePng = prefix ? `${prefix}/${baseName}.png` : `${baseName}.png`;
     const inlineJpg = prefix ? `${prefix}/${baseName}.jpg` : `${baseName}.jpg`;
     if (library.scan?.userRoms.has(inlineImg)) library.scan.userRoms.delete(inlineImg);
     if (library.scan?.userRoms.has(inlinePng)) library.scan.userRoms.delete(inlinePng);
     if (library.scan?.userRoms.has(inlineJpg)) library.scan.userRoms.delete(inlineJpg);
-    
+
     // Save ORIGINAL cover to disk (not the converted .img — conversion is session-only)
     if (ssSaveLocal && nativeFolderPickerSupported() && library.scan?.dir) {
       try {
         let relativePath = baseName + ".png";
         let isRomsFolder = library.scan.dir.name.toLowerCase() === "roms";
-        
+
         // If not the 'roms' folder directly, stick it in 'covers/'
         if (!isRomsFolder) {
           relativePath = "covers/" + relativePath;
@@ -662,7 +668,7 @@
             relativePath = (isRomsFolder ? "" : "covers/") + pathPrefix + "/" + baseName + ".png";
           }
         }
-        
+
         await saveFileToDirOrDownload(library.writeDirFor(rowPath) ?? library.scan.dir, relativePath, previewCoverBlob);
       } catch (e) {
         // The owner reported covers that "work for the session and then disappear". A
@@ -671,7 +677,7 @@
         dbg(`[covers] writing the applied cover to disk failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    
+
     if (onCoverChange) onCoverChange();
   }
 
@@ -736,7 +742,7 @@
   let importSortDesc = $state(false);
   let importFilterConsole = $state<string>("all");
   let defaultVariant = $state<"box" | "ss" | "mix3" | "mix4" | "mix5">("box");
-  
+
   let isImporting = $state(false);
   let importProgress = $state({ current: 0, total: 0 });
   let showGeneratedCovers = $state(true);
@@ -759,7 +765,7 @@
     isImporting = true;
     importPreviewBlob = null;
     importPreviewMessage = null;
-    
+
     const filesToScrape: File[] = [];
     const coverSourceDirs = new Map<string, RomDirHandle>();
     const keysToImport = [...importSelected].filter(key => !skipExistingCovers || !hasLocalCover(key));
@@ -771,7 +777,7 @@
       const filename = parts.pop();
       if (!filename) continue;
       const file = new File([buffer as BlobPart], filename);
-      
+
       // Same rule as generatePreview(): a homebrew with no `originalSystem` has no art
       // library to search, so it is SKIPPED rather than scraped blind by name. The directory
       // in this synthetic path is the scraper's system hint, not a destination.
@@ -780,9 +786,32 @@
         dbg(`[covers] ${filename}: ${locale.t.roms.gameDetailsPanel.coverArt.errNoOriginalSystem}`);
         continue;
       }
-      const webkitPath = hb ? `root/${hb.originalSystem}/${filename}` : `root/${key}`;
-      
+      let webkitPath: string;
+      if (hb) {
+        webkitPath = `root/${hb.originalSystem}/${filename}`;
+      } else {
+        // Resolve via coverSystemFor so a longName-named directory (e.g. `Game Boy Color/`) is
+        // normalised to its canonical shortName-based folder shortcode (`gbc`) before being
+        // handed to the scanner. Without this `isKnownSystemFolder` sees the display name and
+        // reports "Unknown system" for every ROM in the folder.
+        const resolved = coverSystemFor(
+          key,
+          coreRegistry.current.systems,
+          homebrew.titles,
+          isKnownSystemFolder,
+        );
+        if (resolved.kind === "manifest") {
+          webkitPath = `root/${resolved.system}/${filename}`;
+        } else if (resolved.kind === "folder") {
+          webkitPath = `root/${resolved.system}/${filename}`;
+        } else {
+          // unknown / unstated — let the scanner see the raw path and report accordingly.
+          webkitPath = `root/${key}`;
+        }
+      }
+
       Object.defineProperty(file, 'webkitRelativePath', { value: webkitPath });
+      (file as any).gnwOriginalKey = key;
       filesToScrape.push(file);
       const sourceDir = library.writeDirFor(key) ?? library.scan?.dir;
       if (sourceDir) coverSourceDirs.set(key.toLowerCase(), sourceDir);
@@ -796,10 +825,13 @@
       isImporting = false;
       return;
     }
-    
+
     try {
-      await runCovers({
-        files: filesToScrape,
+      const batchSize = 25;
+      for (let batchStart = 0; batchStart < filesToScrape.length; batchStart += batchSize) {
+        const batch = filesToScrape.slice(batchStart, batchStart + batchSize);
+        await runCovers({
+        files: batch,
         source: defaultVariant,
         convert: "none",
         ssid: ssUsername,
@@ -826,8 +858,8 @@
           );
         },
         onProgress: (done: number, total: number) => {
-          importProgress.current = done;
-          importProgress.total = total;
+          importProgress.current = batchStart + done;
+          importProgress.total = filesToScrape.length;
         },
         onStatus: () => {},
         // @ts-ignore
@@ -836,31 +868,37 @@
           if (acc.used !== null) ssRequestsUsed = acc.used;
         },
         onCover: async (cover: any) => {
-          const { blob, outputPath, name } = cover;
+          const { blob, outputPath, file } = cover;
+          const originalKey = file?.gnwOriginalKey;
           if (showGeneratedCovers) {
             importPreviewMessage = null;
             importPreviewBlob = blob;
           }
-          
-          // Re-map back to homebrew/ if this was a homebrew title we injected a console dir for
-          const hb = homebrew.titles.find(t => t.displayName === name || t.key === name);
-          let relPath = outputPath.startsWith("root/") ? outputPath.slice(5) : outputPath;
-          // GW conversion already returns a `covers/...` path. Normalize that prefix before the
-          // handler constructs its canonical `covers/<path>.img` and `.png` entries; otherwise
-          // the first imported Doom cover is stored as `covers/covers/doom/...` and disappears
-          // after reload because the reader only checks the single-prefix form.
-          if (relPath.startsWith("covers/")) relPath = relPath.slice("covers/".length);
-          if (hb) {
-            // Replace the injected console directory with "homebrew" (a no-op when none was
-            // published and we already filed it under homebrew/)
-            const parts = relPath.split("/");
-            parts[0] = "homebrew";
-            relPath = parts.join("/");
+
+          let relPath = "";
+          if (originalKey) {
+            // Reconstruct the correct path using the original game key so the cover goes into the
+            // folder the ROM actually lives in, ignoring any directory rewrites we did for the scanner.
+            const rowPath = basePath(originalKey);
+            const hb = homebrew.find(rowPath);
+            const outFilename = outputPath.split("/").pop() || "cover.png";
+
+            if (hb) {
+              relPath = `homebrew/${outFilename}`;
+            } else {
+              const parts = rowPath.split("/");
+              parts[parts.length - 1] = outFilename;
+              relPath = parts.join("/");
+            }
+          } else {
+            // Fallback just in case, mirroring old behavior
+            relPath = outputPath.startsWith("root/") ? outputPath.slice(5) : outputPath;
+            if (relPath.startsWith("covers/")) relPath = relPath.slice("covers/".length);
           }
-          
+
           const baseName = relPath.replace(/\.[^/.]+$/, "");
           const imgPath = `covers/${baseName}.img`;
-          
+
           // Convert to .img JPEG on ingest
           try {
             const gwBlob = await toGWCover(blob);
@@ -871,30 +909,30 @@
           } catch (e) {
             dbg(`[covers] converting a scraped cover failed: ${e instanceof Error ? e.message : String(e)}`);
           }
-          
-          // Also save the high-res .png to memory so the UI prefers it immediately
+
+          // Keep only the compact device cover in memory. The original high-resolution image
+          // is written to the owning source folder below and will be discovered on the next scan.
           const pngPath = imgPath.replace(/\.img$/, ".png");
-          library.scan?.userRoms.set(pngPath, new Uint8Array(await blob.arrayBuffer()));
-          if (library.scan) library.markDirty(pngPath);
-          
+          if (library.scan?.userRoms.has(pngPath)) library.scan.userRoms.delete(pngPath);
+
           const inlineImgPath = relPath.replace(/\.[^/.]+$/, ".img");
           const inlinePngPath = relPath.replace(/\.[^/.]+$/, ".png");
           const inlineJpgPath = relPath.replace(/\.[^/.]+$/, ".jpg");
           if (library.scan?.userRoms.has(inlineImgPath)) library.scan.userRoms.delete(inlineImgPath);
           if (library.scan?.userRoms.has(inlinePngPath)) library.scan.userRoms.delete(inlinePngPath);
           if (library.scan?.userRoms.has(inlineJpgPath)) library.scan.userRoms.delete(inlineJpgPath);
-          
+
           // Save ORIGINAL format to disk (not the converted .img)
           if (ssSaveLocal && nativeFolderPickerSupported() && library.scan?.dir) {
             try {
               const parts = relPath.split("/");
               let relativePath = parts[parts.length - 1];
               let isRomsFolder = library.scan.dir.name.toLowerCase() === "roms";
-              
+
               if (!isRomsFolder) {
                 relativePath = "covers/" + relativePath;
               }
-              
+
               if (hb) {
                 relativePath = (isRomsFolder ? "homebrew/" : "covers/homebrew/") + parts[parts.length - 1];
               } else {
@@ -903,8 +941,9 @@
                   relativePath = (isRomsFolder ? "" : "covers/") + pathPrefix + "/" + parts[parts.length - 1];
                 }
               }
-              
-              const coverSource = coverSourceDirs.get(relPath.toLowerCase())
+
+              const lookupKey = originalKey ? originalKey.toLowerCase() : relPath.toLowerCase();
+              const coverSource = coverSourceDirs.get(lookupKey)
                 ?? library.writeDirFor(relPath)
                 ?? library.scan.dir;
               await saveFileToDirOrDownload(coverSource, relativePath, blob);
@@ -912,11 +951,14 @@
               dbg(`[covers] writing a scraped cover to disk failed: ${e instanceof Error ? e.message : String(e)}`);
             }
           }
-          
+
           if (onCoverChange) onCoverChange();
         },
         shouldCancel: () => !isImporting
-      });
+        });
+        batch.length = 0;
+      }
+      filesToScrape.length = 0;
       importSelected = new Set();
       showImportModal = false;
     } catch (e: any) {
@@ -938,20 +980,43 @@
     const rowPath = basePath(gameKey);
     const hb = homebrew.find(rowPath);
     let coverPathBase = "";
+    let inlinePathBase = "";
 
     if (hb) {
       coverPathBase = `covers/homebrew/${hb.displayName}`;
+      inlinePathBase = `homebrew/${hb.displayName}`;
     } else {
       const parts = rowPath.split("/");
       if (parts.length < 2) return false;
       const filename = parts[parts.length - 1];
       const baseName = filename.replace(/\.[^/.]+$/, "");
-      coverPathBase = "covers/" + parts.slice(0, -1).join("/") + "/" + baseName;
+      const prefix = parts.slice(0, -1).join("/");
+      coverPathBase = "covers/" + prefix + "/" + baseName;
+      inlinePathBase = prefix + "/" + baseName;
     }
-    
+
+    // Check both standard covers/ path and inline sibling path.
+    // We also do a quick case-insensitive scan if exact matches fail, since directory scanning
+    // preserves on-disk case while scraper outputs lowercase.
+    const toCheck = [];
     for (const ext of [".img", ".png", ".jpg", ".jpeg"]) {
-      if (library.scan?.userRoms.has(`${coverPathBase}${ext}`)) return true;
+      toCheck.push(`${coverPathBase}${ext}`);
+      toCheck.push(`${inlinePathBase}${ext}`);
     }
+
+    for (const path of toCheck) {
+      if (library.scan?.userRoms.has(path)) return true;
+    }
+
+    // Case-insensitive fallback (mirrors getCoverUrl logic)
+    if (library.scan) {
+      const lowerToCheck = toCheck.map(p => p.toLowerCase());
+      for (const diskPath of library.scan.userRoms.keys()) {
+        const lowerDiskPath = diskPath.toLowerCase();
+        if (lowerToCheck.includes(lowerDiskPath)) return true;
+      }
+    }
+
     return false;
   }
 
@@ -1009,7 +1074,7 @@
       clearTimeout(loadTimeout);
       selectedSlot = null;
       screenshotDataUrl = null;
-      
+
       loadTimeout = setTimeout(() => {
         if (device.utilLoaded || device.targetMedia === 'sd') {
           fetchTreeOnce().then(() => selectDefaultSlot());
@@ -1036,7 +1101,7 @@
     const pixels = Math.floor(raw.length / 2);
     let width = 320;
     let height = 240;
-    
+
     // Match known Retro-Go framebuffer exact dimensions
     if (pixels === 320 * 240) { width = 320; height = 240; }
     else if (pixels === 256 * 240) { width = 256; height = 240; } // NES
@@ -1063,10 +1128,10 @@
     canvas.height = height;
     const ctx = canvas.getContext("2d")!;
     const imgData = ctx.createImageData(width, height);
-    
+
     let o = 0;
     let minX = width, maxX = 0, minY = height, maxY = 0;
-    
+
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = y * width + x;
@@ -1074,41 +1139,41 @@
         const r = ((p >> 11) & 0x1f) * 255 / 31;
         const g = ((p >> 5) & 0x3f) * 255 / 63;
         const b = (p & 0x1f) * 255 / 31;
-        
+
         if (p !== 0) {
           if (x < minX) minX = x;
           if (x > maxX) maxX = x;
           if (y < minY) minY = y;
           if (y > maxY) maxY = y;
         }
-        
+
         imgData.data[o++] = r;
         imgData.data[o++] = g;
         imgData.data[o++] = b;
         imgData.data[o++] = 255;
       }
     }
-    
+
     // If the image is completely blank, fallback to full size
     if (minX > maxX || minY > maxY) {
       minX = 0; maxX = width - 1;
       minY = 0; maxY = height - 1;
     }
-    
+
     const cropWidth = maxX - minX + 1;
     const cropHeight = maxY - minY + 1;
-    
+
     // Create an intermediate canvas to hold the full uncropped image
     const fullCanvas = document.createElement("canvas");
     fullCanvas.width = width;
     fullCanvas.height = height;
     fullCanvas.getContext("2d")!.putImageData(imgData, 0, 0);
-    
+
     // Size the final canvas to the cropped bounding box
     canvas.width = cropWidth;
     canvas.height = cropHeight;
     ctx.drawImage(fullCanvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-    
+
     return canvas.toDataURL("image/png");
   }
 
@@ -1315,14 +1380,14 @@
         >
           {locale.t.roms.gameDetailsPanel.coverArt.dragDropOverride}
           <input
-            type="file" 
-            bind:this={fileInput} 
-            accept=".png,.jpg,.jpeg,.bmp" 
-            style="display: none" 
+            type="file"
+            bind:this={fileInput}
+            accept=".png,.jpg,.jpeg,.bmp"
+            style="display: none"
             onchange={(e) => {
               const f = (e.target as HTMLInputElement).files?.[0];
               if (f) handleOverrideFile(f);
-            }} 
+            }}
           />
         </div>
       {/if}
@@ -1341,7 +1406,7 @@
 
       {#if library.scan}
         <div class="download-row">
-          <button 
+          <button
             class="action action-sm"
             onclick={async () => {
               const zip = new JSZip();
@@ -1498,7 +1563,7 @@
           <p class="muted">{locale.t.roms.gameDetailsPanel.cheats.unsupportedConsole}</p>
         </div>
       {/if}
-      
+
       {#if isWholeFileSystem}
         <!-- MSX/Coleco/SG-1000: cheats are one whole .mcf file per game, not a toggleable code
              list — so this is a single atomic attach/detach action, not a checklist. -->
@@ -1753,8 +1818,8 @@
           <thead>
             <tr>
               <th class="check">
-                <input type="checkbox" 
-                  checked={sortedImportGames.length > 0 && sortedImportGames.every(g => importSelected.has(g.key))} 
+                <input type="checkbox"
+                  checked={sortedImportGames.length > 0 && sortedImportGames.every(g => importSelected.has(g.key))}
                   indeterminate={sortedImportGames.some(g => importSelected.has(g.key)) && !sortedImportGames.every(g => importSelected.has(g.key))}
                   onchange={(e) => {
                     const isAllSelected = sortedImportGames.length > 0 && sortedImportGames.every(g => importSelected.has(g.key));
@@ -1765,7 +1830,7 @@
                       sortedImportGames.forEach(g => next.add(g.key));
                     }
                     importSelected = next;
-                  }} 
+                  }}
                 />
               </th>
               <th>{locale.t.roms.gameDetailsPanel.importModal.consoleColumn}</th>
@@ -1922,7 +1987,7 @@
     gap: 1rem;
     margin-top: 1rem;
   }
-  
+
   /* --- The tab strip -----------------------------------------------------------------------
      Boards: `padding: 18px 28px 0; display: flex; gap: 28px; border-bottom: 1px solid #d8d8d8`
      with the active item carrying `box-shadow: inset 0 -3px 0` in the accent. Same shape as the
@@ -2147,19 +2212,19 @@
     flex-direction: column;
     min-width: 0;
   }
-  
+
   .panel h3 {
     margin: 0 0 0.5rem 0;
     font-size: var(--fs-body);
     font-weight: 600;
   }
-  
+
   .panel hr {
     border: none;
     border-bottom: 1px solid var(--hairline);
     margin: 0 0 0.75rem 0;
   }
-  
+
   .panel-content {
     flex: 1;
     display: flex;
@@ -2167,7 +2232,7 @@
     min-height: 200px;
     min-width: 0;
   }
-  
+
   /* Saves */
   /* Artboard: the Saves column is a normal 14px stack whose children run the full column
      width (the preview plate stretches between the two chevrons) — not centred and
@@ -2209,7 +2274,7 @@
     border-color: var(--ink);
     font-weight: 600;
   }
-  
+
   .saves-preview-container {
     display: flex;
     align-items: center;
@@ -2294,7 +2359,7 @@
   .cheats-content {
     flex-direction: column;
   }
-  
+
   .cheats-panel.disabled {
     position: relative;
     /* Containing block for `.cheats-overlay`, and the stacking context that keeps its lift
@@ -2488,7 +2553,7 @@
   .add-cheat-btn:hover:not(:disabled) {
     text-decoration: underline;
   }
-  
+
   .action {
     font: inherit;
     font-size: var(--fs-caption);

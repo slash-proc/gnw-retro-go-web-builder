@@ -39,6 +39,25 @@ export interface FolderOwnerSystem {
   folder: string;
   /** `owner/repo#targetId`, the same key shape `HomebrewTitle.key` uses. */
   targetKey: string;
+  /**
+   * The system's human-readable short display name (`systems[].shortName`).
+   *
+   * Optional because callers that only supply `folder` and `targetKey` (the historical shape)
+   * still compile. Present on `RegisteredSystem`, which is what the panel passes.
+   *
+   * Used to resolve a game key whose directory segment is the `shortName` rather than the
+   * canonical `folder` (e.g. a user named their ROM directory after the short name). Returns
+   * the canonical `folder` so the scraper always receives a known shortcode.
+   */
+  shortName?: string;
+  /**
+   * The system's long display name (`systems[].longName`).
+   *
+   * Used alongside `shortName` when ROMs live in a folder named after the long name (e.g.
+   * `Game Boy Color/`) — the feature that prompted this fix. Again the canonical `folder` is
+   * returned so covers look up by the shortName-based key, not a display string.
+   */
+  longName?: string;
 }
 
 /** The half of a title this decision needs. */
@@ -88,6 +107,24 @@ export function coverSystemFor(
   // A real console folder answers for itself. Checked FIRST so a core publishing a converter for
   // an existing console cannot pull that console's ROMs onto its own provenance.
   if (folderResolves(folder)) return { kind: "folder", system: folder };
+
+  // ROMs may live in a folder named after the system's shortName or longName rather than the
+  // canonical folder shortcode (e.g. `Game Boy Color/` instead of `gbc/`). When a registered
+  // system's display names match, treat this exactly like a real console folder — but return the
+  // CANONICAL folder (the shortName-based one) so the scraper receives a shortcode it can look
+  // up, not a display string it cannot.
+  //
+  // Checked BEFORE the core-target ownership path for the same reason `folderResolves` is first:
+  // a core publishing a converter for an existing console declared by a different repo must not
+  // redirect that console's ROMs at its own provenance.
+  const byName = systems.find((s) => {
+    // Skip the exact-folder match — that is handled below by the core-ownership path.
+    if (s.folder === folder) return false;
+    const short = (s.shortName ?? "").toLowerCase();
+    const long = (s.longName ?? "").toLowerCase();
+    return (short && short === folder) || (long && long === folder);
+  });
+  if (byName) return { kind: "folder", system: byName.folder };
 
   // Owned by a core target? Matched by FOLDER, never by name: the folder is what the scan key
   // actually carries, and two projects may share a title.

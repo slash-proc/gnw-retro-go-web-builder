@@ -147,12 +147,11 @@
         {#if latestScreenshotUrl}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <img
-            src={latestScreenshotUrl}
-            alt={locale.t.overview.screenshot.alt}
+          <canvas
+            bind:this={canvasEl}
             onclick={downloadScreenshot}
             title={locale.t.overview.screenshot.clickToDownload}
-          />
+          ></canvas>
         {:else}
           <div class="screenshot-placeholder">{locale.t.overview.screenshot.noScreenshotCaptured}</div>
         {/if}

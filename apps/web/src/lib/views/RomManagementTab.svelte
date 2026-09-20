@@ -339,7 +339,14 @@ import { navigate } from "../nav.js";
       if (!root) return;
       const scan = await scanRomDirectory(root);
       if (gen !== cheatsBaselineGen) return;
-      for (const [path, data] of scan.userRoms) parseCheatsFile(path, await romBytes(data), parsed, parsedFiles);
+      for (const [path, data] of scan.userRoms) {
+        // Filter by path before resolving bytes. The SD scan is lazy; resolving every entry here
+        // just to have parseCheatsFile reject ordinary ROMs inflated the entire card library when
+        // the Library opened. Cheat baseline loading should read only actual cheat files.
+        if (!path.startsWith("cheats/") ||
+            !(path.endsWith(".ggcodes") || path.endsWith(".mcf") || path.endsWith(".pceplus"))) continue;
+        parseCheatsFile(path, await romBytes(data), parsed, parsedFiles);
+      }
     } else {
       // Mirrors GameDetailsPanel's Saves-panel gate exactly — only read once the util is
       // already loaded THIS session (never proactively calls ensureStub() itself, so this
@@ -1141,7 +1148,7 @@ import { navigate } from "../nav.js";
     coverIndex = new Map();
     for (const path of files.keys()) coverIndex.set(basePath(path).toLowerCase(), path);
   }
-  
+
   function getCoverUrl(key: string, _version = 0, lowResolution = false) {
     // A second folder's differing file under the same name is keyed `<path>\0<id>` (see
     // sources/libraryScan.ts). The cover is a sibling of the real path, so the id comes off
@@ -1152,7 +1159,7 @@ import { navigate } from "../nav.js";
     if (cache.has(gameKey)) return cache.get(gameKey)!;
     let system = "";
     let base = "";
-    
+
     const hb = homebrew.find(gameKey);
     if (hb) {
       system = "homebrew";
@@ -1168,10 +1175,15 @@ import { navigate } from "../nav.js";
     } else {
       const parts = gameKey.split("/");
       if (parts.length < 2) return "";
-      system = parts[0];
-      base = parts[1].replace(/\.[^/.]+$/, "");
+
+      const filename = parts[parts.length - 1];
+      const baseName = filename.replace(/\.[^/.]+$/, "");
+      const prefix = parts.slice(0, -1).join("/");
+
+      system = prefix;
+      base = baseName;
     }
-    
+
     // Check both standard paths and inline paths (prefer high-quality originals, fallback to .img)
     const extensions = lowResolution
       ? [".img", ".jpg", ".jpeg", ".png"]
@@ -1179,7 +1191,7 @@ import { navigate } from "../nav.js";
     for (const ext of extensions) {
       const inlinePath = `${system}/${base}${ext}`;
       const coversPath = `covers/${system}/${base}${ext}`;
-      
+
       let matchPath = null;
       if (library.scan?.userRoms.has(inlinePath)) matchPath = inlinePath;
       else if (library.scan?.userRoms.has(coversPath)) matchPath = coversPath;
@@ -1194,7 +1206,7 @@ import { navigate } from "../nav.js";
           if (found) { matchPath = found; break; }
         }
       }
-      
+
       if (matchPath) {
         const entry = library.scan!.userRoms.get(matchPath)!;
         const coverBytes = romBytesIfLoaded(entry);
@@ -1354,8 +1366,8 @@ import { navigate } from "../nav.js";
     // be reused for the write.
     frogfsOffset,
     ceilingOffset,
-    ...romSelection.selectedKeys, 
-    ...romSelection.selectedHomebrewKeys, 
+    ...romSelection.selectedKeys,
+    ...romSelection.selectedHomebrewKeys,
     ...extractedAssets.keys(),
     ...deviceCoreFiles(),
     ...Object.entries(configuredCheats).map(([k, v]) => `${k}:${v.join(",")}`),
@@ -1911,7 +1923,7 @@ import { navigate } from "../nav.js";
       return hb && !hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f));
     }).length
   );
-  
+
   const hbRemovals = $derived(
     homebrew.titles.filter(hb => hb.deviceFiles.every(f => deviceHomebrew.some(g => g.name === f)) && !romSelection.selectedHomebrewKeys.has(hb.key)).length + romSelection.deletedUnknownHomebrew.size
   );
@@ -3801,7 +3813,7 @@ import { navigate } from "../nav.js";
                 {@const starred = favorites.has(g.key)}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div 
+                <div
                   class="row"
                   class:sel={tableSelectedId === g.key}
                   style={state.disabled ? "opacity: 0.5; cursor: not-allowed;" : ""}
@@ -3839,7 +3851,7 @@ import { navigate } from "../nav.js";
                   <span class="gname">{g.name}</span>
                   <span class="gsize">{g.size > 0 ? formatSize(g.size) : "—"}</span>
                   <StatusChip kind={state.cls} disabled={state.disabled} onclick={(e) => {
-                    e.stopPropagation(); 
+                    e.stopPropagation();
                     if (pressAddsBytes(state.label)) {
                       const extraBytes = g.isHomebrew ? getHomebrewSize(g.hb.key) : g.size;
                       if (!validateFit(extraBytes)) return;
@@ -3856,7 +3868,7 @@ import { navigate } from "../nav.js";
                      the activity log holds what was said, and the bell raises errors only. -->
                 <!-- @NO-ROW-VERDICT (apps/web/test/auditlog.mjs guards this) -->
               {/each}
-              
+
               {#if consoleFilter === "all" || consoleFilter === "homebrew"}
                 {#each unknownHomebrew as g (g.name)}
                   <div class="row">
@@ -3877,21 +3889,21 @@ import { navigate } from "../nav.js";
 
               </div> <!-- games-pane -->
             </div> <!-- left-column -->
-          
+
           <div class="carousel-pane">
             <div style="flex: 1; min-height: 0;">
                 <Carousel
-                covers={carouselCovers} 
-                bind:selectedId={selectedCarouselId} 
+                covers={carouselCovers}
+                bind:selectedId={selectedCarouselId}
                 onSelect={onCarouselSelect}
                 onScrubState={onCarouselScrubState}
-                getUrl={(key) => getCoverUrl(key, coverVersion)} 
+                getUrl={(key) => getCoverUrl(key, coverVersion)}
                 getLodUrl={(key) => getCoverUrl(key, coverVersion, true)}
                 systemLabel={(c) => c.system}
                 version={coverVersion}
               />
             </div>
-            
+
             <div class="info-pane">
               {#if detailsSelectedId}
                 {@const activeGame = visibleGameByKey.get(detailsSelectedId)}
@@ -3913,8 +3925,8 @@ import { navigate } from "../nav.js";
                       <span class="info-dot" aria-hidden="true"></span>
                       <span class="info-meta info-size mono">{activeGame.size > 0 ? formatSize(activeGame.size) : '—'}</span>
                       {#if state && state.label !== 'missing rom'}
-                        <StatusChip kind={state.cls} disabled={state.disabled} style="margin-left: 0.5rem;" onclick={(e) => { 
-                          e.stopPropagation(); 
+                        <StatusChip kind={state.cls} disabled={state.disabled} style="margin-left: 0.5rem;" onclick={(e) => {
+                          e.stopPropagation();
                           if (pressAddsBytes(state.label)) {
                             const extraBytes = activeGame.isHomebrew ? getHomebrewSize(activeGame.hb.key) : activeGame.size;
                             if (!validateFit(extraBytes)) return;

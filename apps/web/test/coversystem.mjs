@@ -92,6 +92,22 @@ await check("a real console folder still answers for itself", () => {
   }
 });
 
+await check("a folder named by longName or shortName resolves to the canonical folder", () => {
+  const systems = [
+    { folder: "gbc", targetKey: "a/gbc#t", shortName: "Game Boy Color", longName: "Nintendo Game Boy Color" },
+    { folder: "gb", targetKey: "a/gb#t", shortName: "Game Boy", longName: "Nintendo Game Boy" }
+  ];
+  // Short name match
+  const gotShort = coverSystemFor("game boy color/Pokemon.gbc", systems, [], isKnownSystemFolder);
+  eq(gotShort.kind, "folder", "a folder named by shortName is treated as a console folder");
+  eq(gotShort.system, "gbc", "and resolves to the canonical shortcode folder");
+
+  // Long name match
+  const gotLong = coverSystemFor("nintendo game boy/Tetris.gb", systems, [], isKnownSystemFolder);
+  eq(gotLong.kind, "folder", "a folder named by longName is treated as a console folder");
+  eq(gotLong.system, "gb", "and resolves to the canonical shortcode folder");
+});
+
 await check("a console folder a core also owns is NOT redirected", () => {
   // The regression this ordering prevents: a core with a converter for `snes` declaring its own
   // provenance must not make every SNES ROM scrape against that provenance.

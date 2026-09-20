@@ -59,7 +59,7 @@ declare global {
 
 import { homebrew, isHomebrewSourceFile } from "./sources/homebrewTitles.svelte.js";
 import { zipList, zipExtractOne, CentralDirectoryOutOfRange, type ZipEntry } from "./unzip.js";
-import { isLazy, resolveBytes, type LazyBytes, type MaybeLazy } from "./lazyBytes.js";
+import { isLazy, noteLazyRead, noteLazyRelease, resolveBytes, type LazyBytes, type MaybeLazy } from "./lazyBytes.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { isKnownConsoleDir, type CoreRegistry } from "./sources/coreRegistry.js";
 import { homebrewDirs } from "./engine/devicePaths.js";
@@ -111,7 +111,11 @@ export class LazyRom implements LazyBytes {
   async bytes(): Promise<Uint8Array> {
     if (this.cached) return this.cached;
     if (!this.inflight) {
+      const caller = new Error().stack?.split("\n").slice(2).find((line) =>
+        !line.includes("romScan") && !line.includes("lazyBytes")
+      )?.trim() || "unknown";
       this.inflight = this.load().then((b) => {
+        noteLazyRead(b.byteLength, caller);
         this.cached = b;
         this.inflight = null;
         return b;
@@ -121,6 +125,7 @@ export class LazyRom implements LazyBytes {
   }
 
   release(): void {
+    if (this.cached) noteLazyRelease(this.cached.byteLength);
     this.cached = null;
   }
 }
