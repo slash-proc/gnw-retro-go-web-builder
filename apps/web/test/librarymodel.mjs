@@ -20,6 +20,7 @@ await esbuild.build({
 });
 const {
   coverPathsForRom,
+  createLibraryRom,
   indexLibraryRoms,
   libraryCoverForPath,
   libraryCoverCacheKey,
@@ -122,6 +123,26 @@ check("core source references preserve repository, bundle and raw-binary provena
     eq(rom.system.source.kind, sourceKinds[index], "source kind");
     eq(JSON.parse(JSON.stringify(rom)), rom, "serializable ROM metadata");
   }
+});
+
+check("the construction seam creates metadata without materializing bytes", () => {
+  const rom = createLibraryRom({
+    sourceId: "source-a",
+    source: { id: "source-a", name: "Roms", folderName: "Roms" },
+    path: "Game Boy Advance/Game.gba",
+    size: 4096,
+    lastModified: 123,
+    system: {
+      id: "gba", folder: "Game Boy Advance", shortName: "gba", longName: "Game Boy Advance",
+      coreSourceIds: ["core-gba"], primaryCoreSourceId: "core-gba",
+    },
+    role: "installable",
+    installed: false,
+  });
+  eq(rom.file.filename, "Game.gba", "filename metadata");
+  eq(rom.cover.originalPaths[0], "Game Boy Advance/Game.png", "source-relative cover");
+  ok(!Object.prototype.hasOwnProperty.call(rom, "bytes"), "no ROM bytes field");
+  eq(JSON.parse(JSON.stringify(rom)), rom, "round-trip metadata");
 });
 
 console.log(`\nlibrarymodel: ${passed} passed, ${failed} failed`);
