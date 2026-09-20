@@ -104,7 +104,6 @@
   // unbounded high-resolution cache while scrubbing.
   const PRELOAD_RADIUS = 20;
   const FULL_RES_MAX_SPEED = 100;
-  const FULL_RES_PRELOAD_RADIUS = 20;
   let tilesPerSecond = $state(0);
   let lastFocusSample = 0;
   let lastFocusIndex = 0;
