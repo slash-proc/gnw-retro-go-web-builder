@@ -243,6 +243,9 @@ export async function discoverInput(
   // run producing a name that collides with the first.
   const consumed = new Set<CandidateFile>();
   const seenVariants = new Set<string>();
+  // Only successful variant matches survive the hash pass. Keeping these bytes avoids reading
+  // the same candidate a second time when it is handed to the input gate below.
+  const matchedBytes = new Map<CandidateFile, Uint8Array>();
   let hashed = 0;
 
   const plausible = sizePlausible(input.variants, byExtension);
@@ -253,24 +256,25 @@ export async function discoverInput(
   const hashCandidates = plausible.length <= AUTO_HASH_CANDIDATE_LIMIT ? plausible : [];
   for (const cand of hashCandidates) {
     const bytes = await cand.read();
-    let sha1: string;
-    try {
-      sha1 = (await deps.hash(bytes)).toLowerCase();
-    } finally {
-      // Discovery is a scan-time probe. It must not turn every extension-compatible ROM into a
-      // permanent cache entry merely because a manifest omitted variant sizes. Matched files are
-      // read again below when they are actually offered; unmatched candidates are discarded.
-      cand.release?.();
-    }
+    const sha1 = (await deps.hash(bytes)).toLowerCase();
     hashed++;
     const variant = input.variants.find(
       (v) => v.sha1.toLowerCase() === sha1 && (v.bytes === undefined || v.bytes === cand.size),
     );
-    if (!variant) continue;
+    if (!variant) {
+      // Discovery is a scan-time probe. An unmatched candidate must not become a permanent
+      // cache entry merely because a manifest omitted variant sizes.
+      cand.release?.();
+      continue;
+    }
     consumed.add(cand);
     // The same dump found in two registered folders is ONE input, not two runs of it.
-    if (seenVariants.has(variant.id)) continue;
+    if (seenVariants.has(variant.id)) {
+      cand.release?.();
+      continue;
+    }
     seenVariants.add(variant.id);
+    matchedBytes.set(cand, bytes);
     const found: DiscoveredFile = {
       path: cand.path,
       folderId: cand.folderId,
@@ -302,7 +306,11 @@ export async function discoverInput(
 
   const offered: OfferedFile[] = [];
   for (const { cand } of ordered) {
-    offered.push({ inputId: input.id, filename: baseNameOf(cand.path), bytes: await cand.read() });
+    offered.push({
+      inputId: input.id,
+      filename: baseNameOf(cand.path),
+      bytes: matchedBytes.get(cand) ?? await cand.read(),
+    });
   }
 
   // ONE matcher. The gate re-derives the verdict for exactly these files (a handful, already
