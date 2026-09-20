@@ -66,7 +66,10 @@ function saveZipScanCache(cache: Map<string, Map<string, ZipScanCacheEntry>>): v
  * Runs on ingest — originals on disk are untouched; only the in-memory session
  * cache holds the converted bytes.
  */
-export async function convertCoversInMap(userRoms: Map<string, LibraryFile>): Promise<void> {
+export async function convertCoversInMap(
+  userRoms: Map<string, LibraryFile>,
+  fileOrigin: ReadonlyMap<string, string> = new Map(),
+): Promise<void> {
   const derivedCoverCache = coverBlobStore();
   const toConvert: string[] = [];
   for (const path of userRoms.keys()) {
@@ -95,7 +98,8 @@ export async function convertCoversInMap(userRoms: Map<string, LibraryFile>): Pr
       const sourceStamp = typeof source === "object" && source !== null && "lastModified" in source
         ? (source as { lastModified?: number }).lastModified
         : undefined;
-      const cacheKey = `library-img:${path}:${source.length}:${sourceStamp ?? 0}`;
+      const origin = fileOrigin.get(path) ?? "unknown-source";
+      const cacheKey = `library-img:${origin}:${path}:${source.length}:${sourceStamp ?? 0}`;
       const cached = await derivedCoverCache.get(cacheKey);
       const imgPath = path.slice(0, path.lastIndexOf(".")) + ".img";
       const devicePath = imgPath.startsWith("covers/") ? imgPath : `covers/${imgPath}`;

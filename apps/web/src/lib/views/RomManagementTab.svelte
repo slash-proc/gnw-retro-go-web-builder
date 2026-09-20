@@ -2862,7 +2862,7 @@ import { navigate } from "../nav.js";
     if (library.scan) {
       // Device-format sidecars are derived only when an SD sync needs them. Originals stay
       // source-relative and lazy; conversion reuses the persistent OPFS cover cache.
-      await convertCoversInMap(library.scan.userRoms);
+      await convertCoversInMap(library.scan.userRoms, library.fileOrigin);
       for (const [path, data] of library.scan.userRoms) {
         if (classifyContentPath(path).category !== "cover") continue;
         if (coverBelongsToInstalledOrSelected(path)) selectedFolder.set(path, data);
