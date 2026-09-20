@@ -16,7 +16,7 @@ import { device } from "./device.svelte.js";
 import { consoleLabel } from "./engine/consoles.js";
 import { homebrew } from "./sources/homebrewTitles.svelte.js";
 import { displayName, localFolders } from "./sources/localFolders.svelte.js";
-import { libraryFileMeta, libraryRomId, type LibraryRom } from "./sources/libraryModel.js";
+import { libraryFileMeta, libraryFileMetaFromScan, libraryRomId, type LibraryRom } from "./sources/libraryModel.js";
 import { basePath } from "./sources/libraryScan.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import {
@@ -358,12 +358,13 @@ class RomSelectionStore {
       size: number,
       installed: boolean,
       sourceId?: string,
+      scanEntry?: LibraryFile,
     ): LibraryRom => {
       const registered = coreRegistry.current.byFolder.get(parsed.system.toLowerCase());
       const source = sourceId ? localFolders.get(sourceId) : undefined;
       return {
         id: libraryRomId(sourceId ?? "device", path),
-        file: libraryFileMeta(path, size),
+        file: scanEntry ? libraryFileMetaFromScan(path, scanEntry) : libraryFileMeta(path, size),
         directorySource: source
           ? { id: source.id, name: displayName(source), folderName: source.folderName }
           : undefined,
@@ -407,7 +408,7 @@ class RomSelectionStore {
 
         const key = canonicalKey(path, parsed);
         if (!findByCardKey(key)) {
-          const rom = structuredRom(path, parsed, data.length, false, library.fileOrigin.get(path));
+          const rom = structuredRom(path, parsed, data.length, false, library.fileOrigin.get(path), data);
           byKey.set(key, { key, system: parsed.system, name: parsed.name, size: data.length, inFolder: true, installed: false, role: parsed.role, rom });
         }
       }

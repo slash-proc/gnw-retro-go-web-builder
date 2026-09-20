@@ -8,6 +8,7 @@
  */
 
 import type { FileRole } from "./coreRegistry.js";
+import type { MaybeLazy } from "../lazyBytes.js";
 
 /** The persisted half of a user-selected DirectorySource. */
 export interface DirectorySourceRef {
@@ -96,6 +97,17 @@ export function libraryFileMeta(relativePath: string, size: number, lastModified
     size,
     ...(lastModified === undefined ? {} : { lastModified }),
   };
+}
+
+/** Build metadata directly from a scan entry without resolving a lazy ROM. */
+export function libraryFileMetaFromScan(
+  relativePath: string,
+  entry: MaybeLazy,
+): LibraryFileMeta {
+  const lastModified = typeof entry === "object" && entry !== null && "lastModified" in entry
+    ? (entry as { lastModified?: number }).lastModified
+    : undefined;
+  return libraryFileMeta(relativePath, entry.length, lastModified);
 }
 
 /** Indexes used by the Library model; values remain serializable when converted to arrays. */

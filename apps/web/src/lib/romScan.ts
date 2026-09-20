@@ -98,6 +98,8 @@ export class LazyRom implements LazyBytes {
     private readonly load: () => Promise<Uint8Array>,
     /** For diagnostics: the archive this came out of. */
     readonly archive: string,
+    /** File metadata used by incremental scans; never requires reading the payload. */
+    readonly lastModified?: number,
   ) {
     this.length = length;
   }
@@ -359,6 +361,7 @@ async function walk(
           file.size,
           async () => new Uint8Array(await (await handle.getFile()).arrayBuffer()),
           rel,
+          file.lastModified,
         ),
       );
       onFile?.(rel);
