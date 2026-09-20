@@ -334,7 +334,9 @@ and device storage remain bounded by the `.img` derivatives.
 ### Current implementation status
 
 The metadata-first `LibraryRom` seam, source-qualified identity, in-memory source reconciliation,
-and the versioned `library-metadata-index.v1` metadata cache are implemented. The cache contains
+and the versioned `library-metadata-index.v1` metadata cache are implemented. Source-relative cover
+resolution now lives on the Library store, and SD sync reuses the completed card inventory instead
+of blindly rescanning the card. The cache contains
 only `{ relativePath, filename, extension, size, lastModified }` records keyed by DirectorySource;
 it never stores handles, byte providers, ROM payloads, or image data. `LibraryRom` construction is
 centralized in `libraryModel.ts`, while the remaining migration work is to make more consumers
