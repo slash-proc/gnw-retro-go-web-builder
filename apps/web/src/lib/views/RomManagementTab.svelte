@@ -1363,7 +1363,8 @@ import { navigate } from "../nav.js";
       }
 
       if (matchPath) {
-        const entry = library.scan!.userRoms.get(matchPath)!;
+        const entry = library.fileForPath(matchPath, library.fileOrigin.get(matchPath))
+          ?? library.scan!.userRoms.get(matchPath)!;
         const coverBytes = romBytesIfLoaded(entry);
         if (!coverBytes) {
           const loadKey = `${lowResolution ? "lod:" : "full:"}${gameKey}`;
@@ -1484,7 +1485,9 @@ import { navigate } from "../nav.js";
     const inputId = title.tool.inputs[0]?.id;
     if (!inputId) return;
     const key: string | undefined = g.inputKey;
-    const entry = key ? library.scan?.userRoms.get(key) : undefined;
+    const entry = g.rom
+      ? (library.fileForRom(g.rom) ?? (key ? library.scan?.userRoms.get(key) : undefined))
+      : (key ? library.scan?.userRoms.get(key) : undefined);
     if (entry) {
       const bytes = await romBytes(entry);
       await runPrepare(title, [{ inputId, filename: g.originFilename, bytes }]);
