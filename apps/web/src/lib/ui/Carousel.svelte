@@ -55,20 +55,30 @@
   const decodedUrls = new Set<string>();
   const pendingDecodes = new Map<string, Promise<void>>();
   const pendingImages = new Map<string, HTMLImageElement>();
-  function preloadUrl(url: string): void {
+  const pendingLodUrls = new Set<string>();
+  function preloadUrl(url: string, lowResolution = false): void {
     if (decodedUrls.has(url) || pendingDecodes.has(url)) return;
     const image = new Image();
     pendingImages.set(url, image);
+    if (lowResolution) pendingLodUrls.add(url);
     image.src = url;
     const pending = image.decode()
       .then(() => { decodedUrls.add(url); })
       .catch(() => {})
-      .finally(() => { pendingDecodes.delete(url); pendingImages.delete(url); });
+      .finally(() => {
+        pendingDecodes.delete(url);
+        pendingImages.delete(url);
+        pendingLodUrls.delete(url);
+      });
     pendingDecodes.set(url, pending);
   }
 
   function cancelPreloadsExcept(keep: Set<string>): void {
     for (const [url, image] of pendingImages) {
+      // LOD is the always-available scrub surface. Let an in-flight .img finish even after
+      // focus moves away; cancelling it is what produced blank/"No cover" tiles when scrubbing
+      // back over a region that had just been visited.
+      if (pendingLodUrls.has(url)) continue;
       if (keep.has(url)) continue;
       image.src = "";
       pendingImages.delete(url);
@@ -84,6 +94,7 @@
     for (const image of pendingImages.values()) image.src = "";
     pendingImages.clear();
     pendingDecodes.clear();
+    pendingLodUrls.clear();
   });
 
   // The track only ever draws a small neighborhood around the focus. Iterating the complete
@@ -141,7 +152,7 @@
     let missingLod = false;
     for (let i = Math.max(0, center - PRELOAD_RADIUS); i <= Math.min(covers.length - 1, center + PRELOAD_RADIUS); i++) {
       const lodUrl = covers[i]?.lodUrl || getLodUrl(covers[i]?.id, currentVersion);
-      if (lodUrl) { urlsToKeep.add(lodUrl); preloadUrl(lodUrl); }
+      if (lodUrl) { urlsToKeep.add(lodUrl); preloadUrl(lodUrl, true); }
       else missingLod = true;
       if (tilesPerSecond <= FULL_RES_MAX_SPEED) fullCandidates.push(i);
     }
@@ -534,7 +545,7 @@
                     <img class="coverflow-item__main" src={mainUrl} alt="" data-version={version} draggable={false} decoding="async" onload={(e) => onImgLoad(cover.id, e)} />
                   {/if}
                 {:else}
-                  <span class="coverflow-item__placeholder">{locale.t.roms.carousel.noCover}</span>
+                  <span class="coverflow-item__placeholder" aria-hidden="true"></span>
                 {/if}
               </button>
             {/if}

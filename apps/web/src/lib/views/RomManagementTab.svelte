@@ -1142,7 +1142,11 @@ import { navigate } from "../nav.js";
   // whole practical library. Full-resolution art is deliberately a separate resident budget:
   // it is selected-art/detail state, not a prerequisite for moving through thousands of games.
   const COVER_FULL_CACHE_LIMIT = 50;
-  const COVER_LOD_CACHE_LIMIT = 4096;
+  // Carousel `.img` covers are the permanent fast-scrub representation. They are intentionally
+  // not evicted: for the expected few-thousand-title library this is a small, predictable
+  // memory cost, and evicting them makes a reverse scrub visibly fall back to a blank tile while
+  // the same cover is inflated again.
+  const COVER_LOD_CACHE_LIMIT = Number.MAX_SAFE_INTEGER;
   const coverLoads = new Set<string>();
   function cacheCoverUrl(cache: Map<string, string>, key: string, url: string, limit: number) {
     const old = cache.get(key);
