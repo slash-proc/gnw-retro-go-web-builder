@@ -341,8 +341,10 @@ only `{ relativePath, filename, extension, size, lastModified }` records keyed b
 it never stores handles, byte providers, ROM payloads, or image data. `LibraryRom` construction is
 centralized in `libraryModel.ts`. Converter discovery is also metadata-first: merged-library
 candidates carry size plus deferred readers, and bytes are read only after extension/size
-narrowing. The remaining migration work is to make more consumers accept those records directly
-and remove their transitional path parsing.
+narrowing. The remaining string-based operations are intentional boundaries: source-wide
+enumeration for export/dirty-file processing, and compatibility rows that have no source-backed
+`LibraryRom` (device-only or manifest-owned homebrew entries). They do not perform whole-library
+byte reads or replace model-backed UI lookups.
 
 ## Non-goals
 
