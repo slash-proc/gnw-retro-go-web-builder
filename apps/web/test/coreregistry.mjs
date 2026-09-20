@@ -115,7 +115,9 @@ function gbcManifest() {
   };
 }
 
-const row = (repo, manifest, active = true) => ({ repo, active, manifest });
+const row = (repo, manifest, active = true, origin = undefined) => ({
+  repo, active, manifest, ...(origin ? { origin } : {}),
+});
 
 // --- 1. Dual-kind acceptance -------------------------------------------------------------------
 
@@ -145,6 +147,14 @@ await check("registry: a core's system carries folder, names, extensions and bro
   deepEq(s.installable, [".whd"], "installable = systems[].extensions");
   eq(s.browse, "file", "browse mode");
   eq(s.targetKey, "slash-proc/doom#gnw-retro-go", "keyed like usedBy / HomebrewTitle.key");
+  eq(s.sourceKind, "repository", "network sources retain their repository origin");
+});
+
+await check("registry: bundle and raw origins survive into registered systems", async () => {
+  const bundle = buildCoreRegistry([row("local/doom", doomManifest(), true, "bundle")]);
+  const raw = buildCoreRegistry([row("local/tgb", gbcManifest(), true, "raw")]);
+  eq(bundle.systems[0].sourceKind, "bundle", "bundle source origin");
+  eq(raw.systems[0].sourceKind, "raw-binary", "raw source origin");
 });
 
 await check("registry: `.wad` is INGESTABLE — declared by the tool, not by the system", async () => {
