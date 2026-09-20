@@ -89,7 +89,6 @@
     for (let i = Math.max(0, center - PRELOAD_RADIUS); i <= Math.min(covers.length - 1, center + PRELOAD_RADIUS); i++) {
       const urls = new Set([
         covers[i]?.lodUrl || getLodUrl(covers[i]?.id, currentVersion),
-        covers[i]?.url || getUrl(covers[i]?.id, currentVersion),
       ]);
       for (const url of urls) {
         if (!url) continue;
@@ -432,7 +431,9 @@
             {@const index = item.index}
             {@const offset = index - smoothIndex.current}
             {@const lodUrl = cover.lodUrl || getLodUrl(cover.id, version)}
-            {@const mainUrl = cover.url || getUrl(cover.id, version)}
+            <!-- Full-resolution art is suppressed during an active scrub. The LOD image is the
+                 scrub surface; full art resumes when scrubbing releases. -->
+            {@const mainUrl = isScrubbing ? "" : (cover.url || getUrl(cover.id, version))}
             {#if Math.abs(offset) <= SIDE + 1}
               {@const a = Math.abs(offset)}
               {@const isSelected = cover.id === selectedId}

@@ -24,8 +24,8 @@
   import { romSelection } from "../romSelection.svelte.js";
   import { library } from "../library.svelte.js";
   import { systemIdsFor, isKnownSystemFolder } from "../screenscraper/config.js";
-import { coverSystemFor } from "../sources/coverSystem.js";
-import type { LibraryRom } from "../sources/libraryModel.js";
+  import { coverSystemFor } from "../sources/coverSystem.js";
+  import type { LibraryRom } from "../sources/libraryModel.js";
   import { basePath } from "../sources/libraryScan.js";
   import { coreRegistry } from "../sources/coreRegistry.svelte.js";
   import { saveFileToDirOrDownload, nativeFolderPickerSupported, romBytes } from "../romScan.js";
@@ -58,17 +58,17 @@ import type { LibraryRom } from "../sources/libraryModel.js";
     bare = false
   }: {
     gameKey: string;
-    rom?: LibraryRom;
+    rom: LibraryRom | undefined;
     gameName: string;
     system: string;
     coverUrl: string | null;
     configuredCheats: Record<string, string[]>;
     configuredCheatFiles: Record<string, Uint8Array>;
-    onCoverChange?: () => void;
+    onCoverChange: (() => void) | undefined;
     /** Render the panel body directly, with no <details>/<summary> accordion chrome and with
      *  the three sub-panels un-boxed — for hosts that already provide a surface and a title
      *  (the Library tab's "Additional options" drawer). Default false keeps the accordion. */
-    bare?: boolean;
+    bare: boolean | undefined;
   } = $props();
 
   // Firmware only applies cheats on GB/GBC/NES/PCE (line-based Game Genie/patch codes) and
@@ -469,7 +469,7 @@ import type { LibraryRom } from "../sources/libraryModel.js";
       // `gameKey` is the canonical device identity (`gba/Game.gba`), while a source may use
       // `Game Boy Advance/Game.gba`. LibraryRom is the source-of-truth for reading the actual
       // source file; the canonical key remains useful for device/system matching below.
-      const sourceRomPath = rom?.file.relativePath ?? basePath(gameKey);
+      const sourceRomPath = rom ? rom.file.relativePath : basePath(gameKey);
       const romEntry = library.scan?.userRoms.get(sourceRomPath) ?? library.scan?.userRoms.get(gameKey);
       buffer = romEntry ? await romBytes(romEntry) : undefined;
       if (!buffer) {
@@ -623,7 +623,7 @@ import type { LibraryRom } from "../sources/libraryModel.js";
     // Keep the source-relative path for source lookup/write-back. `gameKey` is the canonical
     // device identity and may say `gba/Game.gba` while the selected DirectorySource contains
     // `Game Boy Advance/Game.gba`.
-    const rowPath = rom?.file.relativePath ?? basePath(gameKey);
+    const rowPath = rom ? rom.file.relativePath : basePath(gameKey);
     const hb = homebrew.find(rowPath);
     let coverPath = "";
     let baseName = "";
@@ -984,7 +984,7 @@ import type { LibraryRom } from "../sources/libraryModel.js";
     }
   }
 
-  function hasLocalCover(gameKey: string, rom?: LibraryRom) {
+  function hasLocalCover(gameKey: string, rom: LibraryRom | undefined) {
     // Same sibling-path rule as applyPreview above: strip the duplicate id first, or a doubled
     // ROM reports no cover however many it has.
     const rowPath = basePath(gameKey);
@@ -1007,7 +1007,7 @@ import type { LibraryRom } from "../sources/libraryModel.js";
 
     // Prefer the source-relative relationship carried by LibraryRom. The legacy reconstruction
     // below remains for homebrew/device-only rows that have no source ROM object.
-    const metadataPaths = rom?.cover
+    const metadataPaths = rom && rom.cover
       ? [...rom.cover.originalPaths, rom.cover.carouselPath, rom.cover.deviceImgPath]
       : [];
     // Check both standard covers/ path and inline sibling path.
