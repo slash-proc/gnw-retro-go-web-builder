@@ -21,6 +21,8 @@ await esbuild.build({
 const {
   coverPathsForRom,
   createLibraryRom,
+  libraryFileFingerprint,
+  sameLibraryFileMeta,
   indexLibraryRoms,
   libraryCoverForPath,
   libraryCoverCacheKey,
@@ -143,6 +145,17 @@ check("the construction seam creates metadata without materializing bytes", () =
   eq(rom.cover.originalPaths[0], "Game Boy Advance/Game.png", "source-relative cover");
   ok(!Object.prototype.hasOwnProperty.call(rom, "bytes"), "no ROM bytes field");
   eq(JSON.parse(JSON.stringify(rom)), rom, "round-trip metadata");
+});
+
+check("metadata fingerprints are source-qualified and conservative", () => {
+  const a = libraryFileMeta("Game Boy Advance/Game.gba", 10, 20);
+  const b = libraryFileMeta("game boy advance/GAME.GBA", 10, 20);
+  const changed = libraryFileMeta(a.relativePath, 11, 20);
+  eq(libraryFileFingerprint("source-a", a), libraryFileFingerprint("source-a", b), "case-folded identity");
+  ok(libraryFileFingerprint("source-a", a) !== libraryFileFingerprint("source-b", a), "source identity");
+  ok(sameLibraryFileMeta("source-a", a, b), "unchanged metadata");
+  ok(!sameLibraryFileMeta("source-a", a, changed), "size invalidation");
+  ok(!sameLibraryFileMeta("source-a", libraryFileMeta(a.relativePath, 10), b), "missing mtime is conservative");
 });
 
 console.log(`\nlibrarymodel: ${passed} passed, ${failed} failed`);

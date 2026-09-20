@@ -182,6 +182,21 @@ export function libraryFileMetaFromScan(
   return libraryFileMeta(relativePath, entry.length, lastModified);
 }
 
+/** Cheap metadata identity used by incremental DirectorySource reconciliation. */
+export function libraryFileFingerprint(sourceId: string | undefined, file: LibraryFileMeta): string {
+  return `${sourceId ?? "device"}\0${file.relativePath.toLowerCase()}\0${file.size}\0${file.lastModified ?? 0}`;
+}
+
+/** True when a source scan can safely retain the existing lazy file/provider. */
+export function sameLibraryFileMeta(
+  sourceId: string | undefined,
+  a: LibraryFileMeta | undefined,
+  b: LibraryFileMeta | undefined,
+): boolean {
+  return !!a && !!b && a.lastModified !== undefined && b.lastModified !== undefined &&
+    libraryFileFingerprint(sourceId, a) === libraryFileFingerprint(sourceId, b);
+}
+
 /** Indexes used by the Library model; values remain serializable when converted to arrays. */
 export interface LibraryIndexes {
   byId: Map<string, LibraryRom>;

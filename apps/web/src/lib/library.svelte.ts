@@ -42,7 +42,7 @@ import {
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { dedicatedFolderPlacement, isLibrarySource } from "./sources/coreRegistry.js";
 import { coverBlobStore } from "./screenscraper/coverStore.js";
-import { libraryCoverCacheKey } from "./sources/libraryModel.js";
+import { libraryCoverCacheKey, libraryFileMetaFromScan, sameLibraryFileMeta } from "./sources/libraryModel.js";
 
 const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".bmp"]);
 const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
@@ -258,10 +258,11 @@ class LibraryStore {
     const next = new Map<string, LibraryFile>();
     for (const [path, entry] of files) {
       const old = previous.get(path);
-      const oldModified = isLazy(old) ? (old as { lastModified?: number }).lastModified : undefined;
-      const newModified = isLazy(entry) ? (entry as { lastModified?: number }).lastModified : undefined;
-      const unchanged = isLazy(old) && isLazy(entry) && old.length === entry.length &&
-        oldModified !== undefined && oldModified === newModified;
+      const unchanged = isLazy(old) && isLazy(entry) && sameLibraryFileMeta(
+        sourceId,
+        libraryFileMetaFromScan(path, old),
+        libraryFileMetaFromScan(path, entry),
+      );
       if (unchanged) {
         next.set(path, old);
         if (entry !== old) entry.release?.();
