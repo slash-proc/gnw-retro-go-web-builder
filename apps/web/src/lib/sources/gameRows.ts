@@ -75,6 +75,7 @@
  */
 
 import type { FileRole } from "./coreRegistry.js";
+import type { LibraryRom } from "./libraryModel.js";
 
 /** What one scanned file is, before any pairing. The shape `romSelection` already has. */
 export interface RomEntry {
@@ -86,6 +87,7 @@ export interface RomEntry {
   inFolder: boolean;
   installed: boolean;
   role: FileRole;
+  rom?: LibraryRom;
 }
 
 /**
@@ -127,6 +129,8 @@ export interface GameRow {
   outputKey?: string;
   /** The output filename this row produces or produced, when it converts. */
   outputName?: string;
+  /** Structured source/file metadata for cover resolution and future library consumers. */
+  rom?: LibraryRom;
 }
 
 /**
@@ -235,6 +239,7 @@ export function buildGameRows(
       needsPrepare: output === undefined && preparedSize === undefined,
       inputKey: e.key,
       ...(output ? { outputKey: output.key } : {}),
+      ...(e.rom ? { rom: e.rom } : {}),
       ...(outputName ? { outputName } : {}),
     });
   }
@@ -256,6 +261,7 @@ export function buildGameRows(
       installed: e.installed,
       needsPrepare: false,
       outputKey: e.key,
+      ...(e.rom ? { rom: e.rom } : {}),
     });
   }
 

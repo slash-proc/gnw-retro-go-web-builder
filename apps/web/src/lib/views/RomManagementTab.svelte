@@ -47,7 +47,8 @@
   import type { MappedSpec } from "@gnw/fs-builders";
   import { readGameData, type InstalledGame } from "../engine/frogfsDevice.js";
   import { homebrew, type HomebrewTitle } from "../sources/homebrewTitles.svelte.js";
-  import { coreRegistry } from "../sources/coreRegistry.svelte.js";
+import { coreRegistry } from "../sources/coreRegistry.svelte.js";
+import { coverPathsForRom, type LibraryRom } from "../sources/libraryModel.js";
   import { localFolders, displayName } from "../sources/localFolders.svelte.js";
   import { sources } from "../sources/store.svelte.js";
   import { type OfferedFile } from "../sources/inputGate.js";
@@ -624,6 +625,7 @@ import { navigate } from "../nav.js";
         needsPrepare: r.needsPrepare,
         inputKey: r.inputKey,
         outputKey: r.outputKey,
+        rom: r.rom,
         isHomebrew: false,
       }));
 
@@ -1178,6 +1180,7 @@ import { navigate } from "../nav.js";
     const gameKey = basePath(key);
     const cache = lowResolution ? coverLodUrls : coverUrls;
     if (cache.has(gameKey)) return cache.get(gameKey)!;
+    const structuredRom = visibleGameByKey.get(key)?.rom as LibraryRom | undefined;
     let system = "";
     let base = "";
 
@@ -1221,10 +1224,13 @@ import { navigate } from "../nav.js";
       ? [".img", ".jpg", ".jpeg", ".png"]
       : [".png", ".jpg", ".jpeg", ".img"];
     for (const ext of extensions) {
-      const paths = systemAliases.flatMap((alias) => [
+      const paths = [
+        ...(structuredRom ? coverPathsForRom(structuredRom, ext) : []),
+        ...systemAliases.flatMap((alias) => [
         `${alias}/${base}${ext}`,
         `covers/${alias}/${base}${ext}`,
-      ]);
+        ]),
+      ];
       let matchPath = paths.find((candidate) => library.scan?.userRoms.has(candidate)) ?? null;
       // Directory scans preserve the spelling found on disk, while ROM keys and scraper output
       // can differ in case (Doom commonly mixes `DOOM.WAD` with `doom/doom.png`). Match the

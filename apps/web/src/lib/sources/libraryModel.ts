@@ -75,6 +75,19 @@ export interface LibraryRom {
   cover?: LibraryCover;
 }
 
+/** Source-relative cover candidates for a ROM. The first tier is beside the ROM; the second
+ * preserves the app's existing optional `covers/` mirror layout. */
+export function coverPathsForRom(rom: Pick<LibraryRom, "file">, extension: string): string[] {
+  const ext = extension.startsWith(".") ? extension : `.${extension}`;
+  const path = rom.file.relativePath;
+  const dot = path.lastIndexOf(".");
+  const stem = dot > path.lastIndexOf("/") ? path.slice(0, dot) : path;
+  return [
+    `${stem}${ext}`,
+    `covers/${stem}${ext}`,
+  ];
+}
+
 /** Runtime-only byte access. Never serialize this into LibraryRom. */
 export interface RomByteProvider {
   read(): Promise<Uint8Array>;
