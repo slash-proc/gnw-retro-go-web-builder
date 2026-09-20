@@ -79,7 +79,10 @@
   // memory; this only asks the browser to fetch/decode nearby object URLs before they become
   // visible during a fast scrub. The full library remains data-only and the DOM still renders
   // only the cards around the focus.
-  const PRELOAD_RADIUS = 8;
+  // Keep roughly the requested 25–50 neighboring covers warm. The parent enforces separate
+  // decoded-byte budgets for LOD and full-resolution URLs, so this does not become an
+  // unbounded high-resolution cache while scrubbing.
+  const PRELOAD_RADIUS = 20;
   $effect(() => {
     const currentVersion = version;
     const center = focusIndex;

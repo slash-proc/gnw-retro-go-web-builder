@@ -1135,13 +1135,17 @@ import { navigate } from "../nav.js";
   // Carousel State
   let coverUrls = new Map<string, string>();
   let coverLodUrls = new Map<string, string>();
-  const COVER_URL_CACHE_LIMIT = 96;
+  // Low-resolution `.img` covers are the scrub surface and are cheap enough to retain for the
+  // whole practical library. Full-resolution art is deliberately a separate resident budget:
+  // it is selected-art/detail state, not a prerequisite for moving through thousands of games.
+  const COVER_FULL_CACHE_LIMIT = 50;
+  const COVER_LOD_CACHE_LIMIT = 4096;
   const coverLoads = new Set<string>();
-  function cacheCoverUrl(cache: Map<string, string>, key: string, url: string) {
+  function cacheCoverUrl(cache: Map<string, string>, key: string, url: string, limit: number) {
     const old = cache.get(key);
     if (old) URL.revokeObjectURL(old);
     cache.set(key, url);
-    while (cache.size > COVER_URL_CACHE_LIMIT) {
+    while (cache.size > limit) {
       const first = cache.keys().next().value as string | undefined;
       if (!first) break;
       const evicted = cache.get(first);
@@ -1229,17 +1233,20 @@ import { navigate } from "../nav.js";
         const coverBytes = romBytesIfLoaded(entry);
         if (!coverBytes) {
           const loadKey = `${lowResolution ? "lod:" : "full:"}${gameKey}`;
-          if (cache.size + coverLoads.size >= COVER_URL_CACHE_LIMIT || coverLoads.has(loadKey)) return "";
+          const cacheLimit = lowResolution ? COVER_LOD_CACHE_LIMIT : COVER_FULL_CACHE_LIMIT;
+          if (cache.size + coverLoads.size >= cacheLimit || coverLoads.has(loadKey)) return "";
           coverLoads.add(loadKey);
           void romBytes(entry).then((bytes) => {
-            if (!cache.has(gameKey)) cacheCoverUrl(cache, gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])));
+            if (!cache.has(gameKey)) {
+              cacheCoverUrl(cache, gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])), cacheLimit);
+            }
             coverLoads.delete(loadKey);
             coverVersion++;
           }).catch(() => coverLoads.delete(loadKey));
           return "";
         }
         const url = URL.createObjectURL(new Blob([coverBytes as BlobPart]));
-        cacheCoverUrl(cache, gameKey, url);
+        cacheCoverUrl(cache, gameKey, url, lowResolution ? COVER_LOD_CACHE_LIMIT : COVER_FULL_CACHE_LIMIT);
         return url;
       }
     }
