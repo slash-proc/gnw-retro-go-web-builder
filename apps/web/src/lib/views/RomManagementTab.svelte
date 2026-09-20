@@ -1168,8 +1168,6 @@ import { navigate } from "../nav.js";
   let coverIndexMap: Map<string, LibraryFile> | null = null;
   let coverIndexSize = -1;
   let coverIndex = new Map<string, string>();
-  let lodWarmupTimer: ReturnType<typeof setTimeout> | null = null;
-  let lodWarmupGeneration = 0;
   function ensureCoverIndex(): void {
     const files = library.scan?.userRoms;
     if (!files || (files === coverIndexMap && files.size === coverIndexSize)) return;
@@ -1178,36 +1176,6 @@ import { navigate } from "../nav.js";
     coverIndex = new Map();
     for (const path of files.keys()) coverIndex.set(basePath(path).toLowerCase(), path);
   }
-
-  // Build the cheap scrub surface independently of user movement. On a first scrub there is no
-  // opportunity to wait for a tile's async read, so the visible-neighborhood-only strategy made
-  // the first pass blank and the reverse pass look "fixed". Small batches keep the scan/UI
-  // responsive while making the low-resolution cover URLs available before they are needed.
-  $effect(() => {
-    const count = carouselCovers.length;
-    if (lodWarmupTimer) clearTimeout(lodWarmupTimer);
-    const generation = ++lodWarmupGeneration;
-    if (!count) return;
-    let index = 0;
-    const warmBatch = () => {
-      lodWarmupTimer = null;
-      if (generation !== lodWarmupGeneration) return;
-      // `.img` payloads are small and the reads are asynchronous; a larger batch keeps the
-      // warm-up from trailing behind a fast scrub without making one long synchronous loop.
-      const end = Math.min(count, index + 256);
-      for (; index < end; index++) {
-        const cover = carouselCovers[index];
-        getCoverUrl(cover.id, coverVersion, true);
-      }
-      if (index < count) lodWarmupTimer = setTimeout(warmBatch, 0);
-    };
-    warmBatch();
-    return () => {
-      if (lodWarmupTimer) clearTimeout(lodWarmupTimer);
-      lodWarmupTimer = null;
-      lodWarmupGeneration++;
-    };
-  });
 
   function getCoverUrl(key: string, _version = 0, lowResolution = false) {
     // A second folder's differing file under the same name is keyed `<path>\0<id>` (see
