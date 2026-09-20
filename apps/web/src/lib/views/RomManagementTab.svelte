@@ -2968,6 +2968,11 @@ import { navigate } from "../nav.js";
     // until the inventory is complete, so this changes latency without changing semantics.
     const existingSdPathsPromise = (async (): Promise<Set<string>> => {
       if (!device.sdHandle) return new Set();
+      if (device.sdInstalledPathsReady && !device.scanning) {
+        // scanSdCardGames() already built this exact inventory for the current handle. Reuse it;
+        // an explicit ready flag is required because an empty set is a valid fresh-card result.
+        return device.sdInstalledPaths;
+      }
       const root = await getValidRoot(device.sdHandle);
       return root ? new Set((await scanRomDirectory(root)).userRoms.keys()) : new Set();
     })();

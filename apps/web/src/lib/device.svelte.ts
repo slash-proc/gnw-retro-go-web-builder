@@ -256,6 +256,8 @@ class DeviceStore {
   coreVersionCheck = $state<CoreVersionCheck | null>(null);
   /** Paths seen on the selected SD card during its last scan (covers included). */
   sdInstalledPaths = $state<Set<string>>(new Set());
+  /** Distinguishes a completed scan of an empty card from a card that has not been scanned. */
+  sdInstalledPathsReady = $state(false);
   /** Bumped on every disconnect/reconnect/rescan. Background FS-stat reads capture the
    *  generation they started in and drop their result if it's stale by the time they
    *  resolve (device gone, or a newer scan superseded them) — see [[swd-connection-model]]. */
@@ -1430,10 +1432,12 @@ class DeviceStore {
     if (this.targetMedia !== 'sd' || !this.sdHandle) {
       this.installedGames = [];
       this.sdInstalledPaths = new Set();
+      this.sdInstalledPathsReady = false;
       return;
     }
     const gen = ++this._gen; // supersede any in-flight background reads from a prior SD scan
     this.scanning = true;
+    this.sdInstalledPathsReady = false;
     try {
       const { scanRomDirectory, getValidRoot, checkSdCoreVersions } = await import("./romScan.js");
       const validatedRoot = await getValidRoot(this.sdHandle);
@@ -1489,7 +1493,9 @@ class DeviceStore {
     } catch (e) {
       dbg(`[scanSdCardGames] SD scan failed: ${e}`);
       this.installedGames = [];
+      this.sdInstalledPathsReady = false;
     } finally {
+      this.sdInstalledPathsReady = true;
       this.scanning = false;
     }
   }
