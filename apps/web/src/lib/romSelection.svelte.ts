@@ -16,7 +16,14 @@ import { device } from "./device.svelte.js";
 import { consoleLabel } from "./engine/consoles.js";
 import { homebrew } from "./sources/homebrewTitles.svelte.js";
 import { displayName, localFolders } from "./sources/localFolders.svelte.js";
-import { libraryCoverForPath, libraryFileMeta, libraryFileMetaFromScan, libraryRomId, type LibraryRom } from "./sources/libraryModel.js";
+import {
+  libraryCoverForPath,
+  libraryFileMeta,
+  libraryFileMetaFromScan,
+  libraryRomId,
+  type CoreSourceRef,
+  type LibraryRom,
+} from "./sources/libraryModel.js";
 import { basePath } from "./sources/libraryScan.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import {
@@ -362,6 +369,16 @@ class RomSelectionStore {
     ): LibraryRom => {
       const registered = coreRegistry.current.byFolder.get(parsed.system.toLowerCase());
       const source = sourceId ? localFolders.get(sourceId) : undefined;
+      const sourceKey = registered?.targetKey;
+      const sourceTarget = sourceKey?.split("#", 2);
+      const coreSource: CoreSourceRef | undefined = registered && sourceKey && sourceTarget
+        ? {
+            id: sourceKey,
+            kind: "repository",
+            repository: registered.repo,
+            targetId: sourceTarget[1] ?? "",
+          }
+        : undefined;
       return {
         id: libraryRomId(sourceId ?? "device", path),
         file: scanEntry ? libraryFileMetaFromScan(path, scanEntry) : libraryFileMeta(path, size),
@@ -373,8 +390,9 @@ class RomSelectionStore {
           folder: parsed.system,
           shortName: registered?.shortName ?? parsed.system,
           longName: registered?.longName ?? parsed.system,
-          coreSourceIds: registered ? [registered.targetKey] : [],
-          primaryCoreSourceId: registered?.targetKey,
+          coreSourceIds: sourceKey ? [sourceKey] : [],
+          primaryCoreSourceId: sourceKey,
+          ...(coreSource ? { source: coreSource } : {}),
         },
         role: parsed.role,
         cover: libraryCoverForPath(path),

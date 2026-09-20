@@ -64,6 +64,8 @@ export interface LibraryRom {
     longName: string;
     coreSourceIds: string[];
     primaryCoreSourceId?: string;
+    /** Resolved primary source relationship for consumers that need source metadata. */
+    source?: CoreSourceRef;
   };
   role: FileRole;
   conversion?: LibraryConversion;
