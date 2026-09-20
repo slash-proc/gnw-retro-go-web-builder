@@ -143,7 +143,10 @@ function readAtlasU32(view: DataView, offset: number): [number, number] {
   return [view.getUint32(offset, true), offset + 4];
 }
 
-function canvasFor(width: number, height: number): HTMLCanvasElement {
+type AtlasCanvas = HTMLCanvasElement | OffscreenCanvas;
+
+function canvasFor(width: number, height: number): AtlasCanvas {
+  if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(width, height);
   if (typeof document === "undefined") throw new Error("carousel atlas requires a browser");
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -163,7 +166,10 @@ function imageBox(sourceWidth: number, sourceHeight: number, cellWidth: number, 
   };
 }
 
-function canvasBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+function canvasBlob(canvas: AtlasCanvas, quality: number): Promise<Blob> {
+  if (typeof OffscreenCanvas !== "undefined" && canvas instanceof OffscreenCanvas) {
+    return canvas.convertToBlob({ type: "image/webp", quality });
+  }
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("could not encode carousel atlas")), "image/webp", quality);
   });
