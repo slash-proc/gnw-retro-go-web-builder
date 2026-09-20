@@ -620,7 +620,10 @@ import type { LibraryRom } from "../sources/libraryModel.js";
     // file) from a key. Without it a cover for a doubled ROM was written under a key holding a
     // NUL byte, which `getCoverUrl()` (which does strip) can never read back, so the cover
     // survived exactly as long as the in-memory map that received it and was gone on reload.
-    const rowPath = basePath(gameKey);
+    // Keep the source-relative path for source lookup/write-back. `gameKey` is the canonical
+    // device identity and may say `gba/Game.gba` while the selected DirectorySource contains
+    // `Game Boy Advance/Game.gba`.
+    const rowPath = rom?.file.relativePath ?? basePath(gameKey);
     const hb = homebrew.find(rowPath);
     let coverPath = "";
     let baseName = "";
