@@ -80,6 +80,7 @@
     fullPreloadGeneration++;
     if (fullPreloadTimer) clearTimeout(fullPreloadTimer);
     if (velocityTimer) clearTimeout(velocityTimer);
+    if (lodRetryTimer) clearTimeout(lodRetryTimer);
     for (const image of pendingImages.values()) image.src = "";
     pendingImages.clear();
     pendingDecodes.clear();
@@ -110,6 +111,10 @@
   let velocityTimer = 0;
   let fullPreloadTimer = 0;
   let fullPreloadGeneration = 0;
+  let lodRetryTimer = 0;
+  let lodRetryCount = 0;
+  let lodRetryCenter = -1;
+  let lodRetryTick = $state(0);
   $effect(() => {
     const now = performance.now();
     if (lastFocusSample) {
@@ -123,13 +128,21 @@
   });
 
   $effect(() => {
+    const retryTick = lodRetryTick;
+    void retryTick;
     const currentVersion = version;
     const center = focusIndex;
+    if (center !== lodRetryCenter) {
+      lodRetryCenter = center;
+      lodRetryCount = 0;
+    }
     const urlsToKeep = new Set<string>();
     const fullCandidates: number[] = [];
+    let missingLod = false;
     for (let i = Math.max(0, center - PRELOAD_RADIUS); i <= Math.min(covers.length - 1, center + PRELOAD_RADIUS); i++) {
       const lodUrl = covers[i]?.lodUrl || getLodUrl(covers[i]?.id, currentVersion);
       if (lodUrl) { urlsToKeep.add(lodUrl); preloadUrl(lodUrl); }
+      else missingLod = true;
       if (tilesPerSecond <= FULL_RES_MAX_SPEED) fullCandidates.push(i);
     }
     fullPreloadGeneration++;
@@ -146,6 +159,13 @@
       if (next < fullCandidates.length) fullPreloadTimer = window.setTimeout(loadNextFull, 1000 / 240);
     };
     if (fullCandidates.length) fullPreloadTimer = window.setTimeout(loadNextFull, 0);
+    if (missingLod && lodRetryCount < 60) {
+      lodRetryCount++;
+      lodRetryTimer = window.setTimeout(() => {
+        lodRetryTimer = 0;
+        lodRetryTick++;
+      }, 16);
+    }
     cancelPreloadsExcept(urlsToKeep);
   });
 
