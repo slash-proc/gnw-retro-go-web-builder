@@ -15,6 +15,8 @@ import { nativeFolderPickerSupported, type LibraryFile } from "./romScan.js";
 import { device } from "./device.svelte.js";
 import { consoleLabel } from "./engine/consoles.js";
 import { homebrew } from "./sources/homebrewTitles.svelte.js";
+import { displayName, localFolders } from "./sources/localFolders.svelte.js";
+import { libraryFileMeta, libraryRomId, type LibraryRom } from "./sources/libraryModel.js";
 import { basePath } from "./sources/libraryScan.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import {
@@ -190,6 +192,8 @@ export interface Game {
    * ingestable and the output it becomes into ONE row.
    */
   role: FileRole;
+  /** Structured metadata for consumers that need more than the legacy flat row fields. */
+  rom: LibraryRom;
 }
 
 export interface SystemGroup {
@@ -348,6 +352,33 @@ class RomSelectionStore {
   /** Folder ROMs ∪ device-installed games (excludes `bios/` assets — not games). */
   readonly games: Game[] = $derived.by(() => {
     const byKey = new Map<string, Game>();
+    const structuredRom = (
+      path: string,
+      parsed: ParsedRom,
+      size: number,
+      installed: boolean,
+      sourceId?: string,
+    ): LibraryRom => {
+      const registered = coreRegistry.current.byFolder.get(parsed.system.toLowerCase());
+      const source = sourceId ? localFolders.get(sourceId) : undefined;
+      return {
+        id: libraryRomId(sourceId ?? "device", path),
+        file: libraryFileMeta(path, size),
+        directorySource: source
+          ? { id: source.id, name: displayName(source), folderName: source.folderName }
+          : undefined,
+        system: {
+          id: registered?.id ?? parsed.system,
+          folder: parsed.system,
+          shortName: registered?.shortName ?? parsed.system,
+          longName: registered?.longName ?? parsed.system,
+          coreSourceIds: registered ? [registered.targetKey] : [],
+          primaryCoreSourceId: registered?.targetKey,
+        },
+        role: parsed.role,
+        device: { installed },
+      };
+    };
     // Library folders are user-controlled and commonly spell the console directory as `NES`,
     // while the device reports its canonical short name as `nes`. The card filesystem is
     // case-insensitive, so use the parsed canonical system for identity rather than the raw
@@ -376,7 +407,8 @@ class RomSelectionStore {
 
         const key = canonicalKey(path, parsed);
         if (!findByCardKey(key)) {
-          byKey.set(key, { key, system: parsed.system, name: parsed.name, size: data.length, inFolder: true, installed: false, role: parsed.role });
+          const rom = structuredRom(path, parsed, data.length, false, library.fileOrigin.get(path));
+          byKey.set(key, { key, system: parsed.system, name: parsed.name, size: data.length, inFolder: true, installed: false, role: parsed.role, rom });
         }
       }
     }
@@ -398,6 +430,8 @@ class RomSelectionStore {
       for (const game of sys.shippedGames) {
         const key = `${sys.folder}/${game.filename}`;
         if (byKey.has(key)) continue;
+        const parsed: ParsedRom = { system: sys.folder, name: game.filename, role: "installable" };
+        const rom = structuredRom(key, parsed, game.bytes, false);
         byKey.set(key, {
           key,
           system: sys.folder,
@@ -409,6 +443,7 @@ class RomSelectionStore {
           inFolder: false,
           installed: false,
           role: "installable",
+          rom,
         });
       }
     }
@@ -423,8 +458,13 @@ class RomSelectionStore {
       
       const key = `${parsed.system}/${parsed.name}`;
       const existing = findByCardKey(key);
-      if (existing) existing.installed = true;
-      else byKey.set(key, { key, system: parsed.system, name: parsed.name, size: g.size, inFolder: false, installed: true, role: parsed.role });
+      if (existing) {
+        existing.installed = true;
+        existing.rom.device.installed = true;
+      } else {
+        const rom = structuredRom(path, parsed, g.size, true);
+        byKey.set(key, { key, system: parsed.system, name: parsed.name, size: g.size, inFolder: false, installed: true, role: parsed.role, rom });
+      }
     }
     return [...byKey.values()].sort((a, b) => {
       const normalize = (k: string) => k.toLowerCase().replace(/(^|\/)the\s+/g, "$1");
