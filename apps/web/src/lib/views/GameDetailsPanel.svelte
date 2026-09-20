@@ -916,7 +916,7 @@
               const converted = new Uint8Array(await gwBlob.arrayBuffer());
               library.scan?.userRoms.set(imgPath, converted);
               await cacheDerivedCover(
-                `${baseName}.png`,
+                relPath,
                 rom?.directorySource?.id,
                 blob.size,
                 converted,
@@ -927,17 +927,9 @@
             dbg(`[covers] converting a scraped cover failed: ${e instanceof Error ? e.message : String(e)}`);
           }
 
-          // Keep only the compact device cover in memory. The original high-resolution image
-          // is written to the owning source folder below and will be discovered on the next scan.
-          const pngPath = imgPath.replace(/\.img$/, ".png");
-          if (library.scan?.userRoms.has(pngPath)) library.scan.userRoms.delete(pngPath);
-
-          const inlineImgPath = relPath.replace(/\.[^/.]+$/, ".img");
-          const inlinePngPath = relPath.replace(/\.[^/.]+$/, ".png");
-          const inlineJpgPath = relPath.replace(/\.[^/.]+$/, ".jpg");
-          if (library.scan?.userRoms.has(inlineImgPath)) library.scan.userRoms.delete(inlineImgPath);
-          if (library.scan?.userRoms.has(inlinePngPath)) library.scan.userRoms.delete(inlinePngPath);
-          if (library.scan?.userRoms.has(inlineJpgPath)) library.scan.userRoms.delete(inlineJpgPath);
+          // Keep both tiers in the live map: the .img is the scrub surface and the original is
+          // the full-resolution carousel/detail art. The original is also written back below.
+          library.scan?.userRoms.set(relPath, new Uint8Array(await blob.arrayBuffer()));
 
           // Save ORIGINAL format to disk (not the converted .img)
           if (ssSaveLocal && nativeFolderPickerSupported() && library.scan?.dir) {
