@@ -782,7 +782,10 @@
     const coverSourceDirs = new Map<string, RomDirHandle>();
     const keysToImport = [...importSelected].filter(key => !skipExistingCovers || !hasLocalCover(key));
     for (const key of keysToImport) {
-      const entry = library.scan?.userRoms.get(key);
+      const selectedGame = importGamesList.find((game) => game.key === key);
+      const entry = selectedGame?.rom
+        ? (library.fileForRom(selectedGame.rom) ?? library.scan?.userRoms.get(key))
+        : library.scan?.userRoms.get(key);
       if (!entry) continue;
       const buffer = await romBytes(entry);
       const parts = key.split("/");
@@ -825,7 +828,7 @@
       Object.defineProperty(file, 'webkitRelativePath', { value: webkitPath });
       (file as any).gnwOriginalKey = key;
       filesToScrape.push(file);
-      const sourceDir = library.writeDirFor(key) ?? library.scan?.dir;
+      const sourceDir = library.writeDirFor(selectedGame?.rom?.file.relativePath ?? key) ?? library.scan?.dir;
       if (sourceDir) coverSourceDirs.set(key.toLowerCase(), sourceDir);
       // The scraper now owns this File copy for the batch. Release the decoded source cache so
       // a large mass import does not retain two copies of every selected ROM.
