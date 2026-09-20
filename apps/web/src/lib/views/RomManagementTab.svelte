@@ -2957,11 +2957,15 @@ import { navigate } from "../nav.js";
     // Installed-game scans intentionally omit cover entries, so take a metadata-only SD scan
     // here to distinguish a genuinely missing cover from an unchanged one. Without this, a
     // cover selected for a newly provisioned title was silently skipped unless it was dirty.
-    let existingSdPaths = new Set<string>();
-    if (device.sdHandle) {
+    // SD inventory and library materialization are independent. Start the metadata-only SD
+    // walk now so ZIP central-directory reads overlap cover conversion and selected-ROM
+    // materialization below. Await it immediately before applying the diff; no write can begin
+    // until the inventory is complete, so this changes latency without changing semantics.
+    const existingSdPathsPromise = (async (): Promise<Set<string>> => {
+      if (!device.sdHandle) return new Set();
       const root = await getValidRoot(device.sdHandle);
-      if (root) existingSdPaths = new Set((await scanRomDirectory(root)).userRoms.keys());
-    }
+      return root ? new Set((await scanRomDirectory(root)).userRoms.keys()) : new Set();
+    })();
     const selectedFolder = biosState.filterInstall(romSelection.selectedFolderRoms());
     // Keep covers sourced from the library scan even if the install-name planner omitted them
     // because its game key was represented by a device-preserved variant. Covers follow the
@@ -2979,7 +2983,11 @@ import { navigate } from "../nav.js";
         if (coverBelongsToInstalledOrSelected(path)) selectedFolder.set(path, data);
       }
     }
-    const userRoms = changedSdUserRoms(await materialize(selectedFolder), existingSdPaths);
+    const [materializedFolder, existingSdPaths] = await Promise.all([
+      materialize(selectedFolder),
+      existingSdPathsPromise,
+    ]);
+    const userRoms = changedSdUserRoms(materializedFolder, existingSdPaths);
     // Prepare active raw CORE artifacts even when the published bundle is being synced.
     for (const row of sources.rows) {
       if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
