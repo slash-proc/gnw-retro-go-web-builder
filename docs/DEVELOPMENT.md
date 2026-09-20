@@ -18,6 +18,18 @@ docker compose down              # stop
 
 Open <http://localhost:3000> in Chrome/Edge. That is **`apps/web`, the real UI** (Vite + Svelte 5, HMR). The throwaway ES-module test harness lives at **`/dev`**, proxied to the Express backend.
 
+For live reload through the HTTPS proxy instead, restart the stack with:
+
+```bash
+PROXY_TLS=1 docker compose up --build
+```
+
+Then open <https://gnw-builder.local>. The default `docker compose up --build` path is
+the direct HTTP server, so its HMR websocket works at `localhost:3000`.
+
+If using Podman on macOS, the compose service uses polling for Vite and TypeScript watches
+because the Podman VM may not forward host filesystem events reliably.
+
 How the container is wired (see `docker-compose.yml`):
 - The repo is bind-mounted at `/app`, so source edits are live.
 - `node_modules` and each package's `dist/` are **anonymous volumes**. The backend serves built `dist/` under `/packages` so the `/dev` harness imports packages directly.

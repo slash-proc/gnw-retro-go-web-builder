@@ -61,6 +61,9 @@ export default defineConfig({
     // use wss on :443 (not ws on :3000, which mixed-content-fails on an https origin). Without the
     // proxy, leave HMR at its defaults for direct http://localhost:3000.
     hmr: process.env.PROXY_TLS ? { protocol: "wss", clientPort: 443 } : undefined,
+    // Podman on macOS forwards the repository through a Linux VM, where host file
+    // changes do not always produce inotify events. Polling keeps HMR reliable.
+    watch: { usePolling: true, interval: 100 },
     proxy: {
       "/dev": LEGACY,
       "/packages": LEGACY,
