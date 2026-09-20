@@ -29,11 +29,15 @@ export interface CarouselAtlasSourceFile {
 export function carouselAtlasFiles(
   files: ReadonlyMap<string, CarouselAtlasSourceFile | Uint8Array>,
   fileOrigin: ReadonlyMap<string, string> = new Map(),
+  coverOwners: ReadonlyMap<string, string> = new Map(),
 ): { sourceId: string; key: string; file: CarouselAtlasSourceFile | Uint8Array }[] {
   const result: { sourceId: string; key: string; file: CarouselAtlasSourceFile | Uint8Array }[] = [];
   for (const [key, file] of files) {
     if (!/\.img$/i.test(key) || !key.toLowerCase().startsWith("covers/")) continue;
-    result.push({ sourceId: fileOrigin.get(key) ?? "unknown-source", key, file });
+    // `key` is the source-relative cover path used to find bytes. The atlas identity is the
+    // owning LibraryRom.id, supplied by the structured model, so duplicate filenames remain
+    // distinct across directory sources and variants.
+    result.push({ sourceId: fileOrigin.get(key) ?? "unknown-source", key: coverOwners.get(key) ?? key, file });
   }
   return result;
 }
