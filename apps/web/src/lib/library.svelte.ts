@@ -103,10 +103,12 @@ function saveZipScanCache(cache: Map<string, Map<string, ZipScanCacheEntry>>): v
 export async function convertCoversInMap(
   userRoms: Map<string, LibraryFile>,
   fileOrigin: ReadonlyMap<string, string> = new Map(),
+  shouldConvert?: (path: string) => boolean,
 ): Promise<void> {
   const derivedCoverCache = coverBlobStore();
   const toConvert: string[] = [];
   for (const path of userRoms.keys()) {
+    if (shouldConvert && !shouldConvert(path)) continue;
     // A non-first variant of a doubled path (see sources/libraryScan.ts). Its .img sidecar
     // would have to be named after the base path, i.e. the FIRST variant's sidecar - so the
     // first variant is the one that gets converted and this one is left as the raw source.
