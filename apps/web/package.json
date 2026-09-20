@@ -24,6 +24,7 @@
     "check:convertedcache": "node test/convertedcache.mjs",
     "check:cachemigration": "node test/cachemigration.mjs",
     "check:libraryscan": "node test/libraryscan.mjs",
+    "check:librarymodel": "node test/librarymodel.mjs",
     "check:firmwaredist": "node test/firmwaredist.mjs",
     "check:firmwarecutover": "node test/firmwarecutover.mjs",
     "check:sources": "node src/lib/sources/test/validate.mjs",
