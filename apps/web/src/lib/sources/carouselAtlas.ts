@@ -78,6 +78,8 @@ export interface CarouselAtlasPlacement {
   y: number;
   width: number;
   height: number;
+  pageWidth: number;
+  pageHeight: number;
 }
 
 export interface CarouselAtlasPage {
@@ -202,7 +204,7 @@ export async function buildCarouselAtlas(
         const x = col * cellWidth;
         const y = row * cellHeight;
         context.drawImage(bitmap, x + box.x, y + box.y, box.width, box.height);
-        placements.push({ key: input.key, page, x, y, width: cellWidth, height: cellHeight });
+        placements.push({ key: input.key, page, x, y, width: cellWidth, height: cellHeight, pageWidth, pageHeight });
       } finally {
         bitmap.close();
       }

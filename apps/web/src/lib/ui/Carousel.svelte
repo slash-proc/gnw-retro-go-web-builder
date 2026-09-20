@@ -20,6 +20,7 @@
     onScrubState = () => {},
     getUrl = () => "", 
     getLodUrl = () => "",
+    getAtlasCell = () => null,
     systemLabel = () => "",
     version = 0
   } = $props<{
@@ -29,6 +30,7 @@
     onScrubState?: (active: boolean) => void;
     getUrl?: (id: string, version?: number) => string;
     getLodUrl?: (id: string, version?: number) => string;
+    getAtlasCell?: (id: string, version?: number) => { url: string; x: number; y: number; width: number; height: number; pageWidth: number; pageHeight: number } | null;
     systemLabel?: (cover: any) => string;
     version?: number;
   }>();
@@ -514,6 +516,7 @@
             {@const index = item.index}
             {@const offset = index - smoothIndex.current}
             {@const lodUrl = cover.lodUrl || getLodUrl(cover.id, version)}
+            {@const atlasCell = getAtlasCell(cover.id, version)}
             <!-- LOD remains the fast scrub surface. Full-resolution art is allowed as soon as
                  motion is slow enough for the eye to resolve it, including during a scrub. -->
             {@const mainUrl = tilesPerSecond <= FULL_RES_MAX_SPEED ? (cover.url || getUrl(cover.id, version)) : ""}
@@ -537,11 +540,18 @@
                 title={cover.name}
                 data-version={version}
               >
-                {#if mainUrl || lodUrl}
-                  {#if lodUrl && lodUrl !== mainUrl}
+                {#if atlasCell || mainUrl || lodUrl}
+                  {#if atlasCell}
+                    <span
+                      class="coverflow-item__atlas"
+                      style={`background-image: url(${atlasCell.url}); background-size: ${atlasCell.pageWidth}px ${atlasCell.pageHeight}px; background-position: -${atlasCell.x}px -${atlasCell.y}px;`}
+                      aria-hidden="true"
+                    ></span>
+                  {/if}
+                  {#if !atlasCell && lodUrl && lodUrl !== mainUrl}
                     <img class="coverflow-item__lod" src={lodUrl} alt="" data-version={version} draggable={false} decoding="async" />
                   {/if}
-                  {#if mainUrl}
+                  {#if !atlasCell && mainUrl}
                     <img class="coverflow-item__main" src={mainUrl} alt="" data-version={version} draggable={false} decoding="async" onload={(e) => onImgLoad(cover.id, e)} />
                   {/if}
                 {:else}
@@ -667,6 +677,17 @@
     object-fit: contain;
     filter: drop-shadow(0 10px 20px rgba(0,0,0,0.3));
     transition: filter 0.2s ease-out;
+  }
+  .coverflow-item__atlas {
+    position: absolute;
+    inset: 0;
+    display: block;
+    background-repeat: no-repeat;
+    background-origin: border-box;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    filter: drop-shadow(0 10px 20px rgba(0,0,0,0.3));
   }
   /* Artboard: a coverless card is a flat grey plate with a soft cast shadow — no border and
      no inset vignette — and its title sits bottom-left in 12px/600 sentence case, not
