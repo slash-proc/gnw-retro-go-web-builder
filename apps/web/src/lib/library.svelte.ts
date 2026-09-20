@@ -41,6 +41,7 @@ import {
 } from "./sources/libraryScan.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { dedicatedFolderPlacement, isLibrarySource } from "./sources/coreRegistry.js";
+import { coverBlobStore } from "./screenscraper/coverStore.js";
 
 const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".bmp"]);
 const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
@@ -66,6 +67,7 @@ function saveZipScanCache(cache: Map<string, Map<string, ZipScanCacheEntry>>): v
  * cache holds the converted bytes.
  */
 async function convertCoversInMap(userRoms: Map<string, LibraryFile>): Promise<void> {
+  const derivedCoverCache = coverBlobStore();
   const toConvert: string[] = [];
   for (const path of userRoms.keys()) {
     // A non-first variant of a doubled path (see sources/libraryScan.ts). Its .img sidecar
@@ -90,17 +92,27 @@ async function convertCoversInMap(userRoms: Map<string, LibraryFile>): Promise<v
   for (const path of toConvert) {
     try {
       const source = userRoms.get(path)!;
+      const sourceStamp = typeof source === "object" && source !== null && "lastModified" in source
+        ? (source as { lastModified?: number }).lastModified
+        : undefined;
+      const cacheKey = `library-img:${path}:${source.length}:${sourceStamp ?? 0}`;
+      const cached = await derivedCoverCache.get(cacheKey);
+      const imgPath = path.slice(0, path.lastIndexOf(".")) + ".img";
+      const devicePath = imgPath.startsWith("covers/") ? imgPath : `covers/${imgPath}`;
+      if (cached) {
+        userRoms.set(devicePath, cached.bytes);
+        if (isLazy(source)) source.release?.();
+        continue;
+      }
       const data = await romBytes(source);
       const blob = new Blob([data as BlobPart]);
       const gwBlob = await toGWCover(blob);
       if (gwBlob) {
-        let imgPath = path.slice(0, path.lastIndexOf(".")) + ".img";
-        if (!imgPath.startsWith("covers/")) {
-          imgPath = "covers/" + imgPath;
-        }
+        const converted = new Uint8Array(await gwBlob.arrayBuffer());
         // Retain the original high-quality image in userRoms for the UI to display,
         // but generate the .img sidecar for flashing.
-        userRoms.set(imgPath, new Uint8Array(await gwBlob.arrayBuffer()));
+        userRoms.set(devicePath, converted);
+        void derivedCoverCache.put(cacheKey, converted, "image/jpeg");
       }
       // The original remains available through its file handle. Do not retain a second full
       // decoded copy for every cover after the background conversion pass.

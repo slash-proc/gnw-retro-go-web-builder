@@ -54,15 +54,26 @@
   // to redo decodes and briefly show unloaded covers on large libraries.
   const decodedUrls = new Set<string>();
   const pendingDecodes = new Map<string, Promise<void>>();
+  const pendingImages = new Map<string, HTMLImageElement>();
   function preloadUrl(url: string): void {
     if (decodedUrls.has(url) || pendingDecodes.has(url)) return;
     const image = new Image();
+    pendingImages.set(url, image);
     image.src = url;
     const pending = image.decode()
       .then(() => { decodedUrls.add(url); })
       .catch(() => {})
-      .finally(() => { pendingDecodes.delete(url); });
+      .finally(() => { pendingDecodes.delete(url); pendingImages.delete(url); });
     pendingDecodes.set(url, pending);
+  }
+
+  function cancelPreloadsExcept(keep: Set<string>): void {
+    for (const [url, image] of pendingImages) {
+      if (keep.has(url)) continue;
+      image.src = "";
+      pendingImages.delete(url);
+      pendingDecodes.delete(url);
+    }
   }
 
   // The track only ever draws a small neighborhood around the focus. Iterating the complete
@@ -83,18 +94,51 @@
   // decoded-byte budgets for LOD and full-resolution URLs, so this does not become an
   // unbounded high-resolution cache while scrubbing.
   const PRELOAD_RADIUS = 20;
+  const FULL_RES_MAX_SPEED = 100;
+  const FULL_RES_PRELOAD_RADIUS = 20;
+  let tilesPerSecond = $state(0);
+  let lastFocusSample = 0;
+  let lastFocusIndex = 0;
+  let velocityTimer = 0;
+  let fullPreloadTimer = 0;
+  let fullPreloadGeneration = 0;
+  $effect(() => {
+    const now = performance.now();
+    if (lastFocusSample) {
+      const elapsed = Math.max(1, now - lastFocusSample);
+      tilesPerSecond = Math.abs(focusIndex - lastFocusIndex) * 1000 / elapsed;
+    }
+    lastFocusSample = now;
+    lastFocusIndex = focusIndex;
+    if (velocityTimer) clearTimeout(velocityTimer);
+    velocityTimer = window.setTimeout(() => { tilesPerSecond = 0; }, 120);
+  });
+
   $effect(() => {
     const currentVersion = version;
     const center = focusIndex;
+    const urlsToKeep = new Set<string>();
+    const fullCandidates: number[] = [];
     for (let i = Math.max(0, center - PRELOAD_RADIUS); i <= Math.min(covers.length - 1, center + PRELOAD_RADIUS); i++) {
-      const urls = new Set([
-        covers[i]?.lodUrl || getLodUrl(covers[i]?.id, currentVersion),
-      ]);
-      for (const url of urls) {
-        if (!url) continue;
-        preloadUrl(url);
-      }
+      const lodUrl = covers[i]?.lodUrl || getLodUrl(covers[i]?.id, currentVersion);
+      if (lodUrl) { urlsToKeep.add(lodUrl); preloadUrl(lodUrl); }
+      if (tilesPerSecond <= FULL_RES_MAX_SPEED) fullCandidates.push(i);
     }
+    fullPreloadGeneration++;
+    const generation = fullPreloadGeneration;
+    if (fullPreloadTimer) clearTimeout(fullPreloadTimer);
+    let next = 0;
+    const loadNextFull = () => {
+      fullPreloadTimer = 0;
+      if (generation !== fullPreloadGeneration || tilesPerSecond > FULL_RES_MAX_SPEED) return;
+      const index = fullCandidates[next++];
+      if (index === undefined) return;
+      const url = covers[index]?.url || getUrl(covers[index]?.id, currentVersion);
+      if (url) { urlsToKeep.add(url); preloadUrl(url); }
+      if (next < fullCandidates.length) fullPreloadTimer = window.setTimeout(loadNextFull, 1000 / 240);
+    };
+    if (fullCandidates.length) fullPreloadTimer = window.setTimeout(loadNextFull, 0);
+    cancelPreloadsExcept(urlsToKeep);
   });
 
   let aspects = $state<Record<string, number>>({});
@@ -431,9 +475,9 @@
             {@const index = item.index}
             {@const offset = index - smoothIndex.current}
             {@const lodUrl = cover.lodUrl || getLodUrl(cover.id, version)}
-            <!-- Full-resolution art is suppressed during an active scrub. The LOD image is the
-                 scrub surface; full art resumes when scrubbing releases. -->
-            {@const mainUrl = isScrubbing ? "" : (cover.url || getUrl(cover.id, version))}
+            <!-- LOD remains the fast scrub surface. Full-resolution art is allowed as soon as
+                 motion is slow enough for the eye to resolve it, including during a scrub. -->
+            {@const mainUrl = tilesPerSecond <= FULL_RES_MAX_SPEED ? (cover.url || getUrl(cover.id, version)) : ""}
             {#if Math.abs(offset) <= SIDE + 1}
               {@const a = Math.abs(offset)}
               {@const isSelected = cover.id === selectedId}
