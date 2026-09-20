@@ -65,6 +65,21 @@ function saveLibraryMetadata(cache: Map<string, Map<string, LibraryFileMeta>>): 
   saveSel(LIBRARY_METADATA_KEY, persisted);
 }
 
+let metadataSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleLibraryMetadataSave(cache: Map<string, Map<string, LibraryFileMeta>>): void {
+  if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
+  metadataSaveTimer = setTimeout(() => {
+    metadataSaveTimer = null;
+    try {
+      saveLibraryMetadata(cache);
+    } catch (error) {
+      // The metadata index is an optimization. Quota/private-mode failures must never turn a
+      // successful ROM scan into a failed library or prevent SD sync.
+      dbg(`[library] metadata index not persisted: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, 0);
+}
+
 function loadZipScanCache(): Map<string, Map<string, ZipScanCacheEntry>> {
   const persisted = loadSel<PersistedZipScanCache>(ZIP_SCAN_CACHE_KEY, {});
   return new Map(Object.entries(persisted).map(([sourceId, entries]) => [
@@ -597,7 +612,7 @@ class LibraryStore {
       };
       this.fileOrigin = merged.origin;
       saveZipScanCache(this.sourceZipCache);
-      saveLibraryMetadata(this.sourceMetadataCache);
+      scheduleLibraryMetadataSave(this.sourceMetadataCache);
       this.pendingHandle = null;
       this.clearDirty();
 
