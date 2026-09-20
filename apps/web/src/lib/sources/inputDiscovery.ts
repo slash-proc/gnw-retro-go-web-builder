@@ -436,10 +436,11 @@ export function foldersToSearch<T extends SearchableFolder>(
 /**
  * Candidates out of the merged library scan — the folders it already walked, for free.
  *
- * The scan already holds every file's bytes in memory (`romScan.ts` reads them), so these
- * candidates cost nothing at all: no second walk, no second read, and `read()` is a resolved
- * promise. `allowed` is the id set from `foldersToSearch`; a path whose origin is not in it is
- * dropped, which is how `usedBy` narrowing applies to a merged scan.
+ * The scan already holds every file's metadata and lazy byte provider, so these candidates cost
+ * nothing at all: no second walk and no second metadata read. `read()` remains deferred and only
+ * inflates a candidate that survives extension/size narrowing. `allowed` is the id set from
+ * `foldersToSearch`; a path whose origin is not in it is dropped, which is how `usedBy` narrowing
+ * applies to a merged scan.
  *
  * `basePath` is deliberately NOT applied to the map key here — the caller passes the key it
  * has and the display path it wants — see `libraryScan.ts` for why a duplicate key is not a
@@ -459,7 +460,7 @@ export function libraryCandidates(
       path: pathOf(key),
       folderId,
       // `size` from metadata and `read` deferred: a zipped ROM offered as a converter input is
-      // listed and filtered without being inflated, and read only if the user picks it.
+      // listed and filtered without being inflated, and read only after it survives narrowing.
       size: bytes.length,
       read: () => resolveBytes(bytes),
       release: () => { if (isLazy(bytes)) bytes.release?.(); },
