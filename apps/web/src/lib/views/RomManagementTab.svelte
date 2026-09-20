@@ -1150,6 +1150,47 @@ import { navigate } from "../nav.js";
   // the same cover is inflated again.
   const COVER_LOD_CACHE_LIMIT = Number.MAX_SAFE_INTEGER;
   const coverLoads = new Set<string>();
+  // Cover discovery is called from the carousel render/preload path. A scrub can expose a
+  // different 40-cover window every frame, so starting every read immediately creates a large
+  // random-read/decode storm precisely when the pointer is moving at the edge of what we can
+  // display. Keep the queue bounded at the I/O boundary instead of limiting the library.
+  const COVER_READ_CONCURRENCY = 8;
+  type CoverReadJob = {
+    entry: LibraryFile;
+    cache: Map<string, string>;
+    gameKey: string;
+    loadKey: string;
+    cacheLimit: number;
+  };
+  const coverReadQueue: CoverReadJob[] = [];
+  let activeCoverReads = 0;
+  let coverVersionRaf = 0;
+  function scheduleCoverVersion(): void {
+    if (coverVersionRaf) return;
+    coverVersionRaf = requestAnimationFrame(() => {
+      coverVersionRaf = 0;
+      coverVersion++;
+    });
+  }
+  function pumpCoverReads(): void {
+    while (activeCoverReads < COVER_READ_CONCURRENCY && coverReadQueue.length > 0) {
+      const job = coverReadQueue.shift()!;
+      activeCoverReads++;
+      void romBytes(job.entry).then((bytes) => {
+        if (!job.cache.has(job.gameKey)) {
+          cacheCoverUrl(job.cache, job.gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])), job.cacheLimit);
+        }
+        if (isLazy(job.entry)) job.entry.release();
+        scheduleCoverVersion();
+      }).catch(() => {
+        // A stale or unreadable cover is allowed to remain a cache miss.
+      }).finally(() => {
+        coverLoads.delete(job.loadKey);
+        activeCoverReads--;
+        pumpCoverReads();
+      });
+    }
+  }
   function cacheCoverUrl(cache: Map<string, string>, key: string, url: string, limit: number) {
     const old = cache.get(key);
     if (old) URL.revokeObjectURL(old);
@@ -1329,17 +1370,8 @@ import { navigate } from "../nav.js";
           const cacheLimit = lowResolution ? COVER_LOD_CACHE_LIMIT : COVER_FULL_CACHE_LIMIT;
           if (cache.size + coverLoads.size >= cacheLimit || coverLoads.has(loadKey)) return "";
           coverLoads.add(loadKey);
-          void romBytes(entry).then((bytes) => {
-            if (!cache.has(gameKey)) {
-              cacheCoverUrl(cache, gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])), cacheLimit);
-            }
-            // The object URL owns the Blob's data now. Do not retain the inflated archive/file
-            // bytes in LazyRom as well; scrubbing thousands of covers otherwise leaves every
-            // source buffer resident even though only the bounded URL cache is still needed.
-            if (isLazy(entry)) entry.release();
-            coverLoads.delete(loadKey);
-            coverVersion++;
-          }).catch(() => coverLoads.delete(loadKey));
+          coverReadQueue.push({ entry, cache, gameKey, loadKey, cacheLimit });
+          pumpCoverReads();
           return "";
         }
         const url = URL.createObjectURL(new Blob([coverBytes as BlobPart]));

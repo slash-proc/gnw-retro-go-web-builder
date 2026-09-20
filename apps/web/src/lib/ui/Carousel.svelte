@@ -58,24 +58,47 @@
   const pendingDecodes = new Map<string, Promise<void>>();
   const pendingImages = new Map<string, HTMLImageElement>();
   const pendingLodUrls = new Set<string>();
+  const preloadQueue: Array<{ url: string; lowResolution: boolean }> = [];
+  const queuedPreloads = new Set<string>();
+  const PRELOAD_CONCURRENCY = 8;
+  let activePreloads = 0;
+  function pumpPreloads(): void {
+    while (activePreloads < PRELOAD_CONCURRENCY && preloadQueue.length > 0) {
+      const next = preloadQueue.shift()!;
+      queuedPreloads.delete(next.url);
+      if (decodedUrls.has(next.url) || pendingDecodes.has(next.url)) continue;
+      activePreloads++;
+      const image = new Image();
+      pendingImages.set(next.url, image);
+      if (next.lowResolution) pendingLodUrls.add(next.url);
+      image.src = next.url;
+      const pending = image.decode()
+        .then(() => { decodedUrls.add(next.url); })
+        .catch(() => {})
+        .finally(() => {
+          pendingDecodes.delete(next.url);
+          pendingImages.delete(next.url);
+          pendingLodUrls.delete(next.url);
+          activePreloads--;
+          pumpPreloads();
+        });
+      pendingDecodes.set(next.url, pending);
+    }
+  }
   function preloadUrl(url: string, lowResolution = false): void {
-    if (decodedUrls.has(url) || pendingDecodes.has(url)) return;
-    const image = new Image();
-    pendingImages.set(url, image);
-    if (lowResolution) pendingLodUrls.add(url);
-    image.src = url;
-    const pending = image.decode()
-      .then(() => { decodedUrls.add(url); })
-      .catch(() => {})
-      .finally(() => {
-        pendingDecodes.delete(url);
-        pendingImages.delete(url);
-        pendingLodUrls.delete(url);
-      });
-    pendingDecodes.set(url, pending);
+    if (decodedUrls.has(url) || pendingDecodes.has(url) || queuedPreloads.has(url)) return;
+    queuedPreloads.add(url);
+    preloadQueue.push({ url, lowResolution });
+    pumpPreloads();
   }
 
   function cancelPreloadsExcept(keep: Set<string>): void {
+    for (let i = preloadQueue.length - 1; i >= 0; i--) {
+      const queued = preloadQueue[i];
+      if (queued.lowResolution || keep.has(queued.url)) continue;
+      preloadQueue.splice(i, 1);
+      queuedPreloads.delete(queued.url);
+    }
     for (const [url, image] of pendingImages) {
       // LOD is the always-available scrub surface. Let an in-flight .img finish even after
       // focus moves away; cancelling it is what produced blank/"No cover" tiles when scrubbing
@@ -97,6 +120,8 @@
     pendingImages.clear();
     pendingDecodes.clear();
     pendingLodUrls.clear();
+    preloadQueue.length = 0;
+    queuedPreloads.clear();
   });
 
   // The track only ever draws a small neighborhood around the focus. Iterating the complete
