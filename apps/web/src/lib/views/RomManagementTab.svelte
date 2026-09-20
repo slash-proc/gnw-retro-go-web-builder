@@ -1192,7 +1192,9 @@ import { navigate } from "../nav.js";
     const warmBatch = () => {
       lodWarmupTimer = null;
       if (generation !== lodWarmupGeneration) return;
-      const end = Math.min(count, index + 48);
+      // `.img` payloads are small and the reads are asynchronous; a larger batch keeps the
+      // warm-up from trailing behind a fast scrub without making one long synchronous loop.
+      const end = Math.min(count, index + 256);
       for (; index < end; index++) {
         const cover = carouselCovers[index];
         getCoverUrl(cover.id, coverVersion, true);
