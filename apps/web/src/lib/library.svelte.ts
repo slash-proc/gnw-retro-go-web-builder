@@ -5,7 +5,6 @@
 import {
   pickAndScanRomFolder,
   scanRomDirectory,
-  countRomDirectory,
   folderPickerSupported,
   dirSupportsWriteBack,
   summarize,
@@ -525,20 +524,16 @@ class LibraryStore {
         if (sources.length === 0) return;
       }
 
-      // Count first, read second. Enumerating entries opens no files, so this is cheap next to
-      // the walk it measures, and it gives the bar a denominator it can actually reach.
+      // Do not enumerate every source twice just to manufacture a progress denominator. A
+      // persisted metadata index gives later scans a useful estimate; a first scan reports an
+      // indeterminate total while doing the only directory walk that actually matters.
       let totalFiles = 0;
       const sourceTotals = new Map<string, number>();
       for (const src of sources) {
         if (src.status !== "ready") continue;
-        try {
-          const count = await countRomDirectory(src.handle as RomDirHandle);
-          sourceTotals.set(src.id, count);
-          totalFiles += count;
-        } catch {
-          // A folder that cannot be counted is one that cannot be read either; the scan below
-          // reports it through `scanSkipped`. Leaving it out of the total keeps the bar honest.
-        }
+        const count = this.sourceMetadataCache.get(src.id)?.size ?? 0;
+        sourceTotals.set(src.id, count);
+        totalFiles += count;
       }
       let doneFiles = 0;
       let lastTick = 0;
