@@ -18,6 +18,7 @@ export interface CarouselAtlasInput {
 /** Minimal lazy-file shape accepted by the collector; avoids coupling the atlas to romScan. */
 export interface CarouselAtlasSourceFile {
   length: number;
+  lastModified?: number;
   bytes(): Promise<Uint8Array>;
 }
 
@@ -33,6 +34,39 @@ export function carouselAtlasFiles(
   for (const [key, file] of files) {
     if (!/\.img$/i.test(key) || !key.toLowerCase().startsWith("covers/")) continue;
     result.push({ sourceId: fileOrigin.get(key) ?? "unknown-source", key, file });
+  }
+  return result;
+}
+
+/** Build one atlas per source from already-discovered scan entries. */
+export async function buildCarouselAtlasesFromFiles(
+  files: ReturnType<typeof carouselAtlasFiles>,
+  options: CarouselAtlasOptions = {},
+): Promise<Map<string, CarouselAtlas>> {
+  const bySource = new Map<string, typeof files>();
+  for (const entry of files) {
+    const list = bySource.get(entry.sourceId) ?? [];
+    list.push(entry);
+    bySource.set(entry.sourceId, list);
+  }
+  const result = new Map<string, CarouselAtlas>();
+  for (const [sourceId, sourceFiles] of bySource) {
+    const inputs: CarouselAtlasInput[] = [];
+    const signatureEntries: { key: string; size: number; lastModified?: number }[] = [];
+    for (const entry of sourceFiles) {
+      const file = entry.file;
+      const bytes = file instanceof Uint8Array ? file : await file.bytes();
+      inputs.push({ key: entry.key, bytes });
+      signatureEntries.push({
+        key: entry.key,
+        size: file.length,
+        lastModified: file instanceof Uint8Array ? undefined : file.lastModified,
+      });
+    }
+    result.set(sourceId, await buildCarouselAtlas(inputs, {
+      ...options,
+      sourceSignature: carouselAtlasSignature(sourceId, signatureEntries),
+    }));
   }
   return result;
 }
