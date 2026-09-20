@@ -1179,7 +1179,14 @@ import { navigate } from "../nav.js";
     // cover is named after the ROM, and on the card there is only one of that name.
     const gameKey = basePath(key);
     const cache = lowResolution ? coverLodUrls : coverUrls;
-    if (cache.has(gameKey)) return cache.get(gameKey)!;
+    const cachedUrl = cache.get(gameKey);
+    if (cachedUrl) {
+      // Map insertion order is our LRU order: touching a hit keeps recently scrubbed covers
+      // resident and lets older, genuinely cold covers leave at the fixed budget boundary.
+      cache.delete(gameKey);
+      cache.set(gameKey, cachedUrl);
+      return cachedUrl;
+    }
     const structuredRom = visibleGameByKey.get(key)?.rom as LibraryRom | undefined;
     let system = "";
     let base = "";
