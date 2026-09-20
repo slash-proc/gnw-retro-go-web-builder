@@ -102,7 +102,9 @@ export async function buildCarouselAtlas(
     const slice = inputs.slice(start, start + perPage);
     for (let i = 0; i < slice.length; i++) {
       const input = slice[i];
-      const bitmap = await createImageBitmap(new Blob([input.bytes as BlobPart], { type: input.mime || "image/png" }));
+      // `.img` is an extension, not a MIME declaration. Leave the type empty when the caller
+      // does not know whether the payload is PNG or JPEG so the browser can sniff the bytes.
+      const bitmap = await createImageBitmap(new Blob([input.bytes as BlobPart], { type: input.mime || "" }));
       try {
         const col = i % columns;
         const row = Math.floor(i / columns);
@@ -120,4 +122,3 @@ export async function buildCarouselAtlas(
 
   return { cellWidth, cellHeight, columns, rows, placements, pages };
 }
-
