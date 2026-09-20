@@ -331,6 +331,15 @@ and device storage remain bounded by the `.img` derivatives.
 11. Remove transitional string-search and whole-map byte-loading paths after regression coverage is
     complete.
 
+### Current implementation status
+
+The metadata-first `LibraryRom` seam, source-qualified identity, in-memory source reconciliation,
+and the versioned `library-metadata-index.v1` metadata cache are implemented. The cache contains
+only `{ relativePath, filename, extension, size, lastModified }` records keyed by DirectorySource;
+it never stores handles, byte providers, ROM payloads, or image data. `LibraryRom` construction is
+centralized in `libraryModel.ts`, while the remaining migration work is to make more consumers
+accept those records directly and remove their transitional path parsing.
+
 ## Non-goals
 
 - Do not impose a maximum number of ROMs.
