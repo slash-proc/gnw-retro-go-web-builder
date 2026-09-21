@@ -63,11 +63,18 @@
   }>();
 
   let focusIndex = $state(0);
+  let positionedInitialSelection = false;
   
   $effect(() => {
     if (selectedId) {
       const i = covers.findIndex((c: any) => c.id === selectedId);
-      if (i >= 0) focusIndex = i;
+      if (i >= 0) {
+        focusIndex = i;
+        if (!positionedInitialSelection) {
+          positionedInitialSelection = true;
+          smoothIndex.set(i, { instant: true });
+        }
+      }
     }
   });
 
