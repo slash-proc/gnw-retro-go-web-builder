@@ -1240,7 +1240,11 @@ import { navigate } from "../nav.js";
     if (atlasTimer) clearTimeout(atlasTimer);
     atlasAbort?.abort();
     releaseAtlas();
-    if (!scan || games.length === 0) return;
+    // Building an atlas decodes every selected `.img` cover. That is useful for a small
+    // library, but doing it for thousands of entries competes with the live scrub queue and
+    // makes animation and first-cover latency dramatically worse. Large libraries use the
+    // bounded direct LOD loader below; it only decodes the neighborhood the user can see.
+    if (!scan || games.length === 0 || games.length > 200) return;
     const owners = new Map<string, string>();
     for (const game of games) {
       const rom = game.rom;
