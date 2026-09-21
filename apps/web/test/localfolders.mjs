@@ -102,7 +102,13 @@ function makeStorage() {
     },
   };
 }
-const handle = (name) => ({ name });
+// Native File System Access handles are structured-cloneable and expose
+// getDirectoryHandle(). The production store uses that capability to distinguish
+// persistable Chromium handles from the read-only webkitdirectory fallback.
+const handle = (name) => ({
+  name,
+  getDirectoryHandle: async () => ({ kind: "directory", name }),
+});
 
 const EMU = targetKey("org/retro-go", "gnw");
 const HB = targetKey("someone/zelda3", "zelda3");

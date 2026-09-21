@@ -30,6 +30,7 @@
     OFW_BACKUP_USED_BY_KEY,
     type LocalFolderRow,
   } from "../sources/localFolders.svelte.js";
+  import { nativeFolderPickerSupported, pickFolder } from "../romScan.js";
 
   let {
     selectedId = $bindable(null),
@@ -95,6 +96,13 @@
       }
     }
     onConfigure(f.id);
+  }
+
+  async function chooseAgain(f: LocalFolderRow): Promise<void> {
+    if (f.status !== "needs-permission") return;
+    if (await localFolders.grant(f.id)) return;
+    const picked = await pickFolder(`gnw-local-directory-${f.id}`);
+    if (picked) await localFolders.repoint(f.id, picked);
   }
 
   /**
@@ -165,6 +173,16 @@
             void configure(f);
           }}>{t.configure}</button
         >
+        {#if f.status === "needs-permission" && !nativeFolderPickerSupported()}
+          <button
+            class="configure"
+            type="button"
+            onclick={(e) => {
+              e.stopPropagation();
+              void chooseAgain(f);
+            }}>{t.folders.chooseAgain}</button
+          >
+        {/if}
       </div>
     </div>
   {/each}

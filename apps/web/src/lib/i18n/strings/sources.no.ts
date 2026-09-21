@@ -159,6 +159,7 @@ export const sourcesNo: SourcesStrings = {
     nameOptional: "(valgfritt)",
     noFolderChosen: "Ingen mappe valgt",
     choose: "Velg…",
+    chooseAgain: "Gi tilgang ved å velge mappe på nytt",
     subtitleDirectories: "Mapper med spill- og homebrew-filene dine.",
     configureDirectoryTitle: "Sett opp katalog",
     save: "Lagre",

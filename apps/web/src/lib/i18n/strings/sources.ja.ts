@@ -165,6 +165,7 @@ export const sourcesJa: SourcesStrings = {
     nameOptional: "(任意)",
     noFolderChosen: "フォルダーが選ばれていません",
     choose: "選択\u2026",
+    chooseAgain: "フォルダーを再選択して許可",
     subtitleDirectories: "ゲームファイルとホームブリューのファイルが入っているフォルダー。",
     configureDirectoryTitle: "ディレクトリを設定",
     save: "保存",

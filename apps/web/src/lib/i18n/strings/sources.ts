@@ -236,6 +236,7 @@ export const sourcesEn = {
     nameOptional: "(optional)",
     noFolderChosen: "No folder chosen",
     choose: "Choose\u2026",
+    chooseAgain: "Grant permission by choosing folder again",
     subtitleDirectories: "Folders holding your game and homebrew files.",
     // The configure page is the SAME page, relabelled (SourcesConfigureRoms /
     // SourcesConfigureHomebrewDir), and likewise one title now. "Nothing yet" is the homebrew

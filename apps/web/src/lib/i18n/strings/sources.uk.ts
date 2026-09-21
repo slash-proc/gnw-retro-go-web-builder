@@ -182,6 +182,7 @@ export const sourcesUk: SourcesStrings = {
     nameOptional: "(необов’язково)",
     noFolderChosen: "Теку не вибрано",
     choose: "Вибрати…",
+    chooseAgain: "Надати доступ, вибравши теку ще раз",
     subtitleDirectories: "Теки з вашими файлами ігор і homebrew.",
     configureDirectoryTitle: "Налаштувати теку",
     save: "Зберегти",

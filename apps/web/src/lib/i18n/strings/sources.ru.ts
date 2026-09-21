@@ -191,6 +191,7 @@ export const sourcesRu: SourcesStrings = {
     nameOptional: "(необязательно)",
     noFolderChosen: "Папка не выбрана",
     choose: "Выбрать…",
+    chooseAgain: "Разрешить доступ, выбрав папку ещё раз",
     subtitleDirectories: "Папки с вашими играми и файлами homebrew.",
     configureDirectoryTitle: "Настройка каталога",
     save: "Сохранить",

@@ -160,6 +160,7 @@ export const sourcesAr: SourcesStrings = {
     nameOptional: "(اختياري)",
     noFolderChosen: "لم يُختر مجلد",
     choose: "اختيار…",
+    chooseAgain: "منح الإذن باختيار المجلد مجددًا",
     subtitleDirectories: "مجلدات تحتوي ملفات ألعابك وبرامج Homebrew.",
     configureDirectoryTitle: "ضبط المجلد",
     save: "حفظ",

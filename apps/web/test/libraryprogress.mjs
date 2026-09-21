@@ -153,6 +153,10 @@ function audit(libSrc, tabSrc) {
   if (!/if \(library\.sourcesResolving && !library\.loaded\) return;/.test(tabSrc)) {
     problems.push("the wait is not gated on the FIRST scan, so a later core activation would stop rescanning");
   }
+  const pickFolderBlock = libSrc.slice(libSrc.indexOf("async pickFolder()"), libSrc.indexOf("async pickSavesFolder()"));
+  if (/pickAndScanRomFolder\(/.test(pickFolderBlock)) {
+    problems.push("library.pickFolder() scans the directory before sync(), scanning twice on folder selection");
+  }
   return problems;
 }
 
@@ -165,10 +169,11 @@ await check("ANTI-VACUITY: the same assertions fail on the old shape", () => {
   const before = lib
     .replace(/countRomDirectory\(/g, "noCount(")
     .replace(/total: totalFiles/g, "total: sources.length")
-    .replace(/sourcesResolving/g, "gone");
+    .replace(/sourcesResolving/g, "gone")
+    .replace(/pickRomFolder\(\)/g, "pickAndScanRomFolder()");
   const problems = audit(before, tab.replace(/sourcesResolving/g, "gone"));
-  assert(problems.length === 4,
-    `the old shape should fail all four, ${problems.length} did: ${problems.join("; ") || "(none)"}`);
+  assert(problems.length === 5,
+    `the old shape should fail all five, ${problems.length} did: ${problems.join("; ") || "(none)"}`);
 });
 
 console.log(`\nlibraryprogress: ${passed} passed, ${failed} failed`);

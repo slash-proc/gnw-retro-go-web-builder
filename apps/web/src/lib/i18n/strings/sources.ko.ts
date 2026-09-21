@@ -165,6 +165,7 @@ export const sourcesKo: SourcesStrings = {
     nameOptional: "(선택 사항)",
     noFolderChosen: "선택된 폴더 없음",
     choose: "선택\u2026",
+    chooseAgain: "폴더를 다시 선택하여 권한 부여",
     subtitleDirectories: "게임 파일과 홈브루 파일이 들어 있는 폴더.",
     configureDirectoryTitle: "디렉터리 설정",
     save: "저장",

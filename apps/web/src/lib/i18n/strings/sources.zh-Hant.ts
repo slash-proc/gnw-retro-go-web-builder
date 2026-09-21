@@ -158,6 +158,7 @@ export const sourcesZhHant: SourcesStrings = {
     nameOptional: "（選填）",
     noFolderChosen: "未選擇資料夾",
     choose: "選擇…",
+    chooseAgain: "再次選擇資料夾以授予權限",
     subtitleDirectories: "存放你遊戲與 homebrew 檔案的資料夾。",
     configureDirectoryTitle: "設定目錄",
     save: "儲存",

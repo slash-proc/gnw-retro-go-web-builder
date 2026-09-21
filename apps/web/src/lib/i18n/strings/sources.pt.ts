@@ -164,6 +164,7 @@ export const sourcesPt: SourcesStrings = {
     nameOptional: "(opcional)",
     noFolderChosen: "Nenhuma pasta escolhida",
     choose: "Escolher…",
+    chooseAgain: "Conceder permissão escolhendo a pasta novamente",
     subtitleDirectories: "Pastas com os seus ficheiros de jogos e homebrew.",
     configureDirectoryTitle: "Configurar diretoria",
     save: "Guardar",

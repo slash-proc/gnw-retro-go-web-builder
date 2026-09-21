@@ -180,6 +180,7 @@ export const sourcesPl: SourcesStrings = {
     nameOptional: "(opcjonalnie)",
     noFolderChosen: "Nie wybrano folderu",
     choose: "Wybierz\u2026",
+    chooseAgain: "Przyznaj uprawnienia, wybierając folder ponownie",
     subtitleDirectories: "Foldery z Twoimi plikami gier i homebrew.",
     configureDirectoryTitle: "Konfiguruj katalog",
     save: "Zapisz",

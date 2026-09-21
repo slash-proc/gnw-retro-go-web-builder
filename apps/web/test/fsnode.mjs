@@ -86,9 +86,19 @@ await esbuild.build({
     },
   }],
 });
-const { scanRomDirectory, getValidRoot, dirSupportsWriteBack, buildTreeFromFileList } = await import(
+const { scanRomDirectory, getValidRoot, dirSupportsWriteBack, buildTreeFromFileList, LazyRom, romBytes, pickRomFolder } = await import(
   pathToFileURL(join(out, "romScan.js")).href
 );
+
+// Firefox keeps directory-upload picker state per input control. ROM and SD picks must therefore
+// use distinct IDs rather than two anonymous inputs sharing the same browser picker state.
+const romScanSource = await import("node:fs/promises").then(({ readFile }) =>
+  readFile(join(here, "../src/lib/romScan.ts"), "utf8"),
+);
+ok(/function pickFolderViaInput\(id: string\)/.test(romScanSource),
+  "the fallback picker accepts a distinct picker id");
+ok(/input\.id = id[\s\S]*input\.name = id/.test(romScanSource),
+  "the fallback picker identifies ROM and SD controls separately");
 
 await esbuild.build({
   entryPoints: [join(here, "../src/lib/fsNode.ts")],
@@ -151,6 +161,10 @@ eq([...viaShim.userRoms.keys()].sort(), keys,
   "the browser shim and a real path agree on every key");
 eq(viaShim.summary.totalBytes, scanned.summary.totalBytes,
   "and on every byte, so the seam is one seam");
+ok(viaShim.userRoms.get("nes/mario.nes") instanceof LazyRom,
+  "the browser shim wraps files in LazyRom so scanning does not read file contents eagerly");
+eq([...await romBytes(viaShim.userRoms.get("nes/mario.nes"))], [1, 2, 3],
+  "inflating via romBytes yields the file bytes intact");
 
 // --- 3. Write-back is what actually differs ----------------------------------------------------
 // The shim is read-only and the app already branches on that (`dirSupportsWriteBack`), which is

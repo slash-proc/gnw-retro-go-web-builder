@@ -160,6 +160,7 @@ export const sourcesZhHans: SourcesStrings = {
     nameOptional: "（可选）",
     noFolderChosen: "未选择文件夹",
     choose: "选择…",
+    chooseAgain: "再次选择文件夹以授予权限",
     subtitleDirectories: "存放你的游戏和自制程序文件的文件夹。",
     configureDirectoryTitle: "配置目录",
     save: "保存",

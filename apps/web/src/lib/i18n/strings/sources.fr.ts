@@ -167,6 +167,7 @@ export const sourcesFr: SourcesStrings = {
     nameOptional: "(facultatif)",
     noFolderChosen: "Aucun dossier choisi",
     choose: "Choisir\u2026",
+    chooseAgain: "Accorder l'autorisation en choisissant à nouveau le dossier",
     subtitleDirectories: "Dossiers contenant vos fichiers de jeu et de homebrew.",
     configureDirectoryTitle: "Configurer le dossier",
     save: "Enregistrer",

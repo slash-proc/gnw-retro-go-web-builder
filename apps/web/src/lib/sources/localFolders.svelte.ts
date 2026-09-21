@@ -152,6 +152,11 @@ function readName(handle: unknown): string {
   return typeof n === "string" ? n : "";
 }
 
+/** Native directory handles can be persisted; browser fallback shims cannot. */
+function canPersistHandle(handle: unknown): boolean {
+  return typeof (handle as { getDirectoryHandle?: unknown } | null)?.getDirectoryHandle === "function";
+}
+
 /** Coerce one persisted record, dropping anything that is not a usable row. */
 function sanitise(raw: unknown): LocalFolderMeta | null {
   if (!raw || typeof raw !== "object") return null;
@@ -287,7 +292,9 @@ class LocalFolderStore {
     };
     this.folders = [...this.folders, row];
     this.persist();
-    await this.deps.saveDir(handleKey(id), opts.handle);
+    if (canPersistHandle(opts.handle)) {
+      await this.deps.saveDir(handleKey(id), opts.handle);
+    }
     return row;
   }
 

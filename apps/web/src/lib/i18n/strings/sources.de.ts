@@ -170,6 +170,7 @@ export const sourcesDe: SourcesStrings = {
     nameOptional: "(optional)",
     noFolderChosen: "Kein Ordner gewählt",
     choose: "Wählen\u2026",
+    chooseAgain: "Berechtigung durch erneute Ordnerauswahl erteilen",
     subtitleDirectories: "Ordner mit deinen Spiel- und Homebrew-Dateien.",
     configureDirectoryTitle: "Verzeichnis konfigurieren",
     save: "Speichern",
