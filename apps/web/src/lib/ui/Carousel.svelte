@@ -429,10 +429,10 @@
       
       if (covers[bestIdx]) {
         focusIndex = bestIdx;
-        // Scrubbing is itself a selection gesture. Keep the adjacent Library row in step while
-        // the pointer moves, rather than waiting for pointer-up and leaving the green marker
-        // behind during the scrub.
-        if (covers[bestIdx].id !== selectedId) triggerSelect(covers[bestIdx].id);
+        // Keep scrubbing local to the carousel. Propagating selection through the entire
+        // library on every pointer event forces Svelte to recompute thousands of rows and was
+        // the source of multi-hundred-millisecond microtask flushes in performance traces.
+        // Commit the selected row once on pointer-up instead.
       }
     }
   }
