@@ -206,6 +206,10 @@ class LibraryStore {
   scanSkipped = $state<SkippedFolder[]>([]);
   /** Surviving path -> the `LocalFolderRow.id` its bytes came from. */
   fileOrigin = $state<Map<string, string>>(new Map());
+  /** Case-folded path lookup used by cover resolution; avoids scanning the whole library per tile. */
+  private filePathIndex: Map<string, LibraryFile> | null = null;
+  private filePathIndexFiles: Map<string, LibraryFile> | null = null;
+  private filePathIndexSize = -1;
   dirtyFiles = $state<Set<string>>(new Set());
   folderScanning = $state(false);
   /**
@@ -256,12 +260,23 @@ class LibraryStore {
     if (exact && (!sourceId || this.fileOrigin.get(relativePath) === sourceId)) {
       return exact;
     }
-    for (const [key, entry] of files) {
-      if (basePath(key).toLowerCase() !== relativePath.toLowerCase()) continue;
-      if (sourceId && this.fileOrigin.get(key) !== sourceId) continue;
-      return entry;
+    if (this.filePathIndexFiles !== files || this.filePathIndexSize !== files.size) {
+      const index = new Map<string, LibraryFile>();
+      for (const [key, entry] of files) {
+        const folded = basePath(key).toLowerCase();
+        const origin = this.fileOrigin.get(key) ?? "";
+        const sourceKey = `${origin}\u0000${folded}`;
+        if (!index.has(sourceKey)) index.set(sourceKey, entry);
+        if (!index.has(`\u0000${folded}`)) index.set(`\u0000${folded}`, entry);
+      }
+      this.filePathIndex = index;
+      this.filePathIndexFiles = files;
+      this.filePathIndexSize = files.size;
     }
-    return null;
+    const folded = relativePath.toLowerCase();
+    return this.filePathIndex?.get(`${sourceId ?? ""}\u0000${folded}`)
+      ?? (!sourceId ? this.filePathIndex?.get(`\u0000${folded}`) : null)
+      ?? null;
   }
 
   /** Resolve a model ROM to its lazy scanned entry without making UI consumers parse keys. */
@@ -645,6 +660,9 @@ class LibraryStore {
         hasRomsPrefix: merged.scanned[0].hasRomsPrefix,
       };
       this.fileOrigin = merged.origin;
+      this.filePathIndex = null;
+      this.filePathIndexFiles = null;
+      this.filePathIndexSize = -1;
       saveZipScanCache(this.sourceZipCache);
       scheduleLibraryMetadataSave(this.sourceMetadataCache);
       this.pendingHandle = null;
@@ -693,6 +711,9 @@ class LibraryStore {
 
   clear(): void {
     this.scan = null;
+    this.filePathIndex = null;
+    this.filePathIndexFiles = null;
+    this.filePathIndexSize = -1;
     this.syncedSignature = null;
     this.savesScan = null;
     this.scanCollisions = [];
