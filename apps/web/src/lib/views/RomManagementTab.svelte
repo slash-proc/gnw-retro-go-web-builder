@@ -1269,7 +1269,13 @@ import { navigate } from "../nav.js";
     coverIndexMap = files;
     coverIndexSize = files.size;
     coverIndex = new Map();
-    for (const path of files.keys()) coverIndex.set(basePath(path).toLowerCase(), path);
+    for (const path of files.keys()) {
+      const folded = basePath(path).toLowerCase();
+      const sourceId = library.fileOrigin.get(path) ?? "";
+      const sourceKey = `${sourceId}\u0000${folded}`;
+      if (!coverIndex.has(sourceKey)) coverIndex.set(sourceKey, path);
+      if (!coverIndex.has(`\u0000${folded}`)) coverIndex.set(`\u0000${folded}`, path);
+    }
   }
 
   function releaseAtlas(): void {
@@ -1409,7 +1415,8 @@ import { navigate } from "../nav.js";
       // canonical paths case-insensitively so a reload does not lose an otherwise present cover.
       if (!matchPath && library.scan) {
         ensureCoverIndex();
-        const wanted = new Set(paths.map((p) => p.toLowerCase()));
+        const sourcePrefix = structuredRom?.directorySource?.id ?? "";
+        const wanted = new Set(paths.map((p) => `${sourcePrefix}\u0000${p.toLowerCase()}`));
         for (const path of wanted) {
           const found = coverIndex.get(path);
           if (found) { matchPath = found; break; }
