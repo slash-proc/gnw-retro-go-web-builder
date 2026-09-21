@@ -1168,6 +1168,7 @@ import { navigate } from "../nav.js";
   // random-read/decode storm precisely when the pointer is moving at the edge of what we can
   // display. Keep the queue bounded at the I/O boundary instead of limiting the library.
   const COVER_READ_CONCURRENCY = 8;
+  const COVER_READ_QUEUE_LIMIT = 64;
   type CoverReadJob = {
     entry: LibraryFile;
     cache: Map<string, string>;
@@ -1213,7 +1214,10 @@ import { navigate } from "../nav.js";
   }
   function pumpCoverReads(): void {
     while (activeCoverReads < COVER_READ_CONCURRENCY && coverReadQueue.length > 0) {
-      const job = coverReadQueue.shift()!;
+      // New requests correspond to the user's current scrub neighborhood. Process them first;
+      // an old FIFO queue made the carousel wait behind covers that had already left the
+      // viewport.
+      const job = coverReadQueue.pop()!;
       activeCoverReads++;
       coverReadsStarted++;
       void romBytes(job.entry).then((bytes) => {
@@ -1426,6 +1430,10 @@ import { navigate } from "../nav.js";
           coverReadsRequested++;
           if (!coverReadStartedAt) coverReadStartedAt = performance.now();
           coverReadQueue.push({ entry, cache, gameKey, loadKey, cacheLimit });
+          while (coverReadQueue.length > COVER_READ_QUEUE_LIMIT) {
+            const stale = coverReadQueue.shift();
+            if (stale) coverLoads.delete(stale.loadKey);
+          }
           pumpCoverReads();
           return "";
         }
