@@ -15,6 +15,15 @@
   // The ROM FOLDER is OPTIONAL. The on-device games come from device.installedGames (FrogFS read).
   // See memory: romgr-install-architecture.
   import { onMount } from "svelte";
+
+  declare global {
+    interface Window {
+      __gnwCoverDebug?: {
+        snapshot: () => ReturnType<typeof coverDebugSnapshot>;
+        reset: () => void;
+      };
+    }
+  }
   import { isLazy } from "../lazyBytes.js";
   import { convertCoversInMap, library } from "../library.svelte.js";
   import { nativeFolderPickerSupported, pickFolder, saveFileToDirOrDownload, deleteFileFromDir, pruneEmptyParents, readTextFromDir, scanRomDirectory, getValidRoot, dirSupportsWriteBack, romBytes, romBytesIfLoaded, materialize, type LibraryFile } from "../romScan.js";
@@ -113,6 +122,7 @@ import { navigate } from "../nav.js";
   // silently attempt the known/trusted adapter in the background, no modal — see
   // device.autoProbeRoms()'s doc comment).
   onMount(() => {
+    window.__gnwCoverDebug = { snapshot: coverDebugSnapshot, reset: resetCoverDebug };
     library.ensureFolders(device.targetMedia === "sd").catch(() => {});
     device.autoProbeRoms();
     // device.sdHandle persists across page reloads (IndexedDB), but device.installedGames
@@ -145,7 +155,10 @@ import { navigate } from "../nav.js";
       if (!(e.target as HTMLElement).closest(".sortpick")) sortMenuOpen = false;
     };
     document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
+    return () => {
+      document.removeEventListener("click", onDocClick);
+      if (window.__gnwCoverDebug?.snapshot === coverDebugSnapshot) delete window.__gnwCoverDebug;
+    };
   });
 
   /**
@@ -1164,6 +1177,32 @@ import { navigate } from "../nav.js";
   };
   const coverReadQueue: CoverReadJob[] = [];
   let activeCoverReads = 0;
+  let coverReadsRequested = 0;
+  let coverReadsStarted = 0;
+  let coverReadsDone = 0;
+  let coverReadsFailed = 0;
+  let coverReadBytes = 0;
+  let coverReadStartedAt = 0;
+  function coverDebugSnapshot() {
+    return {
+      queued: coverReadsRequested,
+      started: coverReadsStarted,
+      done: coverReadsDone,
+      failed: coverReadsFailed,
+      bytes: coverReadBytes,
+      queueDepth: coverReadQueue.length,
+      active: activeCoverReads,
+      elapsedMs: coverReadStartedAt ? Math.round(performance.now() - coverReadStartedAt) : 0,
+    };
+  }
+  function resetCoverDebug(): void {
+    coverReadsRequested = 0;
+    coverReadsStarted = 0;
+    coverReadsDone = 0;
+    coverReadsFailed = 0;
+    coverReadBytes = 0;
+    coverReadStartedAt = performance.now();
+  }
   let coverVersionRaf = 0;
   function scheduleCoverVersion(): void {
     if (coverVersionRaf) return;
@@ -1176,13 +1215,17 @@ import { navigate } from "../nav.js";
     while (activeCoverReads < COVER_READ_CONCURRENCY && coverReadQueue.length > 0) {
       const job = coverReadQueue.shift()!;
       activeCoverReads++;
+      coverReadsStarted++;
       void romBytes(job.entry).then((bytes) => {
+        coverReadsDone++;
+        coverReadBytes += bytes.byteLength;
         if (!job.cache.has(job.gameKey)) {
           cacheCoverUrl(job.cache, job.gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])), job.cacheLimit);
         }
         if (isLazy(job.entry)) job.entry.release();
         scheduleCoverVersion();
       }).catch(() => {
+        coverReadsFailed++;
         // A stale or unreadable cover is allowed to remain a cache miss.
       }).finally(() => {
         coverLoads.delete(job.loadKey);
@@ -1380,6 +1423,8 @@ import { navigate } from "../nav.js";
           const cacheLimit = lowResolution ? COVER_LOD_CACHE_LIMIT : COVER_FULL_CACHE_LIMIT;
           if (cache.size + coverLoads.size >= cacheLimit || coverLoads.has(loadKey)) return "";
           coverLoads.add(loadKey);
+          coverReadsRequested++;
+          if (!coverReadStartedAt) coverReadStartedAt = performance.now();
           coverReadQueue.push({ entry, cache, gameKey, loadKey, cacheLimit });
           pumpCoverReads();
           return "";

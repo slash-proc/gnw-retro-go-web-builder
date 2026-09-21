@@ -2,6 +2,33 @@
   import { onDestroy, onMount } from "svelte";
   import { Spring } from "svelte/motion";
   import { locale } from "../i18n/locale.svelte.js";
+
+  type CarouselDebugSnapshot = {
+    covers: number;
+    focus: number;
+    tilesPerSecond: number;
+    rendered: number;
+    preloadRequested: number;
+    lodRequested: number;
+    fullRequested: number;
+    decodeStarted: number;
+    decodeDone: number;
+    decodeFailed: number;
+    decodeCanceled: number;
+    queueDepth: number;
+    activeDecodes: number;
+    decodedUrls: number;
+    elapsedMs: number;
+  };
+
+  declare global {
+    interface Window {
+      __gnwCarouselDebug?: {
+        snapshot: () => CarouselDebugSnapshot;
+        reset: () => void;
+      };
+    }
+  }
   
   const ASPECT = 1.3;
   const SIDE = 4;
@@ -62,19 +89,57 @@
   const queuedPreloads = new Set<string>();
   const PRELOAD_CONCURRENCY = 8;
   let activePreloads = 0;
+  let debugStarted = performance.now();
+  let debugRendered = 0;
+  let debugPreloadRequested = 0;
+  let debugLodRequested = 0;
+  let debugFullRequested = 0;
+  let debugDecodeStarted = 0;
+  let debugDecodeDone = 0;
+  let debugDecodeFailed = 0;
+  let debugDecodeCanceled = 0;
+  const carouselDebugSnapshot = (): CarouselDebugSnapshot => ({
+    covers: covers.length,
+    focus: focusIndex,
+    tilesPerSecond: Math.round(tilesPerSecond),
+    rendered: debugRendered,
+    preloadRequested: debugPreloadRequested,
+    lodRequested: debugLodRequested,
+    fullRequested: debugFullRequested,
+    decodeStarted: debugDecodeStarted,
+    decodeDone: debugDecodeDone,
+    decodeFailed: debugDecodeFailed,
+    decodeCanceled: debugDecodeCanceled,
+    queueDepth: preloadQueue.length,
+    activeDecodes: activePreloads,
+    decodedUrls: decodedUrls.size,
+    elapsedMs: Math.round(performance.now() - debugStarted),
+  });
+  function resetCarouselDebug(): void {
+    debugStarted = performance.now();
+    debugRendered = 0;
+    debugPreloadRequested = 0;
+    debugLodRequested = 0;
+    debugFullRequested = 0;
+    debugDecodeStarted = 0;
+    debugDecodeDone = 0;
+    debugDecodeFailed = 0;
+    debugDecodeCanceled = 0;
+  }
   function pumpPreloads(): void {
     while (activePreloads < PRELOAD_CONCURRENCY && preloadQueue.length > 0) {
       const next = preloadQueue.shift()!;
       queuedPreloads.delete(next.url);
       if (decodedUrls.has(next.url) || pendingDecodes.has(next.url)) continue;
       activePreloads++;
+      debugDecodeStarted++;
       const image = new Image();
       pendingImages.set(next.url, image);
       if (next.lowResolution) pendingLodUrls.add(next.url);
       image.src = next.url;
       const pending = image.decode()
-        .then(() => { decodedUrls.add(next.url); })
-        .catch(() => {})
+        .then(() => { decodedUrls.add(next.url); debugDecodeDone++; })
+        .catch(() => { debugDecodeFailed++; })
         .finally(() => {
           pendingDecodes.delete(next.url);
           pendingImages.delete(next.url);
@@ -88,6 +153,8 @@
   function preloadUrl(url: string, lowResolution = false): void {
     if (decodedUrls.has(url) || pendingDecodes.has(url) || queuedPreloads.has(url)) return;
     queuedPreloads.add(url);
+    debugPreloadRequested++;
+    if (lowResolution) debugLodRequested++; else debugFullRequested++;
     preloadQueue.push({ url, lowResolution });
     pumpPreloads();
   }
@@ -106,12 +173,14 @@
       if (pendingLodUrls.has(url)) continue;
       if (keep.has(url)) continue;
       image.src = "";
+      debugDecodeCanceled++;
       pendingImages.delete(url);
       pendingDecodes.delete(url);
     }
   }
 
   onDestroy(() => {
+    if (window.__gnwCarouselDebug?.snapshot === carouselDebugSnapshot) delete window.__gnwCarouselDebug;
     fullPreloadGeneration++;
     if (fullPreloadTimer) clearTimeout(fullPreloadTimer);
     if (velocityTimer) clearTimeout(velocityTimer);
@@ -170,6 +239,7 @@
     void retryTick;
     const currentVersion = version;
     const center = focusIndex;
+    debugRendered++;
     if (center !== lodRetryCenter) {
       lodRetryCenter = center;
       lodRetryCount = 0;
@@ -205,6 +275,13 @@
       }, 16);
     }
     cancelPreloadsExcept(urlsToKeep);
+  });
+
+  onMount(() => {
+    window.__gnwCarouselDebug = { snapshot: carouselDebugSnapshot, reset: resetCarouselDebug };
+    return () => {
+      if (window.__gnwCarouselDebug?.snapshot === carouselDebugSnapshot) delete window.__gnwCarouselDebug;
+    };
   });
 
   let aspects = $state<Record<string, number>>({});
