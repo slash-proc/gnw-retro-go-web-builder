@@ -688,6 +688,8 @@ await check("state: EMPTY only after loading genuinely finished with nothing con
 
 await check("state: a scan in memory renders the LIST", async () => {
   eq(st({ hasScan: true }), "list", "loaded with a scan");
+  eq(st({ hasScan: true, scanning: true }), "list",
+    "a cached or previous scan stays visible while background reconciliation runs");
 });
 
 // --- Dedicated folders: both layouts the owner actually uses ------------------------------------

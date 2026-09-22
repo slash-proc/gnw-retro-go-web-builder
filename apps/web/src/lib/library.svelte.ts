@@ -70,6 +70,28 @@ interface CachedLibraryIndex {
   files: CachedLibraryFile[];
 }
 
+/** IndexedDB data is an optimization, never trusted input. A malformed/old record simply
+ * behaves like a cache miss and the ordinary scanner rebuilds it. */
+function isCachedLibraryIndex(value: unknown): value is CachedLibraryIndex {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<CachedLibraryIndex>;
+  return candidate.version === 1
+    && typeof candidate.primaryId === "string"
+    && typeof candidate.hasRomsPrefix === "boolean"
+    && Array.isArray(candidate.sourceIds)
+    && candidate.sourceIds.every((id) => typeof id === "string")
+    && Array.isArray(candidate.files)
+    && candidate.files.every((file) => !!file
+      && typeof file.key === "string"
+      && typeof file.origin === "string"
+      && typeof file.archive === "string"
+      && !!file.meta
+      && typeof file.meta.relativePath === "string"
+      && typeof file.meta.filename === "string"
+      && typeof file.meta.extension === "string"
+      && typeof file.meta.size === "number");
+}
+
 function loadLibraryMetadata(): Map<string, Map<string, LibraryFileMeta>> {
   const persisted = loadSel<PersistedLibraryMetadata>(LIBRARY_METADATA_KEY, {});
   return new Map(Object.entries(persisted).map(([sourceId, entries]) => [
@@ -401,7 +423,7 @@ class LibraryStore {
     if (this.cacheHydrationAttempted || this.scan) return;
     this.cacheHydrationAttempted = true;
     const cached = await loadLibraryIndex<CachedLibraryIndex>();
-    if (!cached || cached.version !== 1 || cached.files.length === 0) return;
+    if (!isCachedLibraryIndex(cached) || cached.files.length === 0) return;
     const activeSources = romFolderSources(localFolders.folders, coreRegistry.current)
       .filter((source) => source.status === "ready" && !!source.handle);
     const available = new Map(
@@ -793,7 +815,7 @@ class LibraryStore {
         merged.origin,
         primaryId,
         merged.scanned[0].hasRomsPrefix,
-        sources.filter((source) => source.status === "ready").map((source) => source.id),
+        sources.filter((source) => source.status === "ready" && !!source.handle).map((source) => source.id),
       );
       saveZipScanCache(this.sourceZipCache);
       scheduleLibraryMetadataSave(this.sourceMetadataCache);
