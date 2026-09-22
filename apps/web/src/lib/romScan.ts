@@ -258,6 +258,12 @@ export function resolveZipRom(entries: readonly ZipEntry[]): ZipRomVerdict {
  */
 export type ScanProgressFn = (relativePath: string) => void;
 
+/** Aggregated so a large collection of multi-ROM archives does not flood the main-thread log. */
+interface ZipSkipSummary {
+  count: number;
+  samples: string[];
+}
+
 /**
  * The homebrew directories to assume when a caller does not say.
  *
@@ -282,6 +288,7 @@ async function walk(
   onFile: ScanProgressFn | null,
   hbPrefixes: readonly string[],
   zipCache?: Map<string, ZipScanCacheEntry>,
+  zipSkips?: ZipSkipSummary,
 ): Promise<void> {
   for await (const [name, handle] of dir.entries()) {
     if (isHidden(name)) continue; // .DS_Store, .git, … (the pipeline also drops .DS_Store)
@@ -293,7 +300,7 @@ async function walk(
 
     if (handle.kind === "directory") {
       // Do not recurse into subdirectories inside homebrew
-      await walk(handle, rel, out, onFile, hbPrefixes, zipCache);
+      await walk(handle, rel, out, onFile, hbPrefixes, zipCache, zipSkips);
     } else {
       if (isInsideHomebrew || hbPrefixes.some((p) => rel.startsWith(`${p}/`))) {
         // Cover art (celeste.png, "Zelda 3.png", …) also lives directly in homebrew/ (see
@@ -329,7 +336,10 @@ async function walk(
           zipCache?.set(rel, { size: file.size, lastModified: file.lastModified, verdict });
         }
         if (!verdict.ok) {
-          dbg(`[scan] ${rel} skipped: ${verdict.reason}`);
+          if (zipSkips) {
+            zipSkips.count++;
+            if (zipSkips.samples.length < 5) zipSkips.samples.push(`${rel}: ${verdict.reason}`);
+          }
           continue;
         }
         const innerRel = prefix ? `${prefix}/${verdict.name}` : verdict.name;
@@ -338,7 +348,10 @@ async function walk(
         // named, which is the same posture as the cross-folder duplicate rule in
         // `sources/libraryScan.ts`: never renamed around, never quietly dropped.
         if (out.has(innerRel)) {
-          dbg(`[scan] ${rel} skipped: ${innerRel} already came from another archive`);
+          if (zipSkips) {
+            zipSkips.count++;
+            if (zipSkips.samples.length < 5) zipSkips.samples.push(`${rel}: ${innerRel} already came from another archive`);
+          }
           continue;
         }
         // The size is the central directory's; the bytes are read if and when someone installs
@@ -448,7 +461,11 @@ export async function scanRomDirectory(
   zipCache: Map<string, ZipScanCacheEntry> | undefined = undefined,
 ): Promise<RomScanResult> {
   const raw = new Map<string, LibraryFile>();
-  await walk(dir, "", raw, onFile, hbPrefixes, zipCache);
+  const zipSkips: ZipSkipSummary = { count: 0, samples: [] };
+  await walk(dir, "", raw, onFile, hbPrefixes, zipCache, zipSkips);
+  if (zipSkips.count > 0) {
+    dbg(`[scan] ${zipSkips.count} archives skipped; samples: ${zipSkips.samples.join(" | ")}`);
+  }
   
   const userRoms = new Map<string, LibraryFile>();
   let hasRomsPrefix = false;
