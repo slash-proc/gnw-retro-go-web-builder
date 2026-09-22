@@ -252,6 +252,37 @@ class LibraryStore {
     return (id ? localFolders.get(id)?.handle : undefined) as RomDirHandle | null ?? this.scan?.dir ?? null;
   }
 
+  /** The writable directory that owns this ROM, even when another source has the same path. */
+  writeDirForRom(rom: Pick<LibraryRom, "file" | "directorySource">): RomDirHandle | null {
+    const id = rom.directorySource?.id;
+    return (id ? localFolders.get(id)?.handle : undefined) as RomDirHandle | null
+      ?? this.writeDirFor(rom.file.relativePath);
+  }
+
+  /**
+   * Add or replace a source-owned runtime file without stealing an identically named file from
+   * another shared directory.  Scraped covers use this before the next filesystem scan sees the
+   * persisted original.
+   */
+  setFileForSource(path: string, file: LibraryFile, sourceId?: string): string {
+    const files = this.scan?.userRoms;
+    if (!files) return path;
+    let key = path;
+    if (sourceId && files.has(path) && this.fileOrigin.get(path) !== sourceId) {
+      const existing = [...files.keys()].find((candidate) =>
+        basePath(candidate).toLowerCase() === path.toLowerCase()
+        && this.fileOrigin.get(candidate) === sourceId,
+      );
+      key = existing ?? `${path}\u0000import-${sourceId}`;
+    }
+    files.set(key, file);
+    if (sourceId) this.fileOrigin.set(key, sourceId);
+    this.filePathIndex = null;
+    this.filePathIndexFiles = null;
+    this.filePathIndexSize = -1;
+    return key;
+  }
+
   /** Resolve a source-relative path, including case-folded duplicate-key variants. */
   fileForPath(relativePath: string, sourceId?: string): LibraryFile | null {
     const files = this.scan?.userRoms;

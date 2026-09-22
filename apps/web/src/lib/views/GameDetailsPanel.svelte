@@ -28,7 +28,7 @@
   import type { LibraryRom } from "../sources/libraryModel.js";
   import { basePath } from "../sources/libraryScan.js";
   import { coreRegistry } from "../sources/coreRegistry.svelte.js";
-  import { saveFileToDirOrDownload, nativeFolderPickerSupported, romBytes } from "../romScan.js";
+  import { saveFileToDirOrDownload, nativeFolderPickerSupported, romBytes, type RomDirHandle } from "../romScan.js";
   import { isLazy } from "../lazyBytes.js";
   import { obfuscate, deobfuscate } from "../localCrypt.js";
   import { download } from "../util.js";
@@ -783,7 +783,11 @@
     importPreviewMessage = null;
 
     const filesToScrape: File[] = [];
-    const coverSourceDirs = new Map<string, RomDirHandle>();
+    const coverSources = new Map<string, {
+      dir: RomDirHandle | null;
+      romPath: string;
+      sourceId?: string;
+    }>();
     const keysToImport = [...importSelected].filter((key) => {
       const selectedGame = importGameByKey.get(key);
       return !skipExistingCovers || !selectedGame?.hasCover;
@@ -835,8 +839,12 @@
       Object.defineProperty(file, 'webkitRelativePath', { value: webkitPath });
       (file as any).gnwOriginalKey = key;
       filesToScrape.push(file);
-      const sourceDir = library.writeDirFor(selectedGame?.rom?.file.relativePath ?? key) ?? library.scan?.dir;
-      if (sourceDir) coverSourceDirs.set(key.toLowerCase(), sourceDir);
+      const sourceRom = selectedGame?.rom;
+      coverSources.set(key.toLowerCase(), {
+        dir: sourceRom ? library.writeDirForRom(sourceRom) : library.writeDirFor(key),
+        romPath: sourceRom?.file.relativePath ?? basePath(key),
+        sourceId: sourceRom?.directorySource?.id,
+      });
       // The scraper now owns this File copy for the batch. Release the decoded source cache so
       // a large mass import does not retain two copies of every selected ROM.
       if (isLazy(entry)) entry.release?.();
@@ -892,6 +900,7 @@
         onCover: async (cover: any) => {
           const { blob, outputPath, file } = cover;
           const originalKey = file?.gnwOriginalKey;
+          const coverSource = originalKey ? coverSources.get(originalKey.toLowerCase()) : undefined;
           if (showGeneratedCovers) {
             importPreviewMessage = null;
             importPreviewBlob = blob;
@@ -899,9 +908,9 @@
 
           let relPath = "";
           if (originalKey) {
-            // Reconstruct the correct path using the original game key so the cover goes into the
-            // folder the ROM actually lives in, ignoring any directory rewrites we did for the scanner.
-            const rowPath = basePath(originalKey);
+            // Use the actual source-relative ROM path, not the library's canonical display key:
+            // a source may call its folder "Game Boy Color" while the device calls it "gbc".
+            const rowPath = coverSource?.romPath ?? basePath(originalKey);
             const hb = homebrew.find(rowPath);
             const outFilename = outputPath.split("/").pop() || "cover.png";
 
@@ -926,14 +935,14 @@
             const gwBlob = await toGWCover(blob);
             if (gwBlob) {
               const converted = new Uint8Array(await gwBlob.arrayBuffer());
-              library.scan?.userRoms.set(imgPath, converted);
+              const storedImgPath = library.setFileForSource(imgPath, converted, coverSource?.sourceId);
               await cacheDerivedCover(
                 relPath,
-                rom?.directorySource?.id,
+                coverSource?.sourceId,
                 blob.size,
                 converted,
               );
-              if (library.scan) library.markDirty(imgPath);
+              if (library.scan) library.markDirty(storedImgPath);
             }
           } catch (e) {
             dbg(`[covers] converting a scraped cover failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -941,33 +950,19 @@
 
           // Keep both tiers in the live map: the .img is the scrub surface and the original is
           // the full-resolution carousel/detail art. The original is also written back below.
-          library.scan?.userRoms.set(relPath, new Uint8Array(await blob.arrayBuffer()));
+          const storedOriginalPath = library.setFileForSource(
+            relPath,
+            new Uint8Array(await blob.arrayBuffer()),
+            coverSource?.sourceId,
+          );
+          if (library.scan) library.markDirty(storedOriginalPath);
 
-          // Save ORIGINAL format to disk (not the converted .img)
-          if (ssSaveLocal && nativeFolderPickerSupported() && library.scan?.dir) {
+          // A mass import is an explicit request to persist art. Always save the original beside
+          // the submitted ROM in its OWN directory source; never redirect through the primary
+          // folder or a global `covers/` mirror just because another source happens to be first.
+          if (nativeFolderPickerSupported() && coverSource?.dir) {
             try {
-              const parts = relPath.split("/");
-              let relativePath = parts[parts.length - 1];
-              let isRomsFolder = library.scan.dir.name.toLowerCase() === "roms";
-
-              if (!isRomsFolder) {
-                relativePath = "covers/" + relativePath;
-              }
-
-              if (hb) {
-                relativePath = (isRomsFolder ? "homebrew/" : "covers/homebrew/") + parts[parts.length - 1];
-              } else {
-                const pathPrefix = parts.slice(0, -1).join("/");
-                if (pathPrefix) {
-                  relativePath = (isRomsFolder ? "" : "covers/") + pathPrefix + "/" + parts[parts.length - 1];
-                }
-              }
-
-              const lookupKey = originalKey ? originalKey.toLowerCase() : relPath.toLowerCase();
-              const coverSource = coverSourceDirs.get(lookupKey)
-                ?? library.writeDirFor(relPath)
-                ?? library.scan.dir;
-              await saveFileToDirOrDownload(coverSource, relativePath, blob);
+              await saveFileToDirOrDownload(coverSource.dir, relPath, blob);
             } catch (e) {
               dbg(`[covers] writing a scraped cover to disk failed: ${e instanceof Error ? e.message : String(e)}`);
             }
