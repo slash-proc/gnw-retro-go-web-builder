@@ -461,18 +461,34 @@ export async function scanLibraryFolders(
   deps: LibraryScanDeps,
 ): Promise<MergedLibraryScan> {
   const { kept, skipped } = await dedupeSources(sources, deps);
-  const scanned: FolderScan[] = [];
-  for (const src of kept) {
-    try {
-      const r = await deps.scan(src);
-      scanned.push({ id: src.id, files: applyPlacement(r.files, src.placement), hasRomsPrefix: r.hasRomsPrefix });
-    } catch (e) {
-      skipped.push({
-        id: src.id,
-        reason: "error",
-        message: e instanceof Error ? e.message : String(e),
-      });
+  // Directory enumeration is I/O-bound, but opening every registered source at once can make
+  // removable media and network shares slower. Two workers overlap independent sources while
+  // the results remain indexed by `kept` order, preserving the established duplicate winner.
+  const outcomes: Array<FolderScan | SkippedFolder | undefined> = new Array(kept.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = next++;
+      const src = kept[index];
+      if (!src) return;
+      try {
+        const r = await deps.scan(src);
+        outcomes[index] = { id: src.id, files: applyPlacement(r.files, src.placement), hasRomsPrefix: r.hasRomsPrefix };
+      } catch (e) {
+        outcomes[index] = {
+          id: src.id,
+          reason: "error",
+          message: e instanceof Error ? e.message : String(e),
+        };
+      }
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(2, kept.length) }, () => worker()));
+  const scanned: FolderScan[] = [];
+  for (const outcome of outcomes) {
+    if (!outcome) continue;
+    if ("files" in outcome) scanned.push(outcome);
+    else skipped.push(outcome);
   }
   const merged = await mergeFolderScans(scanned, deps);
   return { ...merged, scanned, skipped };
