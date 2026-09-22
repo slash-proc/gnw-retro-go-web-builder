@@ -786,7 +786,7 @@
     const coverSourceDirs = new Map<string, RomDirHandle>();
     const keysToImport = [...importSelected].filter((key) => {
       const selectedGame = importGameByKey.get(key);
-      return !skipExistingCovers || !hasLocalCover(key, selectedGame?.rom);
+      return !skipExistingCovers || !selectedGame?.hasCover;
     });
     for (const key of keysToImport) {
       const selectedGame = importGameByKey.get(key);
@@ -1089,7 +1089,7 @@
   let importableSelectedCount = $derived(
     [...importSelected].filter((key) => {
       const selectedGame = importGameByKey.get(key);
-      return !skipExistingCovers || !hasLocalCover(key, selectedGame?.rom);
+      return !skipExistingCovers || !selectedGame?.hasCover;
     }).length
   );
 
