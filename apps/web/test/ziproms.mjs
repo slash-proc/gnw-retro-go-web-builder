@@ -150,7 +150,7 @@ await esbuild.build({
     },
   }],
 });
-const { scanRomDirectory, resolveZipRom, romBytes, materialize, LazyRom } = await import(pathToFileURL(join(out, "romScan.js")).href);
+const { scanRomDirectory, readRomFile, resolveZipRom, romBytes, materialize, LazyRom } = await import(pathToFileURL(join(out, "romScan.js")).href);
 
 await esbuild.build({
   entryPoints: [join(here, "../src/lib/unzip.ts")],
@@ -321,6 +321,15 @@ ok(aladdinEntry instanceof LazyRom, "scan: a zipped ROM is left un-inflated");
 eq(aladdinEntry.length, aladdin.length, "scan: the size is the UNCOMPRESSED size, from the directory alone");
 ok(Buffer.from(await romBytes(aladdinEntry)).equals(aladdin),
    "romBytes: inflating the entry yields the ROM");
+// The persisted library index retains only these two pieces of ZIP provenance: the
+// source-relative archive path and the central-directory entry. Re-open both through a fresh
+// directory handle, rather than relying on the original scan's captured FileSystemFileHandle.
+{
+  const reopenedArchive = await readRomFile(nodeDirHandle(root), aladdinEntry.archive);
+  const restored = await zipExtractOne(new Uint8Array(await reopenedArchive.arrayBuffer()), aladdinEntry.zipEntry);
+  ok(Buffer.from(restored).equals(aladdin),
+    "cache: persisted ZIP provenance reopens and extracts the ROM through a fresh source handle");
+}
 ok(Buffer.from(await romBytes(res.userRoms.get("gb/Alleyway (USA).gb"))).equals(alleyway),
    "scan: a loose ROM beside an archive resolves unchanged on demand");
 
