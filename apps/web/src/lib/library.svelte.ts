@@ -14,8 +14,10 @@ import {
   romBytes,
   type LibraryFile,
   type ZipScanCacheEntry,
+  LazyRom,
+  readRomFile,
 } from "./romScan.js";
-import { saveDir, loadDir, deleteDir, handlePermission, loadSel, saveSel } from "./persist.js";
+import { saveDir, loadDir, deleteDir, handlePermission, loadSel, saveSel, loadLibraryIndex, saveLibraryIndex } from "./persist.js";
 import { toGWCover } from "./screenscraper/gw.js";
 import { isLazy } from "./lazyBytes.js";
 import { device } from "./device.svelte.js";
@@ -44,12 +46,29 @@ import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { dedicatedFolderPlacement, isLibrarySource } from "./sources/coreRegistry.js";
 import { coverBlobStore } from "./screenscraper/coverStore.js";
 import { libraryCoverCacheKey, libraryFileMetaFromScan, sameLibraryFileMeta, type LibraryFileMeta, type LibraryRom } from "./sources/libraryModel.js";
+import { zipExtractOne, type ZipEntry } from "./unzip.js";
 
 const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".bmp"]);
 const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
 const LIBRARY_METADATA_KEY = "library-metadata-index.v1";
 type PersistedZipScanCache = Record<string, Record<string, ZipScanCacheEntry>>;
 type PersistedLibraryMetadata = Record<string, Record<string, LibraryFileMeta>>;
+
+interface CachedLibraryFile {
+  key: string;
+  origin: string;
+  meta: LibraryFileMeta;
+  archive: string;
+  zipEntry?: ZipEntry;
+}
+interface CachedLibraryIndex {
+  version: 1;
+  primaryId: string;
+  hasRomsPrefix: boolean;
+  /** The configured readable library sources when this snapshot was made. */
+  sourceIds: string[];
+  files: CachedLibraryFile[];
+}
 
 function loadLibraryMetadata(): Map<string, Map<string, LibraryFileMeta>> {
   const persisted = loadSel<PersistedLibraryMetadata>(LIBRARY_METADATA_KEY, {});
@@ -375,6 +394,77 @@ class LibraryStore {
   private sourceZipCache = loadZipScanCache();
   /** Persisted metadata only; no handles, providers or payload bytes. */
   private sourceMetadataCache = loadLibraryMetadata();
+  private cacheHydrationAttempted = false;
+
+  /** Restore the previous scan as real lazy entries before the filesystem validation starts. */
+  private async hydrateCachedIndex(): Promise<void> {
+    if (this.cacheHydrationAttempted || this.scan) return;
+    this.cacheHydrationAttempted = true;
+    const cached = await loadLibraryIndex<CachedLibraryIndex>();
+    if (!cached || cached.version !== 1 || cached.files.length === 0) return;
+    const activeSources = romFolderSources(localFolders.folders, coreRegistry.current)
+      .filter((source) => source.status === "ready" && !!source.handle);
+    const available = new Map(
+      activeSources.map((source) => [source.id, source.handle as RomDirHandle]),
+    );
+    const currentSourceIds = [...available.keys()].sort();
+    if (!cached.sourceIds || cached.sourceIds.slice().sort().join("\0") !== currentSourceIds.join("\0")) return;
+    if (!available.has(cached.primaryId)) return;
+    const files = new Map<string, LibraryFile>();
+    const origin = new Map<string, string>();
+    for (const entry of cached.files) {
+      const dir = available.get(entry.origin);
+      if (!dir) continue;
+      const load = async (): Promise<Uint8Array> => {
+        const file = await readRomFile(dir, entry.archive);
+        if (entry.zipEntry) return zipExtractOne(new Uint8Array(await file.arrayBuffer()), entry.zipEntry);
+        return new Uint8Array(await file.arrayBuffer());
+      };
+      files.set(entry.key, new LazyRom(entry.meta.size, load, entry.archive, entry.meta.lastModified, entry.zipEntry));
+      origin.set(entry.key, entry.origin);
+    }
+    if (files.size === 0) return;
+    this.scan = {
+      userRoms: files,
+      summary: summarize(files),
+      dir: available.get(cached.primaryId)!,
+      hasRomsPrefix: cached.hasRomsPrefix,
+    };
+    this.fileOrigin = origin;
+    this.filePathIndex = null;
+    this.filePathIndexFiles = null;
+    this.filePathIndexSize = -1;
+    this.loaded = true;
+    dbg(`[library] hydrated ${files.size} cached entries; validating sources in background`);
+  }
+
+  private persistCachedIndex(
+    files: Map<string, LibraryFile>,
+    origin: ReadonlyMap<string, string>,
+    primaryId: string,
+    hasRomsPrefix: boolean,
+    sourceIds: readonly string[],
+  ): void {
+    const index: CachedLibraryIndex = {
+      version: 1,
+      primaryId,
+      hasRomsPrefix,
+      sourceIds: [...sourceIds].sort(),
+      files: [...files].flatMap(([key, file]) => {
+        const sourceId = origin.get(key);
+        if (!sourceId) return [];
+        const lazy = isLazy(file) ? file as LazyRom : null;
+        return [{
+          key,
+          origin: sourceId,
+          meta: libraryFileMetaFromScan(key, file),
+          archive: lazy?.archive ?? basePath(key),
+          ...(lazy?.zipEntry ? { zipEntry: lazy.zipEntry } : {}),
+        }];
+      }),
+    };
+    void saveLibraryIndex(index);
+  }
 
   private reuseUnchangedSourceFiles(sourceId: string, files: Map<string, LibraryFile>): Map<string, LibraryFile> {
     const previous = this.sourceFileCache.get(sourceId);
@@ -445,6 +535,10 @@ class LibraryStore {
       // observed a registered directory, that setup prompt is stale and must not remain over the
       // configured library.
       if (localFolders.folders.length > 0 && this.folderGatePrompt) this.resolveFolderGate();
+      // The saved index has only metadata plus source-relative file provenance. Hydrate it
+      // before the normal scan so the UI is usable immediately; the loop below always performs
+      // the real directory walk and atomically replaces this optimistic snapshot.
+      await this.hydrateCachedIndex();
       do {
         this.syncPending = false;
         const sig = this.romFolderSignature;
@@ -694,6 +788,13 @@ class LibraryStore {
       this.filePathIndex = null;
       this.filePathIndexFiles = null;
       this.filePathIndexSize = -1;
+      this.persistCachedIndex(
+        userRoms,
+        merged.origin,
+        primaryId,
+        merged.scanned[0].hasRomsPrefix,
+        sources.filter((source) => source.status === "ready").map((source) => source.id),
+      );
       saveZipScanCache(this.sourceZipCache);
       scheduleLibraryMetadataSave(this.sourceMetadataCache);
       this.pendingHandle = null;

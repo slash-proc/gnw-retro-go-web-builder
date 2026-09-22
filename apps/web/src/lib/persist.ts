@@ -72,7 +72,7 @@ export function saveRaw(key: string, value: string): void {
 
 // --- Directory handles (File System Access API) in IndexedDB --------------------------------
 // FileSystemDirectoryHandle is structured-cloneable, so IndexedDB stores it verbatim. We keep
-// handles in a tiny dedicated DB; on a later visit the handle still needs a permission re-grant.
+// handles in a dedicated DB; on a later visit the handle still needs a permission re-grant.
 //
 // THIS STORE DOES NOT MOVE TO THE OPFS BLOB CACHE, and a later reader tidying up the last
 // IndexedDB user should not try. Every other IndexedDB byte store in this app has been drained
@@ -81,20 +81,56 @@ export function saveRaw(key: string, value: string): void {
 // NOT BYTES: OPFS stores files, and there is no byte representation of a handle to store —
 // serialising one would yield a dead object granting access to nothing. Structured clone into
 // IndexedDB is the only mechanism in the browser that preserves it, so this stays here
-// permanently. It is also tiny (a handful of entries) and holds no file contents at all.
+// permanently. Alongside handles it stores one metadata-only library snapshot: source-relative
+// names, sizes and ZIP entry records, never ROM or cover bytes.
 
 const DB_NAME = scoped("gnw-handles");
 const STORE = "dirs";
+const LIBRARY_INDEX_STORE = "library-index";
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
-      req.result.createObjectStore(STORE);
+      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
+      if (!req.result.objectStoreNames.contains(LIBRARY_INDEX_STORE)) req.result.createObjectStore(LIBRARY_INDEX_STORE);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+/** Persisted library metadata is large enough for IndexedDB, but contains no file bytes. */
+export async function saveLibraryIndex(value: unknown): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(LIBRARY_INDEX_STORE, "readwrite");
+      tx.objectStore(LIBRARY_INDEX_STORE).put(value, "latest");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    /* an index miss merely falls back to a normal scan */
+  }
+}
+
+/** Restore the last metadata-only library index, or null on any unavailable/corrupt store. */
+export async function loadLibraryIndex<T>(): Promise<T | null> {
+  try {
+    const db = await openDb();
+    const value = await new Promise<T | null>((resolve, reject) => {
+      const tx = db.transaction(LIBRARY_INDEX_STORE, "readonly");
+      const request = tx.objectStore(LIBRARY_INDEX_STORE).get("latest");
+      request.onsuccess = () => resolve((request.result as T | undefined) ?? null);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return value;
+  } catch {
+    return null;
+  }
 }
 
 /** Persist a directory handle under `key`. Swallows errors. */

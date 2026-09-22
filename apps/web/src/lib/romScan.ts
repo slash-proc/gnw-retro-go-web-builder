@@ -51,6 +51,27 @@ interface FsFileHandle {
   name: string;
   getFile(): Promise<File>;
 }
+
+/** Read one source-relative file on demand, used by hydrated metadata-only library entries. */
+export async function readRomFile(dir: RomDirHandle, relativePath: string): Promise<File> {
+  const parts = relativePath.split("/").filter(Boolean);
+  let current: FsDirHandle = dir;
+  for (let index = 0; index < parts.length; index++) {
+    const wanted = parts[index];
+    let found: FsDirHandle | FsFileHandle | null = null;
+    for await (const [name, handle] of current.entries()) {
+      if (name === wanted) { found = handle; break; }
+    }
+    if (!found) throw new Error(`cached library file disappeared: ${relativePath}`);
+    if (index === parts.length - 1) {
+      if (found.kind !== "file") throw new Error(`cached library path is not a file: ${relativePath}`);
+      return found.getFile();
+    }
+    if (found.kind !== "directory") throw new Error(`cached library path is not a directory: ${relativePath}`);
+    current = found;
+  }
+  throw new Error(`cached library path is empty`);
+}
 declare global {
   interface Window {
     showDirectoryPicker?: (opts?: { id?: string; mode?: "read" | "readwrite" }) => Promise<FsDirHandle>;
@@ -100,6 +121,8 @@ export class LazyRom implements LazyBytes {
     readonly archive: string,
     /** File metadata used by incremental scans; never requires reading the payload. */
     readonly lastModified?: number,
+    /** Present for a ZIP-backed ROM so a persisted metadata index can re-open it lazily. */
+    readonly zipEntry?: ZipEntry,
   ) {
     this.length = length;
   }
@@ -363,6 +386,8 @@ async function walk(
             entry.size,
             async () => zipExtractOne(new Uint8Array(await (await handle.getFile()).arrayBuffer()), entry),
             rel,
+            file.lastModified,
+            entry,
           ),
         );
         onFile?.(innerRel);

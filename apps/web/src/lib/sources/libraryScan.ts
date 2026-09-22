@@ -680,6 +680,9 @@ export function libraryListState(s: {
   /** `library.scan !== null`. */
   hasScan: boolean;
 }): LibraryListState {
-  if (!s.registryReady || !s.loaded || s.scanning) return "loading";
-  return s.hasScan ? "list" : "empty";
+  if (!s.registryReady || !s.loaded) return "loading";
+  // A hydrated snapshot (or a previous scan during refresh) remains useful while the
+  // authoritative reconciliation runs. Do not hide a real list behind a loading screen.
+  if (s.hasScan) return "list";
+  return s.scanning ? "loading" : "empty";
 }
