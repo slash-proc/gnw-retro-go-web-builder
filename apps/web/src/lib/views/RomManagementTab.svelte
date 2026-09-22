@@ -4018,35 +4018,39 @@ import { navigate } from "../nav.js";
                     {/if}
                   </div>
                   <button class="action-btn" onclick={() => {
+                    const gameRows = visibleGames.filter((g) => !g.isHomebrew);
                     if (allVisibleSelected) {
-                      for (const g of visibleGames) {
-                        if (g.isHomebrew) romSelection.toggleHomebrew(g.key, false);
-                        else romSelection.toggleRow(g);
-                      }
+                      romSelection.setRowsSelected(gameRows, false);
+                      for (const g of visibleGames) if (g.isHomebrew) romSelection.toggleHomebrew(g.key, false);
                       return;
                     }
                     let extraBytes = 0;
-                    const toggles: Array<() => void> = [];
+                    const rowsToSelect: typeof gameRows = [];
+                    const homebrewToSelect: string[] = [];
+                    const prepareActions: Array<() => void> = [];
+                    const selectedRows = romSelection.selectedKeys;
                     for (const g of visibleGames) {
                       if (g.isHomebrew) {
                         const state = getActionState(g);
                         if (state.label === 'prepare') {
-                          state.action();
+                          prepareActions.push(state.action);
                         } else if (state.label === 'not installed') {
                           extraBytes += getHomebrewSize(g.hb.key);
-                          toggles.push(() => romSelection.toggleHomebrew(g.hb.key, true));
+                          homebrewToSelect.push(g.hb.key);
                         }
                       } else {
                         // Same row rule as `getActionState`: Select All must select the file
                         // that gets copied, not the converter input that never does.
-                        if (!romSelection.isRowSelected(g)) {
+                        if (!selectedRows.has(g.outputKey ?? g.key)) {
                           extraBytes += g.size;
-                          toggles.push(() => romSelection.toggleRow(g));
+                          rowsToSelect.push(g);
                         }
                       }
                     }
                     if (extraBytes > 0 && !validateFit(extraBytes)) return;
-                    toggles.forEach(t => t());
+                    romSelection.setRowsSelected(rowsToSelect, true);
+                    for (const key of homebrewToSelect) romSelection.toggleHomebrew(key, true);
+                    for (const action of prepareActions) action();
                   }}>{allVisibleSelected ? locale.t.roms.selectGames.unselectAll : locale.t.roms.selectGames.selectAll}</button>
                     <button class="folder-btn" title={locale.t.roms.selectGames.changeFoldersTitle} onclick={() => library.openFolderGate(device.targetMedia === "sd").catch(() => {})}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>

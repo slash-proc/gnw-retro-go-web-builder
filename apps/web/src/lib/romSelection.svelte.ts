@@ -600,6 +600,19 @@ class RomSelectionStore {
     this.toggle(selectionKeyFor(row));
   }
 
+  /**
+   * Apply one selection state to many rendered rows from a single selection snapshot.  Calling
+   * `toggleRow` in a loop repeatedly re-evaluates `selectedKeys` (which walks the whole
+   * library); this is the bulk path used by the All-category control.
+   */
+  setRowsSelected(rows: Iterable<Pick<GameRow, "key"> & { outputKey?: string }>, selected: boolean): void {
+    const current = this.selectedKeys;
+    for (const row of rows) {
+      const key = selectionKeyFor(row);
+      if (current.has(key) !== selected) this.overrides.set(key, selected);
+    }
+  }
+
   /** Check every in-folder game not yet on the device. */
   selectAllMissing(): void {
     for (const g of this.games) if (g.inFolder && !g.installed) this.overrides.set(g.key, true);

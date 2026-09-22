@@ -21,7 +21,7 @@
   import { MCF_WHOLE_FILE_SYSTEMS, findMcfPreset, mcfAssetUrl, loadCheatsForSystem, resolveCheatGame, type Cheat, type CheatGame } from "../cheats/index.js";
   import { onMount } from "svelte";
   import { homebrew } from "../sources/homebrewTitles.svelte.js";
-  import { romSelection } from "../romSelection.svelte.js";
+  import { romSelection, type Game } from "../romSelection.svelte.js";
   import { cacheDerivedCover, library } from "../library.svelte.js";
   import { systemIdsFor, isKnownSystemFolder } from "../screenscraper/config.js";
   import { coverSystemFor } from "../sources/coverSystem.js";
@@ -750,6 +750,10 @@
   // --- Import Modal State ---
   let showImportModal = $state(false);
   let importSelected = $state<Set<string>>(new Set());
+  let importGamesList = $state<Array<Game & { hasCover: boolean }>>([]);
+  let importPreparing = $state(false);
+  let importPreparation = 0;
+  const importGameByKey = $derived.by(() => new Map(importGamesList.map((game) => [game.key, game])));
   let importSortBy = $state<"name" | "cover">("name");
   let importSortDesc = $state(false);
   let importFilterConsole = $state<string>("all");
@@ -780,9 +784,12 @@
 
     const filesToScrape: File[] = [];
     const coverSourceDirs = new Map<string, RomDirHandle>();
-    const keysToImport = [...importSelected].filter(key => !skipExistingCovers || !hasLocalCover(key));
+    const keysToImport = [...importSelected].filter((key) => {
+      const selectedGame = importGameByKey.get(key);
+      return !skipExistingCovers || !hasLocalCover(key, selectedGame?.rom);
+    });
     for (const key of keysToImport) {
-      const selectedGame = importGamesList.find((game) => game.key === key);
+      const selectedGame = importGameByKey.get(key);
       const entry = selectedGame?.rom
         ? (library.fileForRom(selectedGame.rom) ?? library.fileForPath(key))
         : library.fileForPath(key);
@@ -1026,27 +1033,42 @@
     toCheck.unshift(...metadataPaths);
 
     for (const path of toCheck) {
-      if (library.scan?.userRoms.has(path)) return true;
-    }
-
-    // Case-insensitive fallback (mirrors getCoverUrl logic)
-    if (library.scan) {
-      const lowerToCheck = toCheck.map(p => p.toLowerCase());
-      for (const diskPath of library.scan.userRoms.keys()) {
-        const lowerDiskPath = diskPath.toLowerCase();
-        if (lowerToCheck.includes(lowerDiskPath)) return true;
-      }
+      if (library.fileForPath(path, rom?.directorySource?.id)) return true;
     }
 
     return false;
   }
 
-  let importGamesList = $derived.by(() => {
-    return romSelection.games.map(g => ({
-      ...g,
-      hasCover: hasLocalCover(g.key, g.rom)
-    }));
-  });
+  function nextFrame(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  async function openImportModal(): Promise<void> {
+    const run = ++importPreparation;
+    showImportModal = true;
+    importPreparing = true;
+    importSelected = new Set();
+    importGamesList = [];
+    // Let the modal paint before calculating its inventory.  The scan is intentionally chunked:
+    // opening the dialog must not monopolize the main thread for a multi-thousand-ROM library.
+    await nextFrame();
+    const games = romSelection.games;
+    const next: Array<Game & { hasCover: boolean }> = [];
+    const selected = new Set<string>();
+    for (let start = 0; start < games.length; start += 100) {
+      if (run !== importPreparation || !showImportModal) return;
+      for (const game of games.slice(start, start + 100)) {
+        const hasCover = hasLocalCover(game.key, game.rom);
+        next.push({ ...game, hasCover });
+        if (!hasCover) selected.add(game.key);
+      }
+      await nextFrame();
+    }
+    if (run !== importPreparation || !showImportModal) return;
+    importGamesList = next;
+    importSelected = selected;
+    importPreparing = false;
+  }
 
   let sortedImportGames = $derived.by(() => {
     let filtered = importGamesList;
@@ -1065,7 +1087,10 @@
   });
 
   let importableSelectedCount = $derived(
-    [...importSelected].filter(key => !skipExistingCovers || !hasLocalCover(key)).length
+    [...importSelected].filter((key) => {
+      const selectedGame = importGameByKey.get(key);
+      return !skipExistingCovers || !hasLocalCover(key, selectedGame?.rom);
+    }).length
   );
 
 
@@ -1312,15 +1337,7 @@
       <h3>{locale.t.roms.gameDetailsPanel.coverArt.heading}</h3>
       <div class="panel-head-actions">
         {#if ssUsername}
-          {@const openImportModal = () => {
-            const toSelect = new Set<string>();
-            for (const g of importGamesList) {
-              if (!g.hasCover) toSelect.add(g.key);
-            }
-            importSelected = toSelect;
-            showImportModal = true;
-          }}
-          <button class="settings-btn" title={locale.t.roms.gameDetailsPanel.coverArt.importTitle} onclick={openImportModal}>
+          <button class="settings-btn" title={locale.t.roms.gameDetailsPanel.coverArt.importTitle} onclick={() => void openImportModal()}>
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
@@ -1822,7 +1839,9 @@
         </button>
       </div>
 
-      {#if !isImporting}
+      {#if importPreparing}
+      <div class="empty">Preparing cover inventory…</div>
+      {:else if !isImporting}
       <div class="consoles import-filter">
         <button class="console" class:active={importFilterConsole === "all"} onclick={() => importFilterConsole = "all"}>
           {locale.t.roms.gameDetailsPanel.importModal.allFilterLabel(importGamesList.length)}
