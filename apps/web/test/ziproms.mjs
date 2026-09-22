@@ -332,6 +332,11 @@ ok(Buffer.from(await romBytes(aladdinEntry)).equals(aladdin),
 }
 ok(Buffer.from(await romBytes(res.userRoms.get("gb/Alleyway (USA).gb"))).equals(alleyway),
    "scan: a loose ROM beside an archive resolves unchanged on demand");
+{
+  const reopenedLoose = await readRomFile(nodeDirHandle(root), "gb/Alleyway (USA).gb");
+  ok(Buffer.from(await reopenedLoose.arrayBuffer()).equals(alleyway),
+    "cache: source-relative loose ROM provenance reopens through a fresh source handle");
+}
 
 // THE MEASUREMENT THE DESIGN EXISTS FOR. The archives total far more than the scan read.
 const archiveTotal = [
