@@ -321,8 +321,8 @@ ok(aladdinEntry instanceof LazyRom, "scan: a zipped ROM is left un-inflated");
 eq(aladdinEntry.length, aladdin.length, "scan: the size is the UNCOMPRESSED size, from the directory alone");
 ok(Buffer.from(await romBytes(aladdinEntry)).equals(aladdin),
    "romBytes: inflating the entry yields the ROM");
-ok(Buffer.from(res.userRoms.get("gb/Alleyway (USA).gb")).equals(alleyway),
-   "scan: a loose ROM beside an archive is read as bytes, unchanged");
+ok(Buffer.from(await romBytes(res.userRoms.get("gb/Alleyway (USA).gb"))).equals(alleyway),
+   "scan: a loose ROM beside an archive resolves unchanged on demand");
 
 // THE MEASUREMENT THE DESIGN EXISTS FOR. The archives total far more than the scan read.
 const archiveTotal = [
@@ -338,16 +338,21 @@ ok(!keys.includes("gb/x.gb") && !keys.includes("gb/y.gb"),
    "scan: nothing from a multi-entry archive is installed", keys.join(", "));
 
 const dbgText = globalThis.__dbg.join("\n");
-ok(/gb\/Pack\.zip skipped: holds 2 files/.test(dbgText), "scan: the multi-entry refusal is reported", dbgText);
-ok(/gb\/Broken\.zip skipped: .*end-of-central-directory/.test(dbgText), "scan: the corrupt archive is reported", dbgText);
-ok(/already came from another archive/.test(dbgText), "scan: the duplicate inner name is reported", dbgText);
+// A large collection may contain hundreds of malformed archives. The scanner reports one
+// bounded diagnostic rather than flooding the log, while retaining representative, actionable
+// paths and reasons.
+ok(/\[scan\] 3 archives skipped; samples:/.test(dbgText), "scan: one aggregated skip count is reported", dbgText);
+ok(/gb\/Pack\.zip: holds 2 files/.test(dbgText), "scan: the multi-entry refusal remains sampled", dbgText);
+ok(/gb\/Broken\.zip: not a zip \(no end-of-central-directory\)/.test(dbgText),
+   "scan: the corrupt archive remains sampled", dbgText);
+ok(/already came from another archive/.test(dbgText), "scan: the duplicate inner name remains sampled", dbgText);
 eq(keys.filter((k) => k === "gb/Tetris (World).gb").length, 1,
    "scan: a duplicated inner name appears exactly once");
 // CONTENT, not just the key count: a Map holds one key whether the loser was refused or
 // silently overwrote the winner, so counting keys cannot tell those apart. The surviving bytes
 // must belong to the archive that was NOT reported as skipped.
 {
-  const skippedTetris = /gb\/(Tetris \(Alt\)\.zip|Tetris\.zip) skipped: gb\/Tetris \(World\)\.gb already came/.exec(dbgText);
+  const skippedTetris = /gb\/(Tetris \(Alt\)\.zip|Tetris\.zip): gb\/Tetris \(World\)\.gb already came/.exec(dbgText);
   if (!skippedTetris) {
     // No fallback. Guessing which archive "should" have won would let this pass whenever the
     // guess happened to match the overwrite, which is exactly the vacuous shape being avoided.
