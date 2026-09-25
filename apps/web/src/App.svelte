@@ -229,7 +229,7 @@
 <style>
   .background-status {
     position: fixed;
-    left: 16px;
+    inset-inline-start: 16px;
     bottom: 16px;
     z-index: var(--z-sticky);
     width: min(360px, calc(100vw - 32px));

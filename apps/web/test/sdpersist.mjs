@@ -69,19 +69,22 @@ const eq = (a, b, m) => {
 // a readwrite put/delete, a readonly get. Backed by a Map held OUT here, so dropping the
 // module instance (a reload) keeps the bytes exactly as a browser would.
 function makeIdb() {
-  const dbs = new Map(); // dbName -> Map(key -> value)
+  const dbs = new Map();
   const fire = (obj, prop, arg) => queueMicrotask(() => obj[prop]?.(arg));
   return {
-    _dump: (name) => Object.fromEntries(dbs.get(name) ?? new Map()),
+    _dump: (name) => Object.fromEntries(dbs.get(name)?.get("dirs") ?? new Map()),
     open(name) {
       const req = {};
       const fresh = !dbs.has(name);
       if (fresh) dbs.set(name, new Map());
-      const store = dbs.get(name);
+      const stores = dbs.get(name);
       const db = {
-        createObjectStore: () => {},
+        objectStoreNames: { contains: (storeName) => stores.has(storeName) },
+        createObjectStore: (storeName) => { stores.set(storeName, new Map()); },
         close: () => {},
-        transaction: () => {
+        transaction: (storeName) => {
+          const store = stores.get(storeName);
+          if (!store) throw new Error(`Missing IndexedDB store: ${storeName}`);
           const tx = {
             objectStore: () => ({
               put: (v, k) => store.set(k, v),

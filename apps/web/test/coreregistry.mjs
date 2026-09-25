@@ -1006,7 +1006,7 @@ await esbuild.build({
     setup(build) {
       const fakes = {
         "device.svelte.js": "export const device = { get installedGames(){ return globalThis.__dev; }, targetMedia: 'flash' };",
-        "library.svelte.js": "export const library = { get scan(){ return globalThis.__scan; } };",
+        "library.svelte.js": "export const library = { get scan(){ return globalThis.__scan; }, fileOrigin: new Map() };",
         "homebrewTitles.svelte.js": "export const homebrew = { titles: [], deviceFiles: new Set() };",
         "romScan.js": "export const nativeFolderPickerSupported = () => true;",
         "coreRegistry.svelte.js": "export const coreRegistry = { get current(){ return globalThis.__reg; } };",

@@ -62,11 +62,13 @@ const BTN = join(web, "src/lib/ui/RefreshButton.svelte");
  * Only `listState` matters to the row under test; the rest is what the surrounding markup
  * reads while rendering. Data only: nothing here stands in for the layout being asserted. */
 const LIBRARY_STUB = `
+  export const cacheDerivedCover = async () => {};
+  export const convertCoversInMap = async () => {};
   export const library = {
     listState: "ready", progress: null, scan: null, dirtyFiles: new Set(),
     romFolderSignature: "x", sourcesResolving: false, loaded: true, fileOrigin: new Map(),
     scanCollisions: [], scanDuplicates: [], scanSkipped: [], error: null, pendingHandle: null,
-    sync: async () => {}, refresh: async () => {}, ensureFolders: async () => {},
+    sync: async () => {}, refresh: async () => {}, ensureFolders: async () => {}, setScanInteraction: () => {},
     openFolderGate: async () => {}, markDirty: () => {}, clearDirty: () => {},
   };`;
 /* The ST-Link vendor is a browser bundle with no node entry point; nothing it exports is

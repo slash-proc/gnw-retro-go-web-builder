@@ -1,3 +1,7 @@
+<script module lang="ts">
+  const decodedUrlSession = new Set<string>();
+</script>
+
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { Spring } from "svelte/motion";
@@ -45,9 +49,11 @@
     covers = [], 
     selectedId = $bindable(""), 
     onSelect = () => {}, 
+    onPreview = () => {},
     onScrubState = () => {},
     onMotionState = () => {},
     getUrl = () => "", 
+    getCachedUrl = () => "",
     getLodUrl = () => "",
     getAtlasCell = () => null,
     systemLabel = () => "",
@@ -56,9 +62,11 @@
     covers: any[];
     selectedId: string;
     onSelect?: (id: string) => void;
+    onPreview?: (id: string) => void;
     onScrubState?: (active: boolean) => void;
     onMotionState?: (active: boolean) => void;
     getUrl?: (id: string, version?: number) => string;
+    getCachedUrl?: (id: string, version?: number) => string;
     getLodUrl?: (id: string, version?: number) => string;
     getAtlasCell?: (id: string, version?: number) => { url: string; x: number; y: number; width: number; height: number; pageWidth: number; pageHeight: number } | null;
     systemLabel?: (cover: any) => string;
@@ -87,7 +95,7 @@
   // Decode each object URL at most once per carousel instance. Fast scrubbing revisits the same
   // neighborhood repeatedly; creating a fresh Image for every focus update caused the browser
   // to redo decodes and briefly show unloaded covers on large libraries.
-  const decodedUrls = new Set<string>();
+  const decodedUrls = decodedUrlSession;
   const pendingDecodes = new Map<string, Promise<void>>();
   const pendingImages = new Map<string, HTMLImageElement>();
   const pendingLodUrls = new Set<string>();
@@ -144,7 +152,11 @@
       if (next.lowResolution) pendingLodUrls.add(next.url);
       image.src = next.url;
       const pending = image.decode()
-        .then(() => { decodedUrls.add(next.url); debugDecodeDone++; })
+        .then(() => {
+          decodedUrls.add(next.url);
+          if (decodedUrls.size > 256) decodedUrls.delete(decodedUrls.values().next().value!);
+          debugDecodeDone++;
+        })
         .catch(() => { debugDecodeFailed++; })
         .finally(() => {
           pendingDecodes.delete(next.url);
@@ -186,7 +198,7 @@
   }
 
   onDestroy(() => {
-    if (window.__gnwCarouselDebug?.snapshot === carouselDebugSnapshot) delete window.__gnwCarouselDebug;
+    if (typeof window !== "undefined" && window.__gnwCarouselDebug?.snapshot === carouselDebugSnapshot) delete window.__gnwCarouselDebug;
     if (lodRetryTimer) clearTimeout(lodRetryTimer);
     if (preloadRefreshTimer) clearTimeout(preloadRefreshTimer);
     for (const image of pendingImages.values()) image.src = "";
@@ -231,6 +243,8 @@
   let lodRetryCenter = -1;
   let lodRetryTick = $state(0);
   let preloadRefreshTimer = 0;
+  let lastPreviewTime = 0;
+  let lastPreviewId = "";
   function sampleVisualVelocity(now: number): void {
     const current = smoothIndex.current;
     if (lastVisualSample) {
@@ -241,6 +255,14 @@
     }
     lastVisualSample = now;
     lastVisualIndex = current;
+    if (isScrubbing && now - lastPreviewTime >= 1000 / 120) {
+      const previewId = covers[Math.max(0, Math.min(covers.length - 1, Math.round(current)))]?.id;
+      if (previewId && previewId !== lastPreviewId) {
+        lastPreviewId = previewId;
+        lastPreviewTime = now;
+        onPreview(previewId);
+      }
+    }
     if (isScrubbing || Math.abs(current - focusIndex) > 0.01) {
       velocityRaf = requestAnimationFrame(sampleVisualVelocity);
     } else {
@@ -264,20 +286,22 @@
     }
   });
 
-  function preloadCoverAt(i: number, distance: number, currentVersion: number, urlsToKeep: Set<string>): boolean {
+  function preloadCoverAt(i: number, currentVersion: number, urlsToKeep: Set<string>): boolean {
     if (i < 0 || i >= covers.length) return false;
     const atlasCell = getAtlasCell(covers[i]?.id, currentVersion);
     const lodUrl = atlasCell ? "" : (covers[i]?.lodUrl || getLodUrl(covers[i]?.id, currentVersion));
-    if (distance <= FULL_RES_PRELOAD_RADIUS) {
-      const fullUrl = covers[i]?.url || getUrl(covers[i]?.id, currentVersion);
-      if (fullUrl) {
-        urlsToKeep.add(fullUrl);
-        preloadUrl(fullUrl);
-      }
-    }
     if (atlasCell) return false;
     if (lodUrl) { urlsToKeep.add(lodUrl); preloadUrl(lodUrl, true); }
     return !lodUrl;
+  }
+
+  function preloadFullCoverAt(index: number, currentVersion: number, urlsToKeep: Set<string>): boolean {
+    if (index < 0 || index >= covers.length) return false;
+    const fullUrl = covers[index]?.url || getUrl(covers[index]?.id, currentVersion);
+    if (!fullUrl) return true;
+    urlsToKeep.add(fullUrl);
+    preloadUrl(fullUrl);
+    return !decodedUrls.has(fullUrl);
   }
 
   function refreshPreloads(): void {
@@ -292,10 +316,26 @@
       const urlsToKeep = new Set<string>();
       let missingLod = false;
       for (let distance = PRELOAD_RADIUS; distance >= 0; distance--) {
-        if (distance === 0) missingLod = preloadCoverAt(center, distance, currentVersion, urlsToKeep) || missingLod;
+        if (distance === 0) missingLod = preloadCoverAt(center, currentVersion, urlsToKeep) || missingLod;
         else {
-          missingLod = preloadCoverAt(center - distance, distance, currentVersion, urlsToKeep) || missingLod;
-          missingLod = preloadCoverAt(center + distance, distance, currentVersion, urlsToKeep) || missingLod;
+          missingLod = preloadCoverAt(center - distance, currentVersion, urlsToKeep) || missingLod;
+          missingLod = preloadCoverAt(center + distance, currentVersion, urlsToKeep) || missingLod;
+        }
+      }
+      if (!isScrubbing && center !== focusIndex) {
+        preloadFullCoverAt(focusIndex, currentVersion, urlsToKeep);
+      }
+      const speed = tilesPerSecond;
+      const stride = Math.max(1, Math.ceil(speed / 60));
+      const budget = speed < 30 ? FULL_RES_PRELOAD_RADIUS * 2 + 1 : speed < 120 ? 12 : speed < 300 ? 6 : 2;
+      const direction = motionDirection || 1;
+      const leadingIndex = speed >= 300 ? center + direction * Math.round(speed * PRELOAD_REFRESH_INTERVAL_MS / 1000) : center;
+      let requested = 0;
+      for (let distance = 0; distance <= FULL_RES_PRELOAD_RADIUS && requested < budget; distance += stride) {
+        const forward = leadingIndex + direction * distance;
+        if (preloadFullCoverAt(forward, currentVersion, urlsToKeep)) requested++;
+        if (distance > 0 && requested < budget) {
+          if (preloadFullCoverAt(leadingIndex - direction * distance, currentVersion, urlsToKeep)) requested++;
         }
       }
       if (missingLod && lodRetryCount < 60) {
@@ -348,11 +388,12 @@
     if (onSelect) onSelect(id);
   }
 
-  function go(steps: number) {
+  function go(steps: number, select = false) {
     if (!covers.length) return;
     let next = focusIndex + steps;
     next = Math.max(0, Math.min(covers.length - 1, next));
     focusIndex = next;
+    if (select && covers[next]?.id !== selectedId) triggerSelect(covers[next].id);
   }
 
   let vpRef = $state<HTMLElement | null>(null);
@@ -361,8 +402,8 @@
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!covers.length) return;
-      if (e.key === "ArrowLeft") { e.preventDefault(); go(-1); }
-      if (e.key === "ArrowRight") { e.preventDefault(); go(1); }
+      if (e.key === "ArrowLeft") { e.preventDefault(); go(-1, true); }
+      if (e.key === "ArrowRight") { e.preventDefault(); go(1, true); }
     };
     window.addEventListener("keydown", onKey);
 
@@ -544,6 +585,8 @@
     scrubBounds = scrubberRef?.getBoundingClientRect() ?? null;
     if (scrubBounds) scrubberWidth = scrubBounds.width;
     isScrubbing = true;
+    lastPreviewTime = 0;
+    lastPreviewId = "";
     startScrubProfile();
     onScrubState(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -558,13 +601,16 @@
     }
     isScrubbing = false;
     stopScrubProfile();
-    onScrubState(false);
     scrubX = null;
     scrubBounds = null;
     const handle = e.currentTarget as HTMLElement;
     if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
     const selected = covers[focusIndex];
-    if (wasScrubbing && selected && selected.id !== selectedId) triggerSelect(selected.id);
+    if (wasScrubbing && selected) {
+      preloadFullCoverAt(focusIndex, version, new Set<string>());
+      triggerSelect(selected.id);
+    }
+    onScrubState(false);
   }
 
   let ready = $derived(vp.w > 0 && vp.h > 0);
@@ -676,7 +722,7 @@
             {@const lodUrl = atlasCell ? "" : (cover.lodUrl || getLodUrl(cover.id, version))}
             <!-- LOD remains the fast scrub surface. Full-resolution art is allowed as soon as
                  motion is slow enough for the eye to resolve it, including during a scrub. -->
-            {@const mainUrl = cover.url || getUrl(cover.id, version)}
+            {@const mainUrl = cover.url || getCachedUrl(cover.id, version) || (!atlasCell || (index === visualCenter && tilesPerSecond < 60) ? getUrl(cover.id, version) : "")}
             {#if Math.abs(offset) <= SIDE + 1}
               {@const a = Math.abs(offset)}
               {@const isSelected = cover.id === selectedId}

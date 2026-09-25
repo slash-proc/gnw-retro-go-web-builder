@@ -64,7 +64,7 @@
     coverUrl: string | null;
     configuredCheats: Record<string, string[]>;
     configuredCheatFiles: Record<string, Uint8Array>;
-    onCoverChange: ((refreshAtlas?: boolean, cover?: { sourceId?: string; path: string; bytes: Uint8Array }) => void | Promise<void>) | undefined;
+    onCoverChange: ((refreshAtlas?: boolean, cover?: { key?: string; sourceId?: string; path: string; bytes: Uint8Array }) => void | Promise<void>) | undefined;
     /** Render the panel body directly, with no <details>/<summary> accordion chrome and with
      *  the three sub-panels un-boxed — for hosts that already provide a surface and a title
      *  (the Library tab's "Additional options" drawer). Default false keeps the accordion. */
@@ -189,8 +189,6 @@
     if (!mcfPresetName) return;
     mcfLoading = true;
     mcfError = null;
-    const changedPaths = new Set<string>();
-    let importedCovers = 0;
     try {
       const res = await fetch(mcfAssetUrl(system, mcfPresetName));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -642,13 +640,14 @@
       coverPath = "covers/" + parts.slice(0, -1).join("/") + "/" + baseName + ".img";
     }
 
-    library.scan?.userRoms.set(coverPath, arr);
-    library.markDirty(coverPath);
+    const sourceId = rom?.directorySource?.id;
+    const storedImgPath = library.setFileForSource(coverPath, arr, sourceId);
+    library.markDirty(storedImgPath);
 
-    // Also save the high-res .png to memory so the UI prefers it immediately (since getCoverUrl checks .png first)
     const pngPath = coverPath.replace(/\.img$/, ".png");
-    library.scan?.userRoms.set(pngPath, new Uint8Array(await previewCoverBlob.arrayBuffer()));
-    library.markDirty(pngPath);
+    const originalBytes = new Uint8Array(await previewCoverBlob.arrayBuffer());
+    const storedOriginalPath = library.setFileForSource(pngPath, originalBytes, sourceId);
+    library.markDirty(storedOriginalPath);
 
     // If an inline cover exists in memory, remove it so the UI doesn't prioritize the old stale inline cover over the new covers/ one!
     let prefix = parts.slice(0, -1).join("/");
@@ -692,7 +691,7 @@
       }
     }
 
-    if (onCoverChange) await onCoverChange();
+    if (onCoverChange) await onCoverChange(true, { key: gameKey, sourceId, path: storedOriginalPath, bytes: originalBytes });
   }
 
   // --- ScreenScraper State ---
@@ -783,6 +782,8 @@
     isImporting = true;
     importPreviewBlob = null;
     importPreviewMessage = null;
+    const changedPaths = new Set<string>();
+    let importedCovers = 0;
 
     const filesToScrape: File[] = [];
     const coverSources = new Map<string, {
@@ -968,7 +969,7 @@
           }
 
           importedCovers++;
-          await onCoverChange?.(false, { sourceId: coverSource?.sourceId, path: storedOriginalPath, bytes: originalBytes });
+          await onCoverChange?.(false, { key: originalKey, sourceId: coverSource?.sourceId, path: storedOriginalPath, bytes: originalBytes });
         },
         shouldCancel: () => !isImporting
         });

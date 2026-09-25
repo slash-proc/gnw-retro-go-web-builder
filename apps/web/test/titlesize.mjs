@@ -138,7 +138,7 @@ const selFakes = {
     "export const homebrew = { titles: [], find(k){return this.titles.find(t=>t.key===k);}," +
     " isComplete(hb,dev){return hb.deviceFiles.length>0 && hb.deviceFiles.every(f=>dev.includes(f));}," +
     " owning(){return undefined;} };\nglobalThis.__tsHb = homebrew;",
-  "libraryScan.js": "export function basePath(p){return p;}",
+  "libraryScan.js": "export function basePath(p){return p;} export const defaultLibraryScanDeps = { isSameEntry: async (a, b) => a === b };",
   "coreRegistry.svelte.js":
     "export const coreRegistry = { current: { systems: [], hasCoreSources: false, folders: new Map() }," +
     " get authoritative(){return false;}, groups: [], declaredFolders: new Set() };",

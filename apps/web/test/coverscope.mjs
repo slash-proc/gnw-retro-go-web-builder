@@ -69,14 +69,14 @@ async function selectionWith({ installedGames = [], homebrewSelected = false }) 
   const dir = join(root, `b${seq++}`);
   const folder = `new Map([${FOLDER.map((k) => `[${JSON.stringify(k)}, new Uint8Array(4)]`).join(",")}])`;
   const fakes = {
-    "library.svelte.js": `export const library = { scan: { userRoms: ${folder} }, markDirty(){} };`,
+    "library.svelte.js": `export const library = { scan: { userRoms: ${folder} }, fileOrigin: new Map(), markDirty(){} };`,
     "device.svelte.js": `export const device = { installedGames: ${JSON.stringify(installedGames)}, targetMedia: 'flash', installedFrogfs: null };`,
     "romScan.js": "export function nativeFolderPickerSupported(){return true;}\nexport function shouldSkipRomsFile(){return false;}",
     "consoles.js": "export function consoleLabel(s){return s;}",
     "homebrewTitles.svelte.js":
       `export const homebrew = { titles: ${JSON.stringify(HOMEBREW)}, find(k){return this.titles.find(t=>t.key===k);},` +
       ` isComplete(){return ${homebrewSelected ? "true" : "false"};}, owning(){return undefined;} };`,
-    "libraryScan.js": "export function basePath(p){return p;}",
+    "libraryScan.js": "export function basePath(p){return p;} export const defaultLibraryScanDeps = { isSameEntry: async (a, b) => a === b };",
     "coreRegistry.svelte.js":
       "export const coreRegistry = { current: { systems: [], hasCoreSources: false, folders: new Map(), byFolder: new Map() },"
       + " get authoritative(){return false;}, groups: [], declaredFolders: new Set() };",

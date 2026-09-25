@@ -49,9 +49,9 @@ function audit(src) {
   if (!/toRead\.splice\(/.test(phase)) {
     problems.push("a reused file is not removed from the read list, so it is read anyway");
   }
-  // The sources worth consulting. `library.scan` is the user's folder; `prepareState.assets`
+  // The sources worth consulting. `library.fileForPath` resolves the user's folder; `prepareState.assets`
   // holds this session's prepared homebrew, which is the bulk of what a repack retains.
-  for (const src2 of ["library.scan?.userRoms", "prepareState.assets"]) {
+  for (const src2 of ["library.fileForPath(path)", "prepareState.assets"]) {
     if (!phase.includes(src2)) problems.push(`the local lookup ignores ${src2}`);
   }
   return problems;

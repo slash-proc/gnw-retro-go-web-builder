@@ -1,4 +1,20 @@
 <script module lang="ts">
+  import type { CarouselAtlas as SessionCarouselAtlas } from "../sources/carouselAtlas.js";
+
+  type AtlasCell = { url: string; x: number; y: number; width: number; height: number; pageWidth: number; pageHeight: number };
+  const coverSession = {
+    urls: new Map<string, string>(),
+    overridePaths: new Map<string, { path: string; sourceId?: string }>(),
+    atlasRevision: 0,
+    atlasInputSignature: "",
+    cells: new Map<string, AtlasCell>(),
+    pageUrls: [] as string[],
+    decodedPages: [] as HTMLImageElement[],
+    dataBySource: new Map<string, SessionCarouselAtlas>(),
+    pageUrlsBySource: new Map<string, string[]>(),
+    pageImagesBySource: new Map<string, HTMLImageElement[]>(),
+    ownerBySourcePath: new Map<string, string>(),
+  };
   // Module-level (not component-instance) so it survives this component being torn down and
   // remounted on every tab switch — tracks the SD handle already auto-scanned so revisiting the
   // ROMs tab doesn't re-walk the whole SD card every time (see the onMount comment below). Keyed
@@ -1207,7 +1223,8 @@ import { navigate } from "../nav.js";
   let promptFor = $state<HomebrewTitle | null>(null);
 
   // Carousel State
-  let coverUrls = new Map<string, string>();
+  let coverUrls = coverSession.urls;
+  const coverOverridePaths = coverSession.overridePaths;
   let coverLodUrls = new Map<string, string>();
   // Browser atlas pages provide the scrub surface. Original art has a separate resident budget
   // large enough for the carousel's 60 covers on either side of the selected game.
@@ -1310,17 +1327,16 @@ import { navigate } from "../nav.js";
     cache.clear();
   }
   let coverVersion = $state(0);
-  let coverAtlasRevision = $state(0);
+  let coverAtlasRevision = $state(coverSession.atlasRevision);
   let coverAtlasPausedForImport = $state(false);
-  type AtlasCell = { url: string; x: number; y: number; width: number; height: number; pageWidth: number; pageHeight: number };
-  let atlasCells = $state(new Map<string, AtlasCell>());
-  let atlasPageUrls: string[] = [];
-  let atlasDecodedPages: HTMLImageElement[] = [];
-  let atlasDataBySource = new Map<string, CarouselAtlas>();
-  let atlasPageUrlsBySource = new Map<string, string[]>();
-  let atlasPageImagesBySource = new Map<string, HTMLImageElement[]>();
-  let atlasOwnerBySourcePath = new Map<string, string>();
-  let appliedAtlasInputSignature = "";
+  let atlasCells = $state(new Map(coverSession.cells));
+  let atlasPageUrls = coverSession.pageUrls;
+  let atlasDecodedPages = coverSession.decodedPages;
+  let atlasDataBySource = coverSession.dataBySource;
+  let atlasPageUrlsBySource = coverSession.pageUrlsBySource;
+  let atlasPageImagesBySource = coverSession.pageImagesBySource;
+  let atlasOwnerBySourcePath = coverSession.ownerBySourcePath;
+  let appliedAtlasInputSignature = coverSession.atlasInputSignature;
   let incrementalAtlasPatchFailed = false;
   let atlasTimer: ReturnType<typeof setTimeout> | null = null;
   let atlasAbort: AbortController | null = null;
@@ -1329,6 +1345,19 @@ import { navigate } from "../nav.js";
   let coverIndexMap: Map<string, LibraryFile> | null = null;
   let coverIndexSize = -1;
   let coverIndex = new Map<string, string>();
+  function retainAtlas(): void {
+    untrack(() => {
+      coverSession.atlasRevision = coverAtlasRevision;
+      coverSession.atlasInputSignature = appliedAtlasInputSignature;
+      coverSession.cells = atlasCells;
+      coverSession.pageUrls = atlasPageUrls;
+      coverSession.decodedPages = atlasDecodedPages;
+      coverSession.dataBySource = atlasDataBySource;
+      coverSession.pageUrlsBySource = atlasPageUrlsBySource;
+      coverSession.pageImagesBySource = atlasPageImagesBySource;
+      coverSession.ownerBySourcePath = atlasOwnerBySourcePath;
+    });
+  }
   function ensureCoverIndex(): void {
     const files = library.scan?.userRoms;
     if (!files || (files === coverIndexMap && files.size === coverIndexSize)) return;
@@ -1357,6 +1386,7 @@ import { navigate } from "../nav.js";
     atlasOwnerBySourcePath.clear();
     appliedAtlasInputSignature = "";
     atlasCells = new Map();
+    retainAtlas();
   }
 
   function buildAtlasOwnerIndex(): Map<string, string> {
@@ -1426,6 +1456,7 @@ import { navigate } from "../nav.js";
       const placement = patched.atlas.placements.find((item) => item.key === owner)!;
       nextCells.set(owner, { url: nextUrl, x: placement.x, y: placement.y, width: placement.width, height: placement.height, pageWidth: placement.pageWidth, pageHeight: placement.pageHeight });
       atlasCells = nextCells;
+      retainAtlas();
       if (oldUrl) {
         requestAnimationFrame(() => {
           URL.revokeObjectURL(oldUrl);
@@ -1434,7 +1465,7 @@ import { navigate } from "../nav.js";
       }
       return true;
     } catch (error) {
-      console.warn("[carousel-atlas] incremental cover update failed", error);
+      dbg("[carousel-atlas] incremental cover update failed", error);
       return false;
     }
   }
@@ -1460,15 +1491,22 @@ import { navigate } from "../nav.js";
       if (!(await writeCarouselAtlas(sourceId, atlas))) return false;
     }
     appliedAtlasInputSignature = carouselAtlasInputSignature;
+    retainAtlas();
     return true;
   }
 
   async function onLibraryCoverChange(
     refreshAtlas = true,
-    cover: { sourceId?: string; path: string; bytes: Uint8Array } | undefined = undefined,
+    cover: { key?: string; sourceId?: string; path: string; bytes: Uint8Array } | undefined = undefined,
   ): Promise<void> {
-    clearCoverUrls(coverUrls);
-    clearCoverUrls(coverLodUrls);
+    if (cover?.key) {
+      const key = basePath(cover.key);
+      coverOverridePaths.set(key, { path: cover.path, sourceId: cover.sourceId });
+      cacheCoverUrl(coverUrls, key, URL.createObjectURL(new Blob([cover.bytes as BlobPart])), COVER_FULL_CACHE_LIMIT);
+    } else if (!coverAtlasPausedForImport) {
+      clearCoverUrls(coverUrls);
+      clearCoverUrls(coverLodUrls);
+    }
     coverVersion++;
     if (!refreshAtlas) {
       if (!coverAtlasPausedForImport) incrementalAtlasPatchFailed = false;
@@ -1485,9 +1523,11 @@ import { navigate } from "../nav.js";
         appliedAtlasInputSignature = "";
         coverAtlasRevision++;
       }
+      retainAtlas();
       return;
     }
     coverAtlasRevision++;
+    retainAtlas();
   }
 
   function collectCarouselAtlasEntries() {
@@ -1526,7 +1566,7 @@ import { navigate } from "../nav.js";
     if (!scan) return "";
     const files = measureLibraryPhase("atlas-signature-build", entries.length, () => entries.map(({ sourceId, key, file }) =>
         `${sourceId}\u0000${key}\u0000${file.length}\u0000${file instanceof Uint8Array ? "" : file.lastModified}`,
-      ).join("\u0001"));
+      ).sort().join("\u0001"));
     return `${coverAtlasRevision}\u0002${files}`;
   });
 
@@ -1542,6 +1582,7 @@ import { navigate } from "../nav.js";
     if (atlasTimer) clearTimeout(atlasTimer);
     atlasAbort?.abort();
     if (!scan || entries.length === 0) {
+      if (!library.loaded || library.folderScanning) return;
       releaseAtlas();
       return;
     }
@@ -1608,7 +1649,7 @@ import { navigate } from "../nav.js";
         }
         const totalPages = pagesToDecode.length;
         let decodedPages = 0;
-        if (library.backgroundTask?.id === taskId) {
+        if (totalPages > 0 && library.backgroundTask?.id === taskId) {
           library.backgroundTask = { ...library.backgroundTask, stage: "Decoding browser cover pages", done: 0, total: totalPages, detail: `${totalPages} atlas pages` };
         }
         try {
@@ -1654,6 +1695,7 @@ import { navigate } from "../nav.js";
           atlasOwnerBySourcePath = buildAtlasOwnerIndex();
           atlasCells = nextCells;
           appliedAtlasInputSignature = signature;
+          retainAtlas();
           for (const url of previousUrls) if (!retainedUrls.has(url)) URL.revokeObjectURL(url);
           for (const image of previousDecoded) if (!retainedImages.has(image)) image.src = "";
           if (library.backgroundTask?.id === taskId) library.backgroundTask = null;
@@ -1664,7 +1706,7 @@ import { navigate } from "../nav.js";
         }
       }).catch((error) => {
         // A missing/failed derived atlas leaves the existing lazy cover path in place.
-        if (!controller.signal.aborted) console.warn("[carousel-atlas] preparation failed", error);
+        if (!controller.signal.aborted) dbg("[carousel-atlas] preparation failed", error);
         if (library.backgroundTask?.id === taskId) library.backgroundTask = null;
       });
     };
@@ -1742,6 +1784,8 @@ import { navigate } from "../nav.js";
     const modelCover = resolvedModelCover && /\.(?:png|jpe?g|webp|bmp)$/i.test(resolvedModelCover.path)
       ? resolvedModelCover
       : null;
+    const override = coverOverridePaths.get(gameKey);
+    const overrideFile = override ? library.fileForPath(override.path, override.sourceId) : null;
     for (const ext of extensions) {
       const paths = [
         ...(structuredRom
@@ -1752,7 +1796,7 @@ import { navigate } from "../nav.js";
         `covers/${alias}/${base}${ext}`,
         ]),
       ];
-      let matchPath = modelCover?.path ?? paths.find((candidate) => library.fileForPath(candidate, structuredRom?.directorySource?.id)) ?? null;
+      let matchPath = (overrideFile ? override!.path : null) ?? modelCover?.path ?? paths.find((candidate) => library.fileForPath(candidate, structuredRom?.directorySource?.id)) ?? null;
       // Directory scans preserve the spelling found on disk, while ROM keys and scraper output
       // can differ in case (Doom commonly mixes `DOOM.WAD` with `doom/doom.png`). Match the
       // canonical paths case-insensitively so a reload does not lose an otherwise present cover.
@@ -1767,7 +1811,9 @@ import { navigate } from "../nav.js";
       }
 
       if (matchPath) {
-        const entry = modelCover?.path === matchPath
+        const entry = overrideFile && override?.path === matchPath
+          ? overrideFile
+          : modelCover?.path === matchPath
           ? modelCover.file
           : library.fileForPath(matchPath, library.fileOrigin.get(matchPath))
             ?? library.fileForPath(matchPath)!;
@@ -1805,17 +1851,8 @@ import { navigate } from "../nav.js";
   $effect(() => {
     if (!carouselScrubbing) tableSelectedId = selectedCarouselId;
   });
-  let detailsUpdateTimer: ReturnType<typeof setTimeout> | null = null;
   function onCarouselSelect(id: string): void {
-    if (!carouselScrubbing) {
-      detailsSelectedId = id;
-      return;
-    }
-    if (detailsUpdateTimer) clearTimeout(detailsUpdateTimer);
-    detailsUpdateTimer = setTimeout(() => {
-      detailsSelectedId = id;
-      detailsUpdateTimer = null;
-    }, 40);
+    detailsSelectedId = id;
   }
   function onCarouselScrubState(active: boolean): void {
     carouselScrubbing = active;
@@ -1830,11 +1867,6 @@ import { navigate } from "../nav.js";
         library.setScanInteraction("carousel-scrub", false);
         setCarouselAtlasInteraction("carousel-scrub", false);
       }, 300);
-    }
-    if (!active) {
-      if (detailsUpdateTimer) clearTimeout(detailsUpdateTimer);
-      detailsUpdateTimer = null;
-      detailsSelectedId = selectedCarouselId;
     }
   }
   $effect(() => {
@@ -4510,12 +4542,14 @@ import { navigate } from "../nav.js";
                 covers={carouselCovers}
                 bind:selectedId={selectedCarouselId}
                 onSelect={onCarouselSelect}
+                onPreview={(id) => { detailsSelectedId = id; }}
                 onScrubState={onCarouselScrubState}
                 onMotionState={(active) => {
                   library.setScanInteraction("carousel-motion", active);
                   setCarouselAtlasInteraction("carousel-motion", active);
                 }}
                 getUrl={(key) => getCoverUrl(key, coverVersion)}
+                getCachedUrl={(key) => coverUrls.get(basePath(key)) ?? ""}
                 getLodUrl={(key) => getCoverUrl(key, coverVersion, true)}
                 getAtlasCell={(key) => atlasCells.get(visibleGameByKey.get(key)?.rom?.id ?? key) ?? null}
                 systemLabel={(c) => c.system}
@@ -4527,24 +4561,20 @@ import { navigate } from "../nav.js";
               {#if detailsSelectedId}
                 {@const activeGame = visibleGameByKey.get(detailsSelectedId)}
                 {@const activeHb = !activeGame ? unknownHomebrewByName.get(detailsSelectedId) : null}
-                {@const liveGame = visibleGameByKey.get(selectedCarouselId)}
                 {#if activeGame}
                   {@const state = getActionState(activeGame)}
                   <div class="info-content">
-                    <!-- Roms.dc.html draws the headline big and the filename mono underneath. The
-                         headline is the PRETTY name (a matched variant's published title, e.g.
-                         "The Ultimate Doom"); the mono line keeps the ORIGINAL filename with its
-                         extension, so it stays provenance. With no variant match both fall back to
-                         the same extensionless name. See sources/gameRows.ts. -->
-                    <h3 class="info-title" style="text-align: center;">{liveGame?.prettyName ?? liveGame?.name ?? activeGame.prettyName ?? activeGame.name}</h3>
-                    <div class="info-details" style="justify-content: center; margin-top: 0.25rem;">
-                      <span class="info-system">{activeGame.system === 'homebrew' ? locale.t.roms.selectGames.homebrewTag : consoleLabel(activeGame.system)}</span>
-                      <span class="info-dot" aria-hidden="true"></span>
-                    <span class="info-meta info-filename mono">{liveGame?.originFilename ?? liveGame?.name ?? activeGame.originFilename ?? activeGame.name}</span>
-                      <span class="info-dot" aria-hidden="true"></span>
-                      <span class="info-meta info-size mono">{activeGame.size > 0 ? formatSize(activeGame.size) : '—'}</span>
-                      {#if state && state.label !== 'missing rom'}
-                        <StatusChip kind={state.cls} disabled={state.disabled} style="margin-left: 0.5rem;" onclick={(e) => {
+                    <div class="info-copy">
+                      <div class="info-eyebrow">
+                        <span class="info-system">{activeGame.system === 'homebrew' ? locale.t.roms.selectGames.homebrewTag : consoleLabel(activeGame.system)}</span>
+                        <span class="info-size mono">{activeGame.size > 0 ? formatSize(activeGame.size) : '—'}</span>
+                      </div>
+                      <h3 class="info-title" title={activeGame.prettyName ?? activeGame.name}>{activeGame.prettyName ?? activeGame.name}</h3>
+                      <span class="info-filename mono" title={activeGame.originFilename ?? activeGame.name}>{activeGame.originFilename ?? activeGame.name}</span>
+                    </div>
+                    {#if state && state.label !== 'missing rom'}
+                      <div class="info-action">
+                        <StatusChip kind={state.cls} disabled={state.disabled} onclick={(e) => {
                           e.stopPropagation();
                           if (pressAddsBytes(state.label)) {
                             const extraBytes = activeGame.isHomebrew ? getHomebrewSize(activeGame.hb.key) : activeGame.size;
@@ -4552,19 +4582,21 @@ import { navigate } from "../nav.js";
                           }
                           state.action(e);
                         }}>{actionLabelText(state.label)}</StatusChip>
-                      {/if}
-                    </div>
+                      </div>
+                    {/if}
                   </div>
                 {:else if activeHb}
                   <div class="info-content">
-                    <h3 class="info-title" style="text-align: center;">{activeHb.name.replace(/\.[^/.]+$/, "")}</h3>
-                    <div class="info-details" style="justify-content: center; margin-top: 0.25rem;">
-                      <span class="info-system">{locale.t.roms.selectGames.unknownHomebrewTag}</span>
-                      <span class="info-dot" aria-hidden="true"></span>
-                      <span class="info-meta info-filename mono">{activeHb.name}</span>
-                      <span class="info-dot" aria-hidden="true"></span>
-                      <span class="info-meta info-size mono">{activeHb.size > 0 ? formatSize(activeHb.size) : '—'}</span>
-                      <StatusChip kind="caution" style="margin-left: 0.5rem;" onclick={(e) => { e.preventDefault(); romSelection.removeUnknownHomebrew(activeHb.name); }}>{locale.t.roms.selectGames.removeButton}</StatusChip>
+                    <div class="info-copy">
+                      <div class="info-eyebrow">
+                        <span class="info-system">{locale.t.roms.selectGames.unknownHomebrewTag}</span>
+                        <span class="info-size mono">{activeHb.size > 0 ? formatSize(activeHb.size) : '—'}</span>
+                      </div>
+                      <h3 class="info-title" title={activeHb.name.replace(/\.[^/.]+$/, "")}>{activeHb.name.replace(/\.[^/.]+$/, "")}</h3>
+                      <span class="info-filename mono" title={activeHb.name}>{activeHb.name}</span>
+                    </div>
+                    <div class="info-action">
+                      <StatusChip kind="caution" onclick={(e) => { e.preventDefault(); romSelection.removeUnknownHomebrew(activeHb.name); }}>{locale.t.roms.selectGames.removeButton}</StatusChip>
                     </div>
                   </div>
                 {:else}
@@ -5418,17 +5450,55 @@ import { navigate } from "../nav.js";
     justify-content: center;
   }
   .info-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+    height: 4.5rem;
+    min-height: 4.5rem;
+    min-width: 0;
+  }
+  .info-copy {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    /* Reserve the two-line metadata footprint so changing filenames never moves the pane. */
-    min-height: 4.5rem;
     justify-content: center;
+    gap: 0.125rem;
+    min-width: 0;
   }
-  /* Artboard (RomsNewSystem): 24px / 600 / -0.015em, centred. */
+  .info-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+    font-size: var(--fs-label);
+    line-height: 1;
+  }
+  .info-system {
+    color: var(--ink-soft);
+    font-weight: 700;
+    letter-spacing: var(--label-track);
+    text-transform: uppercase;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .info-size {
+    color: var(--ink-soft);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .info-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    padding-inline-start: 1rem;
+    border-inline-start: 1px solid var(--hairline);
+  }
   .info-title {
     margin: 0;
     font-size: var(--fs-display);
+    line-height: 1.1;
     font-weight: 600;
     letter-spacing: -0.015em;
     color: var(--ink);
@@ -5436,49 +5506,17 @@ import { navigate } from "../nav.js";
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .info-details {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: nowrap;
-  }
-  /* Artboard draws the sub-line as one run: the full system name, a 3px round dot,
-     then the filename and size together in mono — no chip, no border-left divider. */
-  .info-system {
-    font-size: var(--fs-caption);
-    color: var(--ink-soft);
-    white-space: nowrap;
-    flex: 0 0 auto;
-  }
-  .info-dot {
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: var(--ink-dim);
-    flex-shrink: 0;
-  }
-  .info-meta {
-    font-size: var(--fs-caption);
-    color: var(--ink-soft);
-  }
   .info-filename {
-    width: auto;
-    height: 2.4em;
-    line-height: 1.2;
+    min-width: 0;
+    font-size: 0.8125rem;
+    color: var(--ink-soft);
+    line-height: 1.1;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     line-clamp: 2;
     -webkit-line-clamp: 2;
     overflow: hidden;
-    overflow-wrap: break-word;
-    word-break: normal;
-    text-align: center;
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .info-size {
-    white-space: nowrap;
-    flex: 0 0 auto;
+    overflow-wrap: anywhere;
   }
   .info-empty {
     font-size: var(--fs-caption);
