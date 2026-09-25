@@ -43,6 +43,8 @@ interface FsDirHandle {
   kind: "directory";
   name: string;
   entries(): AsyncIterableIterator<[string, FsDirHandle | FsFileHandle]>;
+  getDirectoryHandle?(name: string): Promise<FsDirHandle>;
+  getFileHandle?(name: string): Promise<FsFileHandle>;
   /** True for native FSAA handles that support write-back (getDirectoryHandle, getFileHandle, createWritable). */
   readonly writable?: boolean;
 }
@@ -52,25 +54,59 @@ interface FsFileHandle {
   getFile(): Promise<File>;
 }
 
+export interface RomFileSnapshot {
+  /** Handle-free metadata keeps thousands of Blink FileSystemFileHandle wrappers out of the UI heap. */
+  path: string;
+  size: number;
+  lastModified: number;
+}
+
+const directoryHandleCache = new WeakMap<FsDirHandle, Map<string, FsDirHandle>>();
+
+async function childDirectory(parent: FsDirHandle, name: string): Promise<FsDirHandle> {
+  if (parent.getDirectoryHandle) return parent.getDirectoryHandle(name);
+  for await (const [entryName, handle] of parent.entries()) {
+    if (entryName === name && handle.kind === "directory") return handle;
+  }
+  throw new Error(`cached library directory disappeared: ${name}`);
+}
+
+async function childFile(parent: FsDirHandle, name: string): Promise<FsFileHandle> {
+  if (parent.getFileHandle) return parent.getFileHandle(name);
+  for await (const [entryName, handle] of parent.entries()) {
+    if (entryName === name && handle.kind === "file") return handle;
+  }
+  throw new Error(`cached library file disappeared: ${name}`);
+}
+
+async function directoryAt(root: FsDirHandle, relativePath: string): Promise<FsDirHandle> {
+  let cache = directoryHandleCache.get(root);
+  if (!cache) {
+    cache = new Map([["", root]]);
+    directoryHandleCache.set(root, cache);
+  }
+  let currentPath = "";
+  let current = root;
+  for (const part of relativePath.split("/").filter(Boolean)) {
+    currentPath = currentPath ? `${currentPath}/${part}` : part;
+    const cached = cache.get(currentPath);
+    if (cached) {
+      current = cached;
+      continue;
+    }
+    current = await childDirectory(current, part);
+    cache.set(currentPath, current);
+  }
+  return current;
+}
+
 /** Read one source-relative file on demand, used by hydrated metadata-only library entries. */
 export async function readRomFile(dir: RomDirHandle, relativePath: string): Promise<File> {
   const parts = relativePath.split("/").filter(Boolean);
-  let current: FsDirHandle = dir;
-  for (let index = 0; index < parts.length; index++) {
-    const wanted = parts[index];
-    let found: FsDirHandle | FsFileHandle | null = null;
-    for await (const [name, handle] of current.entries()) {
-      if (name === wanted) { found = handle; break; }
-    }
-    if (!found) throw new Error(`cached library file disappeared: ${relativePath}`);
-    if (index === parts.length - 1) {
-      if (found.kind !== "file") throw new Error(`cached library path is not a file: ${relativePath}`);
-      return found.getFile();
-    }
-    if (found.kind !== "directory") throw new Error(`cached library path is not a directory: ${relativePath}`);
-    current = found;
-  }
-  throw new Error(`cached library path is empty`);
+  const fileName = parts.pop();
+  if (!fileName) throw new Error("cached library path is empty");
+  const parent = await directoryAt(dir, parts.join("/"));
+  return (await childFile(parent, fileName)).getFile();
 }
 declare global {
   interface Window {
@@ -79,7 +115,10 @@ declare global {
 }
 
 import { homebrew, isHomebrewSourceFile } from "./sources/homebrewTitles.svelte.js";
-import { zipList, zipExtractOne, CentralDirectoryOutOfRange, type ZipEntry } from "./unzip.js";
+import { zipExtractOne, type ZipEntry } from "./unzip.js";
+import { readZipDirectory, resolveZipRom, type ZipRomVerdict } from "./zipScan.js";
+export { resolveZipRom } from "./zipScan.js";
+export type { ZipRomVerdict } from "./zipScan.js";
 import { isLazy, noteLazyRead, noteLazyRelease, resolveBytes, type LazyBytes, type MaybeLazy } from "./lazyBytes.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import { isKnownConsoleDir, type CoreRegistry } from "./sources/coreRegistry.js";
@@ -187,99 +226,10 @@ export function romBytesIfLoaded(v: LibraryFile): Uint8Array | null {
 }
 
 /**
- * How much of an archive's tail to read, smallest first.
- *
- * A one-entry archive's end-of-central-directory record and its directory come to roughly 100
- * bytes, so 4 KiB covers the shape this exists for with room to spare, and 375 of them cost
- * about 1.5 MiB rather than the 24 MiB a flat 64 KiB tail would. The second step covers the
- * worst-case 65535-byte archive comment; beyond that the archive says where its directory starts
- * (`CentralDirectoryOutOfRange`) and gets one exact read.
- */
-const ZIP_TAIL_STEPS = [4_096, 66_000] as const;
-
-/** The central directory of an archive, reading as little of it as possible. */
-async function readZipDirectory(file: File): Promise<ZipEntry[]> {
-  const size = file.size;
-
-  for (let step = 0; step < ZIP_TAIL_STEPS.length; step++) {
-    const want = ZIP_TAIL_STEPS[step];
-    const from = Math.max(0, size - want);
-    const tail = new Uint8Array(await file.slice(from).arrayBuffer());
-    try {
-      return zipList(tail, from);
-    } catch (e) {
-      if (e instanceof CentralDirectoryOutOfRange) {
-        // The archive told us where to look. One exact read, still far less than the payload.
-        const rest = new Uint8Array(await file.slice(e.centralDirectoryOffset).arrayBuffer());
-        return zipList(rest, e.centralDirectoryOffset);
-      }
-      // No end-of-central-directory in this slice. If the slice was the whole file, that is the
-      // verdict; otherwise it may simply be further back, so try a longer tail before deciding.
-      const sawWholeFile = from === 0;
-      const lastStep = step === ZIP_TAIL_STEPS.length - 1;
-      if (sawWholeFile || lastStep) throw e;
-    }
-  }
-  // Unreachable: the loop either returns or throws on its last step.
-  throw new Error("not a zip (no end-of-central-directory)");
-}
-
-/**
- * ZIPPED ROMS: one archive, one ROM, and the INNER name is the identity.
- *
- * The owner's library is 375 archives that each hold exactly one `.gb`, and the archive name is
- * not the ROM name -- `Aladdin.zip` holds `Disney's Aladdin (USA) (SGB Enhanced).gb`. The inner
- * name is the No-Intro one, which is what cover art and cheat databases key on, so that is the
- * name the library takes. A zipped ROM then behaves exactly like a loose one of the same name:
- * same dedup, same collision refusal, same console classification, same size.
- *
- * WHICH ARCHIVES ARE ROMS is deliberately NOT asked here. A dedicated folder (`Gameboy/*.zip`,
- * his actual layout) is mapped onto its console AFTER the scan by `libraryScan.ts`'s
- * `applyPlacement`, so at this point there is no folder to classify against and a registry lookup
- * would have to guess. Unpacking to the inner name and letting the normal rules judge it is both
- * simpler and more accurate: an archive holding `notes.txt` yields `notes.txt`, which is dropped
- * exactly where a loose `notes.txt` is dropped. No fourth console table, per CLAUDE.md.
- */
-export type ZipRomVerdict =
-  | { ok: true; entry: ZipEntry; name: string }
-  | { ok: false; reason: string };
-
-/**
- * Decide what a zip archive contributes, from its central directory alone.
- *
- * Every refusal names what was found. The owner's library contains none of these cases, which
- * is exactly why they must fail loudly: an untested path that silently picks entry 0 would
- * install the wrong file with no way to notice.
- */
-export function resolveZipRom(entries: readonly ZipEntry[]): ZipRomVerdict {
-  const files = entries.filter((e) => !e.isDirectory);
-  if (files.length === 0) return { ok: false, reason: "holds no files" };
-  if (files.length > 1) {
-    const names = files.slice(0, 3).map((f) => f.name).join(", ");
-    return {
-      ok: false,
-      reason: `holds ${files.length} files (${names}${files.length > 3 ? ", …" : ""}); a ROM archive must hold exactly one`,
-    };
-  }
-  const only = files[0];
-  if (only.encrypted) return { ok: false, reason: `holds ${only.name}, which is encrypted` };
-  if (only.method !== 0 && only.method !== 8) {
-    return { ok: false, reason: `holds ${only.name}, compressed with method ${only.method} (only stored and deflate are supported)` };
-  }
-  // A single entry may still carry a directory component. The destination is `<system>/<name>`
-  // either way, so the basename is the identity; an entry that is all path and no name is not a
-  // file we can place.
-  const base = only.name.slice(only.name.lastIndexOf("/") + 1);
-  if (!base) return { ok: false, reason: `holds ${only.name}, which has no file name` };
-  return { ok: true, entry: only, name: base };
-}
-
-
-/**
  * Reports the relative path of each file as it is read, so a long first scan can say what it is
  * currently processing. Runtime-derived text (a path), never UI copy.
  */
-export type ScanProgressFn = (relativePath: string) => void;
+export type ScanProgressFn = (relativePath: string) => void | Promise<void>;
 
 /** Aggregated so a large collection of multi-ROM archives does not flood the main-thread log. */
 interface ZipSkipSummary {
@@ -306,6 +256,7 @@ export const LEGACY_HOMEBREW_PREFIXES: readonly string[] = ["homebrew", "roms/ho
 
 async function walk(
   dir: FsDirHandle,
+  root: FsDirHandle,
   prefix: string,
   out: Map<string, LibraryFile>,
   onFile: ScanProgressFn | null,
@@ -323,7 +274,7 @@ async function walk(
 
     if (handle.kind === "directory") {
       // Do not recurse into subdirectories inside homebrew
-      await walk(handle, rel, out, onFile, hbPrefixes, zipCache, zipSkips);
+      await walk(handle, root, rel, out, onFile, hbPrefixes, zipCache, zipSkips);
     } else {
       if (isInsideHomebrew || hbPrefixes.some((p) => rel.startsWith(`${p}/`))) {
         // Cover art (celeste.png, "Zelda 3.png", …) also lives directly in homebrew/ (see
@@ -384,13 +335,13 @@ async function walk(
           innerRel,
           new LazyRom(
             entry.size,
-            async () => zipExtractOne(new Uint8Array(await (await handle.getFile()).arrayBuffer()), entry),
+            async () => zipExtractOne(new Uint8Array(await (await readRomFile(root, rel)).arrayBuffer()), entry),
             rel,
             file.lastModified,
             entry,
           ),
         );
-        onFile?.(innerRel);
+        await onFile?.(innerRel);
         continue;
       }
 
@@ -403,19 +354,19 @@ async function walk(
       // that needs lazy reads to avoid copying an entire library into the JS heap.
       if ((handle as FsFileHandle & { eager?: boolean }).eager === true) {
         out.set(rel, new Uint8Array(await file.arrayBuffer()));
-        onFile?.(rel);
+        await onFile?.(rel);
         continue;
       }
       out.set(
         rel,
         new LazyRom(
           file.size,
-          async () => new Uint8Array(await (await handle.getFile()).arrayBuffer()),
+          async () => new Uint8Array(await (await readRomFile(root, rel)).arrayBuffer()),
           rel,
           file.lastModified,
         ),
       );
-      onFile?.(rel);
+      await onFile?.(rel);
     }
   }
 }
@@ -455,6 +406,7 @@ export function summarize(userRoms: Map<string, LibraryFile>): RomScanSummary {
 export async function countRomDirectory(
   dir: FsDirHandle,
   hbPrefixes: readonly string[] = LEGACY_HOMEBREW_PREFIXES,
+  onFile?: (relativePath: string) => void | Promise<void>,
 ): Promise<number> {
   let n = 0;
   const walkCount = async (d: FsDirHandle, prefix: string): Promise<void> => {
@@ -472,6 +424,7 @@ export async function countRomDirectory(
           if (!(isCoverImage || homebrew.deviceFiles.has(hbKey) || isHomebrewSourceFile(name) || !!homebrew.owning(hbKey))) continue;
         }
         n++;
+        await onFile?.(rel);
       }
     }
   };
@@ -487,7 +440,7 @@ export async function scanRomDirectory(
 ): Promise<RomScanResult> {
   const raw = new Map<string, LibraryFile>();
   const zipSkips: ZipSkipSummary = { count: 0, samples: [] };
-  await walk(dir, "", raw, onFile, hbPrefixes, zipCache, zipSkips);
+  await walk(dir, dir, "", raw, onFile, hbPrefixes, zipCache, zipSkips);
   if (zipSkips.count > 0) {
     dbg(`[scan] ${zipSkips.count} archives skipped; samples: ${zipSkips.samples.join(" | ")}`);
   }
@@ -505,6 +458,90 @@ export async function scanRomDirectory(
 
   const summary = summarize(userRoms);
   return { userRoms, summary, dir, hasRomsPrefix };
+}
+
+/** Assemble a scan result from worker-collected file metadata without walking the tree again. */
+export async function scanRomFileSnapshot(
+  dir: RomDirHandle,
+  entries: readonly RomFileSnapshot[],
+  onFile: ScanProgressFn | null = null,
+  zipCache?: Map<string, ZipScanCacheEntry>,
+  waitForUi: () => Promise<void> = () => Promise.resolve(),
+): Promise<RomScanResult> {
+  const raw = new Map<string, LibraryFile>();
+  const zipSkips: ZipSkipSummary = { count: 0, samples: [] };
+  const yieldToPaint = () => new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
+    else setTimeout(resolve, 16);
+  });
+  for (let index = 0; index < entries.length; index++) {
+    if (index % 128 === 0) {
+      await waitForUi();
+      await yieldToPaint();
+    }
+    const { path: rel, size, lastModified } = entries[index];
+    const name = rel.slice(rel.lastIndexOf("/") + 1);
+    const prefix = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+    const isInsideHomebrew = LEGACY_HOMEBREW_PREFIXES.includes(prefix);
+    if (isInsideHomebrew || LEGACY_HOMEBREW_PREFIXES.some((p) => rel.startsWith(`${p}/`))) {
+      const isCoverImage = /\.(png|jpe?g|img)$/i.test(name);
+      const hbRoot = LEGACY_HOMEBREW_PREFIXES.find((p) => rel === p || rel.startsWith(`${p}/`));
+      const hbKey = hbRoot ? rel.slice(hbRoot.length + 1) : name;
+      if (!(isCoverImage || homebrew.deviceFiles.has(hbKey) || isHomebrewSourceFile(name) || !!homebrew.owning(hbKey))) continue;
+    }
+    if (/\.zip$/i.test(name)) {
+      const cached = zipCache?.get(rel);
+      let verdict: ZipRomVerdict;
+      if (cached && cached.size === size && cached.lastModified === lastModified) verdict = cached.verdict;
+      else {
+        try {
+          verdict = resolveZipRom(await readZipDirectory(await readRomFile(dir, rel)));
+        } catch (error) {
+          verdict = { ok: false, reason: error instanceof Error ? error.message : String(error) };
+        }
+        zipCache?.set(rel, { size, lastModified, verdict });
+      }
+      if (!verdict.ok) {
+        zipSkips.count++;
+        if (zipSkips.samples.length < 5) zipSkips.samples.push(`${rel}: ${verdict.reason}`);
+        continue;
+      }
+      const innerRel = prefix ? `${prefix}/${verdict.name}` : verdict.name;
+      if (raw.has(innerRel)) {
+        zipSkips.count++;
+        if (zipSkips.samples.length < 5) zipSkips.samples.push(`${rel}: ${innerRel} already came from another archive`);
+        continue;
+      }
+      const entry = verdict.entry;
+      raw.set(innerRel, new LazyRom(
+        entry.size,
+        async () => zipExtractOne(new Uint8Array(await (await readRomFile(dir, rel)).arrayBuffer()), entry),
+        rel,
+        lastModified,
+        entry,
+      ));
+      await onFile?.(innerRel);
+      continue;
+    }
+    raw.set(rel, new LazyRom(
+      size,
+      async () => new Uint8Array(await (await readRomFile(dir, rel)).arrayBuffer()),
+      rel,
+      lastModified,
+    ));
+    await onFile?.(rel);
+  }
+
+  if (zipSkips.count > 0) dbg(`[scan] ${zipSkips.count} archives skipped; samples: ${zipSkips.samples.join(" | ")}`);
+  const userRoms = new Map<string, LibraryFile>();
+  let hasRomsPrefix = false;
+  for (const [key, value] of raw) {
+    if (key.startsWith("roms/")) {
+      hasRomsPrefix = true;
+      userRoms.set(key.slice(5), value);
+    } else userRoms.set(key, value);
+  }
+  return { userRoms, summary: summarize(userRoms), dir, hasRomsPrefix };
 }
 
 /** True when the native File System Access API is available (Chromium). */
@@ -601,6 +638,7 @@ class InputDirHandle implements FsDirHandle {
       yield [name, handle];
     }
   }
+
 }
 
 class InputFileHandle implements FsFileHandle {

@@ -141,8 +141,8 @@ const tab = readFileSync(join(here, "../src/lib/views/RomManagementTab.svelte"),
 
 function audit(libSrc, tabSrc) {
   const problems = [];
-  if (!/countRomDirectory\(/.test(libSrc)) {
-    problems.push("the scan never counts files, so the bar is back to a folder denominator");
+  if (!/doneFiles \+= count/.test(libSrc)) {
+    problems.push("the scan does not count the files reported by the worker");
   }
   if (/total: sources\.length/.test(libSrc)) {
     problems.push("progress.total is the folder count again");
@@ -163,7 +163,7 @@ await check("the library scan counts files and waits for the sources", () => {
 
 await check("ANTI-VACUITY: the same assertions fail on the old shape", () => {
   const before = lib
-    .replace(/countRomDirectory\(/g, "noCount(")
+    .replace(/doneFiles \+= count/g, "doneFiles++")
     .replace(/total: totalFiles/g, "total: sources.length")
     .replace(/sourcesResolving/g, "gone");
   const problems = audit(before, tab.replace(/sourcesResolving/g, "gone"));
@@ -171,5 +171,6 @@ await check("ANTI-VACUITY: the same assertions fail on the old shape", () => {
     `the old shape should fail all four, ${problems.length} did: ${problems.join("; ") || "(none)"}`);
 });
 
+await import("./librarydirectoryworker.mjs");
 console.log(`\nlibraryprogress: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

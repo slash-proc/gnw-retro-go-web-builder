@@ -45,6 +45,13 @@ the SD card pane, or anything that decides what a console is or where a file lan
   that prefix is the real fix and has not been done.
 ## Sources, cores and the Library
 
+Native library directory enumeration, file metadata reads, and ZIP central-directory indexing
+run in `libraryDirectory.worker.ts`. The UI receives file snapshots and handles, then applies
+the existing `romScan.ts` classification and lazy-file rules in yielding batches. Regular ROM
+payloads are not read by this scan. The worker waits for acknowledgement of each progress
+update, and both it and atlas conversion pause while the library list scrolls or the carousel
+is being manipulated or its spring is still moving.
+
 - **A source declares what a console is; the scan says which ones have files.** `sources/coreRegistry.ts`
   builds the registry from **active** sources' declared systems (folder, names, extensions,
   browse mode), and a console button exists only where an active core declares the system AND
@@ -123,4 +130,3 @@ the SD card pane, or anything that decides what a console is or where a file lan
   one row per held file, each with its own remove; whether another fits is the picker being
   present or absent (`slotsLeft`), not a pluralised label. `chooseFiles` is deleted in every
   locale. Two i18n keys differing only in plurality are a smell.
-

@@ -461,9 +461,8 @@ export async function scanLibraryFolders(
   deps: LibraryScanDeps,
 ): Promise<MergedLibraryScan> {
   const { kept, skipped } = await dedupeSources(sources, deps);
-  // Directory enumeration is I/O-bound, but opening every registered source at once can make
-  // removable media and network shares slower. Two workers overlap independent sources while
-  // the results remain indexed by `kept` order, preserving the established duplicate winner.
+  // Keep source scans serial so background enumeration does not compete as aggressively with
+  // foreground file reads. Results remain indexed by `kept` order, preserving duplicate winners.
   const outcomes: Array<FolderScan | SkippedFolder | undefined> = new Array(kept.length);
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -483,7 +482,7 @@ export async function scanLibraryFolders(
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(2, kept.length) }, () => worker()));
+  await Promise.all(Array.from({ length: Math.min(1, kept.length) }, () => worker()));
   const scanned: FolderScan[] = [];
   for (const outcome of outcomes) {
     if (!outcome) continue;

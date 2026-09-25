@@ -43,12 +43,12 @@
  * bare extension match is the weakest. None of the three is an ACCEPTANCE decision — that is
  * `gateInputs`', below.
  *
- * ## `strict: false` STILL MEANS ACCEPTED
+ * ## `strict: false` STILL MEANS ACCEPTED — BY THE USER
  *
  * `freedoom2.wad` matches no variant and is still a legitimate input (spec/03: accept it and
- * SAY it was not recognised). Discovery must not quietly drop it for failing to hash to
- * something. Under `strict: true` the opposite holds: nothing but a variant can ever be
- * accepted, so an unrecognised file is not offered at all.
+ * SAY it was not recognised). Discovery may offer it after it has exhausted the manifest's
+ * declared hash matches. Under `strict: true` the opposite holds: nothing but a variant can
+ * ever be accepted, so an unrecognised file is not offered at all.
  *
  * ## ONE MATCHER, NOT TWO
  *
@@ -83,7 +83,11 @@ export interface CandidateFile {
   /** `LocalFolderRow.id` — which registered folder this came from. */
   folderId: string;
   size: number;
+  /** A previously verified payload SHA-1, valid for this candidate's metadata fingerprint. */
+  sha1?: string;
   read(): Promise<Uint8Array>;
+  /** Persist a SHA-1 discovered during this pass alongside the candidate's file metadata. */
+  rememberSha1?(sha1: string): void;
   /** Release a temporary lazy cache after discovery has hashed the candidate. */
   release?(): void;
 }
@@ -121,12 +125,10 @@ export interface DiscoveryDeps {
 }
 
 /**
- * Automatic discovery must not turn a broad manifest extension into a startup dump. A small
- * shelf (Doom's WADs, for example) is cheap and remains hash-discoverable; a large ambiguous
- * shelf is left to the explicit file picker, which can read only the file the user chooses.
+ * A hash-bearing manifest's variants are authoritative for automatic selection. Discovery
+ * hashes only candidates that survived extension and declared-size narrowing, releases each
+ * unsuccessful lazy payload immediately, and reuses persistent file hashes where available.
  */
-export const AUTO_HASH_CANDIDATE_LIMIT = 64;
-
 /** `.WAD` and `wad` both mean `.wad`. */
 function normExt(ext: string): string {
   const lower = ext.trim().toLowerCase();
@@ -249,32 +251,38 @@ export async function discoverInput(
   let hashed = 0;
 
   const plausible = sizePlausible(input.variants, byExtension);
-  // Some manifests omit variant sizes, making every `.sfc`, `.gba`, etc. plausible. Hashing that
-  // set during library startup creates gigabytes of allocation churn even when every buffer is
-  // released afterward. Keep automatic discovery bounded; strict inputs defer to the picker,
-  // while non-strict inputs can still use the cheap filename/extension fallback below.
-  const hashCandidates = plausible.length <= AUTO_HASH_CANDIDATE_LIMIT ? plausible : [];
+  // Variants are the manifest's authoritative automatic-recognition contract. Hash every
+  // extension/size-plausible candidate before considering a permissive fallback; otherwise a
+  // cap can make a known SMW dump lose to whichever `.sfc` happened to be listed first. Failed
+  // lazy reads are released below, so this is sequential I/O rather than a resident collection;
+  // a persistent metadata hash cache makes later discovery avoid the reads entirely.
+  const hashCandidates = plausible;
   for (const cand of hashCandidates) {
-    const bytes = await cand.read();
-    const sha1 = (await deps.hash(bytes)).toLowerCase();
-    hashed++;
+    const cachedSha1 = cand.sha1?.toLowerCase();
+    const bytes = cachedSha1 === undefined ? await cand.read() : undefined;
+    const sha1 = cachedSha1 ?? (await deps.hash(bytes!)).toLowerCase();
+    if (cachedSha1 === undefined) {
+      hashed++;
+      cand.sha1 = sha1;
+      cand.rememberSha1?.(sha1);
+    }
     const variant = input.variants.find(
       (v) => v.sha1.toLowerCase() === sha1 && (v.bytes === undefined || v.bytes === cand.size),
     );
     if (!variant) {
       // Discovery is a scan-time probe. An unmatched candidate must not become a permanent
       // cache entry merely because a manifest omitted variant sizes.
-      cand.release?.();
+      if (bytes !== undefined) cand.release?.();
       continue;
     }
     consumed.add(cand);
     // The same dump found in two registered folders is ONE input, not two runs of it.
     if (seenVariants.has(variant.id)) {
-      cand.release?.();
+      if (bytes !== undefined) cand.release?.();
       continue;
     }
     seenVariants.add(variant.id);
-    matchedBytes.set(cand, bytes);
+    if (bytes !== undefined) matchedBytes.set(cand, bytes);
     const found: DiscoveredFile = {
       path: cand.path,
       folderId: cand.folderId,
@@ -286,8 +294,8 @@ export async function discoverInput(
 
   }
 
-  // The weak half. Only under `strict: false`, because under `strict` the gate would refuse
-  // every one of these and offering them would be a promise we cannot keep.
+  // A manifest's `strict` flag is the whole acceptance policy. Once all declared variants have
+  // been checked, `strict:false` may offer an unknown extension match; `strict:true` may not.
   const weak: { cand: CandidateFile; found: DiscoveredFile }[] = [];
   if (!input.strict) {
     const rest = byExtension.filter((c) => !consumed.has(c));
@@ -310,6 +318,7 @@ export async function discoverInput(
       inputId: input.id,
       filename: baseNameOf(cand.path),
       bytes: matchedBytes.get(cand) ?? await cand.read(),
+      ...(cand.sha1 !== undefined ? { sha1: cand.sha1 } : {}),
     });
   }
 
@@ -451,18 +460,23 @@ export function libraryCandidates(
   origin: ReadonlyMap<string, string>,
   allowed: ReadonlySet<string>,
   pathOf: (key: string) => string,
+  sha1Of?: (key: string, folderId: string) => string | undefined,
+  rememberSha1?: (key: string, folderId: string, sha1: string) => void,
 ): CandidateFile[] {
   const out: CandidateFile[] = [];
   for (const [key, bytes] of files) {
     const folderId = origin.get(key) ?? "";
     if (!allowed.has(folderId)) continue;
+    const sha1 = sha1Of?.(key, folderId);
     out.push({
       path: pathOf(key),
       folderId,
       // `size` from metadata and `read` deferred: a zipped ROM offered as a converter input is
       // listed and filtered without being inflated, and read only after it survives narrowing.
       size: bytes.length,
+      ...(sha1 ? { sha1 } : {}),
       read: () => resolveBytes(bytes),
+      rememberSha1: (sha1) => rememberSha1?.(key, folderId, sha1),
       release: () => { if (isLazy(bytes)) bytes.release?.(); },
     });
   }

@@ -64,7 +64,7 @@
     coverUrl: string | null;
     configuredCheats: Record<string, string[]>;
     configuredCheatFiles: Record<string, Uint8Array>;
-    onCoverChange: (() => void) | undefined;
+    onCoverChange: ((refreshAtlas?: boolean, cover?: { sourceId?: string; path: string; bytes: Uint8Array }) => void | Promise<void>) | undefined;
     /** Render the panel body directly, with no <details>/<summary> accordion chrome and with
      *  the three sub-panels un-boxed — for hosts that already provide a surface and a title
      *  (the Library tab's "Additional options" drawer). Default false keeps the accordion. */
@@ -189,6 +189,8 @@
     if (!mcfPresetName) return;
     mcfLoading = true;
     mcfError = null;
+    const changedPaths = new Set<string>();
+    let importedCovers = 0;
     try {
       const res = await fetch(mcfAssetUrl(system, mcfPresetName));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -690,7 +692,7 @@
       }
     }
 
-    if (onCoverChange) onCoverChange();
+    if (onCoverChange) await onCoverChange();
   }
 
   // --- ScreenScraper State ---
@@ -942,7 +944,7 @@
                 blob.size,
                 converted,
               );
-              if (library.scan) library.markDirty(storedImgPath);
+              changedPaths.add(storedImgPath);
             }
           } catch (e) {
             dbg(`[covers] converting a scraped cover failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -950,12 +952,9 @@
 
           // Keep both tiers in the live map: the .img is the scrub surface and the original is
           // the full-resolution carousel/detail art. The original is also written back below.
-          const storedOriginalPath = library.setFileForSource(
-            relPath,
-            new Uint8Array(await blob.arrayBuffer()),
-            coverSource?.sourceId,
-          );
-          if (library.scan) library.markDirty(storedOriginalPath);
+          const originalBytes = new Uint8Array(await blob.arrayBuffer());
+          const storedOriginalPath = library.setFileForSource(relPath, originalBytes, coverSource?.sourceId);
+          changedPaths.add(storedOriginalPath);
 
           // A mass import is an explicit request to persist art. Always save the original beside
           // the submitted ROM in its OWN directory source; never redirect through the primary
@@ -968,7 +967,8 @@
             }
           }
 
-          if (onCoverChange) onCoverChange();
+          importedCovers++;
+          await onCoverChange?.(false, { sourceId: coverSource?.sourceId, path: storedOriginalPath, bytes: originalBytes });
         },
         shouldCancel: () => !isImporting
         });
@@ -986,6 +986,8 @@
         "cover import",
       );
     } finally {
+      if (library.scan) library.markDirtyMany(changedPaths);
+      if (importedCovers > 0) await onCoverChange?.(true);
       isImporting = false;
     }
   }

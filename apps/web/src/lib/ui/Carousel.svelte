@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from "svelte";
   import { Spring } from "svelte/motion";
   import { locale } from "../i18n/locale.svelte.js";
+  import { measureLibraryPhase } from "../libraryPerformance.js";
 
   type CarouselDebugSnapshot = {
     covers: number;
@@ -45,6 +46,7 @@
     selectedId = $bindable(""), 
     onSelect = () => {}, 
     onScrubState = () => {},
+    onMotionState = () => {},
     getUrl = () => "", 
     getLodUrl = () => "",
     getAtlasCell = () => null,
@@ -55,6 +57,7 @@
     selectedId: string;
     onSelect?: (id: string) => void;
     onScrubState?: (active: boolean) => void;
+    onMotionState?: (active: boolean) => void;
     getUrl?: (id: string, version?: number) => string;
     getLodUrl?: (id: string, version?: number) => string;
     getAtlasCell?: (id: string, version?: number) => { url: string; x: number; y: number; width: number; height: number; pageWidth: number; pageHeight: number } | null;
@@ -74,6 +77,7 @@
   });
 
   const smoothIndex = new Spring(0, { stiffness: 0.1, damping: 0.8 });
+  let visualCenter = $derived(Math.round(smoothIndex.current));
   $effect(() => {
     smoothIndex.target = focusIndex;
   });
@@ -89,7 +93,7 @@
   const pendingLodUrls = new Set<string>();
   const preloadQueue: Array<{ url: string; lowResolution: boolean }> = [];
   const queuedPreloads = new Set<string>();
-  const PRELOAD_CONCURRENCY = 8;
+  const PRELOAD_CONCURRENCY = 4;
   let activePreloads = 0;
   let debugStarted = performance.now();
   let debugRendered = 0;
@@ -183,10 +187,8 @@
 
   onDestroy(() => {
     if (window.__gnwCarouselDebug?.snapshot === carouselDebugSnapshot) delete window.__gnwCarouselDebug;
-    fullPreloadGeneration++;
-    if (fullPreloadTimer) clearTimeout(fullPreloadTimer);
-    if (velocityTimer) clearTimeout(velocityTimer);
     if (lodRetryTimer) clearTimeout(lodRetryTimer);
+    if (preloadRefreshTimer) clearTimeout(preloadRefreshTimer);
     for (const image of pendingImages.values()) image.src = "";
     pendingImages.clear();
     pendingDecodes.clear();
@@ -199,84 +201,126 @@
   // library in the template on every spring frame made 1,600-entry libraries noticeably slower
   // than 600-entry ones, even though the off-screen cards were immediately discarded.
   const renderCovers = $derived.by(() => {
-    const center = Math.round(smoothIndex.current);
-    const start = Math.max(0, center - SIDE - 2);
-    const end = Math.min(covers.length, center + SIDE + 3);
-    return covers.slice(start, end).map((cover: any, i: number) => ({ cover, index: start + i }));
+    return measureLibraryPhase("carousel render window", covers.length, () => {
+      const center = Math.round(smoothIndex.current);
+      const start = Math.max(0, center - SIDE - 2);
+      const end = Math.min(covers.length, center + SIDE + 3);
+      return covers.slice(start, end).map((cover: any, i: number) => ({ cover, index: start + i }));
+    });
   });
 
   // Keep a small decoded LOD window around the focus. The parent already has the cover bytes in
   // memory; this only asks the browser to fetch/decode nearby object URLs before they become
   // visible during a fast scrub. The full library remains data-only and the DOM still renders
   // only the cards around the focus.
-  // Keep roughly the requested 25–50 neighboring covers warm. The parent enforces separate
-  // decoded-byte budgets for LOD and full-resolution URLs, so this does not become an
-  // unbounded high-resolution cache while scrubbing.
-  const PRELOAD_RADIUS = 20;
-  const FULL_RES_MAX_SPEED = 100;
+  // Keep a broad low-resolution window and a cache-sized high-resolution neighborhood.
+  const PRELOAD_RADIUS = 120;
+  const FULL_RES_PRELOAD_RADIUS = 60;
+  const FULL_RES_MAX_SPEED = 200;
+  const FULL_RES_FADE_BAND = 100;
+  const PRELOAD_REFRESH_INTERVAL_MS = 50;
   let tilesPerSecond = $state(0);
-  let lastFocusSample = 0;
+  let motionDirection = $state(1);
   let lastFocusIndex = 0;
-  let velocityTimer = 0;
-  let fullPreloadTimer = 0;
-  let fullPreloadGeneration = 0;
+  let lastVelocityCovers = covers;
+  let velocityRaf = 0;
+  let lastVisualSample = 0;
+  let lastVisualIndex = smoothIndex.current;
   let lodRetryTimer = 0;
   let lodRetryCount = 0;
   let lodRetryCenter = -1;
   let lodRetryTick = $state(0);
-  $effect(() => {
-    const now = performance.now();
-    if (lastFocusSample) {
-      const elapsed = Math.max(1, now - lastFocusSample);
-      tilesPerSecond = Math.abs(focusIndex - lastFocusIndex) * 1000 / elapsed;
+  let preloadRefreshTimer = 0;
+  function sampleVisualVelocity(now: number): void {
+    const current = smoothIndex.current;
+    if (lastVisualSample) {
+      const elapsed = Math.max(1, now - lastVisualSample);
+      const delta = current - lastVisualIndex;
+      tilesPerSecond = Math.abs(delta) * 1000 / elapsed;
+      if (delta !== 0) motionDirection = Math.sign(delta);
     }
-    lastFocusSample = now;
+    lastVisualSample = now;
+    lastVisualIndex = current;
+    if (isScrubbing || Math.abs(current - focusIndex) > 0.01) {
+      velocityRaf = requestAnimationFrame(sampleVisualVelocity);
+    } else {
+      velocityRaf = 0;
+      lastVisualSample = 0;
+      tilesPerSecond = 0;
+    }
+  }
+  $effect(() => {
+    const coversChanged = covers !== lastVelocityCovers;
+    lastVelocityCovers = covers;
+    if (coversChanged) {
+      tilesPerSecond = 0;
+      lastVisualSample = 0;
+      lastVisualIndex = smoothIndex.current;
+    }
+    const focusChanged = focusIndex !== lastFocusIndex;
     lastFocusIndex = focusIndex;
-    if (velocityTimer) clearTimeout(velocityTimer);
-    velocityTimer = window.setTimeout(() => { tilesPerSecond = 0; }, 120);
+    if ((focusChanged || coversChanged) && !velocityRaf) {
+      velocityRaf = requestAnimationFrame(sampleVisualVelocity);
+    }
   });
 
+  function preloadCoverAt(i: number, distance: number, currentVersion: number, urlsToKeep: Set<string>): boolean {
+    if (i < 0 || i >= covers.length) return false;
+    const atlasCell = getAtlasCell(covers[i]?.id, currentVersion);
+    const lodUrl = atlasCell ? "" : (covers[i]?.lodUrl || getLodUrl(covers[i]?.id, currentVersion));
+    if (distance <= FULL_RES_PRELOAD_RADIUS) {
+      const fullUrl = covers[i]?.url || getUrl(covers[i]?.id, currentVersion);
+      if (fullUrl) {
+        urlsToKeep.add(fullUrl);
+        preloadUrl(fullUrl);
+      }
+    }
+    if (atlasCell) return false;
+    if (lodUrl) { urlsToKeep.add(lodUrl); preloadUrl(lodUrl, true); }
+    return !lodUrl;
+  }
+
+  function refreshPreloads(): void {
+    measureLibraryPhase("carousel preload effect", covers.length, () => {
+      const currentVersion = version;
+      const center = visualCenter;
+      debugRendered++;
+      if (center !== lodRetryCenter) {
+        lodRetryCenter = center;
+        lodRetryCount = 0;
+      }
+      const urlsToKeep = new Set<string>();
+      let missingLod = false;
+      for (let distance = PRELOAD_RADIUS; distance >= 0; distance--) {
+        if (distance === 0) missingLod = preloadCoverAt(center, distance, currentVersion, urlsToKeep) || missingLod;
+        else {
+          missingLod = preloadCoverAt(center - distance, distance, currentVersion, urlsToKeep) || missingLod;
+          missingLod = preloadCoverAt(center + distance, distance, currentVersion, urlsToKeep) || missingLod;
+        }
+      }
+      if (missingLod && lodRetryCount < 60) {
+        lodRetryCount++;
+        lodRetryTimer = window.setTimeout(() => {
+          lodRetryTimer = 0;
+          lodRetryTick++;
+        }, 16);
+      }
+      cancelPreloadsExcept(urlsToKeep);
+    });
+  }
+
   $effect(() => {
-    const retryTick = lodRetryTick;
-    void retryTick;
-    const currentVersion = version;
-    const center = focusIndex;
-    debugRendered++;
-    if (center !== lodRetryCenter) {
-      lodRetryCenter = center;
-      lodRetryCount = 0;
-    }
-    const urlsToKeep = new Set<string>();
-    const fullCandidates: number[] = [];
-    let missingLod = false;
-    for (let i = Math.max(0, center - PRELOAD_RADIUS); i <= Math.min(covers.length - 1, center + PRELOAD_RADIUS); i++) {
-      const lodUrl = covers[i]?.lodUrl || getLodUrl(covers[i]?.id, currentVersion);
-      if (lodUrl) { urlsToKeep.add(lodUrl); preloadUrl(lodUrl, true); }
-      else missingLod = true;
-      if (tilesPerSecond <= FULL_RES_MAX_SPEED) fullCandidates.push(i);
-    }
-    fullPreloadGeneration++;
-    const generation = fullPreloadGeneration;
-    if (fullPreloadTimer) clearTimeout(fullPreloadTimer);
-    let next = 0;
-    const loadNextFull = () => {
-      fullPreloadTimer = 0;
-      if (generation !== fullPreloadGeneration || tilesPerSecond > FULL_RES_MAX_SPEED) return;
-      const index = fullCandidates[next++];
-      if (index === undefined) return;
-      const url = covers[index]?.url || getUrl(covers[index]?.id, currentVersion);
-      if (url) { urlsToKeep.add(url); preloadUrl(url); }
-      if (next < fullCandidates.length) fullPreloadTimer = window.setTimeout(loadNextFull, 1000 / 240);
-    };
-    if (fullCandidates.length) fullPreloadTimer = window.setTimeout(loadNextFull, 0);
-    if (missingLod && lodRetryCount < 60) {
-      lodRetryCount++;
-      lodRetryTimer = window.setTimeout(() => {
-        lodRetryTimer = 0;
-        lodRetryTick++;
-      }, 16);
-    }
-    cancelPreloadsExcept(urlsToKeep);
+    covers.length;
+    version;
+    visualCenter;
+    tilesPerSecond;
+    motionDirection;
+    lodRetryTick;
+    if (preloadRefreshTimer) return;
+    preloadRefreshTimer = window.setTimeout(() => {
+      preloadRefreshTimer = 0;
+      refreshPreloads();
+    }, PRELOAD_REFRESH_INTERVAL_MS);
   });
 
   onMount(() => {
@@ -287,10 +331,12 @@
   });
 
   let aspects = $state<Record<string, number>>({});
+  let loadedMainUrls = $state<Record<string, string>>({});
   function onImgLoad(id: string, e: Event) {
     const target = e.target as HTMLImageElement;
     const { naturalWidth: w, naturalHeight: h } = target;
     if (!w || !h) return;
+    loadedMainUrls[id] = target.currentSrc || target.src;
     const ratio = Math.max(0.6, Math.min(1.8, w / h));
     if (Math.abs((aspects[id] ?? 0) - ratio) >= 0.001) {
       aspects[id] = ratio;
@@ -417,6 +463,7 @@
   }
 
   function processScrubberPointerMove() {
+    measureLibraryPhase("carousel pointer update", covers.length, () => {
     scrubRaf = 0;
     const e = scrubPendingEvent;
     scrubPendingEvent = null;
@@ -437,6 +484,7 @@
         // Commit the selected row once on pointer-up instead.
       }
     }
+    });
   }
 
   function onScrubberPointerMove(e: PointerEvent) {
@@ -488,6 +536,7 @@
   onMount(() => () => {
     stopScrubProfile(false);
     cancelAnimationFrame(scrubRaf);
+    if (velocityRaf) cancelAnimationFrame(velocityRaf);
   });
 
   function onScrubberPointerDown(e: PointerEvent) {
@@ -549,6 +598,9 @@
   let stageStartX = 0;
   let stageDidDrag = false;
   let stageAccum = 0;
+  const motionActive = $derived(isScrubbing || stageDownX !== null || Math.abs(smoothIndex.current - focusIndex) > 0.01);
+  $effect(() => { onMotionState(motionActive); });
+  onDestroy(() => onMotionState(false));
 
   function onStagePointerDown(e: PointerEvent) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -619,21 +671,24 @@
             {@const cover = item.cover}
             {@const index = item.index}
             {@const offset = index - smoothIndex.current}
-            {@const lodUrl = cover.lodUrl || getLodUrl(cover.id, version)}
             {@const atlasCell = getAtlasCell(cover.id, version)}
+            {@const atlasScale = atlasCell ? Math.min(cardW / atlasCell.width, cardH / atlasCell.height) : 1}
+            {@const lodUrl = atlasCell ? "" : (cover.lodUrl || getLodUrl(cover.id, version))}
             <!-- LOD remains the fast scrub surface. Full-resolution art is allowed as soon as
                  motion is slow enough for the eye to resolve it, including during a scrub. -->
-            {@const mainUrl = tilesPerSecond <= FULL_RES_MAX_SPEED ? (cover.url || getUrl(cover.id, version)) : ""}
+            {@const mainUrl = cover.url || getUrl(cover.id, version)}
             {#if Math.abs(offset) <= SIDE + 1}
               {@const a = Math.abs(offset)}
               {@const isSelected = cover.id === selectedId}
               {@const layout = getLayout(offset)}
               {@const ratio = aspects[cover.id] ?? ASPECT}
+              {@const fullResOpacity = index === visualCenter || !atlasCell ? 1 : Math.max(0, Math.min(1, (FULL_RES_MAX_SPEED + FULL_RES_FADE_BAND / 2 - tilesPerSecond) / FULL_RES_FADE_BAND))}
               
               <button
                 type="button"
                 class="coverflow-item {isSelected ? 'coverflow-item--selected' : ''}"
                 style="
+                  --full-res-opacity: {fullResOpacity};
                   width: {cardW}px;
                   height: {cardH}px;
                   transform: translate(-50%, -50%) translateX({layout.x}px) translateZ({layout.z}px) rotateY({layout.ry}deg) scale({layout.sc});
@@ -648,15 +703,19 @@
                   {#if atlasCell}
                     <span
                       class="coverflow-item__atlas"
-                      style={`background-image: url(${atlasCell.url}); background-size: ${atlasCell.pageWidth}px ${atlasCell.pageHeight}px; background-position: -${atlasCell.x}px -${atlasCell.y}px;`}
                       aria-hidden="true"
-                    ></span>
+                    >
+                      <span
+                        class="coverflow-item__atlas-sprite"
+                        style={`width: ${atlasCell.width}px; height: ${atlasCell.height}px; background-image: url(${atlasCell.url}); background-size: ${atlasCell.pageWidth}px ${atlasCell.pageHeight}px; background-position: -${atlasCell.x}px -${atlasCell.y}px; transform: scale(${atlasScale});`}
+                      ></span>
+                    </span>
                   {/if}
                   {#if !atlasCell && lodUrl && lodUrl !== mainUrl}
                     <img class="coverflow-item__lod" src={lodUrl} alt="" data-version={version} draggable={false} decoding="async" />
                   {/if}
-                  {#if !atlasCell && mainUrl}
-                    <img class="coverflow-item__main" src={mainUrl} alt="" data-version={version} draggable={false} decoding="async" onload={(e) => onImgLoad(cover.id, e)} />
+                  {#if mainUrl}
+                    <img class="coverflow-item__main" class:coverflow-item__main--loaded={!atlasCell || loadedMainUrls[cover.id] === mainUrl} src={mainUrl} alt="" data-version={version} draggable={false} decoding="async" onload={(e) => onImgLoad(cover.id, e)} />
                   {/if}
                 {:else}
                   <span class="coverflow-item__placeholder" aria-hidden="true"></span>
@@ -770,9 +829,6 @@
     cursor: pointer;
     will-change: transform, opacity;
   }
-  .coverflow-item--selected img {
-    filter: drop-shadow(0 0 15px var(--info-blue)) drop-shadow(0 0 5px var(--info-blue));
-  }
   .coverflow-item img {
     position: absolute;
     inset: 0;
@@ -782,16 +838,26 @@
     filter: drop-shadow(0 10px 20px rgba(0,0,0,0.3));
     transition: filter 0.2s ease-out;
   }
+  .coverflow-item__main {
+    opacity: 0;
+    transition: opacity 90ms linear;
+  }
+  .coverflow-item__main--loaded {
+    opacity: var(--full-res-opacity, 1);
+  }
   .coverflow-item__atlas {
     position: absolute;
     inset: 0;
-    display: block;
-    background-repeat: no-repeat;
-    background-origin: border-box;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: cover;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     filter: drop-shadow(0 10px 20px rgba(0,0,0,0.3));
+  }
+  .coverflow-item__atlas-sprite {
+    display: block;
+    flex: none;
+    background-repeat: no-repeat;
+    transform-origin: center;
   }
   /* Artboard: a coverless card is a flat grey plate with a soft cast shadow — no border and
      no inset vignette — and its title sits bottom-left in 12px/600 sentence case, not

@@ -7227,10 +7227,12 @@ check("zelda3: a .sfc that is no zelda3 ROM is not attributed, because both inpu
   let reads = 0;
   const counted = ownersShelf().map((c) => ({ ...c, read: async () => { reads++; return c.read(); } }));
   await discoverInputs(zelda3Inputs(), counted, counting());
-  // base: 4 hash reads + 1 to offer its match. language: 4 + 2. smw.sfc is hashed (it is a
-  // size-plausible .sfc, since zelda3 publishes no `bytes`) but, matching no variant under
-  // `strict`, is never carried into the offer — dropping the guard makes this 13.
-  eq(reads, 11, "an unmatched .sfc is hashed once per input and then dropped, never offered");
+  // The first input reads and hashes all four candidates. Discovery carries those SHA-1s into
+  // the shared candidates, so the second input reads only its two recognised files for the
+  // converter; it does not re-read the shelf just to hash it again. The unmatched SMW file is
+  // never offered under `strict`; dropping that guard makes the count grow while constructing
+  // an offer that the gate will refuse.
+  eq(reads, 6, "an unmatched .sfc is hashed once, then dropped without a second input read");
 });
 
 check("zelda3: the same dump reachable from two folders is ONE input", async () => {
@@ -7271,6 +7273,56 @@ check("zelda3: the cost — variants publish no `bytes`, so every .sfc in range 
   const noSfc = bigLibrary(1000).filter((c) => !c.path.endsWith(".sfc"));
   await discoverInputs(zelda3Inputs(), noSfc, clean);
   eq(clean.n, 0, "a library with no .sfc at all hashes nothing");
+});
+
+check("discovery: a declared hash never degrades into an arbitrary non-strict extension match", async () => {
+  const expected = wad(512, 0x73);
+  const input = parseToolInputs({
+    id: "smw-assets",
+    processor: { type: "wasm", version: 1 },
+    binary: { file: "smw_restool.wasm", url: "https://example.invalid/smw_restool.wasm", bytes: 1, sha256: "0".repeat(64) },
+    limits: { maxMemoryPages: 1, maxOutputBytes: 1 },
+    options: [],
+    inputs: [{
+      id: "base", required: true, allowMultiple: false, extensions: [".sfc", ".smc"],
+      maxBytes: 8 << 20, strict: false,
+      variants: [{ id: "us", sha1: sha1Of(expected), bytes: expected.length }],
+    }],
+    outputs: [{ id: "assets", filename: "smw_assets.dat", maxBytes: 1 }],
+  })[0];
+  // More than the previous automatic budget are size-plausible. Every one is checked so the
+  // exact manifest match cannot lose to the first permissive extension fallback.
+  const shelf = Array.from({ length: 65 }, (_, index) =>
+    cand(`snes/not-smw-${index}.sfc`, wad(512, index), "roms-any"),
+  );
+  shelf.push(cand("snes/Super Mario World.sfc", expected, "roms-any"));
+  const found = await discoverInput(input, shelf, counting());
+  eq(found.hashed, 66, "the full extension-and-size-narrowed shelf is checked");
+  eq(found.files.length, 1, "the declared hash, not the first extension match, is supplied");
+  eq(found.files[0].filename, "Super Mario World.sfc", "the exact matching ROM wins");
+  eq(found.found[0].variantId, "us", "the supplied ROM has manifest provenance");
+});
+
+check("discovery: a metadata-valid cached SHA-1 avoids rehashing but still reads the selected ROM", async () => {
+  const expected = wad(512, 0x74);
+  const input = doomInput({
+    allowMultiple: false,
+    extensions: [".sfc"],
+    variants: [{ id: "us", sha1: sha1Of(expected), bytes: expected.length }],
+  });
+  let reads = 0;
+  const candidate = {
+    path: "snes/Super Mario World.sfc",
+    folderId: "roms-any",
+    size: expected.length,
+    sha1: sha1Of(expected),
+    read: async () => { reads++; return expected; },
+  };
+  const hashes = counting();
+  const found = await discoverInput(input, [candidate], hashes);
+  eq(hashes.n, 0, "the persisted digest is reused rather than recalculated");
+  eq(reads, 1, "the converter input still obtains its actual bytes once");
+  eq(found.found[0].variantId, "us", "the cached digest retains manifest attribution");
 });
 
 // 18. `needsUserFiles` in a BUNDLE: both halves of the spec's rule

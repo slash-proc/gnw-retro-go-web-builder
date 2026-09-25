@@ -14,7 +14,7 @@
   //   3. Install ROMs   — version-agnostic FrogFS repack from the SELECTION (non-destructive).
   // The ROM FOLDER is OPTIONAL. The on-device games come from device.installedGames (FrogFS read).
   // See memory: romgr-install-architecture.
-  import { onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
 
   declare global {
     interface Window {
@@ -59,8 +59,10 @@
   import { homebrew, type HomebrewTitle } from "../sources/homebrewTitles.svelte.js";
 import { coreRegistry } from "../sources/coreRegistry.svelte.js";
 import { coverPathsForRom, type LibraryRom } from "../sources/libraryModel.js";
-  import { carouselAtlasFiles } from "../sources/carouselAtlas.js";
-  import { prepareCarouselAtlases } from "../sources/carouselAtlasWorker.js";
+  import { carouselAtlasCacheSignature, carouselAtlasContentFingerprint, carouselAtlasFiles, patchCarouselAtlasCover, type CarouselAtlas } from "../sources/carouselAtlas.js";
+  import { measureLibraryPhase, measureLibraryPhaseAsync } from "../libraryPerformance.js";
+  import { prepareCarouselAtlases, setCarouselAtlasInteraction } from "../sources/carouselAtlasWorker.js";
+  import { writeCarouselAtlas } from "../sources/carouselAtlas.js";
   import { localFolders, displayName } from "../sources/localFolders.svelte.js";
   import { sources } from "../sources/store.svelte.js";
   import { type OfferedFile } from "../sources/inputGate.js";
@@ -623,13 +625,11 @@ import { navigate } from "../nav.js";
     hasInitializedSelection = false;
   });
 
-  const visibleGames = $derived.by(() => {
-    // ROWS, not files: a Doom `.wad` and the `.whd` it becomes are ONE entry (sources/gameRows.ts).
-    // `name` stays the LIST surface's name — the original filename, extension stripped — because
-    // that is what the row is sorted, filtered and searched by; the carousel reads `prettyName`.
-    let list: any[] = romSelection.rows
-      .filter((r) => consoleFilter === "all" || consoleFilter === "favorites" || r.system === consoleFilter)
-      .map((r) => ({
+  const libraryRows = $derived.by(() => measureLibraryPhase(
+    "library-row-model",
+    romSelection.rows.length + homebrew.titles.length + unknownHomebrew.length,
+    () => {
+      const list: any[] = romSelection.rows.map((r) => ({
         key: r.key,
         system: r.system,
         name: r.listName,
@@ -645,7 +645,6 @@ import { navigate } from "../nav.js";
         isHomebrew: false,
       }));
 
-    if (consoleFilter === "all" || consoleFilter === "favorites" || consoleFilter === "homebrew") {
       // ONLY ACTUAL HOMEBREW. A core is in `homebrew.titles` because it has something to
       // prepare (see HomebrewTitle.isCore) — but its games are real ROMs under its own console,
       // already in `romSelection.rows` above. Pushing a pseudo-row for it here is what put Doom
@@ -665,14 +664,30 @@ import { navigate } from "../nav.js";
           hb: hb // Keep reference to original object
         });
       });
-    }
 
-    // FAVOURITES AND SEARCH LAST, over the MAPPED rows. A favourite is a property of the
-    // installable file, and `favoritePathFor` needs the mapped row (its `outputKey`, its homebrew
-    // device file) rather than the raw `romSelection.rows` entry; filtering earlier would have to
-    // duplicate that mapping and would then be a second place to keep in step with it.
-    // The rules themselves live in `lib/libraryFilter.ts` so a suite can drive them.
-    list = filterLibraryRows(list, rowAccess, { consoleFilter, searchQuery });
+      for (const game of unknownHomebrew) {
+        list.push({
+          key: `unknown-homebrew:${game.name}`,
+          system: "homebrew",
+          name: game.name,
+          prettyName: game.name,
+          originFilename: game.name,
+          size: game.size,
+          inFolder: false,
+          installed: true,
+          needsPrepare: false,
+          isHomebrew: false,
+          isUnknownHomebrew: true,
+          unknownFilename: game.name,
+        });
+      }
+
+      return list;
+    },
+  ));
+
+  const visibleGames = $derived.by(() => measureLibraryPhase("filter-and-sort-rows", libraryRows.length, () => {
+    const list = filterLibraryRows(libraryRows, rowAccess, { consoleFilter, searchQuery });
 
     // ORDER LAST, over the filtered rows, and through `lib/librarySort.ts` for the same reason
     // the scopes go through `libraryFilter.ts`: the tiebreak, where an unsized row lands and the
@@ -684,7 +699,7 @@ import { navigate } from "../nav.js";
       direction: sortDir,
       locale: locale.current,
     });
-  });
+  }));
   // Selection changes happen much more often than library changes while scrubbing. Keep a keyed
   // view of the visible rows so the details pane does not linearly search the full list each time.
   const visibleGameByKey = $derived.by(() => new Map(visibleGames.map((g) => [g.key, g])));
@@ -699,7 +714,39 @@ import { navigate } from "../nav.js";
     const element = event.currentTarget as HTMLDivElement;
     rowsScrollTop = element.scrollTop;
     rowsViewportHeight = element.clientHeight || rowsViewportHeight;
+    library.setScanInteraction("rom-list-scroll", true);
+    setCarouselAtlasInteraction("rom-list-scroll", true);
+    if (rowsScrollResumeTimer) clearTimeout(rowsScrollResumeTimer);
+    rowsScrollResumeTimer = setTimeout(() => {
+      rowsScrollResumeTimer = null;
+      library.setScanInteraction("rom-list-scroll", false);
+      setCarouselAtlasInteraction("rom-list-scroll", false);
+    }, 300);
   }
+  let rowsScrollResumeTimer: ReturnType<typeof setTimeout> | null = null;
+  let carouselScrubResumeTimer: ReturnType<typeof setTimeout> | null = null;
+  let filterResumeTimer: ReturnType<typeof setTimeout> | null = null;
+  function prioritizeLibraryInteraction(): void {
+    library.setScanInteraction("library-filter", true);
+    setCarouselAtlasInteraction("library-filter", true);
+    if (filterResumeTimer) clearTimeout(filterResumeTimer);
+    filterResumeTimer = setTimeout(() => {
+      filterResumeTimer = null;
+      library.setScanInteraction("library-filter", false);
+      setCarouselAtlasInteraction("library-filter", false);
+    }, 350);
+  }
+  onDestroy(() => {
+    if (rowsScrollResumeTimer) clearTimeout(rowsScrollResumeTimer);
+    if (carouselScrubResumeTimer) clearTimeout(carouselScrubResumeTimer);
+    if (filterResumeTimer) clearTimeout(filterResumeTimer);
+    library.setScanInteraction("rom-list-scroll", false);
+    library.setScanInteraction("carousel-scrub", false);
+    library.setScanInteraction("library-filter", false);
+    setCarouselAtlasInteraction("rom-list-scroll", false);
+    setCarouselAtlasInteraction("carousel-scrub", false);
+    setCarouselAtlasInteraction("library-filter", false);
+  });
   const renderedGames = $derived.by(() => {
     const first = Math.max(0, Math.floor(rowsScrollTop / ROW_HEIGHT) - ROW_OVERSCAN);
     const count = Math.ceil(rowsViewportHeight / ROW_HEIGHT) + ROW_OVERSCAN * 2;
@@ -758,6 +805,7 @@ import { navigate } from "../nav.js";
     switch (label) {
       case "installed": return locale.t.roms.selectGames.actionInstalled;
       case "uninstall": return locale.t.roms.selectGames.actionUninstall;
+      case "remove": return locale.t.roms.selectGames.removeButton;
       case "prepare": return locale.t.roms.selectGames.actionPrepare;
       case "extracting...": return locale.t.roms.selectGames.actionExtracting;
       case "missing rom": return locale.t.roms.selectGames.actionMissingRom;
@@ -768,6 +816,14 @@ import { navigate } from "../nav.js";
   }
 
   function getActionState(g: any): { label: string, cls: string, action: (e?: Event) => void, disabled: boolean } {
+    if (g.isUnknownHomebrew) {
+      return {
+        label: "remove",
+        cls: "muted",
+        action: () => romSelection.removeUnknownHomebrew(g.unknownFilename),
+        disabled: false,
+      };
+    }
     if (g.isHomebrew) {
       const hb: HomebrewTitle = g.hb;
       // A title needing no user file at all — what "celeste" used to be hardcoded as. Now a
@@ -1153,10 +1209,9 @@ import { navigate } from "../nav.js";
   // Carousel State
   let coverUrls = new Map<string, string>();
   let coverLodUrls = new Map<string, string>();
-  // Low-resolution `.img` covers are the scrub surface and are cheap enough to retain for the
-  // whole practical library. Full-resolution art is deliberately a separate resident budget:
-  // it is selected-art/detail state, not a prerequisite for moving through thousands of games.
-  const COVER_FULL_CACHE_LIMIT = 50;
+  // Browser atlas pages provide the scrub surface. Original art has a separate resident budget
+  // large enough for the carousel's 60 covers on either side of the selected game.
+  const COVER_FULL_CACHE_LIMIT = 128;
   // Carousel `.img` covers are the permanent fast-scrub representation. They are intentionally
   // not evicted: for the expected few-thousand-title library this is a small, predictable
   // memory cost, and evicting them makes a reverse scrub visibly fall back to a blank tile while
@@ -1167,8 +1222,8 @@ import { navigate } from "../nav.js";
   // different 40-cover window every frame, so starting every read immediately creates a large
   // random-read/decode storm precisely when the pointer is moving at the edge of what we can
   // display. Keep the queue bounded at the I/O boundary instead of limiting the library.
-  const COVER_READ_CONCURRENCY = 8;
-  const COVER_READ_QUEUE_LIMIT = 64;
+  const COVER_READ_CONCURRENCY = 4;
+  const COVER_READ_QUEUE_LIMIT = 24;
   type CoverReadJob = {
     entry: LibraryFile;
     cache: Map<string, string>;
@@ -1209,7 +1264,7 @@ import { navigate } from "../nav.js";
     if (coverVersionRaf) return;
     coverVersionRaf = requestAnimationFrame(() => {
       coverVersionRaf = 0;
-      coverVersion++;
+      measureLibraryPhase("carousel cover version publish", null, () => { coverVersion++; });
     });
   }
   function pumpCoverReads(): void {
@@ -1220,7 +1275,7 @@ import { navigate } from "../nav.js";
       const job = coverReadQueue.pop()!;
       activeCoverReads++;
       coverReadsStarted++;
-      void romBytes(job.entry).then((bytes) => {
+      void measureLibraryPhaseAsync("carousel cover bytes read", null, () => romBytes(job.entry)).then((bytes) => {
         coverReadsDone++;
         coverReadBytes += bytes.byteLength;
         if (!job.cache.has(job.gameKey)) {
@@ -1255,11 +1310,22 @@ import { navigate } from "../nav.js";
     cache.clear();
   }
   let coverVersion = $state(0);
+  let coverAtlasRevision = $state(0);
+  let coverAtlasPausedForImport = $state(false);
   type AtlasCell = { url: string; x: number; y: number; width: number; height: number; pageWidth: number; pageHeight: number };
   let atlasCells = $state(new Map<string, AtlasCell>());
   let atlasPageUrls: string[] = [];
+  let atlasDecodedPages: HTMLImageElement[] = [];
+  let atlasDataBySource = new Map<string, CarouselAtlas>();
+  let atlasPageUrlsBySource = new Map<string, string[]>();
+  let atlasPageImagesBySource = new Map<string, HTMLImageElement[]>();
+  let atlasOwnerBySourcePath = new Map<string, string>();
+  let appliedAtlasInputSignature = "";
+  let incrementalAtlasPatchFailed = false;
   let atlasTimer: ReturnType<typeof setTimeout> | null = null;
   let atlasAbort: AbortController | null = null;
+  let atlasWork: Promise<void> = Promise.resolve();
+  let atlasTaskId = 0;
   let coverIndexMap: Map<string, LibraryFile> | null = null;
   let coverIndexSize = -1;
   let coverIndex = new Map<string, string>();
@@ -1269,70 +1335,348 @@ import { navigate } from "../nav.js";
     coverIndexMap = files;
     coverIndexSize = files.size;
     coverIndex = new Map();
-    for (const path of files.keys()) {
-      const folded = basePath(path).toLowerCase();
-      const sourceId = library.fileOrigin.get(path) ?? "";
-      const sourceKey = `${sourceId}\u0000${folded}`;
-      if (!coverIndex.has(sourceKey)) coverIndex.set(sourceKey, path);
-      if (!coverIndex.has(`\u0000${folded}`)) coverIndex.set(`\u0000${folded}`, path);
-    }
+    measureLibraryPhase("cover-index-build", files.size, () => {
+      for (const path of files.keys()) {
+        const folded = basePath(path).toLowerCase();
+        const sourceId = library.fileOrigin.get(path) ?? "";
+        const sourceKey = `${sourceId}\u0000${folded}`;
+        if (!coverIndex.has(sourceKey)) coverIndex.set(sourceKey, path);
+        if (!coverIndex.has(`\u0000${folded}`)) coverIndex.set(`\u0000${folded}`, path);
+      }
+    });
   }
 
   function releaseAtlas(): void {
     for (const url of atlasPageUrls) URL.revokeObjectURL(url);
+    for (const image of atlasDecodedPages) image.src = "";
     atlasPageUrls = [];
+    atlasDecodedPages = [];
+    atlasDataBySource.clear();
+    atlasPageUrlsBySource.clear();
+    atlasPageImagesBySource.clear();
+    atlasOwnerBySourcePath.clear();
+    appliedAtlasInputSignature = "";
     atlasCells = new Map();
   }
 
-  // Atlas preparation is deliberately delayed until the library has become interactive. The
-  // worker owns decode/rasterization; this component only assembles metadata and receives page
-  // blobs. If the source changes, the old build is cancelled and can never replace the new one.
-  $effect(() => {
+  function buildAtlasOwnerIndex(): Map<string, string> {
+    const owners = new Map<string, string>();
+    for (const row of romSelection.rows) {
+      const rom = row.rom;
+      if (!rom?.cover) continue;
+      const sourceId = rom.directorySource?.id ?? "unknown-source";
+      for (const path of rom.cover.originalPaths) owners.set(`${sourceId}\u0000${path.toLowerCase()}`, rom.id);
+    }
+    const files = library.scan?.userRoms;
+    if (files) {
+      for (const title of homebrew.titles) {
+        if (title.isCore) continue;
+        const candidates = new Set(["png", "jpg", "jpeg", "webp", "bmp"].flatMap((ext) => [
+          `homebrew/${title.displayName}.${ext}`.toLowerCase(),
+          `covers/homebrew/${title.displayName}.${ext}`.toLowerCase(),
+        ]));
+        for (const key of files.keys()) {
+          const path = key.split("\u0000", 1)[0];
+          if (!candidates.has(path.toLowerCase())) continue;
+          const sourceId = library.fileOrigin.get(key) ?? "unknown-source";
+          owners.set(`${sourceId}\u0000${path.toLowerCase()}`, title.key);
+        }
+      }
+    }
+    return owners;
+  }
+
+  async function sameAtlasPage(first: Blob, second: Blob): Promise<boolean> {
+    if (first === second) return true;
+    if (first.size !== second.size) return false;
+    const [firstBytes, secondBytes] = await Promise.all([first.arrayBuffer(), second.arrayBuffer()]);
+    const left = new Uint8Array(firstBytes);
+    const right = new Uint8Array(secondBytes);
+    for (let index = 0; index < left.length; index++) {
+      if (left[index] !== right[index]) return false;
+    }
+    return true;
+  }
+
+  async function patchImportedAtlasCover(cover: { sourceId?: string; path: string; bytes: Uint8Array }): Promise<boolean> {
+    const sourceId = cover.sourceId ?? "unknown-source";
+    const atlas = atlasDataBySource.get(sourceId);
+    const owner = atlasOwnerBySourcePath.get(`${sourceId}\u0000${cover.path.split("\u0000", 1)[0].toLowerCase()}`);
+    if (!atlas || !owner) return false;
+    const pageUrls = atlasPageUrlsBySource.get(sourceId);
+    const pageImages = atlasPageImagesBySource.get(sourceId);
+    if (!pageUrls || !pageImages) return false;
+    try {
+      const patched = await patchCarouselAtlasCover(atlas, owner, cover.bytes);
+      const oldUrl = pageUrls[patched.pageIndex];
+      const oldImage = pageImages[patched.pageIndex];
+      const nextUrl = URL.createObjectURL(patched.atlas.pages[patched.pageIndex].blob);
+      const image = new Image();
+      image.src = nextUrl;
+      await image.decode();
+      atlasDataBySource.set(sourceId, patched.atlas);
+      pageUrls[patched.pageIndex] = nextUrl;
+      pageImages[patched.pageIndex] = image;
+      atlasPageUrls.push(nextUrl);
+      atlasDecodedPages.push(image);
+      const nextCells = new Map(atlasCells);
+      for (const [key, cell] of nextCells) {
+        if (cell.url === oldUrl) nextCells.set(key, { ...cell, url: nextUrl });
+      }
+      const placement = patched.atlas.placements.find((item) => item.key === owner)!;
+      nextCells.set(owner, { url: nextUrl, x: placement.x, y: placement.y, width: placement.width, height: placement.height, pageWidth: placement.pageWidth, pageHeight: placement.pageHeight });
+      atlasCells = nextCells;
+      if (oldUrl) {
+        requestAnimationFrame(() => {
+          URL.revokeObjectURL(oldUrl);
+          if (oldImage) oldImage.src = "";
+        });
+      }
+      return true;
+    } catch (error) {
+      console.warn("[carousel-atlas] incremental cover update failed", error);
+      return false;
+    }
+  }
+
+  async function persistIncrementalAtlasUpdates(): Promise<boolean> {
+    const { entries } = collectCarouselAtlasEntries();
+    const entriesBySource = new Map<string, typeof entries>();
+    for (const entry of entries) {
+      const group = entriesBySource.get(entry.sourceId) ?? [];
+      group.push(entry);
+      entriesBySource.set(entry.sourceId, group);
+    }
+    if ([...entriesBySource.keys()].some((sourceId) => !atlasDataBySource.has(sourceId))) return false;
+    for (const [sourceId, atlas] of atlasDataBySource) {
+      const sourceEntries = entriesBySource.get(sourceId) ?? [];
+      if (sourceEntries.length === 0) continue;
+      atlas.sourceSignature = carouselAtlasCacheSignature(sourceId, sourceEntries.map(({ key, file }) => ({
+        key,
+        size: file.length,
+        lastModified: file instanceof Uint8Array ? undefined : file.lastModified,
+        contentFingerprint: file instanceof Uint8Array ? carouselAtlasContentFingerprint(file) : undefined,
+      })));
+      if (!(await writeCarouselAtlas(sourceId, atlas))) return false;
+    }
+    appliedAtlasInputSignature = carouselAtlasInputSignature;
+    return true;
+  }
+
+  async function onLibraryCoverChange(
+    refreshAtlas = true,
+    cover: { sourceId?: string; path: string; bytes: Uint8Array } | undefined = undefined,
+  ): Promise<void> {
+    clearCoverUrls(coverUrls);
+    clearCoverUrls(coverLodUrls);
+    coverVersion++;
+    if (!refreshAtlas) {
+      if (!coverAtlasPausedForImport) incrementalAtlasPatchFailed = false;
+      coverAtlasPausedForImport = true;
+      if (!cover || !(await patchImportedAtlasCover(cover))) incrementalAtlasPatchFailed = true;
+      return;
+    }
+    if (coverAtlasPausedForImport) {
+      const persisted = !incrementalAtlasPatchFailed && await persistIncrementalAtlasUpdates();
+      coverAtlasPausedForImport = false;
+      incrementalAtlasPatchFailed = false;
+      if (persisted) appliedAtlasInputSignature = carouselAtlasInputSignature;
+      else {
+        appliedAtlasInputSignature = "";
+        coverAtlasRevision++;
+      }
+      return;
+    }
+    coverAtlasRevision++;
+  }
+
+  function collectCarouselAtlasEntries() {
     const scan = library.scan;
-    const games = visibleGames;
+    const rows = romSelection.rows;
+    if (!scan || (rows.length === 0 && homebrew.titles.length === 0)) {
+      return { scan, entries: [] as ReturnType<typeof carouselAtlasFiles> };
+    }
+    return measureLibraryPhase("atlas-entry-collection", rows.length + homebrew.titles.length, () => {
+      const owners = new Map<string, string>();
+      for (const row of rows) {
+        const rom = row.rom;
+        if (!rom?.cover) continue;
+        for (const path of rom.cover.originalPaths) owners.set(path, rom.id);
+      }
+      for (const title of homebrew.titles) {
+        if (title.isCore) continue;
+        const candidates = new Set(["png", "jpg", "jpeg", "webp", "bmp"].flatMap((ext) => [
+          `homebrew/${title.displayName}.${ext}`.toLowerCase(),
+          `covers/homebrew/${title.displayName}.${ext}`.toLowerCase(),
+        ]));
+        for (const key of scan.userRoms.keys()) {
+          const path = key.split("\u0000", 1)[0];
+          if (candidates.has(path.toLowerCase())) owners.set(path, title.key);
+        }
+      }
+      const entries = measureLibraryPhase("atlas-file-matching", scan.userRoms.size, () =>
+        carouselAtlasFiles(scan.userRoms, library.fileOrigin, owners),
+      );
+      return { scan, entries };
+    });
+  }
+
+  const carouselAtlasInputSignature = $derived.by(() => {
+    const { scan, entries } = collectCarouselAtlasEntries();
+    if (!scan) return "";
+    const files = measureLibraryPhase("atlas-signature-build", entries.length, () => entries.map(({ sourceId, key, file }) =>
+        `${sourceId}\u0000${key}\u0000${file.length}\u0000${file instanceof Uint8Array ? "" : file.lastModified}`,
+      ).join("\u0001"));
+    return `${coverAtlasRevision}\u0002${files}`;
+  });
+
+  // Atlas preparation starts as soon as the library model is ready. The worker owns
+  // decode/rasterization; this component only assembles metadata and receives page blobs. If the
+  // source changes, the old build is cancelled and can never replace the new one.
+  $effect(() => {
+    if (coverAtlasPausedForImport) return;
+    const signature = carouselAtlasInputSignature;
+    if (signature === appliedAtlasInputSignature) return;
+    const { scan, entries } = untrack(collectCarouselAtlasEntries);
+    void signature;
     if (atlasTimer) clearTimeout(atlasTimer);
     atlasAbort?.abort();
-    releaseAtlas();
-    // Building an atlas decodes every selected `.img` cover. That is useful for a small
-    // library, but doing it for thousands of entries competes with the live scrub queue and
-    // makes animation and first-cover latency dramatically worse. Large libraries use the
-    // bounded direct LOD loader below; it only decodes the neighborhood the user can see.
-    if (!scan || games.length === 0 || games.length > 200) return;
-    const owners = new Map<string, string>();
-    for (const game of games) {
-      const rom = game.rom;
-      if (!rom?.cover) continue;
-      owners.set(rom.cover.carouselPath, rom.id);
-      owners.set(rom.cover.deviceImgPath, rom.id);
+    if (!scan || entries.length === 0) {
+      releaseAtlas();
+      return;
     }
-    const entries = carouselAtlasFiles(scan.userRoms, library.fileOrigin, owners);
-    if (entries.length === 0) return;
     const controller = new AbortController();
     atlasAbort = controller;
-    atlasTimer = setTimeout(() => {
-      atlasTimer = null;
-      void prepareCarouselAtlases(entries, undefined, controller.signal).then((atlases) => {
+    const taskId = ++atlasTaskId;
+    let lastAtlasProgressAt = 0;
+    const runAtlas = (): Promise<void> => {
+      if (controller.signal.aborted) return Promise.resolve();
+      library.backgroundTask = { id: taskId, stage: "Checking browser cover cache", done: 0, total: entries.length, detail: `${entries.length} original covers` };
+      const yieldForAtlasUi = async () => {
+        await library.waitForUiIdle();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      };
+      return prepareCarouselAtlases(entries, undefined, controller.signal, (stage, sourceId, done, total) => {
+        if (controller.signal.aborted || library.backgroundTask?.id !== taskId) return;
+        const now = performance.now();
+        if (done < total && now - lastAtlasProgressAt < 100) return;
+        lastAtlasProgressAt = now;
+        const folder = localFolders.get(sourceId);
+        library.backgroundTask = {
+          id: taskId,
+          stage,
+          done,
+          total,
+          detail: `${folder ? displayName(folder) : sourceId} · ${done}/${total}`,
+        };
+      }, yieldForAtlasUi, atlasDataBySource).then(async (atlases) => {
         if (controller.signal.aborted) return;
         const nextCells = new Map<string, AtlasCell>();
         const urls: string[] = [];
-        for (const atlas of atlases.values()) {
-          const pageUrls = atlas.pages.map((page) => URL.createObjectURL(page.blob));
-          urls.push(...pageUrls);
-          for (const placement of atlas.placements) {
-            const url = pageUrls[placement.page];
-            if (url) nextCells.set(placement.key, { url, x: placement.x, y: placement.y, width: placement.width, height: placement.height, pageWidth: placement.pageWidth, pageHeight: placement.pageHeight });
+        const decoded: HTMLImageElement[] = [];
+        const nextPageUrlsBySource = new Map<string, string[]>();
+        const nextPageImagesBySource = new Map<string, HTMLImageElement[]>();
+        const atlasSources = [...atlases.entries()];
+        const pagesToDecode: Array<{ sourceId: string; page: CarouselAtlas["pages"][number]; pageIndex: number }> = [];
+        for (const [sourceId, atlas] of atlasSources) {
+          const previousAtlas = atlasDataBySource.get(sourceId);
+          const previousUrls = atlasPageUrlsBySource.get(sourceId);
+          const previousImages = atlasPageImagesBySource.get(sourceId);
+          if (previousAtlas === atlas && previousUrls?.length === atlas.pages.length && previousImages?.length === atlas.pages.length) {
+            nextPageUrlsBySource.set(sourceId, previousUrls);
+            nextPageImagesBySource.set(sourceId, previousImages);
+          } else {
+            const pageUrls = new Array<string>(atlas.pages.length);
+            const pageImages = new Array<HTMLImageElement>(atlas.pages.length);
+            nextPageUrlsBySource.set(sourceId, pageUrls);
+            nextPageImagesBySource.set(sourceId, pageImages);
+            for (let pageIndex = 0; pageIndex < atlas.pages.length; pageIndex++) {
+              const page = atlas.pages[pageIndex];
+              const previousPage = previousAtlas?.pages[pageIndex];
+              await yieldForAtlasUi();
+              if (controller.signal.aborted) return;
+              if (previousPage && previousPage.width === page.width && previousPage.height === page.height
+                && previousUrls?.[pageIndex] && previousImages?.[pageIndex]
+                && await sameAtlasPage(previousPage.blob, page.blob)) {
+                pageUrls[pageIndex] = previousUrls[pageIndex];
+                pageImages[pageIndex] = previousImages[pageIndex];
+              } else {
+                pagesToDecode.push({ sourceId, page, pageIndex });
+              }
+            }
           }
         }
-        atlasPageUrls = urls;
-        atlasCells = nextCells;
-      }).catch(() => {
+        const totalPages = pagesToDecode.length;
+        let decodedPages = 0;
+        if (library.backgroundTask?.id === taskId) {
+          library.backgroundTask = { ...library.backgroundTask, stage: "Decoding browser cover pages", done: 0, total: totalPages, detail: `${totalPages} atlas pages` };
+        }
+        try {
+          const decodeConcurrency = 4;
+          for (let start = 0; start < pagesToDecode.length; start += decodeConcurrency) {
+            await yieldForAtlasUi();
+            if (controller.signal.aborted) throw new DOMException("Atlas decode cancelled", "AbortError");
+            const pageBatch = pagesToDecode.slice(start, start + decodeConcurrency);
+            await Promise.all(pageBatch.map(async ({ sourceId, page, pageIndex }) => {
+              const url = URL.createObjectURL(page.blob);
+              urls.push(url);
+              const image = new Image();
+              image.src = url;
+              decoded.push(image);
+              nextPageUrlsBySource.get(sourceId)![pageIndex] = url;
+              nextPageImagesBySource.get(sourceId)![pageIndex] = image;
+              await image.decode();
+              decodedPages++;
+              if (library.backgroundTask?.id === taskId) {
+                library.backgroundTask = { ...library.backgroundTask, done: decodedPages };
+              }
+            }));
+          }
+          for (const [sourceId, atlas] of atlasSources) {
+            const pageUrls = nextPageUrlsBySource.get(sourceId)!;
+            for (const placement of atlas.placements) {
+              const url = pageUrls[placement.page];
+              if (url) nextCells.set(placement.key, { url, x: placement.x, y: placement.y, width: placement.width, height: placement.height, pageWidth: placement.pageWidth, pageHeight: placement.pageHeight });
+            }
+          }
+          if (controller.signal.aborted) throw new DOMException("Atlas decode cancelled", "AbortError");
+          const previousUrls = atlasPageUrls;
+          const previousDecoded = atlasDecodedPages;
+          const nextUrls = [...nextPageUrlsBySource.values()].flat();
+          const nextDecoded = [...nextPageImagesBySource.values()].flat();
+          const retainedUrls = new Set(nextUrls);
+          const retainedImages = new Set(nextDecoded);
+          atlasPageUrls = nextUrls;
+          atlasDecodedPages = nextDecoded;
+          atlasDataBySource = atlases;
+          atlasPageUrlsBySource = nextPageUrlsBySource;
+          atlasPageImagesBySource = nextPageImagesBySource;
+          atlasOwnerBySourcePath = buildAtlasOwnerIndex();
+          atlasCells = nextCells;
+          appliedAtlasInputSignature = signature;
+          for (const url of previousUrls) if (!retainedUrls.has(url)) URL.revokeObjectURL(url);
+          for (const image of previousDecoded) if (!retainedImages.has(image)) image.src = "";
+          if (library.backgroundTask?.id === taskId) library.backgroundTask = null;
+        } catch (error) {
+          for (const url of urls) URL.revokeObjectURL(url);
+          for (const image of decoded) image.src = "";
+          throw error;
+        }
+      }).catch((error) => {
         // A missing/failed derived atlas leaves the existing lazy cover path in place.
+        if (!controller.signal.aborted) console.warn("[carousel-atlas] preparation failed", error);
+        if (library.backgroundTask?.id === taskId) library.backgroundTask = null;
       });
-    }, 1500);
+    };
+    atlasTimer = setTimeout(() => {
+      atlasTimer = null;
+      atlasWork = atlasWork.catch(() => {}).then(runAtlas);
+    }, 0);
     return () => {
       if (atlasTimer) clearTimeout(atlasTimer);
       atlasTimer = null;
       controller.abort();
+      if (library.backgroundTask?.id === taskId) library.backgroundTask = null;
     };
   });
 
@@ -1342,6 +1686,7 @@ import { navigate } from "../nav.js";
     // first — both variants therefore show the one cover that path has, which is correct: the
     // cover is named after the ROM, and on the card there is only one of that name.
     const gameKey = basePath(key);
+    if (lowResolution) return "";
     const cache = lowResolution ? coverLodUrls : coverUrls;
     const cachedUrl = cache.get(gameKey);
     if (cachedUrl) {
@@ -1390,19 +1735,17 @@ import { navigate } from "../nav.js";
       registeredSystem?.longName,
     ].filter((value): value is string => !!value))];
 
-    // Check both standard paths and inline paths (prefer high-quality originals, fallback to .img)
-    const extensions = lowResolution
-      ? [".img", ".jpg", ".jpeg", ".png"]
-      : [".png", ".jpg", ".jpeg", ".img"];
-    const modelCover = structuredRom
-      ? library.coverFileForRom(structuredRom, lowResolution)
+    // Carousel rendering uses original art for detail and the decoded browser atlas for fast
+    // motion. Device `.img` assets are installation-only and are never a browser image source.
+    const extensions = [".png", ".jpg", ".jpeg", ".webp", ".bmp"];
+    const resolvedModelCover = structuredRom ? library.coverFileForRom(structuredRom, false) : null;
+    const modelCover = resolvedModelCover && /\.(?:png|jpe?g|webp|bmp)$/i.test(resolvedModelCover.path)
+      ? resolvedModelCover
       : null;
     for (const ext of extensions) {
       const paths = [
         ...(structuredRom
-          ? (lowResolution
-            ? [structuredRom.cover?.carouselPath, structuredRom.cover?.deviceImgPath].filter((p): p is string => !!p)
-            : (structuredRom.cover?.originalPaths ?? coverPathsForRom(structuredRom, ext)).filter((p) => p.toLowerCase().endsWith(ext)))
+          ? (structuredRom.cover?.originalPaths ?? coverPathsForRom(structuredRom, ext)).filter((p) => p.toLowerCase().endsWith(ext))
           : []),
         ...systemAliases.flatMap((alias) => [
         `${alias}/${base}${ext}`,
@@ -1432,7 +1775,7 @@ import { navigate } from "../nav.js";
         if (!coverBytes) {
           const loadKey = `${lowResolution ? "lod:" : "full:"}${gameKey}`;
           const cacheLimit = lowResolution ? COVER_LOD_CACHE_LIMIT : COVER_FULL_CACHE_LIMIT;
-          if (cache.size + coverLoads.size >= cacheLimit || coverLoads.has(loadKey)) return "";
+          if (coverLoads.has(loadKey) || coverLoads.size >= COVER_READ_QUEUE_LIMIT) return "";
           coverLoads.add(loadKey);
           coverReadsRequested++;
           if (!coverReadStartedAt) coverReadStartedAt = performance.now();
@@ -1476,6 +1819,18 @@ import { navigate } from "../nav.js";
   }
   function onCarouselScrubState(active: boolean): void {
     carouselScrubbing = active;
+    if (carouselScrubResumeTimer) clearTimeout(carouselScrubResumeTimer);
+    if (active) {
+      carouselScrubResumeTimer = null;
+      library.setScanInteraction("carousel-scrub", true);
+      setCarouselAtlasInteraction("carousel-scrub", true);
+    } else {
+      carouselScrubResumeTimer = setTimeout(() => {
+        carouselScrubResumeTimer = null;
+        library.setScanInteraction("carousel-scrub", false);
+        setCarouselAtlasInteraction("carousel-scrub", false);
+      }, 300);
+    }
     if (!active) {
       if (detailsUpdateTimer) clearTimeout(detailsUpdateTimer);
       detailsUpdateTimer = null;
@@ -3921,23 +4276,23 @@ import { navigate } from "../nav.js";
                lines they take rather than pinned to their last one. -->
           <div class="filterrow">
             <div class="consoles">
-              <button class="console" class:active={consoleFilter === "all"} onclick={() => (consoleFilter = "all")}>
+                <button class="console" class:active={consoleFilter === "all"} onclick={() => { prioritizeLibraryInteraction(); consoleFilter = "all"; }}>
                 {locale.t.roms.selectGames.allFilterLabel(romSelection.games.length + homebrew.titles.length + unknownHomebrew.length)}
               </button>
               <!-- Beside `All`, and carrying the same star the rows do so the two read as one
                    feature. A filter over the library, not a system in it. -->
-              <button class="console" class:active={consoleFilter === "favorites"} onclick={() => (consoleFilter = "favorites")}>
+                <button class="console" class:active={consoleFilter === "favorites"} onclick={() => { prioritizeLibraryInteraction(); consoleFilter = "favorites"; }}>
                 <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" class="chip-star"
                   ><path d="M8 1.6l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.4l-3.8 2 .7-4.3-3.1-3 4.3-.6z"
                     fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path></svg
                 >{locale.t.roms.selectGames.favoritesFilterLabel(favoritesCount)}
               </button>
               {#each romSelection.systems as s (s.system)}
-                <button class="console" class:active={consoleFilter === s.system} onclick={() => (consoleFilter = s.system)}>
+                <button class="console" class:active={consoleFilter === s.system} onclick={() => { prioritizeLibraryInteraction(); consoleFilter = s.system; }}>
                   {s.label} ({s.count})
                 </button>
               {/each}
-              <button class="console" class:active={consoleFilter === "homebrew"} onclick={() => (consoleFilter = "homebrew")}>
+              <button class="console" class:active={consoleFilter === "homebrew"} onclick={() => { prioritizeLibraryInteraction(); consoleFilter = "homebrew"; }}>
                 {locale.t.roms.selectGames.homebrewFilterLabel(homebrew.titles.length + unknownHomebrew.length)}
               </button>
             </div>
@@ -3952,6 +4307,7 @@ import { navigate } from "../nav.js";
               <input
                 type="search"
                 bind:value={searchQuery}
+                oninput={prioritizeLibraryInteraction}
                 placeholder={locale.t.roms.selectGames.searchPlaceholder}
                 aria-label={locale.t.roms.selectGames.searchPlaceholder}
               />
@@ -4155,9 +4511,13 @@ import { navigate } from "../nav.js";
                 bind:selectedId={selectedCarouselId}
                 onSelect={onCarouselSelect}
                 onScrubState={onCarouselScrubState}
+                onMotionState={(active) => {
+                  library.setScanInteraction("carousel-motion", active);
+                  setCarouselAtlasInteraction("carousel-motion", active);
+                }}
                 getUrl={(key) => getCoverUrl(key, coverVersion)}
                 getLodUrl={(key) => getCoverUrl(key, coverVersion, true)}
-                getAtlasCell={(key) => atlasCells.get(visibleGameByKey.get(key)?.rom?.id ?? "") ?? null}
+                getAtlasCell={(key) => atlasCells.get(visibleGameByKey.get(key)?.rom?.id ?? key) ?? null}
                 systemLabel={(c) => c.system}
                 version={coverVersion}
               />
@@ -4498,7 +4858,7 @@ import { navigate } from "../nav.js";
             coverUrl={getCoverUrl(activeGame.key, coverVersion)}
             bind:configuredCheats
             bind:configuredCheatFiles
-                onCoverChange={() => { clearCoverUrls(coverUrls); clearCoverUrls(coverLodUrls); coverVersion++; }}
+                onCoverChange={onLibraryCoverChange}
           />
         {:else if activeHb}
           <GameDetailsPanel
@@ -4509,7 +4869,7 @@ import { navigate } from "../nav.js";
             coverUrl={getCoverUrl(activeHb.name, coverVersion)}
             bind:configuredCheats
             bind:configuredCheatFiles
-                onCoverChange={() => { clearCoverUrls(coverUrls); clearCoverUrls(coverLodUrls); coverVersion++; }}
+                onCoverChange={onLibraryCoverChange}
           />
         {:else}
           <p class="note">{locale.t.roms.selectGames.infoEmpty}</p>
@@ -4771,6 +5131,10 @@ import { navigate } from "../nav.js";
     flex: 1;
     overflow-y: auto;
   }
+  .virtual-spacer {
+    flex: 0 0 auto;
+    width: 100%;
+  }
   /* HOVER-REVEALED, but always present and always sized, so nothing reflows when it appears
      and a starred row keeps its star when the pointer leaves. `visibility` rather than
      `display` for the same reason: the row's gap must not change under the pointer. */
@@ -4806,8 +5170,10 @@ import { navigate } from "../nav.js";
     display: flex;
     align-items: center;
     flex-wrap: nowrap;
-    min-height: 50px;
     box-sizing: border-box;
+    flex: 0 0 50px;
+    height: 50px;
+    min-height: 50px;
     /* Artboard: `padding: 11px 0; gap: 12px`. The horizontal 16px is carried here rather than
        on `.games-pane` so the rows line up with `.games-pane-header`'s own padding. */
     gap: 12px;

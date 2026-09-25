@@ -243,6 +243,8 @@ export interface OfferedFile {
   /** As the user named it. Untrusted text; used for reporting only. */
   filename: string;
   bytes: Uint8Array;
+  /** A SHA-1 previously verified against this file's unchanged metadata fingerprint. */
+  sha1?: string;
   /**
    * Which `variants[]` entry these bytes matched, when they matched one. The gate is the only
    * place that hashes, so it is the only place that can say; by the time the file reaches the
@@ -323,7 +325,7 @@ export async function gateInputs(specs: ConverterInput[], files: OfferedFile[]):
       continue;
     }
 
-    const sha1 = await sha1Hex(file.bytes);
+    const sha1 = file.sha1?.toLowerCase() ?? await sha1Hex(file.bytes);
     // A variant may pin `bytes` as well; a hash collision is not the thing this catches, a
     // mis-published variant is. Both must agree for a match to count.
     // `.toLowerCase()` even though `parseVariants` already normalised: a caller may hand us a

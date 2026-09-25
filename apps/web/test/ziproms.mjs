@@ -150,7 +150,7 @@ await esbuild.build({
     },
   }],
 });
-const { scanRomDirectory, readRomFile, resolveZipRom, romBytes, materialize, LazyRom } = await import(pathToFileURL(join(out, "romScan.js")).href);
+const { scanRomDirectory, scanRomFileSnapshot, readRomFile, resolveZipRom, romBytes, materialize, LazyRom } = await import(pathToFileURL(join(out, "romScan.js")).href);
 
 await esbuild.build({
   entryPoints: [join(here, "../src/lib/unzip.ts")],
@@ -279,6 +279,7 @@ function countingDir(dir, meter) {
     kind: "directory",
     name: dir.name,
     async *entries() {
+      meter.entryCalls++;
       for await (const [name, h] of dir.entries()) {
         if (h.kind === "directory") yield [name, countingDir(h, meter)];
         else
@@ -306,9 +307,10 @@ function countingDir(dir, meter) {
 }
 
 globalThis.__dbg = [];
-const meter = { bytes: 0, reads: 0 };
+const meter = { bytes: 0, reads: 0, entryCalls: 0 };
 const res = await scanRomDirectory(countingDir(nodeDirHandle(root), meter));
 const scanBytes = meter.bytes;
+const scanEntryCalls = meter.entryCalls;
 const keys = [...res.userRoms.keys()].sort();
 
 ok(keys.includes("gb/Disney's Aladdin (USA) (SGB Enhanced).gb"),
@@ -321,6 +323,8 @@ ok(aladdinEntry instanceof LazyRom, "scan: a zipped ROM is left un-inflated");
 eq(aladdinEntry.length, aladdin.length, "scan: the size is the UNCOMPRESSED size, from the directory alone");
 ok(Buffer.from(await romBytes(aladdinEntry)).equals(aladdin),
    "romBytes: inflating the entry yields the ROM");
+ok(meter.entryCalls > scanEntryCalls,
+   "lazy reads reopen by path instead of retaining a FileSystemFileHandle per ROM");
 // The persisted library index retains only these two pieces of ZIP provenance: the
 // source-relative archive path and the central-directory entry. Re-open both through a fresh
 // directory handle, rather than relying on the original scan's captured FileSystemFileHandle.
@@ -336,6 +340,17 @@ ok(Buffer.from(await romBytes(res.userRoms.get("gb/Alleyway (USA).gb"))).equals(
   const reopenedLoose = await readRomFile(nodeDirHandle(root), "gb/Alleyway (USA).gb");
   ok(Buffer.from(await reopenedLoose.arrayBuffer()).equals(alleyway),
     "cache: source-relative loose ROM provenance reopens through a fresh source handle");
+}
+{
+  const snapshotMeter = { bytes: 0, reads: 0, entryCalls: 0 };
+  const snapshot = await scanRomFileSnapshot(
+    countingDir(nodeDirHandle(root), snapshotMeter),
+    [{ path: "gb/Alleyway (USA).gb", size: alleyway.length, lastModified: 0 }],
+    null,
+    new Map(),
+  );
+  ok(Buffer.from(await romBytes(snapshot.userRoms.get("gb/Alleyway (USA).gb"))).equals(alleyway),
+    "worker metadata snapshots reopen loose ROMs by path when bytes are requested");
 }
 
 // THE MEASUREMENT THE DESIGN EXISTS FOR. The archives total far more than the scan read.

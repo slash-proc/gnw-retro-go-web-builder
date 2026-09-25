@@ -121,8 +121,8 @@ function compareSize(a: number, b: number, dir: SortDirection): number {
  * code-unit order produces. `numeric` so `Sonic 10` follows `Sonic 2` rather than preceding it,
  * and `sensitivity: "base"` so case and accents do not split names that read as one run.
  */
-function compareText(a: string, b: string, locale: string | undefined): number {
-  return a.localeCompare(b, locale, { numeric: true, sensitivity: "base" });
+function compareText(a: string, b: string, collator: Intl.Collator): number {
+  return collator.compare(a, b);
 }
 
 export interface LibrarySort {
@@ -138,12 +138,12 @@ export interface LibrarySort {
  * `size` owns its own direction because its unsized rows must not flip to the front when the
  * user reverses the order; every other key is compared ascending here and negated by the caller.
  */
-function comparePrimary<T>(a: T, b: T, acc: SortAccess<T>, s: LibrarySort): number {
+function comparePrimary<T>(a: T, b: T, acc: SortAccess<T>, s: LibrarySort, collator: Intl.Collator): number {
   switch (s.key) {
     case "system":
-      return compareText(acc.systemOf(a), acc.systemOf(b), s.locale);
+      return compareText(acc.systemOf(a), acc.systemOf(b), collator);
     case "name":
-      return compareText(acc.nameOf(a), acc.nameOf(b), s.locale);
+      return compareText(acc.nameOf(a), acc.nameOf(b), collator);
     case "size":
       return compareSize(acc.sizeOf(a), acc.sizeOf(b), s.direction);
     case "action":
@@ -172,11 +172,12 @@ export function sortLibraryRows<T>(
   s: LibrarySort,
 ): T[] {
   const flip = s.direction === "desc" && s.key !== "size" ? -1 : 1;
+  const collator = new Intl.Collator(s.locale, { numeric: true, sensitivity: "base" });
   return [...rows].sort((a, b) => {
-    const primary = comparePrimary(a, b, acc, s) * flip;
+    const primary = comparePrimary(a, b, acc, s, collator) * flip;
     if (primary !== 0) return primary;
     if (s.key !== "name") {
-      const byName = compareText(acc.nameOf(a), acc.nameOf(b), s.locale);
+      const byName = compareText(acc.nameOf(a), acc.nameOf(b), collator);
       if (byName !== 0) return byName;
     }
     return acc.rowIdOf(a).localeCompare(acc.rowIdOf(b));

@@ -89,7 +89,14 @@ export async function discoverForSource(
     const allowed = new Set(searchable.map((f) => f.id));
     const scan = library.scan;
     const candidates: CandidateFile[] = scan
-      ? libraryCandidates(scan.userRoms, library.fileOrigin, allowed, basePath)
+      ? libraryCandidates(
+        scan.userRoms,
+        library.fileOrigin,
+        allowed,
+        basePath,
+        (key, folderId) => library.sha1ForPath(basePath(key), folderId),
+        (key, folderId, sha1) => library.rememberSha1ForPath(basePath(key), folderId, sha1),
+      )
       : [];
     // A folder that contributed nothing to the merged scan is one nothing else walks (one
     // dedicated to a homebrew target). Walking a folder the scan covered would read it twice.

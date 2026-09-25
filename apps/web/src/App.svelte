@@ -18,6 +18,28 @@
   import ConnectGateModal from "./lib/ui/ConnectGateModal.svelte";
   import InstallProgressModal from "./lib/ui/InstallProgressModal.svelte";
 
+  const backgroundStatus = $derived.by(() => {
+    const task = library.backgroundTask;
+    if (task) {
+      return {
+        stage: task.stage,
+        detail: task.detail,
+        fraction: task.total > 0 ? task.done / task.total : null,
+      };
+    }
+    const progress = library.progress;
+    if (!progress) return null;
+    const activeLayer = progress.layers?.find((layer) => layer.status === "active");
+    const detail = progress.current
+      ? `${activeLayer ? `${activeLayer.name} / ` : ""}${progress.current}`
+      : activeLayer?.name ?? "";
+    return {
+      stage: progress.stage,
+      detail,
+      fraction: progress.total > 0 ? progress.done / progress.total : null,
+    };
+  });
+
   // Sources must load at app start, not when the Sources tab is first opened.
   // Homebrew titles are derived from the ACTIVE sources (sources/homebrewTitles.svelte.ts), so
   // the Library tab lists nothing from a source until `rows` is populated — and this used to
@@ -137,6 +159,24 @@
   <FolderGateModal />
   <ConnectGateModal />
   <InstallProgressModal />
+  {#if backgroundStatus}
+    <aside class="background-status" aria-live="polite" aria-atomic="true">
+      <div class="background-status__heading">
+        <span>{backgroundStatus.stage}</span>
+        {#if backgroundStatus.fraction !== null}
+          <span>{Math.min(100, Math.round(backgroundStatus.fraction * 100))}%</span>
+        {/if}
+      </div>
+      <div class="background-status__track">
+        <div
+          class="background-status__fill"
+          class:indeterminate={backgroundStatus.fraction === null}
+          style:width={backgroundStatus.fraction === null ? undefined : `${Math.min(100, Math.round(backgroundStatus.fraction * 100))}%`}
+        ></div>
+      </div>
+      {#if backgroundStatus.detail}<div class="background-status__detail">{backgroundStatus.detail}</div>{/if}
+    </aside>
+  {/if}
   <header class="app-header">
     <DeviceHeader
       showConnectButton={!showLanding}
@@ -187,6 +227,54 @@
 </div>
 
 <style>
+  .background-status {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    z-index: var(--z-sticky);
+    width: min(360px, calc(100vw - 32px));
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r-card);
+    background: var(--surface);
+    box-shadow: 0 4px 18px rgb(0 0 0 / 14%);
+    pointer-events: none;
+  }
+  .background-status__heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--ink);
+    font-size: var(--fs-small);
+    font-weight: 600;
+  }
+  .background-status__track {
+    height: 3px;
+    margin-top: 7px;
+    overflow: hidden;
+    background: var(--surface-sunk);
+  }
+  .background-status__fill {
+    height: 100%;
+    background: var(--grad-gold);
+    transition: width 120ms linear;
+  }
+  .background-status__fill.indeterminate {
+    width: 35%;
+    animation: background-status-progress 1.2s ease-in-out infinite alternate;
+  }
+  .background-status__detail {
+    overflow: hidden;
+    margin-top: 5px;
+    color: var(--ink-soft);
+    font-size: var(--fs-micro);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  @keyframes background-status-progress {
+    from { transform: translateX(-15%); }
+    to { transform: translateX(200%); }
+  }
   /* The re-synced Library artboards (Roms.dc.html:17 / RomsOptions.dc.html:17) make the page
      frame FIXED to the viewport — `height: 100vh; min-height: 0; overflow: hidden` — with the
      content region, not the document, doing the scrolling

@@ -33,6 +33,8 @@ export interface LibraryFileMeta {
   extension: string;
   size: number;
   lastModified?: number;
+  /** SHA-1 of the ROM payload, cached only while this metadata fingerprint remains valid. */
+  sha1?: string;
 }
 
 /** Converter recognition is separate from general ROM identity. */

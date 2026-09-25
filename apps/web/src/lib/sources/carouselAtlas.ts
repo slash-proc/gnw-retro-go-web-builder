@@ -20,8 +20,8 @@ export interface CarouselAtlasInput {
 export type CarouselAtlasSourceFile = Exclude<MaybeLazy, Uint8Array>;
 
 /**
- * Select existing device-format cover entries from the library scan. This only inspects map keys;
- * payloads remain lazy until the caller deliberately starts atlas construction.
+ * Select original cover art entries from the library scan. Device `.img` files are installation
+ * assets and must never be used as the browser carousel's source images.
  */
 export function carouselAtlasFiles(
   files: ReadonlyMap<string, MaybeLazy>,
@@ -30,11 +30,12 @@ export function carouselAtlasFiles(
 ): { sourceId: string; key: string; file: CarouselAtlasSourceFile | Uint8Array }[] {
   const result: { sourceId: string; key: string; file: CarouselAtlasSourceFile | Uint8Array }[] = [];
   for (const [key, file] of files) {
-    if (!/\.img$/i.test(key) || !key.toLowerCase().startsWith("covers/")) continue;
+    const path = key.split("\u0000", 1)[0];
+    if (!/\.(?:png|jpe?g|webp|bmp)$/i.test(path) || !coverOwners.has(path)) continue;
     // `key` is the source-relative cover path used to find bytes. The atlas identity is the
     // owning LibraryRom.id, supplied by the structured model, so duplicate filenames remain
     // distinct across directory sources and variants.
-    result.push({ sourceId: fileOrigin.get(key) ?? "unknown-source", key: coverOwners.get(key) ?? key, file });
+    result.push({ sourceId: fileOrigin.get(key) ?? "unknown-source", key: coverOwners.get(path)!, file });
   }
   return result;
 }
@@ -111,14 +112,22 @@ export interface CarouselAtlasOptions {
   quality?: number;
 }
 
+export const CAROUSEL_ATLAS_DEFAULTS = {
+  cellWidth: 128,
+  cellHeight: 170,
+  columns: 4,
+  rows: 4,
+  quality: 0.9,
+} as const;
+
 /** Cheap metadata-only signature; it never opens a cover or ROM payload. */
 export function carouselAtlasSignature(
   sourceId: string,
-  entries: readonly { key: string; size: number; lastModified?: number }[],
+  entries: readonly { key: string; size: number; lastModified?: number; contentFingerprint?: string }[],
 ): string {
   const ordered = [...entries].sort((a, b) => a.key.localeCompare(b.key));
   let hash = 0xcbf29ce484222325n;
-  const text = `${sourceId}\n${ordered.map((entry) => `${entry.key}\0${entry.size}\0${entry.lastModified ?? 0}`).join("\n")}`;
+  const text = `${sourceId}\n${ordered.map((entry) => `${entry.key}\0${entry.size}\0${entry.lastModified ?? 0}${entry.contentFingerprint === undefined ? "" : `\0${entry.contentFingerprint}`}`).join("\n")}`;
   for (const byte of new TextEncoder().encode(text)) {
     hash ^= BigInt(byte);
     hash = BigInt.asUintN(64, hash * 0x100000001b3n);
@@ -126,8 +135,32 @@ export function carouselAtlasSignature(
   return hash.toString(16).padStart(16, "0");
 }
 
+export function carouselAtlasCacheSignature(
+  sourceId: string,
+  entries: readonly { key: string; size: number; lastModified?: number; contentFingerprint?: string }[],
+  options: CarouselAtlasOptions = {},
+): string {
+  const renderSettings = [
+    options.cellWidth ?? CAROUSEL_ATLAS_DEFAULTS.cellWidth,
+    options.cellHeight ?? CAROUSEL_ATLAS_DEFAULTS.cellHeight,
+    options.columns ?? CAROUSEL_ATLAS_DEFAULTS.columns,
+    options.rows ?? CAROUSEL_ATLAS_DEFAULTS.rows,
+    options.quality ?? CAROUSEL_ATLAS_DEFAULTS.quality,
+  ].join("x");
+  return `${carouselAtlasSignature(sourceId, entries)}:render-${renderSettings}`;
+}
+
+export function carouselAtlasContentFingerprint(bytes: Uint8Array): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of bytes) {
+    hash ^= BigInt(byte);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
 const ATLAS_MAGIC = new Uint8Array([0x47, 0x4e, 0x57, 0x41, 0x54, 0x4c, 0x31, 0x00]); // GNWATL1\0
-const ATLAS_VERSION = 1;
+const ATLAS_VERSION = 2;
 const atlasEncoder = new TextEncoder();
 const atlasDecoder = new TextDecoder();
 
@@ -163,6 +196,74 @@ function imageBox(sourceWidth: number, sourceHeight: number, cellWidth: number, 
   };
 }
 
+export async function patchCarouselAtlasCover(
+  atlas: CarouselAtlas,
+  key: string,
+  bytes: Uint8Array,
+  quality = 0.9,
+): Promise<{ atlas: CarouselAtlas; pageIndex: number }> {
+  const existingIndex = atlas.placements.findIndex((placement) => placement.key === key);
+  const perPage = atlas.columns * atlas.rows;
+  let pageIndex: number;
+  let slot: number;
+  if (existingIndex >= 0) {
+    const placement = atlas.placements[existingIndex];
+    pageIndex = placement.page;
+    slot = atlas.placements.slice(0, existingIndex).filter((candidate) => candidate.page === pageIndex).length;
+  } else {
+    const lastPage = atlas.pages.length - 1;
+    const occupiedSlots = atlas.placements.filter((placement) => placement.page === lastPage).length;
+    pageIndex = lastPage >= 0 && occupiedSlots < perPage ? lastPage : atlas.pages.length;
+    slot = pageIndex === lastPage ? occupiedSlots : 0;
+  }
+
+  const pageWidth = atlas.cellWidth * atlas.columns;
+  const pageHeight = atlas.cellHeight * atlas.rows;
+  const canvas = canvasFor(pageWidth, pageHeight);
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("could not create carousel atlas context");
+  const previousPage = atlas.pages[pageIndex];
+  if (previousPage) {
+    const previousBitmap = await createImageBitmap(previousPage.blob);
+    try { context.drawImage(previousBitmap, 0, 0); }
+    finally { previousBitmap.close(); }
+  }
+
+  const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]));
+  let placement: CarouselAtlasPlacement;
+  try {
+    const box = imageBox(bitmap.width, bitmap.height, atlas.cellWidth, atlas.cellHeight);
+    const cellX = slot % atlas.columns * atlas.cellWidth;
+    const cellY = Math.floor(slot / atlas.columns) * atlas.cellHeight;
+    context.clearRect(cellX, cellY, atlas.cellWidth, atlas.cellHeight);
+    context.drawImage(bitmap, cellX + box.x, cellY + box.y, box.width, box.height);
+    placement = {
+      key,
+      page: pageIndex,
+      x: cellX + box.x,
+      y: cellY + box.y,
+      width: box.width,
+      height: box.height,
+      pageWidth,
+      pageHeight,
+    };
+  } finally {
+    bitmap.close();
+  }
+
+  const pages = atlas.pages.slice();
+  pages[pageIndex] = {
+    index: pageIndex,
+    width: pageWidth,
+    height: pageHeight,
+    blob: await canvasBlob(canvas, quality),
+  };
+  const placements = atlas.placements.slice();
+  if (existingIndex >= 0) placements[existingIndex] = placement;
+  else placements.push(placement);
+  return { atlas: { ...atlas, placements, pages }, pageIndex };
+}
+
 function canvasBlob(canvas: AtlasCanvas, quality: number): Promise<Blob> {
   if (typeof OffscreenCanvas !== "undefined" && canvas instanceof OffscreenCanvas) {
     return canvas.convertToBlob({ type: "image/webp", quality });
@@ -176,12 +277,15 @@ function canvasBlob(canvas: AtlasCanvas, quality: number): Promise<Blob> {
 export async function buildCarouselAtlas(
   inputs: readonly CarouselAtlasInput[],
   options: CarouselAtlasOptions = {},
+  onProgress?: (done: number, total: number) => void,
+  yieldControl?: () => Promise<void>,
+  onInputConsumed?: (index: number) => void,
 ): Promise<CarouselAtlas> {
-  const cellWidth = options.cellWidth ?? 96;
-  const cellHeight = options.cellHeight ?? 128;
-  const columns = options.columns ?? 16;
-  const rows = options.rows ?? 16;
-  const quality = options.quality ?? 0.86;
+  const cellWidth = options.cellWidth ?? CAROUSEL_ATLAS_DEFAULTS.cellWidth;
+  const cellHeight = options.cellHeight ?? CAROUSEL_ATLAS_DEFAULTS.cellHeight;
+  const columns = options.columns ?? CAROUSEL_ATLAS_DEFAULTS.columns;
+  const rows = options.rows ?? CAROUSEL_ATLAS_DEFAULTS.rows;
+  const quality = options.quality ?? CAROUSEL_ATLAS_DEFAULTS.quality;
   if (cellWidth <= 0 || cellHeight <= 0 || columns <= 0 || rows <= 0) {
     throw new RangeError("carousel atlas dimensions must be positive");
   }
@@ -211,10 +315,22 @@ export async function buildCarouselAtlas(
         const x = col * cellWidth;
         const y = row * cellHeight;
         context.drawImage(bitmap, x + box.x, y + box.y, box.width, box.height);
-        placements.push({ key: input.key, page, x, y, width: cellWidth, height: cellHeight, pageWidth, pageHeight });
+        placements.push({
+          key: input.key,
+          page,
+          x: x + box.x,
+          y: y + box.y,
+          width: box.width,
+          height: box.height,
+          pageWidth,
+          pageHeight,
+        });
       } finally {
         bitmap.close();
+        onInputConsumed?.(start + i);
       }
+      onProgress?.(start + i + 1, inputs.length);
+      if ((i + 1) % 8 === 0 || i + 1 === slice.length) await yieldControl?.();
     }
     pages.push({ index: page, blob: await canvasBlob(canvas, quality), width: pageWidth, height: pageHeight });
   }
@@ -274,8 +390,7 @@ export function decodeCarouselAtlas(bytes: Uint8Array): CarouselAtlas | null {
       [height, offset] = readAtlasU32(view, offset);
       [length, offset] = readAtlasU32(view, offset);
       if (length > bytes.byteLength - offset) return null;
-      // Copy the page out of the bundle so the caller can release the full bundle after startup.
-      const pageBytes = bytes.slice(offset, offset + length);
+      const pageBytes = bytes.subarray(offset, offset + length);
       offset += length;
       pages.push({ index, width, height, blob: new Blob([pageBytes], { type: "image/webp" }) });
     }

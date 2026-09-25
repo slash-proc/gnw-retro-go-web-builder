@@ -35,6 +35,7 @@ import { buildGameRows, selectionKeyFor, type GameRow } from "./sources/gameRows
 import { prepareState } from "./sources/prepareState.svelte.js";
 import { variantHints } from "./sources/discoveryWire.svelte.js";
 import { type ConverterError } from "./sources/converterTypes.js";
+import { measureLibraryPhase } from "./libraryPerformance.js";
 
 /**
  * LEGACY FALLBACK ONLY — not the source of truth any more.
@@ -354,8 +355,17 @@ class RomSelectionStore {
   }
 
   /** Folder ROMs ∪ device-installed games (excludes `bios/` assets — not games). */
-  readonly games: Game[] = $derived.by(() => {
+  readonly games: Game[] = $derived.by(() => measureLibraryPhase(
+    "merge-library-games",
+    (library.scan?.userRoms.size ?? 0) + device.installedGames.length,
+    () => {
     const byKey = new Map<string, Game>();
+    const byFoldedKey = new Map<string, Game>();
+    const addGame = (key: string, game: Game): void => {
+      byKey.set(key, game);
+      const folded = key.toLowerCase();
+      if (!byFoldedKey.has(folded)) byFoldedKey.set(folded, game);
+    };
     const structuredRom = (
       path: string,
       parsed: ParsedRom,
@@ -412,11 +422,7 @@ class RomSelectionStore {
     const findByCardKey = (key: string): Game | undefined => {
       const exact = byKey.get(key);
       if (exact) return exact;
-      const folded = key.toLowerCase();
-      for (const [candidate, game] of byKey) {
-        if (candidate.toLowerCase() === folded) return game;
-      }
-      return undefined;
+      return byFoldedKey.get(key.toLowerCase());
     };
     const folder = library.scan?.userRoms;
     if (folder) {
@@ -430,7 +436,7 @@ class RomSelectionStore {
         const key = canonicalKey(path, parsed);
         if (!findByCardKey(key)) {
           const rom = structuredRom(path, parsed, data.length, false, library.fileOrigin.get(path), data);
-          byKey.set(key, { key, system: parsed.system, name: parsed.name, size: data.length, inFolder: true, installed: false, role: parsed.role, rom });
+          addGame(key, { key, system: parsed.system, name: parsed.name, size: data.length, inFolder: true, installed: false, role: parsed.role, rom });
         }
       }
     }
@@ -454,7 +460,7 @@ class RomSelectionStore {
         if (byKey.has(key)) continue;
         const parsed: ParsedRom = { system: sys.folder, name: game.filename, role: "installable" };
         const rom = structuredRom(key, parsed, game.bytes, false);
-        byKey.set(key, {
+        addGame(key, {
           key,
           system: sys.folder,
           name: game.filename,
@@ -489,35 +495,31 @@ class RomSelectionStore {
         existing.rom.device.size = g.size;
       } else if (!existing) {
         const rom = structuredRom(path, parsed, g.size, true);
-        byKey.set(key, { key, system: parsed.system, name: parsed.name, size: g.size, inFolder: false, installed: true, role: parsed.role, rom });
+        addGame(key, { key, system: parsed.system, name: parsed.name, size: g.size, inFolder: false, installed: true, role: parsed.role, rom });
       }
     }
-    return [...byKey.values()].sort((a, b) => {
-      const normalize = (k: string) => k.toLowerCase().replace(/(^|\/)the\s+/g, "$1");
-      const aNorm = normalize(a.key);
-      const bNorm = normalize(b.key);
-      return aNorm < bNorm ? -1 : aNorm > bNorm ? 1 : 0;
-    });
-  });
+    return [...byKey.values()]
+      .map((game) => ({ game, normalizedKey: game.key.toLowerCase().replace(/(^|\/)the\s+/g, "$1") }))
+      .sort((a, b) => a.normalizedKey < b.normalizedKey ? -1 : a.normalizedKey > b.normalizedKey ? 1 : 0)
+      .map(({ game }) => game);
+    },
+  ));
 
   /**
    * ONE ENTRY PER GAME. A Doom `.wad` and the `.whd` it becomes are one row, before and after
    * the conversion — see `sources/gameRows.ts` for the pairing rule and why it costs no hash.
    * Everything the Library renders reads this; `games` stays the flat per-FILE list underneath.
    */
-  readonly rows: GameRow[] = $derived.by(() =>
+  readonly rows: GameRow[] = $derived.by(() => measureLibraryPhase("game-row-build", this.games.length, () =>
     buildGameRows(
       this.games,
       (system) => coreRegistry.current.byFolder.get(system.toLowerCase())?.outputExtension,
       (key) => variantHints.get(key),
-      // The prepared half. A converted output never lands in the user's folder, so the scan
-      // cannot see it and a row asking only the scan stayed on Prepare forever. Reading
-      // `assets.size` first keeps this `$derived` subscribed to the map it depends on — the
-      // same rune trap `prepareState.assets` is reassigned for.
+      // Reading assets.size first subscribes this derivation to the map it depends on.
       (system, outputName) =>
         prepareState.assets.size > 0 ? prepareState.preparedSize(system, outputName) : undefined,
     ),
-  );
+  ));
 
   /**
    * The console buttons: an ACTIVE core declares the system AND the scan found files for it.
