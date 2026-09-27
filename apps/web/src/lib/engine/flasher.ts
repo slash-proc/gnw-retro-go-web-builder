@@ -47,14 +47,17 @@ export async function isStubAlive(transport: SwdTransport): Promise<boolean> {
  *  succeed") because a disconnected SWD target often returns garbage that reads as success
  *  rather than throwing. */
 const CPUID_ADDR = 0xe000ed00;
+const VTOR_ADDR = 0xe000ed08;
 
-/** Liveness ping: read the CPUID and confirm it's our Cortex-M7 (ARM implementer 0x41 +
- *  part number 0xC27). True = target genuinely responding; false = gone (read threw, hung,
- *  OR returned garbage that doesn't match the known CPUID). Safe while anything is running. */
+/** Liveness ping: validate the Cortex-M7 CPUID and a separate VTOR read. A probe can
+ *  echo a stale CPUID as data from unrelated addresses when target reads fail. An erased
+ *  VTOR remains acceptable so a locked device can still enter the unlock flow. */
 export async function pingTarget(transport: SwdTransport): Promise<boolean> {
   try {
     const id = (await transport.readWord(CPUID_ADDR)) >>> 0;
-    return (id >>> 24) === 0x41 && ((id >>> 4) & 0xfff) === 0xc27;
+    if ((id >>> 24) !== 0x41 || ((id >>> 4) & 0xfff) !== 0xc27) return false;
+    const vtor = (await transport.readWord(VTOR_ADDR)) >>> 0;
+    return (vtor & 0x7f) === 0 || vtor === 0xffffffff;
   } catch {
     return false;
   }

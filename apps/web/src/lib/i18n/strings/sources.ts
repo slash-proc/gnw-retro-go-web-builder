@@ -21,6 +21,8 @@ export const sourcesEn = {
   coresSubtitle: "Emulators and game engines that add a console to the Game & Watch.",
   homebrewSubtitle: "Custom games/applications for the Game & Watch.",
   emptyColumn: "No sources",
+  multipleCoversFound: (game: string, covers: string, chosen: string) =>
+    `Multiple covers found for ${game}: ${covers}. Using ${chosen}.`,
   selectAllSources: "Select all",
   clearSelection: "Clear selection",
   // The Guided Setup modal's way out to the full Sources tab (ModalSources artboard).

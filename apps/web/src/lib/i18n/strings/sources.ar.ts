@@ -12,6 +12,8 @@ export const sourcesAr: SourcesStrings = {
   coresSubtitle: "محاكيات ومحركات ألعاب تضيف جهازًا إلى Game & Watch.",
   homebrewSubtitle: "ألعاب وتطبيقات مخصصة لأجهزة Game & Watch.",
   emptyColumn: "لا مصادر",
+  multipleCoversFound: (game: string, covers: string, chosen: string) =>
+    `عُثر على عدة صور أغلفة للعبة ${game}: ${covers}. سيتم استخدام ${chosen}.`,
   selectAllSources: "Select all",
   clearSelection: "Clear selection",
   allSources: "كل المصادر",

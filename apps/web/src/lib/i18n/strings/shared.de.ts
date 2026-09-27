@@ -25,7 +25,7 @@ export const sharedDe: SharedStrings = {
     rescan: "Erneut scannen",
     restartRecoveryMode: "Recovery-Modus neu starten",
     startRecoveryMode: "Recovery-Modus starten",
-    changeAdapter: "Adapter wechseln",
+    changeAdapter: "Adapter konfigurieren",
     disconnectDevice: "Gerät trennen",
   },
   stubLoadModal: {

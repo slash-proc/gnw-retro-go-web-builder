@@ -15,12 +15,6 @@
     pageImagesBySource: new Map<string, HTMLImageElement[]>(),
     ownerBySourcePath: new Map<string, string>(),
   };
-  // Module-level (not component-instance) so it survives this component being torn down and
-  // remounted on every tab switch — tracks the SD handle already auto-scanned so revisiting the
-  // ROMs tab doesn't re-walk the whole SD card every time (see the onMount comment below). Keyed
-  // on the handle itself, not a plain boolean, so picking a genuinely different SD folder
-  // mid-session still triggers one fresh scan for it.
-  let sdAutoScannedHandle: unknown = null;
 </script>
 
 <script lang="ts">
@@ -124,6 +118,7 @@ import { navigate } from "../nav.js";
   import JSZip from "jszip";
 
   let dismissedFirefoxWarning = $state(false);
+  let sdAutoScannedHandle: FileSystemDirectoryHandle | null = null;
 
   // Which bottom drawer is open, if any. Deliberately plain component-local state and NOT the
   // installProgress store: that store exists for "must never disappear mid-operation" progress
@@ -136,28 +131,14 @@ import { navigate } from "../nav.js";
   let optionsOpen = $state(false);
 
   // Fire the folder-gate modal as soon as this tab is shown, if required folders are missing.
-  // Also apply the connection policy for this tab (SD+ROMs: never auto-connect; Flash+ROMs:
-  // silently attempt the known/trusted adapter in the background, no modal — see
-  // device.autoProbeRoms()'s doc comment).
+  // Also request device inventory. App.svelte requests it before exposing the Library route;
+  // this idempotent call covers entering the tab later from Advanced navigation.
   onMount(() => {
     window.__gnwCoverDebug = { snapshot: coverDebugSnapshot, reset: resetCoverDebug };
     library.ensureFolders(device.targetMedia === "sd").catch(() => {});
-    device.autoProbeRoms();
-    // device.sdHandle persists across page reloads (IndexedDB), but device.installedGames
-    // does NOT — it only gets populated by a real scan of the SD card's contents. Without this,
-    // the first time this tab is visited with a silently-restored handle (not freshly picked
-    // this session) would leave installedGames empty, making doSdSync's changedSdUserRoms()
-    // treat every sync as a "fresh target" and write the ENTIRE selection instead of just what
-    // changed. Re-scan once per distinct handle — NOT on every mount/tab-revisit, which would
-    // re-walk the entire SD card's contents every time for no reason; any operation that
-    // actually changes what's on the card already re-scans afterward (runInstall/doSdSync's own
-    // post-write rescan), and the user can always force one via the header's manual rescan.
-    // The await is what makes the paragraph above TRUE rather than merely intended. The handle
-    // is read back from IndexedDB, so on a fresh load it is not here yet: this test ran against
-    // a null handle, found nothing to scan, and the "silently-restored handle" case it was
-    // written for never fired. Resolves instantly once the restore has settled.
+    void device.startLibraryDeviceScan().catch(() => {});
     void device.whenSdRestored().then(() => {
-      if (device.targetMedia === "sd" && device.sdHandle && device.sdHandle !== sdAutoScannedHandle) {
+      if (device.targetMedia === "sd" && device.sdHandle && sdAutoScannedHandle !== device.sdHandle) {
         sdAutoScannedHandle = device.sdHandle;
         void device.scanSdCardGames();
       }
@@ -312,7 +293,7 @@ import { navigate } from "../nav.js";
     });
     if (!confirmed) rememberDeclinedMove(folderName);
   }
-  // Cheats: the device (flash FrogFS cheats/, or an SD card's cheats/ directory) is the sole
+  // Cheats: the device (flash LittleFS cheats/, or an SD card's cheats/ directory) is the sole
   // source of truth for what's currently configured — deliberately NOT scanned from the local
   // ROM folder (unlike covers, where a low-quality local PNG/JPG sitting next to the converted
   // .img is harmless; a local cheat file copy would just confuse this diffing with no benefit).
@@ -334,7 +315,7 @@ import { navigate } from "../nav.js";
 
   // Cheat files live in their own tree, cheats/<system>/<name>.<ext> — see cheatFilePath()
   // for the firmware path derivation. Both callers arrive cheats/-rooted: the Flash baseline
-  // walks a FrogFS listing that keeps the image-root prefix, and the SD baseline walks
+  // walks a LittleFS listing that keeps the image-root prefix, and the SD baseline walks
   // scanRomDirectory()'s userRoms, which strips only a leading "roms/" (romScan.ts:136-144).
   // The previous version required a "roms/" prefix, which matched the Flash paths of the day
   // but could never match an SD key — so the SD baseline was silently a no-op and an SD cheat
@@ -392,12 +373,28 @@ import { navigate } from "../nav.js";
       const flasher = await device.ensureStub(undefined, false, true); // already loaded — silent, cached
       if (gen !== cheatsBaselineGen) return;
       const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
+      // Read legacy FrogFS copies first so LittleFS is authoritative if a prior version
+      // stored the same cheat in both places.
       for (const f of frogfs.files) {
         if (!(f.path.endsWith(".ggcodes") || f.path.endsWith(".mcf") || f.path.endsWith(".pceplus"))) continue;
         const data = await read(frogfsOffset + f.dataOffs, f.dataSize);
         if (gen !== cheatsBaselineGen) return;
         parseCheatsFile(f.path, data, parsed, parsedFiles);
       }
+      const tree = await ensureLfsTree();
+      async function readLfsCheats(node: any, prefix: string): Promise<void> {
+        for (const child of node.children ?? []) {
+          const path = `${prefix}${child.name}`;
+          if (child.isDirectory) await readLfsCheats(child, `${path}/`);
+          else if (path.startsWith("cheats/") &&
+              (path.endsWith(".ggcodes") || path.endsWith(".mcf") || path.endsWith(".pceplus"))) {
+            const data = await readLfsFile(path);
+            if (gen !== cheatsBaselineGen) return;
+            parseCheatsFile(path, data, parsed, parsedFiles);
+          }
+        }
+      }
+      await readLfsCheats(tree, "");
     }
     deviceCheatsBaseline = parsed;
     deviceCheatFilesBaseline = parsedFiles;
@@ -418,6 +415,8 @@ import { navigate } from "../nav.js";
     device.utilLoaded;
     device.sdHandle;
     device.targetMedia;
+    device.partitions;
+    device.installedFrogfs;
     void loadCheatsBaseline();
   });
 
@@ -456,12 +455,32 @@ import { navigate } from "../nav.js";
     // manifest, each one restarting the progress bar. Once a scan has happened, later signature
     // changes rescan as before: that is what makes activating a core update the library at once.
     if (library.sourcesResolving && !library.loaded) return;
+    if (device.libraryScanStartupPending) return;
     void library.sync();
   });
 
   // Three-way, never two: "not read yet" is NOT "nothing configured". See `libraryListState`
   // in sources/libraryScan.ts.
   const listState = $derived(library.listState);
+  function scanPhaseLabel(phase: string): string {
+    const labels = locale.t.roms.backgroundProgress;
+    const phaseLabels: Record<string, string> = {
+      "Reading library files": labels.readingLibraryFiles,
+      "Finding games": labels.findingGames,
+      "Loading games": labels.loadingGames,
+      Ready: labels.ready,
+      "Reconciling folders": labels.reconcilingFolders,
+      "Reconciling duplicates": labels.reconcilingDuplicates,
+      "Organizing library": labels.organizingLibrary,
+      "Checking browser cover cache": labels.checkingBrowserCoverCache,
+      "Decoding browser cover pages": labels.decodingBrowserCoverPages,
+      "Reusing browser covers": labels.reusingBrowserCovers,
+      "Loading saved browser covers": labels.loadingSavedBrowserCovers,
+      "Preparing browser covers": labels.preparingBrowserCovers,
+      "Saving browser cover cache": labels.savingBrowserCoverCache,
+    };
+    return phaseLabels[phase] ?? phase;
+  }
   /** Folders walked / folders to walk — the only real denominator a scan has. */
   /** `<folder>/<file>` while scanning, or just the file when the folder has no name yet. */
   const scanLine = $derived.by(() => {
@@ -922,6 +941,7 @@ import { navigate } from "../nav.js";
   // list exists to close.
   let builtPendingLfs = $state<StagedFile[]>([]);
   let builtMappedDestPaths = $state<string[]>([]);
+  let flashChangedCoverPaths = $state<Set<string>>(new Set());
   let newFrogfsLen = $state<number | null>(null);
   let building = $state(false);
   let buildErr = $state<string | null>(null);
@@ -1225,6 +1245,10 @@ import { navigate } from "../nav.js";
   // Carousel State
   let coverUrls = coverSession.urls;
   const coverOverridePaths = coverSession.overridePaths;
+  let selectedOriginalCovers = new Map<string, { sourceId: string; path: string }>();
+  const coverUrlPaths = new Map<string, string>();
+  const coverPathKey = (sourceId: string | undefined, path: string) => `${sourceId ?? ""}\u0002${path}`;
+  const loggedCoverConflicts = new Set<string>();
   let coverLodUrls = new Map<string, string>();
   // Browser atlas pages provide the scrub surface. Original art has a separate resident budget
   // large enough for the carousel's 60 covers on either side of the selected game.
@@ -1243,6 +1267,9 @@ import { navigate } from "../nav.js";
   const COVER_READ_QUEUE_LIMIT = 24;
   type CoverReadJob = {
     entry: LibraryFile;
+    path: string;
+    sourceId?: string;
+    owner?: string;
     cache: Map<string, string>;
     gameKey: string;
     loadKey: string;
@@ -1295,8 +1322,10 @@ import { navigate } from "../nav.js";
       void measureLibraryPhaseAsync("carousel cover bytes read", null, () => romBytes(job.entry)).then((bytes) => {
         coverReadsDone++;
         coverReadBytes += bytes.byteLength;
-        if (!job.cache.has(job.gameKey)) {
+        const selected = job.owner ? selectedOriginalCovers.get(job.owner) : undefined;
+        if (!job.cache.has(job.gameKey) && (!selected || coverPathKey(selected.sourceId, selected.path) === coverPathKey(job.sourceId, job.path))) {
           cacheCoverUrl(job.cache, job.gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])), job.cacheLimit);
+          coverUrlPaths.set(job.gameKey, coverPathKey(job.sourceId, job.path));
         }
         if (isLazy(job.entry)) job.entry.release();
         scheduleCoverVersion();
@@ -1482,8 +1511,9 @@ import { navigate } from "../nav.js";
     for (const [sourceId, atlas] of atlasDataBySource) {
       const sourceEntries = entriesBySource.get(sourceId) ?? [];
       if (sourceEntries.length === 0) continue;
-      atlas.sourceSignature = carouselAtlasCacheSignature(sourceId, sourceEntries.map(({ key, file }) => ({
+      atlas.sourceSignature = carouselAtlasCacheSignature(sourceId, sourceEntries.map(({ key, path, file }) => ({
         key,
+        path,
         size: file.length,
         lastModified: file instanceof Uint8Array ? undefined : file.lastModified,
         contentFingerprint: file instanceof Uint8Array ? carouselAtlasContentFingerprint(file) : undefined,
@@ -1503,6 +1533,7 @@ import { navigate } from "../nav.js";
       const key = basePath(cover.key);
       coverOverridePaths.set(key, { path: cover.path, sourceId: cover.sourceId });
       cacheCoverUrl(coverUrls, key, URL.createObjectURL(new Blob([cover.bytes as BlobPart])), COVER_FULL_CACHE_LIMIT);
+      coverUrlPaths.set(key, coverPathKey(cover.sourceId, cover.path));
     } else if (!coverAtlasPausedForImport) {
       clearCoverUrls(coverUrls);
       clearCoverUrls(coverLodUrls);
@@ -1534,29 +1565,55 @@ import { navigate } from "../nav.js";
     const scan = library.scan;
     const rows = romSelection.rows;
     if (!scan || (rows.length === 0 && homebrew.titles.length === 0)) {
+      selectedOriginalCovers = new Map();
       return { scan, entries: [] as ReturnType<typeof carouselAtlasFiles> };
     }
     return measureLibraryPhase("atlas-entry-collection", rows.length + homebrew.titles.length, () => {
       const owners = new Map<string, string>();
+      const displayNames = new Map<string, string>();
       for (const row of rows) {
         const rom = row.rom;
         if (!rom?.cover) continue;
-        for (const path of rom.cover.originalPaths) owners.set(path, rom.id);
+        const sourceId = rom.directorySource?.id ?? "unknown-source";
+        displayNames.set(rom.id, row.prettyName ?? row.listName);
+        for (const path of rom.cover.originalPaths) owners.set(`${sourceId}\u0000${path.toLowerCase()}`, rom.id);
       }
       for (const title of homebrew.titles) {
         if (title.isCore) continue;
+        displayNames.set(title.key, title.label);
         const candidates = new Set(["png", "jpg", "jpeg", "webp", "bmp"].flatMap((ext) => [
           `homebrew/${title.displayName}.${ext}`.toLowerCase(),
           `covers/homebrew/${title.displayName}.${ext}`.toLowerCase(),
         ]));
         for (const key of scan.userRoms.keys()) {
           const path = key.split("\u0000", 1)[0];
-          if (candidates.has(path.toLowerCase())) owners.set(path, title.key);
+          if (candidates.has(path.toLowerCase())) {
+            const sourceId = library.fileOrigin.get(key) ?? "unknown-source";
+            owners.set(`${sourceId}\u0000${path.toLowerCase()}`, title.key);
+          }
         }
       }
+      const overrides = new Map<string, string>();
+      for (const [key, override] of coverOverridePaths) {
+        const owner = rows.find((row) => row.key === key)?.rom?.id ?? homebrew.find(key)?.key;
+        if (owner) overrides.set(owner, override.path);
+      }
       const entries = measureLibraryPhase("atlas-file-matching", scan.userRoms.size, () =>
-        carouselAtlasFiles(scan.userRoms, library.fileOrigin, owners),
+        carouselAtlasFiles(scan.userRoms, library.fileOrigin, owners, displayNames, overrides, (owner, candidates, chosen) => {
+          const conflict = `${owner}\u0000${[...candidates].sort().join("\u0001")}\u0000${chosen}`;
+          if (loggedCoverConflicts.has(conflict)) return;
+          loggedCoverConflicts.add(conflict);
+          const label = displayNames.get(owner) ?? owner;
+          const names = candidates.map((path) => path.split("\u0000", 1)[0]);
+          queueMicrotask(() => auditLog.add(
+            "warning",
+            "sources",
+            msg((t) => t.sources.multipleCoversFound, label, names.join(", "), chosen.split("\u0000", 1)[0]),
+            label,
+          ));
+        }),
       );
+      selectedOriginalCovers = new Map(entries.map((entry) => [entry.key, { sourceId: entry.sourceId, path: entry.path }]));
       return { scan, entries };
     });
   }
@@ -1564,8 +1621,8 @@ import { navigate } from "../nav.js";
   const carouselAtlasInputSignature = $derived.by(() => {
     const { scan, entries } = collectCarouselAtlasEntries();
     if (!scan) return "";
-    const files = measureLibraryPhase("atlas-signature-build", entries.length, () => entries.map(({ sourceId, key, file }) =>
-        `${sourceId}\u0000${key}\u0000${file.length}\u0000${file instanceof Uint8Array ? "" : file.lastModified}`,
+    const files = measureLibraryPhase("atlas-signature-build", entries.length, () => entries.map(({ sourceId, key, path, file }) =>
+        `${sourceId}\u0000${key}\u0000${path}\u0000${file.length}\u0000${file instanceof Uint8Array ? "" : file.lastModified}`,
       ).sort().join("\u0001"));
     return `${coverAtlasRevision}\u0002${files}`;
   });
@@ -1592,7 +1649,7 @@ import { navigate } from "../nav.js";
     let lastAtlasProgressAt = 0;
     const runAtlas = (): Promise<void> => {
       if (controller.signal.aborted) return Promise.resolve();
-      library.backgroundTask = { id: taskId, stage: "Checking browser cover cache", done: 0, total: entries.length, detail: `${entries.length} original covers` };
+      library.backgroundTask = { id: taskId, stage: "Checking browser cover cache", done: 0, total: entries.length, detail: locale.t.roms.backgroundProgress.originalCovers(entries.length) };
       const yieldForAtlasUi = async () => {
         await library.waitForUiIdle();
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -1650,7 +1707,7 @@ import { navigate } from "../nav.js";
         const totalPages = pagesToDecode.length;
         let decodedPages = 0;
         if (totalPages > 0 && library.backgroundTask?.id === taskId) {
-          library.backgroundTask = { ...library.backgroundTask, stage: "Decoding browser cover pages", done: 0, total: totalPages, detail: `${totalPages} atlas pages` };
+          library.backgroundTask = { ...library.backgroundTask, stage: "Decoding browser cover pages", done: 0, total: totalPages, detail: locale.t.roms.backgroundProgress.atlasPages(totalPages) };
         }
         try {
           const decodeConcurrency = 4;
@@ -1730,6 +1787,14 @@ import { navigate } from "../nav.js";
     const gameKey = basePath(key);
     if (lowResolution) return "";
     const cache = lowResolution ? coverLodUrls : coverUrls;
+    const owner = visibleGameByKey.get(key)?.rom?.id ?? homebrew.find(gameKey)?.key;
+    const selectedCover = owner ? selectedOriginalCovers.get(owner) : undefined;
+    if (selectedCover && coverUrlPaths.get(gameKey) !== coverPathKey(selectedCover.sourceId, selectedCover.path)) {
+      const oldUrl = cache.get(gameKey);
+      if (oldUrl) URL.revokeObjectURL(oldUrl);
+      cache.delete(gameKey);
+      coverUrlPaths.delete(gameKey);
+    }
     const cachedUrl = cache.get(gameKey);
     if (cachedUrl) {
       // Map insertion order is our LRU order: touching a hit keeps recently scrubbed covers
@@ -1796,7 +1861,8 @@ import { navigate } from "../nav.js";
         `covers/${alias}/${base}${ext}`,
         ]),
       ];
-      let matchPath = (overrideFile ? override!.path : null) ?? modelCover?.path ?? paths.find((candidate) => library.fileForPath(candidate, structuredRom?.directorySource?.id)) ?? null;
+      const selectedEntry = selectedCover ? library.fileForPath(selectedCover.path, selectedCover.sourceId) : null;
+      let matchPath = (selectedEntry ? selectedCover!.path : null) ?? (overrideFile ? override!.path : null) ?? modelCover?.path ?? paths.find((candidate) => library.fileForPath(candidate, structuredRom?.directorySource?.id)) ?? null;
       // Directory scans preserve the spelling found on disk, while ROM keys and scraper output
       // can differ in case (Doom commonly mixes `DOOM.WAD` with `doom/doom.png`). Match the
       // canonical paths case-insensitively so a reload does not lose an otherwise present cover.
@@ -1811,7 +1877,9 @@ import { navigate } from "../nav.js";
       }
 
       if (matchPath) {
-        const entry = overrideFile && override?.path === matchPath
+        const entry = selectedEntry && selectedCover?.path === matchPath
+          ? selectedEntry
+          : overrideFile && override?.path === matchPath
           ? overrideFile
           : modelCover?.path === matchPath
           ? modelCover.file
@@ -1825,7 +1893,7 @@ import { navigate } from "../nav.js";
           coverLoads.add(loadKey);
           coverReadsRequested++;
           if (!coverReadStartedAt) coverReadStartedAt = performance.now();
-          coverReadQueue.push({ entry, cache, gameKey, loadKey, cacheLimit });
+          coverReadQueue.push({ entry, path: matchPath, sourceId: selectedEntry ? selectedCover?.sourceId : library.fileOrigin.get(matchPath), owner, cache, gameKey, loadKey, cacheLimit });
           while (coverReadQueue.length > COVER_READ_QUEUE_LIMIT) {
             const stale = coverReadQueue.shift();
             if (stale) coverLoads.delete(stale.loadKey);
@@ -1837,6 +1905,7 @@ import { navigate } from "../nav.js";
         // The object URL owns the Blob's data now. Release the duplicate LazyRom backing store.
         if (isLazy(entry)) entry.release();
         cacheCoverUrl(cache, gameKey, url, lowResolution ? COVER_LOD_CACHE_LIMIT : COVER_FULL_CACHE_LIMIT);
+        coverUrlPaths.set(gameKey, coverPathKey(selectedEntry ? selectedCover?.sourceId : library.fileOrigin.get(matchPath), matchPath));
         return url;
       }
     }
@@ -1982,7 +2051,10 @@ import { navigate } from "../nav.js";
     ceilingOffset,
     ...romSelection.selectedKeys,
     ...romSelection.selectedHomebrewKeys,
+    carouselAtlasInputSignature,
+    ...library.dirtyFiles,
     ...extractedAssets.keys(),
+    ...(mappedArtifacts ? [...mappedArtifacts].map(([key, spec]) => `mapped:${key}:${spec.relocBase ?? ""}:${spec.bytes}`) : []),
     ...deviceCoreFiles(),
     ...Object.entries(configuredCheats).map(([k, v]) => `${k}:${v.join(",")}`),
     ...Object.entries(configuredCheatFiles).map(([k, v]) => `${k}:${v.length}`)
@@ -2025,8 +2097,7 @@ import { navigate } from "../nav.js";
     return cheats.map((c) => c.trim()).join("\n") + "\n";
   }
 
-  /** Flash mode: full unconditional set (matches flash rebuilding its whole FrogFS image from
-   *  scratch every time regardless — no diffing needed or worth it here). */
+  /** Flash mode: stage the complete configured set; the installer diffs it against LittleFS. */
   function injectCheats(map: Map<string, Uint8Array>) {
     for (const [key, cheats] of Object.entries(configuredCheats)) {
       if (cheats.length === 0) continue;
@@ -2059,7 +2130,8 @@ import { navigate } from "../nav.js";
     for (const key of keys) {
       const cheats = configuredCheats[key] ?? [];
       const baseline = deviceCheatsBaseline[key] ?? [];
-      if (cheats.length === baseline.length && cheats.every((c, i) => c === baseline[i])) continue;
+      const normalized = (lines: string[]) => lines.map((line) => line.trim()).filter(Boolean).join("\n");
+      if (normalized(cheats) === normalized(baseline)) continue;
       if (cheats.length === 0) {
         if (baseline.length > 0) toRemove.push(cheatFilePath(key));
       } else {
@@ -2118,6 +2190,34 @@ import { navigate } from "../nav.js";
         },
         { total: newFrogfsLen ?? 0, files: plan.frogfsFiles.map((f) => ({ path: f.path, size: f.data.length })) },
       );
+      const beforeCovers = new Map((installed?.files ?? [])
+        .filter((file) => classifyContentPath(file.path).category === "cover" && file.path.endsWith(".img"))
+        .map((file) => [file.path, file.dataSize]));
+      const afterCovers = new Map(plan.frogfsFiles
+        .filter((file) => classifyContentPath(file.path).category === "cover" && file.path.endsWith(".img"))
+        .map((file) => [file.path, file.data.length]));
+      const changedCovers = new Set<string>();
+      for (const [path, size] of afterCovers) {
+        if (!beforeCovers.has(path) || beforeCovers.get(path) !== size) changedCovers.add(path);
+      }
+      const dirtyCoverSources = new Set([...library.dirtyFiles].map(basePath));
+      for (const path of library.dirtyFiles) {
+        const classified = classifyContentPath(path);
+        if (classified.category === "cover" && classified.isDeviceCover && afterCovers.has(basePath(path))) {
+          changedCovers.add(basePath(path));
+        }
+      }
+      for (const [owner, selected] of selectedOriginalCovers) {
+        if (!dirtyCoverSources.has(basePath(selected.path))) continue;
+        const game = romSelection.games.find((candidate) => candidate.rom.id === owner);
+        const devicePath = game
+          ? flashCoverPathForGame(game)
+          : romSelection.selectedHomebrewKeys.has(owner)
+            ? flashCoverPathForHomebrew(owner)
+            : null;
+        if (devicePath && afterCovers.has(devicePath)) changedCovers.add(devicePath);
+      }
+      flashChangedCoverPaths = changedCovers;
 
       // Provenance of the prepared bytes merged into `combinedRoms`, which is the one input
       // whose contents are not visible from the plan alone.
@@ -2211,6 +2311,7 @@ import { navigate } from "../nav.js";
       await prepareDeviceCores();
       // The selection's bytes, read here and nowhere earlier: the plan above is metadata only.
       const combinedRoms = await materialize(biosState.filterInstall(romSelection.selectedFolderRoms()));
+      await prepareFlashCovers(combinedRoms);
       for (const [k, v] of selectedAssets.entries()) combinedRoms.set(k, v);
       injectCheats(combinedRoms);
       const { frogfs, plan: previewPlan } = await buildFrogfsImage(bundle, installBank, combinedRoms, {
@@ -2661,6 +2762,13 @@ import { navigate } from "../nav.js";
     for (const path of device.coreVersionCheck ? Object.keys(device.coreVersionCheck.cores) : []) {
       if (path.startsWith("cores/")) out.add(path.slice("cores/".length));
     }
+    function collectInstalledCores(node: any): void {
+      for (const child of node.children ?? []) {
+        if (child.isDirectory) collectInstalledCores(child);
+        else if (child.path.startsWith("/cores/")) out.add(child.path.slice("/cores/".length));
+      }
+    }
+    if (device.installedLfsTree) collectInstalledCores(device.installedLfsTree);
     for (const path of deviceCoreFiles()) {
       if (path.startsWith("cores/")) out.add(path.slice("cores/".length));
     }
@@ -2676,7 +2784,7 @@ import { navigate } from "../nav.js";
         if (!row.manifest) continue;
         const target = row.manifest.targets.find((t) => `${row.repo}#${t.id}` === targetKey);
         if (!target) continue;
-        if ((target.artifacts ?? []).some((a) => installedCoreNames.has(a.filename))) {
+        if ((target.artifacts ?? []).some((a) => installedCoreNames.has(a.filename.split("/").at(-1) ?? a.filename))) {
           present = true;
           break;
         }
@@ -2688,6 +2796,12 @@ import { navigate } from "../nav.js";
 
   const installedGamesNeedCores = $derived(missingCoreTargetCount > 0);
 
+  const selectedFlashDirtyPaths = $derived.by(() => {
+    const included = new Set([...romSelection.selectedFolderRoms().keys()].map(basePath));
+    for (const path of selectedFlashCoverSourcePaths()) included.add(basePath(path));
+    return new Set([...library.dirtyFiles].filter((path) => included.has(basePath(path))));
+  });
+
   const flashSyncHasChanges = $derived.by(() => {
     const freshTarget = device.installedGames.length === 0;
     const sel = romSelection.selectedKeys.size + romSelection.selectedHomebrewKeys.size;
@@ -2695,7 +2809,8 @@ import { navigate } from "../nav.js";
     return (
       romSelection.additions.length + hbAdditions > 0 ||
       romSelection.removals.length + hbRemovals > 0 ||
-      library.dirtyFiles.size > 0 ||
+      selectedFlashDirtyPaths.size > 0 ||
+      flashChangedCoverPaths.size > 0 ||
       cheatsHaveChanges ||
       installedGamesNeedCores
     );
@@ -2978,15 +3093,20 @@ import { navigate } from "../nav.js";
     // not a static total of every cover file on disk, which never changes and tells you
     // nothing about what a sync/install would actually do.
     const changedCoverPaths = new Set<string>();
-    for (const path of library.dirtyFiles) {
-      const cls = classifyContentPath(path);
-      if (cls.category === "cover" && cls.isDeviceCover) changedCoverPaths.add(path);
+    if (device.targetMedia === "sd") {
+      for (const path of library.dirtyFiles) {
+        const cls = classifyContentPath(path);
+        if (cls.category === "cover" && cls.isDeviceCover) changedCoverPaths.add(path);
+      }
     }
     if (device.targetMedia === "sd" && library.scan) {
       for (const path of library.scan.userRoms.keys()) {
         const cls = classifyContentPath(path);
         if (cls.category === "cover" && cls.isDeviceCover && coverBelongsToInstalledOrSelected(path) && !device.sdInstalledPaths.has(path)) changedCoverPaths.add(path);
       }
+    }
+    if (device.targetMedia !== "sd") {
+      for (const path of flashChangedCoverPaths) changedCoverPaths.add(path);
     }
     const coversChanged = changedCoverPaths.size;
     // Games whose cheat list actually differs from what's on the device right now — reuses
@@ -3036,9 +3156,7 @@ import { navigate } from "../nav.js";
             ? locale.t.roms.summary.calculating
             : locale.t.roms.summary.willBeResynced;
     } else {
-      const count = device.targetMedia === "sd"
-        ? installedCores
-        : bundleCoreCount ?? installedCores;
+      const count = installedCores ?? bundleCoreCount;
       coresStatus = count === null ? locale.t.roms.summary.calculating : String(count);
     }
     const coresRow: ChangeItem = {
@@ -3338,6 +3456,112 @@ import { navigate } from "../nav.js";
     }
     for (const game of deviceHomebrew) owners.add(`homebrew/${game.name.replace(/\.[^/.]+$/, "")}`.toLowerCase());
     return owners.has(owner);
+  }
+
+  function flashCoverPathForGame(game: Game): string | null {
+    const row = romSelection.rows.find((candidate) => candidate.key === game.key);
+    const outputPath = basePath(row?.outputKey ?? game.key);
+    const slash = outputPath.lastIndexOf("/");
+    if (slash < 1) return null;
+    const stem = outputPath.slice(slash + 1).replace(/\.[^/.]+$/, "");
+    return `covers/${outputPath.slice(0, slash)}/${stem}.img`;
+  }
+
+  function flashCoverPathForHomebrew(key: string): string | null {
+    const title = homebrew.find(key);
+    return title ? `covers/homebrew/${title.displayName}.img` : null;
+  }
+
+  function selectedFlashCoverSourcePaths(): Set<string> {
+    const paths = new Set<string>();
+    for (const game of romSelection.games) {
+      if (!romSelection.selectedKeys.has(game.key)) continue;
+      const selected = selectedOriginalCovers.get(game.rom.id);
+      if (selected?.path) paths.add(selected.path);
+      else if (game.rom.cover?.deviceImgPath) paths.add(game.rom.cover.deviceImgPath);
+    }
+    for (const key of romSelection.selectedHomebrewKeys) {
+      const title = homebrew.find(key);
+      if (!title) continue;
+      const selected = selectedOriginalCovers.get(title.key);
+      if (selected?.path) paths.add(selected.path);
+      else paths.add(`covers/homebrew/${title.displayName}.img`);
+    }
+    return paths;
+  }
+
+  async function prepareFlashCovers(userRoms: Map<string, Uint8Array>): Promise<Set<string>> {
+    const scan = library.scan;
+    const includedSourcePaths = new Set<string>();
+    if (!scan) return includedSourcePaths;
+
+    const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".webp", ".bmp"]);
+    const coverInputs = new Map<string, LibraryFile>();
+    const coverOrigins = new Map<string, string>();
+    const expectedDevicePaths = new Set<string>();
+    const addCover = (devicePath: string, sourcePath: string | undefined = undefined, sourceId: string | undefined = undefined) => {
+      if (sourcePath) {
+        const source = scan.userRoms.get(sourcePath);
+        const cleanSourcePath = basePath(sourcePath);
+        const extension = cleanSourcePath.slice(cleanSourcePath.lastIndexOf(".")).toLowerCase();
+        if (source && extension === ".img") {
+          expectedDevicePaths.add(devicePath);
+          coverInputs.set(devicePath, source);
+          includedSourcePaths.add(sourcePath);
+          return;
+        }
+        if (source && imageExtensions.has(extension)) {
+          expectedDevicePaths.add(devicePath);
+          const inputPath = devicePath.replace(/\.img$/i, extension);
+          coverInputs.set(inputPath, source);
+          includedSourcePaths.add(sourcePath);
+          const origin = sourceId ?? library.fileOrigin.get(sourcePath);
+          if (origin) coverOrigins.set(inputPath, origin);
+          return;
+        }
+      }
+      const existing = scan.userRoms.get(devicePath);
+      if (existing) {
+        expectedDevicePaths.add(devicePath);
+        coverInputs.set(devicePath, existing);
+        includedSourcePaths.add(devicePath);
+      }
+    };
+
+    for (const game of romSelection.games) {
+      if (!romSelection.selectedKeys.has(game.key)) continue;
+      const devicePath = flashCoverPathForGame(game);
+      if (!devicePath) continue;
+      const selected = selectedOriginalCovers.get(game.rom.id);
+      addCover(devicePath, selected?.path ?? game.rom.cover?.deviceImgPath, selected?.sourceId);
+    }
+    for (const key of romSelection.selectedHomebrewKeys) {
+      const title = homebrew.find(key);
+      if (!title) continue;
+      const devicePath = flashCoverPathForHomebrew(key);
+      if (!devicePath) continue;
+      const selected = selectedOriginalCovers.get(title.key);
+      addCover(devicePath, selected?.path ?? devicePath, selected?.sourceId);
+    }
+
+    for (const path of [...userRoms.keys()]) {
+      const classified = classifyContentPath(path);
+      if (classified.category === "cover") userRoms.delete(path);
+    }
+    if (coverInputs.size === 0) return includedSourcePaths;
+
+    await convertCoversInMap(coverInputs, coverOrigins);
+    const missing = [...expectedDevicePaths].filter((path) => !coverInputs.has(path));
+    if (missing.length > 0) {
+      throw new Error(locale.t.roms.coverPrepareFailed(missing.length, missing.slice(0, 3).join(", ")));
+    }
+    for (const path of expectedDevicePaths) {
+      const data = coverInputs.get(path);
+      if (data instanceof Uint8Array) userRoms.set(path, data);
+      else if (data) userRoms.set(path, await romBytes(data));
+    }
+    dbg("[install] device covers prepared:", expectedDevicePaths.size);
+    return includedSourcePaths;
   }
 
   /** Narrow the full selection down to what actually needs (re)writing to the SD card this
@@ -3866,6 +4090,8 @@ import { navigate } from "../nav.js";
     // are current immediately before the budget decision and image build.
     report.log("budget", msg((t) => t.roms.install.logRescanning));
     await device.runScan("before ROM install");
+    await loadCheatsBaseline();
+    const { changed: changedCheatFiles, toRemove: cheatsToRemove } = changedCheatEntries();
     // Raw byte counts, not formatted sizes: these are the numbers you compare against a
     // manifest or an offset when a budget check goes wrong. "?" when the ceiling is unknown.
     const gapBytes = ceilingOffset !== null ? String(ceilingOffset - frogfsOffset) : "?";
@@ -3879,6 +4105,12 @@ import { navigate } from "../nav.js";
     report.start("build");
     const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
     const userRoms = await materialize(biosState.filterInstall(romSelection.selectedFolderRoms()));
+    const syncedCoverSourcePaths = await prepareFlashCovers(userRoms);
+    const includedPaths = new Set([
+      ...[...userRoms.keys()].map(basePath),
+      ...[...syncedCoverSourcePaths].map(basePath),
+    ]);
+    const syncedDirtyPaths = [...library.dirtyFiles].filter((path) => includedPaths.has(basePath(path)));
     // Raw CORE packages are outside the published bundle; merge cached raw artifacts explicitly.
     for (const row of sources.rows) {
       if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
@@ -4045,10 +4277,8 @@ import { navigate } from "../nav.js";
       for (const m of built.mappedPlaced) {
         dbg("[install] mapped placed:", m.path, hex(m.address), "patched:", m.patched ?? 0);
       }
-      // A ROM install writes FrogFS ONLY -- it never rebuilds the LittleFS partition, because
-      // that partition also holds saves. The bundle's cores are correctly dropped here (the
-      // firmware install already wrote them); these are not, and are written file-by-file into
-      // the live partition after the FrogFS write below.
+      // The bundle's cores are already on-device; changed source cores and cheats are staged
+      // for the LittleFS update after FrogFS is flashed.
       pendingLfs = built.plan.pendingLfsFiles;
       mappedDestPaths = new Set(built.plan.mappedDests.map((m) => m.dest));
       // What the packer actually decided, beside what the selection asked for. `coreFiles` is
@@ -4146,9 +4376,8 @@ import { navigate } from "../nav.js";
     } finally {
       device.resumePoll();
     }
-    // Rebuild and flash LittleFS wholesale only when its core payload actually changes. Library
-    // sync must preserve saves/settings while adding/updating cores, but an unchanged core set
-    // should not pay for another full partition write.
+    // Rebuild LittleFS only when its core or cheat payload changes. Preserve saves/settings and
+    // unrelated files while adding, updating, or removing the selected cheat files.
     report.subFinish("flash", "frogfs");
     // Mapped artifacts (for example gba.xip) are relocated into FrogFS and must never be
     // duplicated in LittleFS. pendingLfs contains the packer's ordinary core list, so apply the
@@ -4157,13 +4386,17 @@ import { navigate } from "../nav.js";
     // resolved destination list as a defensive guard for cached/legacy plans; mapped metadata
     // itself is keyed by source asset identity and can never match these paths.
     const lfsFiles: StagedFile[] = pendingLfs.filter((f) => !mappedDestPaths.has(f.path));
+    const existingLfsPaths = new Set<string>();
     try {
       const tree = await ensureLfsTree();
       async function collect(node: any, prefix: string): Promise<void> {
         for (const child of node.children ?? []) {
           const path = `${prefix}${child.name}`;
           if (child.isDirectory) await collect(child, `${path}/`);
-          else if (!mappedDestPaths.has(path) && !lfsFiles.some((f) => f.path === path)) {
+          else {
+            existingLfsPaths.add(path);
+            if (cheatsToRemove.includes(path)) continue;
+            if (mappedDestPaths.has(path) || lfsFiles.some((f) => f.path === path)) continue;
             // Preserve every existing LittleFS file, including cores. A staged replacement
             // wins by occupying the path first; everything else is carried forward verbatim.
             lfsFiles.push({ path, data: await readLfsFile(path) });
@@ -4172,7 +4405,7 @@ import { navigate } from "../nav.js";
       }
       await collect(tree, "");
     } catch (e) {
-      dbg("[install] unable to preserve LittleFS files:", e);
+      throw new Error(`Unable to read existing LittleFS files safely: ${errText(e)}`);
     }
     const lfsBlockSize = littlefsPart?.meta?.blockSize ?? device.info?.minEraseSizeBytes ?? 4096;
     const lfsBlockCount = littlefsPart?.meta?.blockCount ?? (littlefsPart ? Math.floor(littlefsPart.size / lfsBlockSize) : 0);
@@ -4182,11 +4415,15 @@ import { navigate } from "../nav.js";
     // The scan's core inventory is intentionally sufficient for the common case: a missing
     // path or a version mismatch means a write is needed. A mapped artifact is part of FrogFS
     // and is already covered by the FrogFS image write above.
-    const coreWriteNeeded = desiredCoreFiles.some((f) => !existingCorePaths.has(f.path)) ||
+    const littleFsCheatWriteNeeded = changedCheatFiles.size > 0 || cheatsToRemove.length > 0 ||
+      pendingLfs.some((f) => f.path.startsWith("cheats/") && !existingLfsPaths.has(f.path));
+    const littleFsMappedCleanupNeeded = [...mappedDestPaths].some((path) => existingLfsPaths.has(path));
+    const littleFsCoreWriteNeeded = littleFsMappedCleanupNeeded ||
+      desiredCoreFiles.some((f) => !existingCorePaths.has(f.path)) ||
       (device.coreVersionCheck?.mismatches.length ?? 0) > 0;
-    if (coreWriteNeeded) {
+    if (littleFsCoreWriteNeeded || littleFsCheatWriteNeeded) {
       report.subStart("flash", "cores");
-      const lfsImage = await buildCoresLittlefs(lfsFiles, { blockSize: lfsBlockSize, blockCount: lfsBlockCount, moduleOpts: {} }, ["cores", "data"]);
+      const lfsImage = await buildCoresLittlefs(lfsFiles, { blockSize: lfsBlockSize, blockCount: lfsBlockCount, moduleOpts: {} }, ["cores", "data", "cheats"]);
       report.progress("flash", 0, lfsImage.length, "cores", "bytes");
       device.suspendPoll();
       try {
@@ -4213,6 +4450,8 @@ import { navigate } from "../nav.js";
     // the warning outright. If the scan throws, it propagates to confirm()'s catch: the phase
     // flips to "error" and the hold is released there, so a failed rescan can't strand it.
     await device.runScan("after ROM install");
+    flashChangedCoverPaths = new Set();
+    library.clearDirty(syncedDirtyPaths);
     await loadCheatsBaseline();
     report.finish("rescan");
   }
@@ -4256,7 +4495,7 @@ import { navigate } from "../nav.js";
                   <div class="scan-layer-head">
                     <span class="scan-layer-state">{layer.status === "done" ? "✓" : layer.status === "active" ? "→" : "○"}</span>
                     <span class="scan-layer-name">{layer.name}</span>
-                    <span class="scan-layer-phase">{layer.phase}</span>
+                    <span class="scan-layer-phase">{scanPhaseLabel(layer.phase)}</span>
                   </div>
                   <div class="scan-track"><div class="scan-fill" class:indeterminate={layer.status === "active"} style:width={layer.status === "done" ? "100%" : undefined}></div></div>
                 </div>
@@ -4266,7 +4505,7 @@ import { navigate } from "../nav.js";
           <div class="scan-track">
             {#if scanPct !== null}<div class="scan-fill" style:width="{scanPct}%"></div>{/if}
           </div>
-          {#if library.progress?.finalizing}<p class="scan-current">{library.progress.finalizing}</p>{/if}
+          {#if library.progress?.finalizing}<p class="scan-current">{scanPhaseLabel(library.progress.finalizing)}</p>{/if}
           {#if library.progress?.current}
             <!-- Folder and file, both runtime values, joined as a path. The owner asked to see
                  each file go by: at these speeds it is a flash, which is the point. -->
@@ -4549,7 +4788,12 @@ import { navigate } from "../nav.js";
                   setCarouselAtlasInteraction("carousel-motion", active);
                 }}
                 getUrl={(key) => getCoverUrl(key, coverVersion)}
-                getCachedUrl={(key) => coverUrls.get(basePath(key)) ?? ""}
+                getCachedUrl={(key) => {
+                  const gameKey = basePath(key);
+                  const owner = visibleGameByKey.get(key)?.rom?.id ?? homebrew.find(gameKey)?.key;
+                  const selected = owner ? selectedOriginalCovers.get(owner) : undefined;
+                  return selected && coverUrlPaths.get(gameKey) !== coverPathKey(selected.sourceId, selected.path) ? "" : coverUrls.get(gameKey) ?? "";
+                }}
                 getLodUrl={(key) => getCoverUrl(key, coverVersion, true)}
                 getAtlasCell={(key) => atlasCells.get(visibleGameByKey.get(key)?.rom?.id ?? key) ?? null}
                 systemLabel={(c) => c.system}
@@ -4563,9 +4807,27 @@ import { navigate } from "../nav.js";
                 {@const activeHb = !activeGame ? unknownHomebrewByName.get(detailsSelectedId) : null}
                 {#if activeGame}
                   {@const state = getActionState(activeGame)}
+                  {@const starred = favorites.has(activeGame.key)}
                   <div class="info-content">
                     <div class="info-copy">
                       <div class="info-eyebrow">
+                        <button
+                          type="button"
+                          class="info-favorite {starred ? 'on' : ''}"
+                          aria-pressed={starred}
+                          aria-label={starred ? locale.t.roms.selectGames.favoriteOn : locale.t.roms.selectGames.favoriteOff}
+                          onclick={(e) => { e.stopPropagation(); favorites.toggle(activeGame.key); }}
+                        >
+                          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                            <path
+                              d="M8 1.6l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.4l-3.8 2 .7-4.3-3.1-3 4.3-.6z"
+                              fill={starred ? "currentColor" : "none"}
+                              stroke="currentColor"
+                              stroke-width="1.3"
+                              stroke-linejoin="round"
+                            />
+                          </svg>
+                        </button>
                         <span class="info-system">{activeGame.system === 'homebrew' ? locale.t.roms.selectGames.homebrewTag : consoleLabel(activeGame.system)}</span>
                         <span class="info-size mono">{activeGame.size > 0 ? formatSize(activeGame.size) : '—'}</span>
                       </div>
@@ -5473,6 +5735,34 @@ import { navigate } from "../nav.js";
     font-size: var(--fs-label);
     line-height: 1;
   }
+  .info-favorite {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--hairline);
+    border-radius: 50%;
+    color: var(--ink-mute);
+    background: transparent;
+    cursor: pointer;
+    transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+  }
+  .info-favorite:hover,
+  .info-favorite:focus-visible {
+    color: var(--warn, #c9a82d);
+    border-color: currentColor;
+  }
+  .info-favorite.on {
+    color: var(--warn, #c9a82d);
+    background: color-mix(in srgb, var(--warn, #c9a82d) 12%, transparent);
+  }
+  .info-favorite:focus-visible {
+    outline: 2px solid var(--accent, var(--ink-soft));
+    outline-offset: 2px;
+  }
   .info-system {
     color: var(--ink-soft);
     font-weight: 700;
@@ -5511,6 +5801,8 @@ import { navigate } from "../nav.js";
     font-size: 0.8125rem;
     color: var(--ink-soft);
     line-height: 1.1;
+    height: 2.2em;
+    min-height: 2.2em;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     line-clamp: 2;

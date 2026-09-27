@@ -25,7 +25,7 @@ export const sharedJa: SharedStrings = {
     rescan: "再スキャン",
     restartRecoveryMode: "リカバリーモードを再起動",
     startRecoveryMode: "リカバリーモードを開始",
-    changeAdapter: "アダプターを変更",
+    changeAdapter: "アダプターを設定",
     disconnectDevice: "デバイスを切断",
   },
   stubLoadModal: {

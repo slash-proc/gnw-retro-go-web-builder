@@ -7,6 +7,7 @@ import type { SourcesStrings } from "./sources.js";
 // Where a count would force an awkward agreement, the string is phrased so the number does not
 // govern a noun at all.
 export const sourcesRu: SourcesStrings = {
+  multipleCoversFound: (game: string, covers: string, chosen: string) => `Для игры «${game}» найдено несколько обложек: ${covers}. Выбрана: ${chosen}.`,
   tab: "Источники",
   heading: "Источники",
   colCores: "Ядра",

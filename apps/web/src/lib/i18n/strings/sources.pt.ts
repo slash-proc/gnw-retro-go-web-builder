@@ -2,6 +2,7 @@ import type { SourcesStrings } from "./sources.js";
 
 // Portuguese copy for the Sources tab.
 export const sourcesPt: SourcesStrings = {
+  multipleCoversFound: (game: string, covers: string, chosen: string) => `Foram encontradas várias capas para o jogo “${game}”: ${covers}. Capa selecionada: ${chosen}.`,
   tab: "Fontes",
   heading: "Fontes",
   colCores: "Cores",

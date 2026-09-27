@@ -1,6 +1,7 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsZhHans: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) => `无法为 FrogFS 准备所选的 ${count} 张封面：${files}`,
   firefoxWarning: {
     dismissAriaLabel: "关闭警告",
     boldLead: "Firefox 仅部分受支持。",
@@ -51,6 +52,23 @@ export const romsZhHans: RomsStrings = {
     notEnoughSpace: (requiredMiB: string, availableMiB: string) =>
       `设备空间不足！需要 ${requiredMiB} MB，可用 ${availableMiB} MB`,
   },
+  backgroundProgress: {
+    readingLibraryFiles: "正在读取游戏库文件",
+    findingGames: "正在查找游戏",
+    loadingGames: "正在加载游戏",
+    ready: "就绪",
+    reconcilingFolders: "正在整理文件夹",
+    reconcilingDuplicates: "正在处理重复项",
+    organizingLibrary: "正在整理游戏库",
+    checkingBrowserCoverCache: "正在检查浏览器封面缓存",
+    decodingBrowserCoverPages: "正在解码浏览器封面图集",
+    reusingBrowserCovers: "正在复用浏览器封面",
+    loadingSavedBrowserCovers: "正在加载已保存的浏览器封面",
+    preparingBrowserCovers: "正在准备浏览器封面",
+    savingBrowserCoverCache: "正在保存浏览器封面缓存",
+    originalCovers: (count: number) => `${count} 张原始封面`,
+    atlasPages: (count: number) => `${count} 张图集页`,
+  },
   install: {
     connectPrompt: "连接设备后才能安装游戏库。",
     scanningDevice: "正在扫描设备…",
@@ -58,7 +76,7 @@ export const romsZhHans: RomsStrings = {
     installFirstPrompt: "这台设备没有核心/存档分区，请先安装 Retro-Go。",
     calculatingLayout: "正在计算布局…",
     lzmaCheckboxLabel: "用 LZMA 压缩 ROM ",
-    lzmaSoon: "暂不压缩",
+    lzmaSoon: "目前已停用",
     syncLibraryButton: "同步游戏库",
     installTitle: "安装",
     installBody: "游戏、BIOS 和语言将安装到设备。",

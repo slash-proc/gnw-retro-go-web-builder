@@ -261,7 +261,7 @@
       class="row-action"
       disabled={device.scanning}
       onclick={() => {
-        void device.runScan("status pane");
+        void device.runScan("status pane", { forceGeometry: true });
         void backupPresence.refresh();
       }}>{s.rescan}</button
     >

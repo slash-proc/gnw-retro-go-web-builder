@@ -3,6 +3,7 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 export const deviceHeaderZhHans: DeviceHeaderStrings = {
   changeInstallationMethod: "更改安装方式",
   connectionLost: "连接已断开",
+  targetUnresponsive: "目标设备无响应，正在等待其恢复…",
   noConnection: "未连接",
   connectedRecoveryMode: "已连接（恢复模式）",
   connectedRetroGo: "已连接（Retro-Go）",

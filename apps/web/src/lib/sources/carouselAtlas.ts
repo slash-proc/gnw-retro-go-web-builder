@@ -27,15 +27,43 @@ export function carouselAtlasFiles(
   files: ReadonlyMap<string, MaybeLazy>,
   fileOrigin: ReadonlyMap<string, string> = new Map(),
   coverOwners: ReadonlyMap<string, string> = new Map(),
-): { sourceId: string; key: string; file: CarouselAtlasSourceFile | Uint8Array }[] {
-  const result: { sourceId: string; key: string; file: CarouselAtlasSourceFile | Uint8Array }[] = [];
+  displayNames: ReadonlyMap<string, string> = new Map(),
+  overrides: ReadonlyMap<string, string> = new Map(),
+  onConflict?: (owner: string, candidates: string[], chosen: string) => void,
+): { sourceId: string; key: string; path: string; file: CarouselAtlasSourceFile | Uint8Array }[] {
+  const groups = new Map<string, { sourceId: string; key: string; path: string; file: CarouselAtlasSourceFile | Uint8Array }[]>();
   for (const [key, file] of files) {
     const path = key.split("\u0000", 1)[0];
-    if (!/\.(?:png|jpe?g|webp|bmp)$/i.test(path) || !coverOwners.has(path)) continue;
-    // `key` is the source-relative cover path used to find bytes. The atlas identity is the
-    // owning LibraryRom.id, supplied by the structured model, so duplicate filenames remain
-    // distinct across directory sources and variants.
-    result.push({ sourceId: fileOrigin.get(key) ?? "unknown-source", key: coverOwners.get(path)!, file });
+    if (!/\.(?:png|jpe?g|webp|bmp)$/i.test(path)) continue;
+    const sourceId = fileOrigin.get(key) ?? "unknown-source";
+    const owner = coverOwners.get(`${sourceId}\u0000${path.toLowerCase()}`);
+    if (!owner) continue;
+    const group = groups.get(owner) ?? [];
+    group.push({ sourceId, key: owner, path: key, file });
+    groups.set(owner, group);
+  }
+  const result: { sourceId: string; key: string; path: string; file: CarouselAtlasSourceFile | Uint8Array }[] = [];
+  for (const [owner, group] of groups) {
+    const name = displayNames.get(owner) ?? "";
+    const override = overrides.get(owner);
+    const stem = (path: string) => path.split("\u0000", 1)[0].split("/").pop()!.replace(/\.[^.]+$/, "");
+    const extensionRank = (path: string) => [".png", ".jpg", ".jpeg", ".webp", ".bmp"].indexOf(path.split("\u0000", 1)[0].toLowerCase().match(/\.[^.]+$/)?.[0] ?? "");
+    group.sort((left, right) => {
+      const rank = (candidate: typeof left) => [
+        candidate.path === override ? 0 : 1,
+        stem(candidate.path) === name ? 0 : 1,
+        stem(candidate.path).toLowerCase() === name.toLowerCase() ? 0 : 1,
+        extensionRank(candidate.path),
+      ];
+      const leftRank = rank(left);
+      const rightRank = rank(right);
+      for (let index = 0; index < leftRank.length; index++) {
+        if (leftRank[index] !== rightRank[index]) return leftRank[index] - rightRank[index];
+      }
+      return left.path < right.path ? -1 : left.path > right.path ? 1 : left.sourceId < right.sourceId ? -1 : left.sourceId > right.sourceId ? 1 : 0;
+    });
+    if (group.length > 1) onConflict?.(group[0].key, group.map((entry) => entry.path), group[0].path);
+    result.push(group[0]);
   }
   return result;
 }
@@ -54,13 +82,14 @@ export async function buildCarouselAtlasesFromFiles(
   const result = new Map<string, CarouselAtlas>();
   for (const [sourceId, sourceFiles] of bySource) {
     const inputs: CarouselAtlasInput[] = [];
-    const signatureEntries: { key: string; size: number; lastModified?: number }[] = [];
+    const signatureEntries: { key: string; path: string; size: number; lastModified?: number }[] = [];
     for (const entry of sourceFiles) {
       const file = entry.file;
       const bytes = file instanceof Uint8Array ? file : await file.bytes();
       inputs.push({ key: entry.key, bytes });
       signatureEntries.push({
         key: entry.key,
+        path: entry.path,
         size: file.length,
         lastModified: file instanceof Uint8Array ? undefined : file.lastModified,
       });
@@ -123,11 +152,11 @@ export const CAROUSEL_ATLAS_DEFAULTS = {
 /** Cheap metadata-only signature; it never opens a cover or ROM payload. */
 export function carouselAtlasSignature(
   sourceId: string,
-  entries: readonly { key: string; size: number; lastModified?: number; contentFingerprint?: string }[],
+  entries: readonly { key: string; path?: string; size: number; lastModified?: number; contentFingerprint?: string }[],
 ): string {
   const ordered = [...entries].sort((a, b) => a.key.localeCompare(b.key));
   let hash = 0xcbf29ce484222325n;
-  const text = `${sourceId}\n${ordered.map((entry) => `${entry.key}\0${entry.size}\0${entry.lastModified ?? 0}${entry.contentFingerprint === undefined ? "" : `\0${entry.contentFingerprint}`}`).join("\n")}`;
+  const text = `${sourceId}\n${ordered.map((entry) => `${entry.key}\0${entry.path ?? ""}\0${entry.size}\0${entry.lastModified ?? 0}${entry.contentFingerprint === undefined ? "" : `\0${entry.contentFingerprint}`}`).join("\n")}`;
   for (const byte of new TextEncoder().encode(text)) {
     hash ^= BigInt(byte);
     hash = BigInt.asUintN(64, hash * 0x100000001b3n);
@@ -137,7 +166,7 @@ export function carouselAtlasSignature(
 
 export function carouselAtlasCacheSignature(
   sourceId: string,
-  entries: readonly { key: string; size: number; lastModified?: number; contentFingerprint?: string }[],
+  entries: readonly { key: string; path?: string; size: number; lastModified?: number; contentFingerprint?: string }[],
   options: CarouselAtlasOptions = {},
 ): string {
   const renderSettings = [

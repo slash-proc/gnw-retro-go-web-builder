@@ -32,7 +32,7 @@ export const sharedRu: SharedStrings = {
     rescan: "Пересканировать",
     restartRecoveryMode: "Перезапустить режим восстановления",
     startRecoveryMode: "Запустить режим восстановления",
-    changeAdapter: "Сменить адаптер",
+    changeAdapter: "Настроить адаптер",
     disconnectDevice: "Отключить устройство",
   },
   stubLoadModal: {

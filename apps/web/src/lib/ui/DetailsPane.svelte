@@ -342,6 +342,15 @@
       extScanErr = e instanceof Error ? e.message : String(e);
     }
   }
+
+  async function runFullGeometryScan() {
+    extScanErr = null;
+    try {
+      await device.runScan("details full geometry scan", { fullGeometry: true });
+    } catch (e) {
+      extScanErr = e instanceof Error ? e.message : String(e);
+    }
+  }
 </script>
 
 <div class="details">
@@ -389,6 +398,12 @@
         {#if extRows.length}
           <StatPanel rows={extRows} variant="panel-footer" />
         {/if}
+        <div class="ext-scan-action">
+          <Button variant="action" disabled={device.scanning || !device.utilLoaded} onclick={runFullGeometryScan}>
+            {ov.extFlash.fullScan}
+          </Button>
+          {#if extScanErr}<p class="err">{extScanErr}</p>{/if}
+        </div>
       </div>
     {:else if device.scanning}
       <p class="placeholder">{ov.extFlash.scanningPleaseWait}</p>
@@ -397,6 +412,11 @@
         <Button variant="action" onclick={enterRecoveryToScan}>
           {device.utilLoaded ? ov.extFlash.scan : ov.extFlash.enterRecoveryToScan}
         </Button>
+        {#if device.utilLoaded}
+          <Button variant="action" disabled={device.scanning} onclick={runFullGeometryScan}>
+            {ov.extFlash.fullScan}
+          </Button>
+        {/if}
         {#if extScanErr}<p class="err">{extScanErr}</p>{/if}
       </div>
     {/if}
@@ -531,6 +551,12 @@
     background: var(--surface);
     padding: 16px;
     min-width: 0;
+  }
+  .ext-scan-action {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
   }
   /* Free space leads, with the total as a muted clause beside it. The figures are runtime
      data; only "free of" is copy. */

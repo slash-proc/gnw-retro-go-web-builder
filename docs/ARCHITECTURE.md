@@ -276,12 +276,25 @@ We replicate gnwmanager's *on-device* flash-geometry scanner **on the host, over
 
 ### Extflash Partition Scan (`fsscan.ts`)
 
-A multi-stride walk reading a 512B header at each probe point via `readFlash`, matching in priority order:
+A coarse-first scan reads the same signatures at 1 MiB strides. After an unrecognized coarse
+probe, it refines the following 2 MiB window to 128 KiB strides and stops if that window is
+empty. Recognized partition extents are skipped; Zelda's known 4 MiB asset span jumps directly
+to its end. The fast path also checks the top-anchored LittleFS superblock directly. It uses
+the same recognition rules as the full geometry walk:
 - **LittleFS**: `"littlefs"`@+8, disk version major 2, sane block_size/count.
 - **FAT**: `sec[510..511]==55 AA`.
 - **FrogFS**: `"FROG"`@0.
 - **OFW backup (Int, 128 KiB)**: Mario / Zelda specific signatures.
 - **Asset blobs**: 4 fixed 8-byte sigs (OFW vs Assets).
+
+The lazy extflash scan runs on connect and routine refresh, and caches partition offsets. If a
+flash-mode scan cannot locate LittleFS, it falls back to the exhaustive 128 KiB geometry walk.
+The Details pane's External Flash section offers an explicit **Full scan** action for diagnosis.
+The scan runs before intflash bank classification because both share the SWD transport and an unknown intflash
+bank can take tens of seconds to read; prioritizing extflash exposes FrogFS/LittleFS promptly
+while the independent local-library scan proceeds. Routine refreshes reuse cached offsets to
+reread FrogFS and the LittleFS file tree without walking the whole chip. Erase, firmware
+installation, and an explicit Status-pane rescan invalidate that cache and rediscover the layout.
 
 ### Intflash Bank Scan (`intflashscan.ts`)
 
@@ -321,7 +334,7 @@ For performance and byte-exact compatibility, we use two separate LZMA implement
 
 **A folder scan whitelist can silently break something years later.** `romScan.ts`'s local-folder walker only keeps whitelisted filenames (`HOMEBREW_DEVICE_FILES`/`HOMEBREW_SOURCE_ROMS`) inside a `homebrew/` folder — added to keep stray junk out of the scan, it also silently dropped homebrew cover art (`.png`/`.jpg`/`.img`), since a cover matches neither list. This broke cover loading for both flash and SD, for both manually-placed and UI-set covers, and looked like a device/sync bug for a while before the actual cause (the scan itself, upstream of everything else) was found. Lesson: a whitelist filter needs to be re-examined whenever a new content *type* (not just new content) is added to a directory it covers.
 
-**Auto-scan on discovering a live device — freshness-gated, not unconditional.** `device.svelte.ts`'s liveness poll (`pollTick()`, every 300ms while idle) can passively discover the flash util already running (e.g. left over from a prior session) via `isStubAlive()`. `ensureStub()` itself deliberately never triggers a scan, so without this the UI could show "Connected (Recovery Mode)" (status bar, keyed on `utilLoaded`) while other panels still showed stale "Enter Recovery Mode" prompts (keyed on `device.partitions`, populated only by a scan that never ran). Fixed by having the poll fire `runScan()` on a genuine not-loaded→loaded transition — but gated by `_lastFullScanAt`/`AUTO_SCAN_FRESHNESS_WINDOW_MS` (60s), so a device that scanned recently doesn't get an unsolicited extra scan every time the poll happens to notice. This gate applies **only** to that passive trigger — every deliberate `runScan()` call elsewhere (post-install, an explicit Scan button) always runs regardless of freshness.
+**Auto-scan on discovering a live device — freshness-gated, not unconditional.** `device.svelte.ts`'s liveness poll (`pollTick()`, every 300ms while idle) can passively discover the flash util already running (e.g. left over from a prior session) via `isStubAlive()`. `ensureStub()` itself deliberately never triggers a scan, so without this the UI could show "Connected (Recovery Mode)" (status bar, keyed on `utilLoaded`) while other panels still showed stale "Enter Recovery Mode" prompts (keyed on `device.partitions`, populated only by a scan that never ran). Fixed by having the poll fire `runScan()` on a genuine not-loaded→loaded transition — but gated by `_lastFullScanAt`/`AUTO_SCAN_FRESHNESS_WINDOW_MS` (60s), so a device that scanned recently doesn't get an unsolicited extra scan every time the poll happens to notice. This gate applies **only** to that passive trigger — deliberate scans still refresh filesystem contents, while the full extflash geometry walk runs only on first scan or explicit layout invalidation.
 
 **One shared stat-panel component, not three.** `StatPanel.svelte` (`apps/web/src/lib/ui/`) is the single implementation for "bordered box of label/bold-value rows" — previously duplicated three times under unrelated names (`OverviewTab.svelte`'s `.bank-footer`/`.ext-fs-single`/`.fs-stat-row`, `RomManagementTab.svelte`'s `.sd-summary`/`.sd-stat`/`.sd-label`/`.sd-val`, `ChangeSummary.svelte`'s `.summary`/`.row`/`.label`/`.status`). `ChangeSummary.svelte` is now a thin wrapper around it (kept for its external `{items, bare}` interface, still used by `ConfirmModal.svelte`). Reach for `StatPanel` directly for any new stat/summary display — don't hand-roll a fourth version.
 

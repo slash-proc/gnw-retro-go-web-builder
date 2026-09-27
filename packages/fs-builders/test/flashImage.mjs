@@ -43,7 +43,7 @@ const defaultContent = new Map([
   ["bios/logo.bin", enc("logo")], //          the firmware's boot logo; never overridable
   ["bios/msx/MSX.rom", enc("msxbios")], //   omitted when no MSX games
   ["roms/bios/syscard3.pce", enc("DEFAULTpce")], // roms/bios → /bios
-  ["lang/de_de.bin", enc("lang")], //        → FrogFS (loaded from /lang)
+  ["lang/de_de.bin", enc("lang")], //        → LittleFS (loaded from /lang)
   ["roms/homebrew/celeste.bin", enc("celeste")],
 ]);
 
@@ -52,9 +52,7 @@ const userRoms = new Map([
   ["nes/mario.nes", enc("mario")],
   ["md/sonic.md", mdInput],
   ["bios/pce/syscard.pce", enc("USERpce")],
-  // cheats/, covers/ and the "<system>_bios/" convention were never staged, so
-  // every one of userDest()'s routing rules but the plain roms/ fallback was
-  // unpinned — each could be deleted with this suite still green.
+  // Every userDest() routing rule is pinned below.
   ["cheats/nes/mario.mcf", enc("cheat")],
   ["covers/nes/mario.img", enc("cover")],
   ["gb_bios/dmg_boot.bin", enc("gbbios")],
@@ -84,9 +82,8 @@ ok(userDest("readme.txt") === "roms/readme.txt", "userDest: no slash → roms/")
 // cores → LittleFS, NOT FrogFS
 ok(cores.has("cores/nes_fceu.bin") && cores.has("cores/tgb.bin"), "cores → LittleFS tree");
 ok(![...frog.keys()].some((p) => p.startsWith("cores/")), "no cores in FrogFS");
-// THREE, not two: `coreFiles` is everything bound for the LittleFS partition, which is the
-// cores plus the language blob above. The name predates lang/ joining them.
-ok(plan.stats.coreFiles === 3, "LittleFS-bound file count");
+// `coreFiles` is every payload bound for LittleFS: cores, language and cheats.
+ok(plan.stats.coreFiles === 4, "LittleFS-bound file count");
 
 // everything else → FrogFS
 ok(frog.has("roms/nes/mario.nes"), "user nes ROM → roms/nes/");
@@ -109,8 +106,9 @@ ok(!frog.has("bios/msx/MSX.rom"), "bios/msx omitted when no MSX games");
 ok(plan.stats.omittedMsxBios === true, "stats.omittedMsxBios true");
 
 // the staged user files land where userDest says
-ok(frog.has("cheats/nes/mario.mcf"), "user cheats/ file staged under cheats/");
-ok(!frog.has("roms/nes/mario.mcf"), "cheat file is NOT staged next to the ROM (regression guard: a firmware byte-patch once made that work)");
+ok(cores.has("cheats/nes/mario.mcf"), "user cheats/ file staged in LittleFS");
+ok(!frog.has("cheats/nes/mario.mcf"), "cheats are not staged in FrogFS");
+ok(!frog.has("roms/nes/mario.mcf"), "cheat file is NOT staged next to the ROM");
 ok(frog.has("covers/nes/mario.img"), "user covers/ .img staged under covers/");
 ok(frog.has("bios/gb/dmg_boot.bin"), "user <sys>_bios/ staged under bios/<sys>/");
 
@@ -119,22 +117,14 @@ ok(JSON.stringify(plan.systems) === JSON.stringify([...plan.systems].sort()), "p
 ok(JSON.stringify(plan.systems) === JSON.stringify(["gb", "homebrew", "md", "nes"]),
    `plan.systems == [gb,homebrew,md,nes] (got ${JSON.stringify(plan.systems)})`);
 
-// file order: grouped by game base (ROM and its cheat file adjacent), so adding
-// a game does not reshuffle unrelated payloads
+// File order keeps FrogFS payloads grouped deterministically by path.
 {
   const order = plan.frogfsFiles.map((f) => f.path);
   const iRom = order.indexOf("roms/nes/mario.nes");
-  const iCheat = order.indexOf("cheats/nes/mario.mcf");
   const iCover = order.indexOf("covers/nes/mario.img");
-  // The invariant is that ONE game's payloads occupy a contiguous run — that is what keeps
-  // adding an unrelated game from reshuffling (and re-hashing) everything else. It is not
-  // "the ROM and the cheat touch": all three of this game's files share the base
-  // "nes/mario", and the tie-break is full path, so the cover sorts between them.
-  const group = [iRom, iCheat, iCover];
-  ok(group.every((i) => i >= 0) && Math.max(...group) - Math.min(...group) === group.length - 1,
-     `one game's ROM, cheat and cover form a contiguous run (${JSON.stringify(group)})`);
-  ok(order.indexOf("roms/nes/mario!.nes") > Math.max(iRom, iCheat),
-     "the interleaving path sorts after the grouped pair (base grouping, not path order)");
+  ok(iRom >= 0 && iCover >= 0, "ROM and cover are both staged in FrogFS");
+  ok(order.indexOf("roms/nes/mario!.nes") > iRom,
+     "the interleaving ROM path sorts after the game ROM");
 }
 
 // compress:false must skip compression entirely
@@ -193,7 +183,7 @@ ok(frogImg.length > 64 && eq(frogImg.subarray(0, 4), Uint8Array.from([0x46, 0x52
 const images = await assembleFlashImages({ defaultContent, userRoms, lzmaRaw }, { blockSize: 4096, blockCount: 64 });
 ok(images.frogfs.length > 64, "assembled FrogFS non-empty");
 ok(images.littlefs.length > 0, "LittleFS cores image built");
-ok(images.plan.coreFiles.length === 3, "assembled plan carries the LittleFS-bound files");
+ok(images.plan.coreFiles.length === 4, "assembled plan carries the LittleFS-bound files");
 
 // --- layout / budget (planFlashLayout) ---
 const MB = 1024 * 1024;

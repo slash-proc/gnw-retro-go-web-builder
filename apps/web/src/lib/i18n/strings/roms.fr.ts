@@ -1,6 +1,25 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsFr: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) =>
+    `Impossible de préparer ${count} jaquettes sélectionnées pour FrogFS : ${files}`,
+  backgroundProgress: {
+    readingLibraryFiles: "Lecture des fichiers de la bibliothèque",
+    findingGames: "Recherche des jeux",
+    loadingGames: "Chargement des jeux",
+    ready: "Prêt",
+    reconcilingFolders: "Synchronisation des dossiers",
+    reconcilingDuplicates: "Vérification des doublons",
+    organizingLibrary: "Organisation de la bibliothèque",
+    checkingBrowserCoverCache: "Vérification du cache de jaquettes du navigateur",
+    decodingBrowserCoverPages: "Décodage des pages de jaquettes du navigateur",
+    reusingBrowserCovers: "Réutilisation des jaquettes du navigateur",
+    loadingSavedBrowserCovers: "Chargement des jaquettes enregistrées du navigateur",
+    preparingBrowserCovers: "Préparation des jaquettes du navigateur",
+    savingBrowserCoverCache: "Enregistrement du cache de jaquettes du navigateur",
+    originalCovers: (count: number) => `${count} jaquettes d’origine`,
+    atlasPages: (count: number) => `${count} pages d’atlas`,
+  },
   firefoxWarning: {
     dismissAriaLabel: "Ignorer l'avertissement",
     boldLead: "Firefox n'est que partiellement pris en charge.",
@@ -58,7 +77,7 @@ export const romsFr: RomsStrings = {
     installFirstPrompt: "Cet appareil n'a pas de partition cœurs/sauvegardes, installez donc d'abord Retro-Go.",
     calculatingLayout: "Calcul de l'agencement…",
     lzmaCheckboxLabel: "Compresser les ROMs avec LZMA ",
-    lzmaSoon: "non compressé pour l'instant",
+    lzmaSoon: "Actuellement désactivé",
     syncLibraryButton: "Synchroniser la bibliothèque",
     installTitle: "Installation",
     installBody: "Les jeux, le BIOS et les langues seront installés sur l'appareil.",

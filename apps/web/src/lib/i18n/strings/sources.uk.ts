@@ -14,6 +14,7 @@ function plural(n: number, one: string, few: string, many: string): string {
 }
 
 export const sourcesUk: SourcesStrings = {
+  multipleCoversFound: (game: string, covers: string, chosen: string) => `Для гри «${game}» знайдено кілька обкладинок: ${covers}. Вибрано: ${chosen}.`,
   tab: "Джерела",
   heading: "Джерела",
   colCores: "Ядра",

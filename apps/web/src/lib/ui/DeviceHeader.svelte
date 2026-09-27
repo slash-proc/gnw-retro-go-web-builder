@@ -152,7 +152,9 @@
   // "do not disconnect" is meaningless once the device is already gone.
   const statusText = $derived(
     device.connection === "lost"
-      ? locale.t.deviceHeader.connectionLost
+      ? device.isTargetUnresponsive
+        ? locale.t.deviceHeader.targetUnresponsive
+        : device.error ?? locale.t.deviceHeader.connectionLost
       : !device.isConnected
         ? locale.t.deviceHeader.noConnection
         : deviceSafety.state === "writing"

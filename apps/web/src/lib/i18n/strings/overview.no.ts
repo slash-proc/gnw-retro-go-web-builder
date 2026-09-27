@@ -69,6 +69,7 @@ export const overviewNo: OverviewStrings = {
     title: "Ekstern flash",
     scanningPleaseWait: "Skanner… Vent litt",
     scan: "Skann",
+    fullScan: "Fullstendig skanning",
     enterRecoveryToScan: "Gå til gjenopprettingsmodus for å skanne",
     freeOfTotal: (total: string) => `ledig av ${total}`,
   },

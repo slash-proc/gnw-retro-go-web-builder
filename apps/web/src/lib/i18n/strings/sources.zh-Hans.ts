@@ -11,6 +11,7 @@ export const sourcesZhHans: SourcesStrings = {
   coresSubtitle: "为 Game & Watch 增加主机的模拟器和游戏引擎。",
   homebrewSubtitle: "为 Game & Watch 制作的自制游戏和应用。",
   emptyColumn: "没有源",
+  multipleCoversFound: (game: string, covers: string, chosen: string) => `为游戏「${game}」找到多个封面：${covers}。将使用 ${chosen}。`,
   selectAllSources: "Select all",
   clearSelection: "Clear selection",
   allSources: "全部源",

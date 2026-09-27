@@ -61,7 +61,7 @@ await esbuild.build({
   logLevel: "warning",
   plugins: [gnwResolveFor(import.meta.url)],
 });
-const { scanExtflashPartitions, readFrogfsState } =
+const { scanExtflashPartitions, scanExtflashPartitionsLazy, readFrogfsState } =
   await import(pathToFileURL(join(out, "fsscan.js")).href);
 
 // --- Synthetic chip images --------------------------------------------------------------
@@ -150,6 +150,7 @@ function placeFat(c, off, bytesPerSector, totalSectors) {
 const fsSizeFor = (extflashSize) => Math.floor(extflashSize / 10 / 4096) * 4096;
 
 const scan = (c) => scanExtflashPartitions(c.read, c.size);
+const scanLazy = (c) => scanExtflashPartitionsLazy(c.read, c.size);
 const find = (parts, type) => parts.filter((p) => p.type === type);
 const one = (parts, type) => {
   const m = find(parts, type);
@@ -160,6 +161,43 @@ const one = (parts, type) => {
 // ========================================================================================
 // 1. Realistic whole-chip layouts
 // ========================================================================================
+await check("lazy scan finds stock assets and FrogFS, then stops after the first empty region", async () => {
+  const c = chip(64 * MB, 0xff);
+  c.put(0, ZELDA_STOCK_SIG);
+  placeFrogfs(c, 4 * MB, 2 * MB);
+  const parts = await scanLazy(c);
+  assert(parts.some((p) => p.type === "Zelda OFW"), "stock assets were not found");
+  assert(parts.some((p) => p.fs === "frogfs"), "FrogFS was not found");
+  assert(c.reads.length < 24, `lazy scan made too many reads: ${c.reads.length}`);
+});
+
+await check("lazy scan refines a coarse miss in 128 KiB steps for a nearby partition", async () => {
+  const c = chip(16 * MB, 0xff);
+  placeFrogfs(c, 128 * KB, 2 * MB);
+  const parts = await scanLazy(c);
+  assert(parts.some((p) => p.fs === "frogfs" && p.offset === 128 * KB), "fine probe did not find FrogFS");
+});
+
+await check("lazy scan checks for top-anchored LittleFS after the early-stop window", async () => {
+  const c = chip(64 * MB, 0xff);
+  placeLfs(c, 56 * MB, 8 * MB);
+  const parts = await scanLazy(c);
+  assert(parts.some((p) => p.fs === "littlefs" && p.offset === 56 * MB), "top LittleFS was not found");
+});
+
+await check("lazy scan checks for top-anchored LittleFS after the early-stop window", async () => {
+  const c = chip(64 * MB, 0xff);
+  placeLfs(c, 56 * MB, 8 * MB);
+  const parts = await scanLazy(c);
+  assert(parts.some((p) => p.fs === "littlefs" && p.offset === 56 * MB), "top LittleFS was not found");
+});
+
+await check("lazy scan stops when a 2 MiB refinement window is empty", async () => {
+  const c = chip(64 * MB, 0xff);
+  await scanLazy(c);
+  assert(c.reads.length < 24, `empty scan walked the chip: ${c.reads.length} reads`);
+});
+
 // A wrong answer here is the worst case in the app: `frogfsOffset` is where an install
 // WRITES, and the LittleFS start is the ceiling it must not cross. Off by one partition and
 // a ROM install erases the save filesystem, or the OFW backup at the bottom of the chip.

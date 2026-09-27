@@ -25,6 +25,20 @@
   let customFrequencyMode = $state(false);
   let selectedAdapterName = $state<string | null>(null);
   let availableAdapterNames = $state<string[]>([]);
+  let lastAdapterPrompt: object | null = null;
+
+  $effect(() => {
+    const prompt = device.adapterConfigPrompt;
+    if (!prompt) return;
+    if (device.isConnected) {
+      configureOpen = false;
+      device.resolveAdapterConfiguration();
+      return;
+    }
+    if (prompt === lastAdapterPrompt) return;
+    lastAdapterPrompt = prompt;
+    void changeAdapter();
+  });
 
   function toggle() {
     open = !open;
@@ -117,6 +131,32 @@
       configuring = false;
     }
   }
+  function dismissAdapterConfig() {
+    configureOpen = false;
+    if (device.adapterConfigPrompt) device.cancelAdapterConfiguration();
+  }
+  async function confirmAdapterConfig() {
+    if (!device.adapterConfigPrompt) {
+      if (customFrequencyMode) applyCustomFrequency();
+      device.setAdapterFrequency(device.adapterFrequencyHz);
+      configureOpen = false;
+      return;
+    }
+    configuring = true;
+    configureError = null;
+    try {
+      if (customFrequencyMode) applyCustomFrequency();
+      device.setAdapterFrequency(device.adapterFrequencyHz);
+      await device.connect(undefined, { reconnect: true });
+      if (!device.isConnected) throw new Error(device.error ?? locale.t.shared.connectGateModal.connectionFailed);
+      configureOpen = false;
+      device.resolveAdapterConfiguration();
+    } catch (e) {
+      configureError = e instanceof Error ? e.message : String(e);
+    } finally {
+      configuring = false;
+    }
+  }
   function disconnectDevice() {
     open = false;
     device.disconnect();
@@ -163,7 +203,7 @@
 {/if}
 
 {#if configureOpen}
-  <ModalShell onDismiss={() => !configuring && (configureOpen = false)} maxWidth="26rem">
+  <ModalShell onDismiss={() => !configuring && dismissAdapterConfig()} maxWidth="26rem">
     {#snippet children()}
       <div class="adapter-config">
         <h3>Configure Adapter</h3>
@@ -189,8 +229,8 @@
         {/if}
         {#if configureError}<p class="config-error">{configureError}</p>{/if}
         <div class="config-actions">
-          <button class="config-cancel" disabled={configuring} onclick={() => (configureOpen = false)}>{locale.t.shared.common.cancel}</button>
-          <button class="config-connect" disabled={configuring} onclick={() => { if (customFrequencyMode) applyCustomFrequency(); device.setAdapterFrequency(device.adapterFrequencyHz); configureOpen = false; }}>OK</button>
+          <button class="config-cancel" disabled={configuring} onclick={dismissAdapterConfig}>{locale.t.shared.common.cancel}</button>
+          <button class="config-connect" disabled={configuring} onclick={confirmAdapterConfig}>{device.adapterConfigPrompt ? locale.t.shared.common.connect : "OK"}</button>
         </div>
       </div>
     {/snippet}

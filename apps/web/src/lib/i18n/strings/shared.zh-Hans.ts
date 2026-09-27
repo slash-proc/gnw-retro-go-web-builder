@@ -26,7 +26,7 @@ export const sharedZhHans: SharedStrings = {
     rescan: "重新扫描",
     restartRecoveryMode: "重启恢复模式",
     startRecoveryMode: "启动恢复模式",
-    changeAdapter: "更换适配器",
+    changeAdapter: "配置适配器",
     disconnectDevice: "断开设备",
   },
   stubLoadModal: {

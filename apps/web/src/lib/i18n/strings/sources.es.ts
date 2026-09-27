@@ -12,6 +12,8 @@ export const sourcesEs: SourcesStrings = {
   coresSubtitle: "Emuladores y motores de juego que añaden una consola a la Game & Watch.",
   homebrewSubtitle: "Juegos/aplicaciones caseros para la Game & Watch.",
   emptyColumn: "Sin fuentes",
+  multipleCoversFound: (game: string, covers: string, chosen: string) =>
+    `Se encontraron varias carátulas para ${game}: ${covers}. Se usará ${chosen}.`,
   selectAllSources: "Select all",
   clearSelection: "Clear selection",
   allSources: "Todas las fuentes",

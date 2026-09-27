@@ -1,6 +1,7 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsPt: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) => `Não foi possível preparar as imagens de capa selecionadas (${count}) para o FrogFS: ${files}.`,
   firefoxWarning: {
     dismissAriaLabel: "Dispensar aviso",
     boldLead: "O Firefox só é parcialmente suportado.",
@@ -60,7 +61,7 @@ export const romsPt: RomsStrings = {
     calculatingLayout: "A calcular a disposição…",
     // Trailing space preserved: `lzmaSoon` is rendered immediately after this label.
     lzmaCheckboxLabel: "Comprimir ROMs com LZMA ",
-    lzmaSoon: "sem compressão por agora",
+    lzmaSoon: "atualmente desativado",
     syncLibraryButton: "Sincronizar biblioteca",
     installTitle: "Instalação",
     installBody: "Jogos, BIOS e idiomas serão instalados no dispositivo.",
@@ -86,6 +87,23 @@ export const romsPt: RomsStrings = {
     logConfirmingLinkResponsive: (alive: boolean, ms: number) => `device: mailbox do stub alive=${alive}, ${ms} ms`,
     logRescanning: `device: a analisar de novo a geometria e os jogos instalados`,
     wontFitDetail: "Não cabe no espaço disponível. Desmarque alguns jogos.",
+  },
+  backgroundProgress: {
+    readingLibraryFiles: "A ler os ficheiros da biblioteca",
+    findingGames: "A procurar jogos",
+    loadingGames: "A carregar jogos",
+    ready: "Pronto",
+    reconcilingFolders: "A sincronizar pastas",
+    reconcilingDuplicates: "A resolver duplicados",
+    organizingLibrary: "A organizar a biblioteca",
+    checkingBrowserCoverCache: "A verificar a cache de capas do navegador",
+    decodingBrowserCoverPages: "A descodificar páginas de capas do navegador",
+    reusingBrowserCovers: "A reutilizar capas do navegador",
+    loadingSavedBrowserCovers: "A carregar capas guardadas do navegador",
+    preparingBrowserCovers: "A preparar capas do navegador",
+    savingBrowserCoverCache: "A guardar a cache de capas do navegador",
+    originalCovers: (count: number) => `${count} ${count === 1 ? "capa original" : "capas originais"}`,
+    atlasPages: (count: number) => `${count} ${count === 1 ? "página de atlas" : "páginas de atlas"}`,
   },
   sdSync: {
     // Followed directly by a <select> of core versions, so this fragment ends on the

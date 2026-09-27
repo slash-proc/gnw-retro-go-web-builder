@@ -5,6 +5,7 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 // values. `patched`/`stock` are lowercase because they are only ever substituted into
 // `ofwLabel`'s parentheses, never shown alone.
 export const deviceHeaderRu: DeviceHeaderStrings = {
+  targetUnresponsive: "Устройство перестало отвечать. Ожидание восстановления связи…",
   changeInstallationMethod: "Сменить способ установки",
   connectionLost: "Соединение потеряно",
   noConnection: "Нет соединения",

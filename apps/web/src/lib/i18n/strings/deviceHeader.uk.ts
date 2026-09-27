@@ -1,6 +1,7 @@
 import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderUk: DeviceHeaderStrings = {
+  targetUnresponsive: "Пристрій перестав відповідати. Очікування на відновлення зв’язку…",
   changeInstallationMethod: "Змінити спосіб встановлення",
   connectionLost: "З’єднання втрачено",
   noConnection: "Немає з’єднання",

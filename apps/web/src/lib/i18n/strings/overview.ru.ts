@@ -74,6 +74,7 @@ export const overviewRu: OverviewStrings = {
     title: "Внешняя флеш-память",
     scanningPleaseWait: "Сканирование… Подождите",
     scan: "Сканировать",
+    fullScan: "Полное сканирование",
     enterRecoveryToScan: "Войти в режим восстановления",
     freeOfTotal: (total: string) => `свободно из ${total}`,
   },

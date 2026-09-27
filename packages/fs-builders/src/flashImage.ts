@@ -222,13 +222,14 @@ export function planFlashImage(inputs: FlashImageInputs): FlashAssemblyPlan {
    * destination was not obvious from the build scripts. The loader settles it.
    */
   const LANG = "lang/";
+  const CHEATS = "cheats/";
   // The trees that live in the LittleFS partition rather than FrogFS. `cores` mirrors
   // upstream's `gen_littlefs_image.py` DEFAULT_DIRS; `data` is writable firmware state (see
   // `userDest`); `lang` is read through `fopen` (above). A MAPPED artifact overrides this and
   // goes to FrogFS regardless -- it is addressable memory, and only FrogFS stores a file as one
   // contiguous run.
   const toLittleFs = (dest: string): boolean =>
-    dest.startsWith(CORES) || dest.startsWith(DATA) || dest.startsWith(LANG);
+    dest.startsWith(CORES) || dest.startsWith(DATA) || dest.startsWith(LANG) || dest.startsWith(CHEATS);
 
   // 1) All content → FrogFS dest-keyed tree (user overrides).
   const tree = new Map<string, Uint8Array>();
@@ -359,7 +360,7 @@ export function planFlashImage(inputs: FlashImageInputs): FlashAssemblyPlan {
     systems: [...systems].sort(),
     // From the RESOLVED paths, not literals: the firmware declares these directory names and
     // `resolveInstallPaths` is the one place that normalizes them.
-    lfsDirs: [paths.cores, paths.data],
+    lfsDirs: [paths.cores, paths.data, "cheats"],
     mappedDests: [...mappedDests].sort((a, b) => (a.dest < b.dest ? -1 : a.dest > b.dest ? 1 : 0)),
     stats: {
       frogfsFiles: packed.files.length,

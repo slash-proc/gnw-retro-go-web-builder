@@ -11,6 +11,7 @@ export const sourcesZhHant: SourcesStrings = {
   coresSubtitle: "模擬器與遊戲引擎，為 Game & Watch 增加一台主機。",
   homebrewSubtitle: "給 Game & Watch 的自製遊戲／應用程式。",
   emptyColumn: "沒有來源",
+  multipleCoversFound: (game: string, covers: string, chosen: string) => `遊戲「${game}」找到多張封面：${covers}。將使用 ${chosen}。`,
   selectAllSources: "Select all",
   clearSelection: "Clear selection",
   allSources: "所有來源",

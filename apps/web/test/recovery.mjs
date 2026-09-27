@@ -71,10 +71,10 @@ const STUBS = {
     export const dumpRegion = async () => new Uint8Array();
     export const attachFlasher = (t) => ({ __attached: t });
     export const isStubAlive = async () => globalThis.__fake.stubAlive;
-    export const pingTarget = async () => true;`,
-  "./engine/fsscan.js": `export const scanExtflashPartitions = async () => [];`,
-  "./engine/intflashscan.js": `export const scanIntflashBanks = async () => []; export const INT_BANK_BASES = [0x08032000, 0x08122000];`,
-  "./engine/classify.js": `export const classifyDevice = () => null;`,
+    export const pingTarget = async () => globalThis.__fake.pingOkay;`,
+  "./engine/fsscan.js": `export const scanExtflashPartitions = async () => []; export const scanExtflashPartitionsLazy = async () => [];`,
+  "./engine/intflashscan.js": `export const scanIntflashBanks = async () => []; export const INT_BANK_BASES = [0x08000000, 0x08100000];`,
+  "./engine/classify.js": `export const classifyDevice = () => ({ ofw: null });`,
   "./engine/screenshot.js": `export const captureScreenshot = async () => null;`,
   "./engine/frogfsDevice.js": `export const readInstalledFrogfs = async () => null;`,
   "./engine/devicelog.js": `export const fallbackLogLayout = () => null; export const loadDeviceLogLayout = async () => null; export const readLogFromTransport = async () => ({ text: "", idx: 0 }); export const retroGoActivityFromLog = () => null;`,
@@ -142,14 +142,23 @@ function makeProbe(ownDevice = false) {
   p.transport = {
     busy: () => false,
     connect: async () => guard(),
-    readMemory: async (_a, l) => { guard(); return new Uint8Array(l ?? 0); },
+    readMemory: async (address, length) => {
+      guard();
+      const data = new Uint8Array(length ?? 0);
+      if (globalThis.__fake.ofwVector && address === 0x08000000 && data.length >= 8) {
+        const vector = new DataView(data.buffer);
+        vector.setUint32(0, 0x20011330, true);
+        vector.setUint32(4, 0x08040101, true);
+      }
+      return data;
+    },
     writeMemory: async () => guard(),
-    readWord: async () => { guard(); return 0; },
+    readWord: async (address) => { guard(); return address === 0xe000ed08 ? globalThis.__fake.vtor : 0; },
     writeWord: async () => guard(),
     halt: async () => guard(),
     resume: async () => guard(),
     reset: async () => guard(),
-    readRegister: async () => { guard(); return 0; },
+    readRegister: async () => { guard(); return globalThis.__fake.pc; },
     writeRegister: async () => guard(),
   };
   p.dispose = async () => { p.disposals++; p.open = false; };
@@ -158,6 +167,10 @@ function makeProbe(ownDevice = false) {
 
 const fake = {
   stubAlive: false,
+  pingOkay: true,
+  ofwVector: false,
+  vtor: 0,
+  pc: 0,
   probes: [],
   connectCalls: 0,
   knownGate: null, // when set, getKnownProbes awaits it
@@ -389,6 +402,100 @@ await check("connectSilent() DOES attach when the link is genuinely still lost",
   await tick(5);
   eq(fake.connectCalls, before + 1, "a genuinely lost link must be re-attached");
   eq(device.connection, "connected", "and end up connected");
+});
+
+await check("a target ping miss does not reconnect a still-attached adapter", async () => {
+  await device.disconnect();
+  await freshConnect();
+  device.stopPoll();
+  const probe = device.probe;
+  const attaches = fake.connectCalls;
+  fake.pingOkay = false;
+  await device.pollTick();
+  eq(device.connection, "connected", "one transient ping miss does not change the UI");
+  await device.pollTick();
+  await device.pollTick();
+  eq(device.connection, "connected", "short OFW ping streaks do not flap the UI");
+  fake.pingOkay = true;
+  await device.pollTick();
+  device.lastTargetAnswerAt = Date.now() - 10_000;
+  fake.pingOkay = false;
+  await device.pollTick();
+  eq(device.connection, "connected", "a recent good ping keeps intermittent OFW connected");
+  device.lastTargetAnswerAt = Date.now() - 15_001;
+  await device.pollTick();
+  eq(device.connection, "lost", "target-unresponsive state disables device actions");
+  assert(device.probe === probe && probe.open, "the adapter remains open while OFW is unresponsive");
+  await device.connectSilent();
+  await device.connect();
+  eq(fake.connectCalls, attaches, "silent and explicit connects must not attach another handle");
+  fake.pingOkay = true;
+  await device.pollTick();
+  eq(device.connection, "lost", "one lucky ping does not flap the UI back to connected");
+  device.firstRecoveryAnswerAt = Date.now() - 3_001;
+  await device.pollTick();
+  eq(device.connection, "connected", "the original session recovers on a good ping");
+  eq(fake.connectCalls, attaches, "recovery needs no new adapter connection");
+  await device.disconnect();
+});
+
+await check("an unreadable target does not start an expensive flash scan", async () => {
+  await device.disconnect();
+  fake.pingOkay = false;
+  const beforeScans = device._scanSeq;
+  await device.connect();
+  device.stopPoll();
+  eq(device.connection, "lost", "the probe alone does not establish target connectivity");
+  eq(device._scanSeq, beforeScans, "invalid target reads do not launch a bank scan");
+  fake.pingOkay = true;
+  await device.pollTick();
+  device.firstRecoveryAnswerAt = Date.now() - 3_001;
+  await device.pollTick();
+  eq(device.connection, "connected", "the retained probe recovers when target reads work");
+  await device.disconnect();
+});
+
+await check("a real USB disconnect still tears down an unresponsive target session", async () => {
+  await freshConnect();
+  device.stopPoll();
+  fake.pingOkay = false;
+  device.lastTargetAnswerAt = Date.now() - 15_001;
+  await device.pollTick();
+  fireUsbDisconnect();
+  await tick(5);
+  assert(device.probe === null, "the USB disconnect closes the retained adapter session");
+  await device.disconnect();
+  fake.pingOkay = true;
+});
+
+await check("quick runtime detection uses the PC when OFW exposes an invalid VTOR", async () => {
+  await device.disconnect();
+  fake.ofwVector = true;
+  fake.vtor = 0xffffffff;
+  fake.pc = 0x08040101;
+  await freshConnect();
+  device.stopPoll();
+  eq(device.runtimeKind, "stock-ofw", "patched OFW is recognized from the halted PC");
+  eq(device.runtimeBank, 1, "the running OFW bank is identified");
+  await device.disconnect();
+  fake.ofwVector = false;
+  fake.vtor = 0xffffffff;
+  fake.pc = 0;
+});
+
+await check("an active library scan cannot trigger a false target-loss transition", async () => {
+  await freshConnect();
+  device.stopPoll();
+  device.scanning = true;
+  device.lastTargetAnswerAt = Date.now() - 15_001;
+  fake.pingOkay = false;
+  await device.pollTick();
+  eq(device.connection, "connected", "scan time does not count as target silence");
+  device.scanning = false;
+  fake.pingOkay = true;
+  await device.pollTick();
+  eq(device.connection, "connected", "the first idle ping can refresh liveness");
+  await device.disconnect();
 });
 
 await check("a forcePicker connect is never answered by an in-flight pickerless attach", async () => {

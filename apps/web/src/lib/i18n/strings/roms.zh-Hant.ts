@@ -1,6 +1,7 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsZhHant: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) => `無法為 FrogFS 準備所選的 ${count} 張封面：${files}`,
   firefoxWarning: {
     dismissAriaLabel: "關閉警告",
     boldLead: "Firefox 只有部分支援。",
@@ -51,6 +52,23 @@ export const romsZhHant: RomsStrings = {
     notEnoughSpace: (requiredMiB: string, availableMiB: string) =>
       `裝置空間不足！需要：${requiredMiB} MB，可用：${availableMiB} MB`,
   },
+  backgroundProgress: {
+    readingLibraryFiles: "正在讀取遊戲庫檔案",
+    findingGames: "正在尋找遊戲",
+    loadingGames: "正在載入遊戲",
+    ready: "就緒",
+    reconcilingFolders: "正在整理資料夾",
+    reconcilingDuplicates: "正在處理重複項目",
+    organizingLibrary: "正在整理遊戲庫",
+    checkingBrowserCoverCache: "正在檢查瀏覽器封面快取",
+    decodingBrowserCoverPages: "正在解碼瀏覽器封面圖集頁面",
+    reusingBrowserCovers: "正在重用瀏覽器封面",
+    loadingSavedBrowserCovers: "正在載入已儲存的瀏覽器封面",
+    preparingBrowserCovers: "正在準備瀏覽器封面",
+    savingBrowserCoverCache: "正在儲存瀏覽器封面快取",
+    originalCovers: (count: number) => `${count} 張原始封面`,
+    atlasPages: (count: number) => `${count} 個圖集頁面`,
+  },
   install: {
     connectPrompt: "連接裝置才能安裝你的遊戲庫。",
     scanningDevice: "掃描裝置中…",
@@ -58,7 +76,7 @@ export const romsZhHant: RomsStrings = {
     installFirstPrompt: "這台裝置沒有核心／存檔分割區，請先安裝 Retro-Go。",
     calculatingLayout: "計算配置中…",
     lzmaCheckboxLabel: "以 LZMA 壓縮 ROM ",
-    lzmaSoon: "目前不壓縮",
+    lzmaSoon: "目前已停用",
     syncLibraryButton: "同步遊戲庫",
     installTitle: "安裝",
     installBody: "遊戲、BIOS 與語言會安裝到裝置上。",

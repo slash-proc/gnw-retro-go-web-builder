@@ -3,6 +3,7 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 export const deviceHeaderJa: DeviceHeaderStrings = {
   changeInstallationMethod: "インストール方法を変更",
   connectionLost: "接続が切断されました",
+  targetUnresponsive: "デバイスが応答していません。応答が戻るまで待機中…",
   noConnection: "未接続",
   connectedRecoveryMode: "接続済み（リカバリーモード）",
   connectedRetroGo: "接続済み（Retro-Go）",

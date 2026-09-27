@@ -42,6 +42,18 @@ function sources(dir) {
 
 const store = readFileSync(join(here, "../src/lib/device.svelte.ts"), "utf8");
 
+check("scan geometry options are passed from runScan into _doScan", () => {
+  assert(/return await this\._doScan\(opts\)/.test(store), "runScan drops its geometry options");
+  assert(/private async _doScan\(opts: \{ fullGeometry\?: boolean \} = \{\}\)/.test(store),
+    "_doScan does not accept geometry options");
+});
+
+check("scan geometry options are passed from runScan into _doScan", () => {
+  assert(/return await this\._doScan\(opts\)/.test(store), "runScan drops its geometry options");
+  assert(/private async _doScan\(opts: \{ fullGeometry\?: boolean \} = \{\}\)/.test(store),
+    "_doScan does not accept geometry options");
+});
+
 check("runScan takes a reason, and defaults rather than throwing", () => {
   assert(/async runScan\(reason = "unknown"(,|\))/.test(store),
     "runScan does not take a defaulted reason");

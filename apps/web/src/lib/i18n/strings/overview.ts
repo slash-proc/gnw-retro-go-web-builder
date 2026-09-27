@@ -89,6 +89,7 @@ export const overviewEn = {
     title: "External Flash",
     scanningPleaseWait: "Scanning… Please wait",
     scan: "Scan",
+    fullScan: "Full scan",
     enterRecoveryToScan: "Enter Recovery Mode to Scan",
     freeOfTotal: (total: string) => `free of ${total}`,
   },

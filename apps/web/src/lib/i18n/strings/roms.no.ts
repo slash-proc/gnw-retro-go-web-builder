@@ -1,6 +1,25 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsNo: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) =>
+    `Kunne ikke klargjøre ${count} valgte omslagsbilder for FrogFS: ${files}`,
+  backgroundProgress: {
+    readingLibraryFiles: "Leser bibliotekfiler",
+    findingGames: "Finner spill",
+    loadingGames: "Laster spill",
+    ready: "Klar",
+    reconcilingFolders: "Synkroniserer mapper",
+    reconcilingDuplicates: "Håndterer duplikater",
+    organizingLibrary: "Organiserer biblioteket",
+    checkingBrowserCoverCache: "Kontrollerer nettleserens omslagsbuffer",
+    decodingBrowserCoverPages: "Dekoder nettleserens omslagssider",
+    reusingBrowserCovers: "Gjenbruker nettleseromslag",
+    loadingSavedBrowserCovers: "Laster lagrede nettleseromslag",
+    preparingBrowserCovers: "Klargjør nettleseromslag",
+    savingBrowserCoverCache: "Lagrer nettleserens omslagsbuffer",
+    originalCovers: (count: number) => `${count} originalomslag`,
+    atlasPages: (count: number) => `${count} atlas-sider`,
+  },
   firefoxWarning: {
     dismissAriaLabel: "Lukk advarselen",
     boldLead: "Firefox støttes bare delvis.",
@@ -58,7 +77,7 @@ export const romsNo: RomsStrings = {
     installFirstPrompt: "Denne enheten har ingen partisjon for kjerner/lagringer, så installer Retro-Go først.",
     calculatingLayout: "Beregner oppsett…",
     lzmaCheckboxLabel: "Komprimer ROM-er med LZMA ",
-    lzmaSoon: "ukomprimert foreløpig",
+    lzmaSoon: "Deaktivert for øyeblikket",
     syncLibraryButton: "Synkroniser bibliotek",
     installTitle: "Installasjon",
     installBody: "Spill, BIOS og språk installeres på enheten.",

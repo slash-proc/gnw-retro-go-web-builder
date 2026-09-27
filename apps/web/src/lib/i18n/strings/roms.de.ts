@@ -1,6 +1,25 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsDe: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) =>
+    `${count} ausgewählte Cover konnten nicht für FrogFS vorbereitet werden: ${files}`,
+  backgroundProgress: {
+    readingLibraryFiles: "Bibliotheksdateien werden gelesen",
+    findingGames: "Spiele werden gesucht",
+    loadingGames: "Spiele werden geladen",
+    ready: "Bereit",
+    reconcilingFolders: "Ordner werden abgeglichen",
+    reconcilingDuplicates: "Duplikate werden abgeglichen",
+    organizingLibrary: "Bibliothek wird organisiert",
+    checkingBrowserCoverCache: "Browser-Cover-Cache wird geprüft",
+    decodingBrowserCoverPages: "Browser-Coverseiten werden dekodiert",
+    reusingBrowserCovers: "Browser-Cover werden wiederverwendet",
+    loadingSavedBrowserCovers: "Gespeicherte Browser-Cover werden geladen",
+    preparingBrowserCovers: "Browser-Cover werden vorbereitet",
+    savingBrowserCoverCache: "Browser-Cover-Cache wird gespeichert",
+    originalCovers: (count: number) => `${count} Originalcover`,
+    atlasPages: (count: number) => `${count} Atlas-Seiten`,
+  },
   firefoxWarning: {
     dismissAriaLabel: "Hinweis schließen",
     boldLead: "Firefox wird nur eingeschränkt unterstützt.",
@@ -58,7 +77,7 @@ export const romsDe: RomsStrings = {
     installFirstPrompt: "Auf diesem Gerät wurde keine Core-/Spielstand-Partition gefunden, installiere daher zuerst Retro-Go.",
     calculatingLayout: "Layout wird berechnet…",
     lzmaCheckboxLabel: "ROMs mit LZMA komprimieren ",
-    lzmaSoon: "vorerst unkomprimiert",
+    lzmaSoon: "Derzeit deaktiviert",
     syncLibraryButton: "Bibliothek synchronisieren",
     installTitle: "Installation",
     installBody: "Spiele, BIOS und Sprachen werden auf dem Gerät installiert.",

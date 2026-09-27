@@ -25,7 +25,7 @@ export const sharedKo: SharedStrings = {
     rescan: "다시 스캔",
     restartRecoveryMode: "복구 모드 재시작",
     startRecoveryMode: "복구 모드 시작",
-    changeAdapter: "어댑터 변경",
+    changeAdapter: "어댑터 설정",
     disconnectDevice: "기기 연결 해제",
   },
   stubLoadModal: {

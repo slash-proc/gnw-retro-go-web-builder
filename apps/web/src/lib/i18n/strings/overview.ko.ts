@@ -69,6 +69,7 @@ export const overviewKo: OverviewStrings = {
     title: "외장 플래시",
     scanningPleaseWait: "스캔 중… 잠시만 기다려 주세요",
     scan: "스캔",
+    fullScan: "전체 스캔",
     enterRecoveryToScan: "스캔하려면 복구 모드로 진입",
     freeOfTotal: (total: string) => `전체 ${total} 중 남음`,
   },

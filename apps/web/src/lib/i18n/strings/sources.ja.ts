@@ -13,6 +13,8 @@ export const sourcesJa: SourcesStrings = {
   coresSubtitle: "Game & Watch にコンソールを追加するエミュレーターやゲームエンジンです。",
   homebrewSubtitle: "Game & Watch 用の自作ゲーム・アプリです。",
   emptyColumn: "ソースなし",
+  multipleCoversFound: (game: string, covers: string, chosen: string) =>
+    `${game} に一致するカバー画像が複数見つかりました: ${covers}。${chosen} を使用します。`,
   selectAllSources: "Select all",
   clearSelection: "Clear selection",
   allSources: "すべてのソース",

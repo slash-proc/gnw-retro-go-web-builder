@@ -69,6 +69,7 @@ export const overviewPt: OverviewStrings = {
     title: "Flash externa",
     scanningPleaseWait: "A analisar… Aguarde",
     scan: "Analisar",
+    fullScan: "Análise completa",
     enterRecoveryToScan: "Entrar em modo de recuperação para analisar",
     freeOfTotal: (total: string) => `livres de ${total}`,
   },

@@ -13,6 +13,8 @@ export const sourcesKo: SourcesStrings = {
   coresSubtitle: "게임 & 워치에 콘솔을 추가하는 에뮬레이터와 게임 엔진이에요.",
   homebrewSubtitle: "게임 & 워치용 홈브루 게임/앱입니다.",
   emptyColumn: "소스 없음",
+  multipleCoversFound: (game: string, covers: string, chosen: string) =>
+    `${game}에 해당하는 커버 이미지가 여러 개 발견되었습니다: ${covers}. ${chosen}을(를) 사용합니다.`,
   selectAllSources: "Select all",
   clearSelection: "Clear selection",
   allSources: "모든 소스",

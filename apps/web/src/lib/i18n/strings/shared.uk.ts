@@ -27,7 +27,7 @@ export const sharedUk: SharedStrings = {
     rescan: "Пересканувати",
     restartRecoveryMode: "Перезапустити режим відновлення",
     startRecoveryMode: "Увімкнути режим відновлення",
-    changeAdapter: "Змінити адаптер",
+    changeAdapter: "Налаштувати адаптер",
     disconnectDevice: "Від’єднати пристрій",
   },
   stubLoadModal: {

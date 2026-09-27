@@ -257,8 +257,22 @@ for (const [rel, writeCall] of WRITE_FLOWS) {
 
 await check("Wizard's two write flows each unlock", () => {
   const src = strip(read("src/lib/views/Wizard.svelte"));
-  eq((src.match(/device\.ensureUnlocked\(\)/g) || []).length, 4,
+  eq((src.match(/device\.ensureUnlocked\((?:true)?\)/g) || []).length, 4,
     "runStep1, runStep2's flash, bank2 cleanup, and restoreStock each need one");
+  ok(/runStep1[\s\S]*?device\.ensureUnlocked\(true\)/.test(src),
+    "Backup & Patch already has Recovery Mode consent before auto-unlocking");
+});
+
+await check("Wizard does not repeat its Recovery Mode gate after unlocking resets the stub", () => {
+  const src = strip(read("src/lib/views/Advanced.svelte"));
+  const start = src.indexOf("let stubGateRequested = false;");
+  const end = src.indexOf("const HASH_SEGMENT", start);
+  ok(start >= 0 && end > start, "the wizard recovery gate is missing");
+  const gate = src.slice(start, end);
+  ok(/device\.utilLoaded \|\| stubGateRequested/.test(gate),
+    "the Recovery Mode gate must stay latched after the flow temporarily clears utilLoaded");
+  ok(/stubGateRequested = false/.test(gate.slice(0, gate.indexOf("device.ensureStub"))),
+    "the latch must reset after leaving Guided Setup or disconnecting");
 });
 
 // --- 5. The opt-in is gone -----------------------------------------------------------------------

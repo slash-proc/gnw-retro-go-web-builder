@@ -3,6 +3,7 @@ import type { Widen } from "../widen.js";
 export const deviceHeaderEn = {
   changeInstallationMethod: "Change Installation Method",
   connectionLost: "Connection lost",
+  targetUnresponsive: "Target is not responding. Waiting for it to wake up…",
   noConnection: "No connection",
   connectedRecoveryMode: "Connected (Recovery Mode)",
   connectedRetroGo: "Connected (Retro-Go)",

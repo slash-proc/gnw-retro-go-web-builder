@@ -18,11 +18,31 @@
   import ConnectGateModal from "./lib/ui/ConnectGateModal.svelte";
   import InstallProgressModal from "./lib/ui/InstallProgressModal.svelte";
 
+  function backgroundStageLabel(stage: string): string {
+    const labels = locale.t.roms.backgroundProgress;
+    const stageLabels: Record<string, string> = {
+      "Reading library files": labels.readingLibraryFiles,
+      "Finding games": labels.findingGames,
+      "Loading games": labels.loadingGames,
+      Ready: labels.ready,
+      "Reconciling folders": labels.reconcilingFolders,
+      "Reconciling duplicates": labels.reconcilingDuplicates,
+      "Organizing library": labels.organizingLibrary,
+      "Checking browser cover cache": labels.checkingBrowserCoverCache,
+      "Decoding browser cover pages": labels.decodingBrowserCoverPages,
+      "Reusing browser covers": labels.reusingBrowserCovers,
+      "Loading saved browser covers": labels.loadingSavedBrowserCovers,
+      "Preparing browser covers": labels.preparingBrowserCovers,
+      "Saving browser cover cache": labels.savingBrowserCoverCache,
+    };
+    return stageLabels[stage] ?? stage;
+  }
+
   const backgroundStatus = $derived.by(() => {
     const task = library.backgroundTask;
     if (task) {
       return {
-        stage: task.stage,
+        stage: backgroundStageLabel(task.stage),
         detail: task.detail,
         fraction: task.total > 0 ? task.done / task.total : null,
       };
@@ -34,7 +54,7 @@
       ? `${activeLayer ? `${activeLayer.name} / ` : ""}${progress.current}`
       : activeLayer?.name ?? "";
     return {
-      stage: progress.stage,
+      stage: backgroundStageLabel(progress.stage),
       detail,
       fraction: progress.total > 0 ? progress.done / progress.total : null,
     };
@@ -72,6 +92,7 @@
     // On a hard refresh Advanced has not applied the route to firmwareMode yet; the hash is
     // already authoritative, so use it to close that startup race.
     if (typeof window !== "undefined" && window.location.hash.startsWith("#guided")) return;
+    if (device.libraryScanStartupPending) return;
     if (library.sourcesResolving && !library.loaded) return;
     void library.sync();
   });
@@ -127,8 +148,8 @@
   function handleNavigate(target: 'device' | 'device-advanced' | 'games', media: 'flash' | 'sd') {
     // Landing is a deliberate top-level re-entry point — re-arm auto-reconnect even if the
     // device was explicitly disconnected earlier this session (see allowAutoReconnect's doc
-    // comment). Applies to both targets: 'device' connectSilent()s directly below, 'games'
-    // (Flash mode) does it via RomManagementTab's own autoProbeRoms() on mount.
+    // comment). Applies to both targets: device management connects below; for the Library,
+    // start device inventory before `showLanding = false` lets library-sync effects begin.
     device.allowAutoReconnect();
     // The landing wizard must remain passive. Once the user chooses a destination,
     // begin watching an already-authorized adapter for the console to appear.
@@ -139,6 +160,7 @@
     if (target === 'games') {
       entryTab = 'roms';
       autoRouteEnabled = false;
+      void device.startLibraryDeviceScan().catch(() => {});
     } else {
       // 'device' → Overview tab; auto-route to Guided Setup after scan if firmware needs setup.
       // 'device-advanced' → Firmware Setup tab directly; no auto-route (user asked explicitly).

@@ -79,31 +79,31 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
   // now, not `.docked`: its rail owns all four sides of both columns.
   const docked = $derived(tab === "roms");
 
-  // Firmware Setup requires a basic connection for ANYTHING on it — both Guided and Advanced
-  // sub-modes. Surface the shared connect gate the instant the tab is viewed while disconnected
-  // (mirrors OverviewTab's gate; single check at the tab level, not per-section/per-mode).
-  // Cancelling sends the user back to the Overview tab, matching the old modal's "Back" behavior.
+  // Firmware Setup requires a responsive target, so open the header's adapter configuration
+  // whenever the tab is entered without one.
   let connectGateActive = false;
   $effect(() => {
     if (tab !== "device" || device.isConnected) return;
     if (connectGateActive) return;
     connectGateActive = true;
-    device.ensureConnectGate()
-      .catch(() => untrack(() => selectTab("info", false))) // gate cancelled: derived, replace
+    device.requestAdapterConfiguration()
+      .catch(() => untrack(() => selectTab("info", false)))
       .finally(() => (connectGateActive = false));
   });
 
   // Guided Setup (the Wizard) additionally requires Recovery Mode (the stub) — a layer below the
   // basic connection gate above. Fires once per entry into wizard mode while connected+not booted;
   // if the user cancels the confirm, route them to the Advanced sub-view instead of leaving them stuck.
-  let stubGateActive = false;
+  let stubGateRequested = false;
   $effect(() => {
-    if (tab !== "device" || mode !== "wizard" || !device.isConnected || device.utilLoaded) return;
-    if (stubGateActive) return;
-    stubGateActive = true;
+    if (tab !== "device" || mode !== "wizard" || !device.isConnected) {
+      stubGateRequested = false;
+      return;
+    }
+    if (device.utilLoaded || stubGateRequested) return;
+    stubGateRequested = true;
     device.ensureStub()
-      .catch(() => untrack(() => selectMode("advanced", false))) // gate cancelled: derived, replace
-      .finally(() => (stubGateActive = false));
+      .catch(() => untrack(() => selectMode("advanced", false))); // gate cancelled: derived, replace
   });
 
   // ---- hash deep-link: #<tab>/<sec,sec> (§2.3) ----

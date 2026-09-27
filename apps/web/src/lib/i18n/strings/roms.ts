@@ -9,6 +9,8 @@ import type { Widen } from "../widen.js";
 // to them (counts, sizes) stay as runtime-built strings. Generic labels already covered by
 // shared.common (Cancel, Connect, Change…/Choose…, etc.) are reused from there, not duplicated.
 export const romsEn = {
+  coverPrepareFailed: (count: number, files: string) =>
+    `Could not prepare ${count} selected cover(s) for FrogFS: ${files}`,
   firefoxWarning: {
     dismissAriaLabel: "Dismiss warning",
     boldLead: "Firefox is only partially supported.",
@@ -98,6 +100,23 @@ export const romsEn = {
     logConfirmingLinkResponsive: (alive: boolean, ms: number) => `device: stub mailbox alive=${alive}, ${ms} ms`,
     logRescanning: `device: rescanning geometry and installed games`,
     wontFitDetail: "Won't fit the available space. Deselect some games.",
+  },
+  backgroundProgress: {
+    readingLibraryFiles: "Reading library files",
+    findingGames: "Finding games",
+    loadingGames: "Loading games",
+    ready: "Ready",
+    reconcilingFolders: "Reconciling folders",
+    reconcilingDuplicates: "Reconciling duplicates",
+    organizingLibrary: "Organizing library",
+    checkingBrowserCoverCache: "Checking browser cover cache",
+    decodingBrowserCoverPages: "Decoding browser cover pages",
+    reusingBrowserCovers: "Reusing browser covers",
+    loadingSavedBrowserCovers: "Loading saved browser covers",
+    preparingBrowserCovers: "Preparing browser covers",
+    savingBrowserCoverCache: "Saving browser cover cache",
+    originalCovers: (count: number) => `${count} original covers`,
+    atlasPages: (count: number) => `${count} atlas pages`,
   },
   sdSync: {
     upgradeLabelPre: "Upgrade Retro-Go",

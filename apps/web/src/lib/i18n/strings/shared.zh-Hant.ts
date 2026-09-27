@@ -26,7 +26,7 @@ export const sharedZhHant: SharedStrings = {
     rescan: "重新掃描",
     restartRecoveryMode: "重新啟動復原模式",
     startRecoveryMode: "啟動復原模式",
-    changeAdapter: "更換轉接器",
+    changeAdapter: "設定轉接器",
     disconnectDevice: "中斷裝置連線",
   },
   stubLoadModal: {

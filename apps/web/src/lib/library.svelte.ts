@@ -48,7 +48,7 @@ import { libraryCoverCacheKey, libraryFileMetaFromScan, sameLibraryFileMeta, typ
 import { zipExtractOne, type ZipEntry } from "./unzip.js";
 import { measureLibraryPhase, measureLibraryPhaseAsync } from "./libraryPerformance.js";
 
-const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".bmp"]);
+const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp", ".bmp"]);
 const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
 const LIBRARY_METADATA_KEY = "library-metadata-index.v1";
 type PersistedZipScanCache = Record<string, Record<string, ZipScanCacheEntry>>;
@@ -138,7 +138,7 @@ function saveZipScanCache(cache: Map<string, Map<string, ZipScanCacheEntry>>): v
 
 /**
  * Convert all cover images in the userRoms map to retro-go .img (JPEG) format.
- * Runs when an SD sync needs device-format covers — originals on disk are untouched;
+ * Runs when an SD sync or FrogFS flash needs device-format covers — originals on disk are untouched;
  * converted bytes are reused through the persistent OPFS cover cache and mirrored into
  * the in-memory session map for the current install.
  */
@@ -1017,8 +1017,14 @@ class LibraryStore {
     if (next.size !== this.dirtyFiles.size) this.dirtyFiles = next;
   }
 
-  clearDirty() {
-    this.dirtyFiles = new Set();
+  clearDirty(paths?: Iterable<string>) {
+    if (!paths) {
+      this.dirtyFiles = new Set();
+      return;
+    }
+    const next = new Set(this.dirtyFiles);
+    for (const path of paths) next.delete(path);
+    if (next.size !== this.dirtyFiles.size) this.dirtyFiles = next;
   }
 }
 

@@ -3,6 +3,7 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 export const deviceHeaderDe: DeviceHeaderStrings = {
   changeInstallationMethod: "Installationsmethode ändern",
   connectionLost: "Verbindung unterbrochen",
+  targetUnresponsive: "Das Zielgerät reagiert nicht. Es wird darauf gewartet, dass es wieder erreichbar ist …",
   noConnection: "Keine Verbindung",
   connectedRecoveryMode: "Verbunden (Recovery-Modus)",
   connectedRetroGo: "Verbunden (Retro-Go)",

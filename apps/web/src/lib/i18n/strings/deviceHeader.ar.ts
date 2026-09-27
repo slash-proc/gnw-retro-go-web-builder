@@ -3,6 +3,7 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 export const deviceHeaderAr: DeviceHeaderStrings = {
   changeInstallationMethod: "تغيير طريقة التثبيت",
   connectionLost: "انقطع الاتصال",
+  targetUnresponsive: "الجهاز لا يستجيب. في انتظار عودته للعمل…",
   noConnection: "لا يوجد اتصال",
   connectedRecoveryMode: "متصل (وضع الاستعادة)",
   connectedRetroGo: "متصل (Retro-Go)",

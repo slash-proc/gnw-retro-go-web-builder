@@ -69,6 +69,7 @@ export const overviewFr: OverviewStrings = {
     title: "Flash externe",
     scanningPleaseWait: "Analyse en cours… Veuillez patienter",
     scan: "Analyser",
+    fullScan: "Analyse complète",
     enterRecoveryToScan: "Passer en mode de récupération pour analyser",
     freeOfTotal: (total: string) => `libres sur ${total}`,
   },

@@ -317,6 +317,10 @@ await check("derivation matches the component: mappedArtifacts is narrowed by se
   ]) assert(body.includes(needle), `${why} -- deriveMapped() in this suite is now stale`);
   // And the packer is still told about it.
   assert(/mappedArtifacts,/.test(src), "buildFrogfsImage is no longer passed mappedArtifacts");
+  assert(/mapped:\$\{key\}:\$\{spec\.relocBase/.test(src),
+    "mapped metadata is missing from the preview signature, so cached placement can be stale");
+  assert(/littleFsMappedCleanupNeeded\s*=\s*\[\.\.\.mappedDestPaths\]\.some\(\(path\)\s*=>\s*existingLfsPaths\.has\(path\)\)/.test(src),
+    "an obsolete mapped artifact in LittleFS no longer forces cleanup");
 });
 
 console.log(failures.map((f) => `  FAIL ${f}`).join("\n"));

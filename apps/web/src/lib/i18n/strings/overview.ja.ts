@@ -69,6 +69,7 @@ export const overviewJa: OverviewStrings = {
     title: "外部フラッシュ",
     scanningPleaseWait: "スキャン中…しばらくお待ちください",
     scan: "スキャン",
+    fullScan: "完全スキャン",
     enterRecoveryToScan: "スキャンするにはリカバリーモードに入ってください",
     freeOfTotal: (total: string) => `${total} 中の空き`,
   },

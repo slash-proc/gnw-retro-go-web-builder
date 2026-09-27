@@ -11,6 +11,8 @@ export const sourcesNo: SourcesStrings = {
   coresSubtitle: "Emulatorer og spillmotorer som gir Game & Watch-en en ny konsoll.",
   homebrewSubtitle: "Egne spill og programmer for Game & Watch-en.",
   emptyColumn: "Ingen kilder",
+  multipleCoversFound: (game: string, covers: string, chosen: string) =>
+    `Flere omslagsbilder ble funnet for ${game}: ${covers}. ${chosen} blir brukt.`,
   selectAllSources: "Select all",
   clearSelection: "Clear selection",
   allSources: "Alle kilder",

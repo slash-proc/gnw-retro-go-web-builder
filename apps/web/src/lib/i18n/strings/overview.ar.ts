@@ -69,6 +69,7 @@ export const overviewAr: OverviewStrings = {
     title: "الفلاش الخارجي",
     scanningPleaseWait: "جارٍ الفحص… انتظر من فضلك",
     scan: "فحص",
+    fullScan: "فحص كامل",
     enterRecoveryToScan: "ادخل وضع الاستعادة للفحص",
     freeOfTotal: (total: string) => `متاح من ${total}`,
   },

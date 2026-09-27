@@ -4,6 +4,7 @@ import type { SourcesStrings } from "./sources.js";
 // "one" key and a counted key, so the counted form uses the genitive plural ("ROM-ów"),
 // which is correct for every count the counted key can receive (2 and up, and 0).
 export const sourcesPl: SourcesStrings = {
+  multipleCoversFound: (game: string, covers: string, chosen: string) => `Dla gry „${game}” znaleziono kilka okładek: ${covers}. Wybrano: ${chosen}.`,
   tab: "Źródła",
   heading: "Źródła",
   colCores: "Rdzenie",

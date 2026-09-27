@@ -9,6 +9,7 @@ import type { RomsStrings } from "./roms.js";
 // Counted strings are written as "label: number" wherever the number would otherwise have to
 // govern a noun, which is idiomatic in Russian technical UI and removes every agreement trap.
 export const romsRu: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) => `Не удалось подготовить выбранные изображения обложек (${count}) для FrogFS: ${files}.`,
   firefoxWarning: {
     dismissAriaLabel: "Скрыть предупреждение",
     boldLead: "Firefox поддерживается лишь частично.",
@@ -67,7 +68,7 @@ export const romsRu: RomsStrings = {
     installFirstPrompt: "На устройстве нет раздела для ядер и сохранений, сначала установите Retro-Go.",
     calculatingLayout: "Расчёт разметки…",
     lzmaCheckboxLabel: "Сжимать ROM через LZMA ",
-    lzmaSoon: "пока без сжатия",
+    lzmaSoon: "сейчас отключено",
     syncLibraryButton: "Синхронизировать библиотеку",
     installTitle: "Установка",
     installBody: "Игры, BIOS и языки будут установлены на устройство.",
@@ -93,6 +94,23 @@ export const romsRu: RomsStrings = {
     logConfirmingLinkResponsive: (alive: boolean, ms: number) => `device: почтовый ящик заглушки alive=${alive}, ${ms} мс`,
     logRescanning: `device: пересканирование разметки и установленных игр`,
     wontFitDetail: "Не помещается в доступное место. Снимите выбор с части игр.",
+  },
+  backgroundProgress: {
+    readingLibraryFiles: "Чтение файлов библиотеки",
+    findingGames: "Поиск игр",
+    loadingGames: "Загрузка игр",
+    ready: "Готово",
+    reconcilingFolders: "Синхронизация папок",
+    reconcilingDuplicates: "Обработка дубликатов",
+    organizingLibrary: "Упорядочивание библиотеки",
+    checkingBrowserCoverCache: "Проверка кэша обложек браузера",
+    decodingBrowserCoverPages: "Декодирование страниц обложек браузера",
+    reusingBrowserCovers: "Повторное использование обложек браузера",
+    loadingSavedBrowserCovers: "Загрузка сохранённых обложек браузера",
+    preparingBrowserCovers: "Подготовка обложек браузера",
+    savingBrowserCoverCache: "Сохранение кэша обложек браузера",
+    originalCovers: (count: number) => `${count} ${count % 10 === 1 && count % 100 !== 11 ? "оригинальная обложка" : count % 10 >= 2 && count % 10 <= 4 && !(count % 100 >= 12 && count % 100 <= 14) ? "оригинальные обложки" : "оригинальных обложек"}`,
+    atlasPages: (count: number) => `${count} ${count % 10 === 1 && count % 100 !== 11 ? "страница атласа" : count % 10 >= 2 && count % 10 <= 4 && !(count % 100 >= 12 && count % 100 <= 14) ? "страницы атласа" : "страниц атласа"}`,
   },
   sdSync: {
     upgradeLabelPre: "Обновить Retro-Go до",

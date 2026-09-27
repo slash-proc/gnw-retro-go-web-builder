@@ -4,7 +4,7 @@ import type { GnwFlasher, DeviceInfo } from "@gnw/gnw-flasher";
 import type { LittlefsTreeNode } from "@gnw/fs-builders";
 import { connectProbe, getKnownProbes, serialTransport, chooseProbe, type ProbeHandle, type SerialTransport } from "./engine/transport.js";
 import { bootStub, readInfo, dumpRegion, attachFlasher, isStubAlive, pingTarget } from "./engine/flasher.js";
-import { scanExtflashPartitions, type ExtPartition } from "./engine/fsscan.js";
+import { scanExtflashPartitions, scanExtflashPartitionsLazy, type ExtPartition } from "./engine/fsscan.js";
 import { scanIntflashBanks, INT_BANK_BASES, type IntflashBank } from "./engine/intflashscan.js";
 import type { FirmwareAbi } from "./engine/firmwareAbi.js";
 import { classifyDevice, type DeviceClass } from "./engine/classify.js";
@@ -213,6 +213,12 @@ class DeviceStore {
   public transport: SerialTransport | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pinging = false;
+  private targetUnresponsive = false;
+  private targetPingStalled = false;
+  private lastTargetAnswerAt = 0;
+  private firstRecoveryAnswerAt = 0;
+  private static readonly TARGET_SILENCE_MS = 15_000;
+  private static readonly TARGET_RECOVERY_MS = 3_000;
   private lastRuntimeProbeAt = 0;
   private lastSettlingPollLogAt = 0;
   flasher: GnwFlasher | null = null;
@@ -230,6 +236,7 @@ class DeviceStore {
 
   // Flash scan (docs/ARCHITECTURE.md "Device Scan & Classification") — populated on connect, non-blocking; re-run
   // after any big change.
+  libraryScanStartupPending = $state(false);
   scanning = $state(false);
   scanProgress = $state(0); // 0..1
   scanError = $state<string | null>(null);
@@ -287,6 +294,8 @@ class DeviceStore {
    *  call sites in engine/flashInstall.ts, engine/ofw.ts, etc. — wiring that through would
    *  cross the engine/state layering boundary; left as a follow-up, see final report). */
   private _banksScannedAt = 0;
+  private _extflashGeometryScanned = false;
+  private _extflashGeometrySize = 0;
   private _quickScanReady = false;
   private _useQuickBanks = false;
   /** Skip re-scanning intflash banks in _doScan() if the last scan is still this fresh. */
@@ -313,6 +322,7 @@ class DeviceStore {
   allowAutoReconnect(): void {
     this._suppressAutoRetry = false;
     this._autoProbedRomsOnce = false;
+    this._libraryScanStartup = null;
   }
 
   /** The model that should tint the UI (null = unknown/neutral). */
@@ -362,6 +372,10 @@ class DeviceStore {
     return this.connection === "connected" || this.connection === "attention";
   }
 
+  get isTargetUnresponsive(): boolean {
+    return this.targetUnresponsive;
+  }
+
   /** True while an in-flight device operation (currently: the flash-geometry scan) is
    *  running — the single device-level "don't let the user start another op" signal.
    *  Component-local busy flags (installing/building/flashing progress state) are NOT
@@ -397,7 +411,7 @@ class DeviceStore {
   private _connectPromise: Promise<void> | null = null;
 
   /** Attach to a probe ONLY — the RAM util loads later, on demand (see ensureStub). */
-  connect(log?: (m: string) => void, opts?: { forcePicker?: boolean; swdClockHz?: number }): Promise<void> {
+  connect(log?: (m: string) => void, opts?: { forcePicker?: boolean; reconnect?: boolean; swdClockHz?: number }): Promise<void> {
     // Dedupe by the in-flight promise ALONE, not by `connection === "connecting"`. A lost link
     // starts reconnectLoop() while the USB `connect` event independently fires connectSilent();
     // connectSilent's "am I still lost?" guard is checked BEFORE its own await of
@@ -406,6 +420,7 @@ class DeviceStore {
     // forcePicker is excluded: "Change Adapter" must never be answered by an in-flight
     // pickerless attach.
     if (this._connectPromise && !opts?.forcePicker) return this._connectPromise;
+    if (this.targetUnresponsive && this.probe && !opts?.forcePicker && !opts?.reconnect) return this.pollTick();
     // A stub boot owns the USBDevice right now. bootStub()'s SWD target reset makes the probe
     // re-enumerate, which fires the USB `disconnect` event MID-BOOT — and the automatic
     // responses to that (handleLost's reconnectLoop, connectSilent, the USB `connect`
@@ -429,17 +444,34 @@ class DeviceStore {
     // speculatively blank a field — only a positive scan result changes one). Only a truly
     // fresh connect (from "disconnected") clears to "unknown / not scanned".
     const wasLost = this.connection === "lost";
+    const previousConnection = this.connection;
     this.error = null;
-    this.connection = "connecting";
+    if (!opts?.forcePicker) this.connection = "connecting";
     if (!wasLost) this.clearInfo();
 
     this._connectPromise = (async () => {
       try {
+        let selectedDevice: USBDevice | undefined;
+        if (opts?.forcePicker) {
+          selectedDevice = await chooseProbe();
+          this.selectedAdapter = selectedDevice;
+          if (this.probe) await this._teardownConnection();
+          this.connection = "connecting";
+        } else if (opts?.reconnect && this.probe) {
+          selectedDevice = this.selectedAdapter ?? this.probe.device;
+          await this._teardownConnection();
+          this.connection = "connecting";
+        }
         // Attach (no halt/reset/stub boot — that's what hung past attempts). Then a SINGLE
         // safe mailbox RAM read to detect an already-running RAM util, raced against a short
         // timeout so a stalled read can never hang us. If the util's up, reuse it (no re-boot,
         // no modal) and scan; otherwise attach only and load it on demand via ensureStub().
-        this.probe = await connectProbe({ ...opts, device: opts?.forcePicker ? undefined : (this.selectedAdapter ?? undefined), swdClockHz: opts?.swdClockHz ?? this.adapterFrequencyHz });
+        this.probe = await connectProbe({
+          forcePicker: false,
+          device: selectedDevice ?? this.selectedAdapter ?? undefined,
+          swdClockHz: opts?.swdClockHz ?? this.adapterFrequencyHz,
+        });
+        this.selectedAdapter = this.probe.device;
         this.probeName = this.probe.probeName;
         navigator.usb.addEventListener("disconnect", this.onUsbDisconnect);
         this.transport = serialTransport(this.probe.transport);
@@ -466,14 +498,24 @@ class DeviceStore {
           this.flasher = null;
           this.utilLoaded = false;
         }
-        this.connection = "connected";
         this.everConnected = true;
+        this.connection = "connected";
+        // Do not gate the adapter handshake on a target ping here. A preceding mailbox
+        // probe may still be queued after its timeout; pingTarget would then wait behind it
+        // and falsely time out. The regular poll checks only when the transport is idle.
+        this.lastTargetAnswerAt = Date.now();
         this.startPoll();
         // A full geometry scan is intentionally expensive. Read only the live VTOR
         // and the small version field at VTOR+0x400 first, so a running Retro-Go
         // becomes identifiable immediately after a power cycle and the device-log
         // pane can select its layout without waiting for geometry.
         await this.quickRuntimeProbe(transport);
+        const targetResponding = await raceWithFallback(pingTarget(transport), 300, false);
+        if (!targetResponding) {
+          this.markTargetUnresponsive();
+          return;
+        }
+        this.lastTargetAnswerAt = Date.now();
         // A reconnect can land mid-install (a stub boot re-enumerates the probe by design), so
         // normal firmware connections use the quick scan and never compete with a write. When
         // the probe is already attached to a live stub, startup is an explicit Recovery Mode
@@ -497,7 +539,12 @@ class DeviceStore {
         // Plain teardown — NOT the public disconnect(): a failed connect attempt (bad probe,
         // WebUSB error) is not a "manual disconnect" and must not suppress auto-retry for a
         // caller (e.g. the reconnect loop below) that's about to try again.
-        await this._teardownConnection();
+        const pickerCancelledWithLiveHandle = isPickerDismissal(e) && opts?.forcePicker && this.probe;
+        if (pickerCancelledWithLiveHandle) this.connection = previousConnection;
+        else {
+          await this._teardownConnection();
+          this.connection = wasLost ? "lost" : "disconnected";
+        }
         throw e;
       } finally {
         this._connectPromise = null;
@@ -517,10 +564,10 @@ class DeviceStore {
   startAdapterPoll(): void {
     if (this.adapterPollTimer) return;
     this.adapterPollTimer = setInterval(() => {
-      if (this.adapterPollBusy || this.isConnected || this.connection === "connecting") return;
+      if (this.adapterPollBusy || this.probe || this.isConnected || this.connection === "connecting") return;
       this.adapterPollBusy = true;
       void getKnownProbes().then((known) => {
-        if (this.isConnected || known.length === 0) return;
+        if (this.probe || this.isConnected || known.length === 0) return;
         const probe = this.selectedAdapter && known.includes(this.selectedAdapter)
           ? this.selectedAdapter
           : known.length === 1 ? known[0] : null;
@@ -540,10 +587,10 @@ class DeviceStore {
       for (let i = 0; i < 2; i++) {
         const base = INT_BANK_BASES[i];
         const head = await transport.readMemory(base, 8);
-        dbg(`[quickscan] bank${i + 1} vector ${Date.now() - t0}ms`);
         const sp = new DataView(head.buffer, head.byteOffset, head.byteLength).getUint32(0, true);
         const pc = new DataView(head.buffer, head.byteOffset, head.byteLength).getUint32(4, true);
         const model = sp === 0x20011330 ? "mario" : sp === 0x2001b620 ? "zelda" : null;
+        dbg(`[quickscan] bank${i + 1} vector sp=${sp.toString(16)} pc=${pc.toString(16)} model=${model ?? "unknown"} ${Date.now() - t0}ms`);
         const erased = sp === 0xffffffff && pc === 0xffffffff;
         let patched = true;
         if (model) {
@@ -565,15 +612,27 @@ class DeviceStore {
           ofw: model ? { model, patched } : undefined,
         });
       }
-      const vtor = (await transport.readWord(0xe000ed08)) >>> 0;
-      const bankIndex = vtor >= INT_BANK_BASES[1] ? 2 : vtor >= INT_BANK_BASES[0] ? 1 : null;
+      let vtor: number | null = null;
+      try { vtor = (await transport.readWord(0xe000ed08)) >>> 0; } catch { /* PC fallback below */ }
+      const bankIndex = vtor !== null
+        ? INT_BANK_BASES.findIndex((base) => vtor! >= base && vtor! < base + 0x100000) + 1
+        : 0;
       this.banks = quickBanks;
-      this._quickScanReady = true;
+      this._quickScanReady = quickBanks.some((bank) => !!bank.ofw);
       // Publish the bank/header classification immediately; the later full scan may add
       // geometry and partitions, but the status header should not wait for those.
       this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
       if (this.deviceClass.ofw) this.model = this.deviceClass.ofw.model;
-      if (!bankIndex) { dbg(`[quickscan] no flash VTOR (${Date.now() - t0}ms)`); return; }
+      if (!bankIndex) {
+        const runtime = await detectRuntime(transport, quickBanks);
+        dbg(`[quickscan] runtime vtor=${runtime.vtor?.toString(16) ?? "unreadable"} pc=${runtime.pc?.toString(16) ?? "unreadable"} kind=${runtime.kind}`);
+        if (runtime.kind !== "unknown") {
+          this.runtimeKind = runtime.kind;
+          this.runtimeBank = runtime.bank;
+        }
+        dbg(`[quickscan] no flash VTOR (${Date.now() - t0}ms)`);
+        return;
+      }
       // GIT_TAG is a compiler-placed literal, not a fixed field. Current release
       // link layouts place it in the 0x30000 region, so inspect one small window
       // there for the fast path; the authoritative full scan remains responsible
@@ -582,11 +641,15 @@ class DeviceStore {
       const raw = await transport.readMemory(INT_BANK_BASES[bankIndex - 1] + 0x30000, 0x8000);
       const text = new TextDecoder("latin1").decode(raw);
       match = text.match(/Retro-Go (?:SD )?(v\d[\w.+-]*)/);
-      dbg(`[quickscan] VTOR=${vtor.toString(16)} version search ${Date.now() - t0}ms`);
+      dbg(`[quickscan] VTOR=${vtor!.toString(16)} version search ${Date.now() - t0}ms`);
       if (!match || this.connection !== "connected") {
         const active = this.banks.find((b) => b.index === bankIndex);
-        this.runtimeKind = active?.ofw ? "stock-ofw" : "unknown";
-        this.runtimeBank = bankIndex;
+        const runtime = active?.ofw ? { kind: "stock-ofw" as const, bank: bankIndex as 1 | 2 } : await detectRuntime(transport, quickBanks);
+        dbg(`[quickscan] runtime bank=${bankIndex} kind=${runtime.kind}`);
+        if (runtime.kind !== "unknown") {
+          this.runtimeKind = runtime.kind;
+          this.runtimeBank = runtime.bank;
+        }
         this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
         dbg(`[quickscan] no Retro-Go version (${Date.now() - t0}ms)`);
         return;
@@ -598,6 +661,7 @@ class DeviceStore {
       } else return;
       this.runtimeKind = "retro-go";
       this.runtimeBank = bankIndex;
+      this._quickScanReady = true;
       this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
       dbg(`[quickscan] complete bank=${bankIndex} version=${match[1]} ${Date.now() - t0}ms`);
     } catch {
@@ -615,6 +679,7 @@ class DeviceStore {
   /** Silently attach to a probe ONLY if exactly one trusted adapter is already authorized.
    *  Never shows a USB picker. Safe to call fire-and-forget on navigation or USB reconnect. */
   async connectSilent(): Promise<void> {
+    if (this.probe) return;
     if (this.connection !== "disconnected" && this.connection !== "lost") return;
     if (this._suppressAutoRetry) return; // manual disconnect — user must reconnect explicitly
     try {
@@ -627,7 +692,7 @@ class DeviceStore {
       // the link was still "lost", then getKnownProbes() awaited long enough for the loop to
       // finish attaching — so without this it would attach a SECOND time on top of a healthy
       // session (a second `DEVICE:` line, a second probe handle).
-      if (this.connection !== "disconnected" && this.connection !== "lost") return;
+      if (this.probe || this.connection !== "disconnected" && this.connection !== "lost") return;
       if (this._suppressAutoRetry) return;
       await this.connect();
     } catch {
@@ -961,7 +1026,7 @@ class DeviceStore {
    *
    * @throws {UnlockDeclined} the user declined the destructive prompt.
    */
-  async ensureUnlocked(): Promise<UnlockOutcome> {
+  async ensureUnlocked(silentRecovery = false): Promise<UnlockOutcome> {
     return runUnlockGate({
       locked: this.locked,
       backupTaken: this.backupTaken,
@@ -970,7 +1035,7 @@ class DeviceStore {
           this.unlockPrompt = { resolve, reject };
         }),
       unlock: async () => {
-        const flasher = await this.ensureStub();
+        const flasher = await this.ensureStub(undefined, false, silentRecovery);
         // Unlocking resets the target and mass-erases both flashes, so the stub we just
         // booted does not survive it — drop the cached handle rather than letting the next
         // call reuse a flasher pointing at a device that has been wiped under it.
@@ -1042,7 +1107,7 @@ class DeviceStore {
    *  goes to the device log so a slow rescan can be attributed to its trigger rather than
    *  guessed at. Every call site passes one.
    */
-  async runScan(reason = "unknown", opts: { auto?: boolean } = {}): Promise<void> {
+  async runScan(reason = "unknown", opts: { auto?: boolean; forceGeometry?: boolean; fullGeometry?: boolean } = {}): Promise<void> {
     // AN AUTOMATIC SCAN WAITS FOR THE WRITE TO FINISH. Two logical operations on one link is
     // the bug the owner hit: an install parked at 0% with a scan frozen part-way through the
     // extflash walk. A USB re-enumeration -- which a mid-flash stub reboot causes by design --
@@ -1057,6 +1122,7 @@ class DeviceStore {
     // the flag alone would deadlock the post-install rescan against the install that asked for
     // it. The distinction is who asked, which is why `auto` is passed rather than inferred.
     if (opts.auto && !(await this._awaitLinkIdle(reason))) return;
+    if (opts.forceGeometry) this._extflashGeometryScanned = false;
     if (this._scanPromise) {
       dbg(`[scan] ${reason}: joined the scan already running`);
       return this._scanPromise;
@@ -1075,7 +1141,7 @@ class DeviceStore {
       let adapterResetAttempted = false;
       for (let attempt = 1; ; attempt++) {
         try {
-          return await this._doScan();
+          return await this._doScan(opts);
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           if (/Transfer count mismatch/i.test(message) && this.utilLoaded) {
@@ -1117,6 +1183,7 @@ class DeviceStore {
     })();
     try {
       await this._scanPromise;
+      this.lastTargetAnswerAt = Date.now();
     } finally {
       this._scanPromise = null;
       this._lastScanEndedAt = Date.now();
@@ -1174,11 +1241,14 @@ class DeviceStore {
   private _scanBytes = 0;
   /** Did a device WRITE overlap this scan? See the sampling note in `_doScan`'s `counted`. */
   private _scanSawWrite = false;
-  private async _doScan(): Promise<void> {
+  private async _doScan(opts: { fullGeometry?: boolean } = {}): Promise<void> {
     if (!this.transport) return;
     const flasher = this.flasher;
     const transport = this.transport;
     const gen = ++this._gen; // supersede any in-flight background reads from a prior scan
+    if (this.targetMedia !== "sd") {
+      this.coreVersionCheck = null;
+    }
     this.scanning = true;
     this.scanProgress = 0;
     // CLAIM THE LIP for the whole scan, here, not at the first progress callback: the UID and
@@ -1203,13 +1273,11 @@ class DeviceStore {
       }) as T;
     // ONE denominator for the whole scan, so the bar moves from the first read to the last.
     //
-    // Only the partition walk used to report, so the bar sat at 0 through the UID and bank reads
-    // -- which is what "the first scan is not shown" was: the lip claimed at 0 with nothing
-    // moving it, i.e. invisible, until the walk started. The weights are how long each phase
-    // takes RELATIVE to the others, not how much work it is in the abstract: the walk dominates
-    // because it is the only phase whose cost scales with the chip.
-    const W = { uid: 0.04, banks: 0.16, partitions: 0.64, games: 0.16 } as const;
-    const before = { uid: 0, banks: W.uid, partitions: W.uid + W.banks, games: W.uid + W.banks + W.partitions };
+    // Extflash layout is first so the progress bar reflects the highest-priority device data
+    // while the independent library scan runs. The weights approximate elapsed work, not bytes:
+    // the stride walk dominates because it is the only phase whose cost scales with chip size.
+    const W = { uid: 0.04, partitions: 0.64, banks: 0.16, games: 0.16 } as const;
+    const before = { uid: 0, partitions: W.uid, banks: W.uid + W.partitions, games: W.uid + W.partitions + W.banks };
     /** "Everything before this phase, plus this much of it." Monotonic: the bar never goes back. */
     const phase = (name: keyof typeof W, fraction: number): void => {
       const next = before[name] + W[name] * Math.max(0, Math.min(1, fraction));
@@ -1220,9 +1288,41 @@ class DeviceStore {
     try {
       await this._readDeviceUid(transport);
       phase("uid", 1);
+      // Prioritize extflash layout: the intflash bank classifier can take tens of seconds
+      // when it has to read unknown banks in full. Delaying this stride walk behind that work
+      // made the user wait until after library validation to see device scanning begin. These
+      // operations share one SWD/mailbox transport, so run them sequentially in the order that
+      // gets the FrogFS/LittleFS locations first while the independent library scan proceeds.
+      const extSize = this.info?.externalFlashSizeBytes ?? 0;
+      if (flasher) {
+        this.lfsBlockCache.clear();
+        this.lfsChunkHashes.clear();
+        this.installedLfsTree = null;
+        if (opts.fullGeometry || !this._extflashGeometryScanned || this._extflashGeometrySize !== extSize) {
+          const readExtflash = counted((off, len) => dumpRegion(flasher, 0, off, len));
+          const report = (done: number, total: number) => phase("partitions", total ? done / total : 0);
+          this.partitions = opts.fullGeometry
+            ? await scanExtflashPartitions(readExtflash, extSize, report)
+            : await scanExtflashPartitionsLazy(readExtflash, extSize, report);
+          if (!opts.fullGeometry && this.targetMedia !== "sd" && !this.partitions.some((p) => p.fs === "littlefs")) {
+            dbg("[scan] lazy geometry did not find LittleFS; falling back to full geometry scan");
+            this.partitions = await scanExtflashPartitions(readExtflash, extSize, report);
+          }
+          this._extflashGeometryScanned = true;
+          this._extflashGeometrySize = extSize;
+          dbg(`[scan] ${opts.fullGeometry ? "full" : "lazy"} extflash geometry complete (${this.partitions.length} partition(s), ${extSize} B)`);
+        } else {
+          phase("partitions", 1);
+          dbg(`[scan] reusing extflash geometry (${this.partitions.length} partition(s)); refreshing filesystem contents`);
+        }
+      } else {
+        this.partitions = [];
+        this._extflashGeometryScanned = false;
+        this._extflashGeometrySize = 0;
+        phase("partitions", 1);
+      }
       // Tier 1 (safe, intflash-only) — skip re-scanning the banks if we scanned them very
-      // recently in this same connection (see `_banksScannedAt`'s doc comment above); Tier 2
-      // (below) still runs in full regardless.
+      // recently in this same connection (see `_banksScannedAt`'s doc comment above).
       const banksFresh =
         (this._useQuickBanks && this._quickScanReady && this.banks.length > 0) ||
         this.banks.length > 0 &&
@@ -1256,30 +1356,16 @@ class DeviceStore {
         );
         this._banksScannedAt = Date.now();
       }
+      dbg(`[scan] bank classification: ${this.banks.map((bank) => `${bank.index}=${bank.type}`).join(", ")}`);
       this._quickScanReady = false;
       this._useQuickBanks = false;
       const runtime = await detectRuntime(transport, this.banks);
-      this.runtimeKind = runtime.kind;
-      this.runtimeBank = runtime.bank;
-      if (runtime.kind !== "retro-go") this.retroGoActivity = null;
-      phase("banks", 1);
-      // Tier 2 (deep, needs the stub) — extflash partitions + installed games.
-      const extSize = this.info?.externalFlashSizeBytes ?? 0;
-      if (flasher) {
-        // A rescan is the app's only signal that the extflash may have been rewritten (every
-        // install ends with one). The LittleFS block cache is not keyed to anything, so it has
-        // to be dropped here or a later write mounts a partition layout that no longer exists.
-        this.lfsBlockCache.clear();
-        this.lfsChunkHashes.clear();
-        this.installedLfsTree = null;
-        this.partitions = await scanExtflashPartitions(
-          counted((off, len) => dumpRegion(flasher, 0, off, len)),
-          extSize,
-          (done, total) => phase("partitions", total ? done / total : 0),
-        );
-      } else {
-        this.partitions = [];
+      if (runtime.kind !== "unknown") {
+        this.runtimeKind = runtime.kind;
+        this.runtimeBank = runtime.bank;
+        if (runtime.kind !== "retro-go") this.retroGoActivity = null;
       }
+      phase("banks", 1);
       this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
 
       // `model` still gets a plain reactive mirror (used by `accent`/UI tinting); `firmware`
@@ -1413,13 +1499,14 @@ class DeviceStore {
         // the results the UI is waiting on.
         if (this.targetMedia !== "sd") {
           const firmwareVersion = this.banks.map((b) => b.retroGoVersion).find(Boolean) ?? null;
+          const coreVersionCheck = import("./engine/lfsBrowser.js")
+            .then(({ checkCoreVersions }) => checkCoreVersions(firmwareVersion, () => gen !== this._gen))
+            .then((res) => {
+              if (gen === this._gen) this.coreVersionCheck = res;
+            })
+            .catch((e) => dbg(`[scan] Core version check failed: ${e}`));
           void started(
-            import("./engine/lfsBrowser.js")
-              .then(({ checkCoreVersions }) => checkCoreVersions(firmwareVersion, () => gen !== this._gen))
-              .then((res) => {
-                if (gen === this._gen) this.coreVersionCheck = res;
-              })
-              .catch((e) => dbg(`[scan] Core version check failed: ${e}`)),
+            coreVersionCheck,
           );
         }
       }
@@ -1581,10 +1668,22 @@ class DeviceStore {
       this.pollTimer = null;
     }
   }
+  private markTargetUnresponsive(): void {
+    if (this.targetUnresponsive || this.connection !== "connected" && this.connection !== "attention" && this.connection !== "connecting") return;
+    this.targetUnresponsive = true;
+    this.connection = "lost";
+    this.error = "Target is not responding. Waiting for it to wake up…";
+    deviceSafety.linkGone();
+    dbg(`[poll] target stopped answering; keeping the adapter session open`);
+  }
   private async pollTick(): Promise<void> {
     if (this.pinging || !this.transport) return;
-    if (this.connection !== "connected" && this.connection !== "attention") return;
+    if (this.connection !== "connected" && this.connection !== "attention" && !this.targetUnresponsive) return;
+    if (this.scanning) return;
     if (this.transport.busy()) {
+      if (this.targetPingStalled && Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) {
+        this.markTargetUnresponsive();
+      }
       if (deviceSafety.state === "settling" && Date.now() - this.lastSettlingPollLogAt >= 1000) {
         this.lastSettlingPollLogAt = Date.now();
         dbg("[poll] waiting for idle transport while settling");
@@ -1603,9 +1702,26 @@ class DeviceStore {
         dbg(`[poll] settling ping ok=${ok} elapsed=${pingMs}ms`);
       }
       if (!ok) {
-        if (this.connection === "connected" || this.connection === "attention") {
-          await this.handleLost();
-        }
+        this.firstRecoveryAnswerAt = 0;
+        this.targetPingStalled = this.transport.busy();
+        if (Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) this.markTargetUnresponsive();
+        return;
+      }
+
+      this.targetPingStalled = false;
+      this.lastTargetAnswerAt = Date.now();
+      if (this.targetUnresponsive) {
+        if (!this.firstRecoveryAnswerAt) this.firstRecoveryAnswerAt = Date.now();
+        if (Date.now() - this.firstRecoveryAnswerAt < DeviceStore.TARGET_RECOVERY_MS) return;
+        this.targetUnresponsive = false;
+        this.firstRecoveryAnswerAt = 0;
+        this.connection = "connected";
+        this.error = null;
+        this._banksScannedAt = 0;
+        deviceSafety.markQuiet();
+        dbg(`[poll] target answered again; refreshing its runtime`);
+        await this.quickRuntimeProbe(this.transport);
+        void this.runScan("target resumed", { auto: true });
         return;
       }
       
@@ -1702,7 +1818,11 @@ class DeviceStore {
     this.extSizeMB = null;
     this.deviceClass = null;
     this.partitions = [];
+    this._extflashGeometryScanned = false;
+    this._extflashGeometrySize = 0;
     this.banks = [];
+    this.runtimeKind = "unknown";
+    this.runtimeBank = null;
     this.installedGames = [];
     this.installedLfsTree = null;
     this.lfsBlockCache.clear();
@@ -1718,6 +1838,10 @@ class DeviceStore {
    *  fresh connect) them). Shared by handleLost/disconnect/resetDevice/connect's failure path. */
   private async _teardownConnection(): Promise<void> {
     this.stopPoll();
+    this.targetUnresponsive = false;
+    this.targetPingStalled = false;
+    this.lastTargetAnswerAt = 0;
+    this.firstRecoveryAnswerAt = 0;
     // The link is gone, so any outstanding suspend is moot. Clearing the depth stops a
     // suspend that never got its finally (lost device mid-flash) from permanently
     // disabling the poll for the next connection — connect()'s startPoll() would
@@ -1804,7 +1928,7 @@ class DeviceStore {
    *  reconnected, and kick off the auto-retry cadence (see reconnectLoop). Stays on the
    *  current view (everConnected). */
   private async handleLost(): Promise<void> {
-    if (this.connection === "disconnected" || this.connection === "lost") return;
+    if (this.connection === "disconnected" || this.connection === "lost" && !this.probe) return;
     // A stub boot owns the link, so this `disconnect` IS that boot's own re-enumeration
     // (bootStub resets the target; the ST-Link re-enumerates; WebUSB fires the event). The
     // handle the boot captured is still open and still working — recovery.mjs check 1 pins
@@ -1914,23 +2038,71 @@ class DeviceStore {
    *  and rescanning on every visit — the user should be able to rely on "beyond the first time,
    *  nothing auto-rescans" and reach for the header's manual reconnect/rescan themselves. */
   private _autoProbedRomsOnce = false;
+  private _libraryScanStartup: { media: "sd" | "flash"; promise: Promise<void> } | null = null;
 
   /** Context-aware auto-probe (connection policy table): SD+ROMs never auto-connects (SD
    *  doesn't need a device at all); Flash+ROMs silently attempts the known/trusted adapter in
    *  the background, no modal — but only the first time this page session (see
    *  `_autoProbedRomsOnce`). Safe to call repeatedly/idempotently (e.g. on every mount of the
    *  ROMs tab). */
-  autoProbeRoms(): void {
-    if (this.targetMedia === "sd") return;
-    if (this._autoProbedRomsOnce) return;
+  autoProbeRoms(): Promise<void> {
+    if (this.targetMedia === "sd") return Promise.resolve();
+    if (this._autoProbedRomsOnce) return Promise.resolve();
     this._autoProbedRomsOnce = true;
-    void this.connectSilent();
+    return this.connectSilent();
+  }
+
+  /** Launch device inventory before either Library effect begins its local-folder scan. The
+   *  barrier lasts only until device work has started, never until that scan completes. */
+  startLibraryDeviceScan(): Promise<void> {
+    const media = this.targetMedia;
+    if (this._libraryScanStartup?.media === media) return this._libraryScanStartup.promise;
+    this.libraryScanStartupPending = true;
+    const promise = (async () => {
+      if (media === "sd") {
+        await this.whenSdRestored();
+        return;
+      }
+
+      await this.autoProbeRoms();
+      if (this.flasher && !this._scanPromise) {
+        void this.runScan("library selection", { auto: true }).catch((e) =>
+          dbg(`[scan] library selection failed: ${e instanceof Error ? e.message : String(e)}`),
+        );
+        await Promise.resolve();
+      }
+    })().finally(() => {
+      if (this._libraryScanStartup?.promise === promise) this.libraryScanStartupPending = false;
+    });
+    this._libraryScanStartup = { media, promise };
+    return promise;
   }
 
   /** When set, ConnectGateModal is asking the user to connect before proceeding (e.g. "Install
    *  ROMs" clicked in Flash mode while disconnected). Mirrors library.folderGatePrompt's
    *  promise-gate shape/pattern. */
   connectGatePrompt = $state<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
+
+  adapterConfigPrompt = $state<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
+
+  requestAdapterConfiguration(): Promise<void> {
+    if (this.isConnected) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      this.adapterConfigPrompt = { resolve, reject };
+    });
+  }
+
+  resolveAdapterConfiguration(): void {
+    const prompt = this.adapterConfigPrompt;
+    this.adapterConfigPrompt = null;
+    prompt?.resolve();
+  }
+
+  cancelAdapterConfiguration(): void {
+    const prompt = this.adapterConfigPrompt;
+    this.adapterConfigPrompt = null;
+    prompt?.reject(new Error("Adapter configuration cancelled."));
+  }
 
   /** Resolves immediately if already connected. Otherwise, first tries a silent connect using
    *  a known/trusted adapter (no picker) — only if that fails or none exists does it surface

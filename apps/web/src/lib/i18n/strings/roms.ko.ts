@@ -1,6 +1,25 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsKo: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) =>
+    `선택한 커버 이미지 ${count}개를 FrogFS용으로 준비하지 못했습니다: ${files}`,
+  backgroundProgress: {
+    readingLibraryFiles: "라이브러리 파일 읽는 중",
+    findingGames: "게임 찾는 중",
+    loadingGames: "게임 불러오는 중",
+    ready: "준비 완료",
+    reconcilingFolders: "폴더 정리 중",
+    reconcilingDuplicates: "중복 항목 정리 중",
+    organizingLibrary: "라이브러리 구성 중",
+    checkingBrowserCoverCache: "브라우저 커버 캐시 확인 중",
+    decodingBrowserCoverPages: "브라우저 커버 페이지 디코딩 중",
+    reusingBrowserCovers: "브라우저 커버 재사용 중",
+    loadingSavedBrowserCovers: "저장된 브라우저 커버 불러오는 중",
+    preparingBrowserCovers: "브라우저 커버 준비 중",
+    savingBrowserCoverCache: "브라우저 커버 캐시 저장 중",
+    originalCovers: (count: number) => `원본 커버 ${count}개`,
+    atlasPages: (count: number) => `아틀라스 페이지 ${count}개`,
+  },
   firefoxWarning: {
     dismissAriaLabel: "경고 닫기",
     boldLead: "Firefox는 일부 기능만 지원돼요.",
@@ -58,7 +77,7 @@ export const romsKo: RomsStrings = {
     installFirstPrompt: "이 기기에서 코어/세이브 파티션을 찾을 수 없으니 먼저 Retro-Go를 설치하세요.",
     calculatingLayout: "레이아웃 계산 중…",
     lzmaCheckboxLabel: "ROM을 LZMA로 압축 ",
-    lzmaSoon: "현재는 압축 없이 진행돼요",
+    lzmaSoon: "현재 비활성화됨",
     syncLibraryButton: "라이브러리 동기화",
     installTitle: "설치",
     installBody: "게임, BIOS, 언어를 기기에 설치해요.",

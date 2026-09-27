@@ -46,7 +46,7 @@ export const sharedAr: SharedStrings = {
     rescan: "إعادة الفحص",
     restartRecoveryMode: "إعادة تشغيل وضع الاستعادة",
     startRecoveryMode: "بدء وضع الاستعادة",
-    changeAdapter: "تغيير المُحوِّل",
+    changeAdapter: "ضبط المُحوِّل",
     disconnectDevice: "فصل الجهاز",
   },
   stubLoadModal: {

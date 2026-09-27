@@ -69,6 +69,7 @@ export const overviewPl: OverviewStrings = {
     title: "Pamięć zewnętrzna",
     scanningPleaseWait: "Skanowanie… Proszę czekać",
     scan: "Skanuj",
+    fullScan: "Pełne skanowanie",
     enterRecoveryToScan: "Przejdź w Tryb odzyskiwania, aby skanować",
     freeOfTotal: (total: string) => `wolne z ${total}`,
   },

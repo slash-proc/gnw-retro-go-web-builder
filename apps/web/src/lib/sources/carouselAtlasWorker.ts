@@ -138,6 +138,7 @@ function createCarouselAtlasWorkerPool(size: number, signal?: AbortSignal) {
 export interface CarouselAtlasBuildEntry {
   sourceId: string;
   key: string;
+  path?: string;
   file: CarouselAtlasSourceFile | Uint8Array | null;
 }
 
@@ -163,8 +164,9 @@ export async function prepareCarouselAtlases(
   for (const [sourceId, sourceEntries] of bySource) {
     await yieldForInteraction?.();
     if (signal?.aborted) throw new DOMException("Atlas build cancelled", "AbortError");
-    const signature = carouselAtlasCacheSignature(sourceId, sourceEntries.map(({ key, file }) => ({
+    const signature = carouselAtlasCacheSignature(sourceId, sourceEntries.map(({ key, path, file }) => ({
       key,
+      path,
       size: file!.length,
       lastModified: file instanceof Uint8Array ? undefined : file!.lastModified,
       contentFingerprint: file instanceof Uint8Array ? carouselAtlasContentFingerprint(file) : undefined,

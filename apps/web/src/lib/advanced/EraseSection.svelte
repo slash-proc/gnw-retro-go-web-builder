@@ -159,7 +159,7 @@
 
     report.start("rescan");
     report.log("rescan", msg((t) => t.eraseSection.rescanningLog));
-    await device.runScan("after erase");
+    await device.runScan("after erase", { forceGeometry: true });
     report.finish("rescan");
   }
 

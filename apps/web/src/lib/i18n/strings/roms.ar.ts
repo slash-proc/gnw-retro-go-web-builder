@@ -4,6 +4,25 @@ import type { RomsStrings } from "./roms.js";
 // `cores:`, `covers:`, `cheats:`, `bundle:`) and translate only the prose after it, as every
 // sibling locale does.
 export const romsAr: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) =>
+    `تعذّر تجهيز ${count} من صور الأغلفة المحددة لـ FrogFS: ${files}`,
+  backgroundProgress: {
+    readingLibraryFiles: "جارٍ قراءة ملفات المكتبة",
+    findingGames: "جارٍ البحث عن الألعاب",
+    loadingGames: "جارٍ تحميل الألعاب",
+    ready: "جاهز",
+    reconcilingFolders: "جارٍ مزامنة المجلدات",
+    reconcilingDuplicates: "جارٍ معالجة العناصر المكررة",
+    organizingLibrary: "جارٍ تنظيم المكتبة",
+    checkingBrowserCoverCache: "جارٍ التحقق من ذاكرة التخزين المؤقت للأغلفة في المتصفح",
+    decodingBrowserCoverPages: "جارٍ فك ترميز صفحات الأغلفة في المتصفح",
+    reusingBrowserCovers: "جارٍ إعادة استخدام أغلفة المتصفح",
+    loadingSavedBrowserCovers: "جارٍ تحميل أغلفة المتصفح المحفوظة",
+    preparingBrowserCovers: "جارٍ تجهيز أغلفة المتصفح",
+    savingBrowserCoverCache: "جارٍ حفظ ذاكرة التخزين المؤقت لأغلفة المتصفح",
+    originalCovers: (count: number) => `${count} من الأغلفة الأصلية`,
+    atlasPages: (count: number) => `${count} من صفحات الأطلس`,
+  },
   firefoxWarning: {
     dismissAriaLabel: "إغلاق التحذير",
     boldLead: "دعم Firefox جزئي فقط.",
@@ -61,7 +80,7 @@ export const romsAr: RomsStrings = {
     installFirstPrompt: "لا يوجد في هذا الجهاز قسم للأنوية وملفات الحفظ، فثبّت Retro-Go أولًا.",
     calculatingLayout: "جارٍ حساب التوزيع…",
     lzmaCheckboxLabel: "ضغط ملفات ROM بـ LZMA ",
-    lzmaSoon: "بدون ضغط حاليًا",
+    lzmaSoon: "معطّل حاليًا",
     syncLibraryButton: "مزامنة المكتبة",
     installTitle: "التثبيت",
     installBody: "ستُثبَّت الألعاب وBIOS واللغات على الجهاز.",

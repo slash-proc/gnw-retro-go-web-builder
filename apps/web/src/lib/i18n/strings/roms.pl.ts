@@ -1,6 +1,7 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsPl: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) => `Nie udało się przygotować wybranych obrazów okładek (${count}) do FrogFS: ${files}.`,
   firefoxWarning: {
     dismissAriaLabel: "Odrzuć ostrzeżenie",
     boldLead: "Firefox jest obsługiwany tylko częściowo.",
@@ -65,7 +66,7 @@ export const romsPl: RomsStrings = {
     installFirstPrompt: "To urządzenie nie ma partycji rdzeni/zapisów, więc najpierw zainstaluj Retro-Go.",
     calculatingLayout: "Obliczanie układu…",
     lzmaCheckboxLabel: "Kompresuj ROM-y algorytmem LZMA ",
-    lzmaSoon: "na razie bez kompresji",
+    lzmaSoon: "obecnie wyłączone",
     syncLibraryButton: "Synchronizuj bibliotekę",
     installTitle: "Instalacja",
     installBody: "Gry, BIOS i języki zostaną zainstalowane na urządzeniu.",
@@ -91,6 +92,23 @@ export const romsPl: RomsStrings = {
     logConfirmingLinkResponsive: (alive: boolean, ms: number) => `device: skrzynka stuba alive=${alive}, ${ms} ms`,
     logRescanning: `device: ponowne skanowanie geometrii i zainstalowanych gier`,
     wontFitDetail: "Nie mieści się w dostępnym miejscu. Odznacz kilka gier.",
+  },
+  backgroundProgress: {
+    readingLibraryFiles: "Odczytywanie plików biblioteki",
+    findingGames: "Wyszukiwanie gier",
+    loadingGames: "Wczytywanie gier",
+    ready: "Gotowe",
+    reconcilingFolders: "Synchronizowanie folderów",
+    reconcilingDuplicates: "Usuwanie duplikatów",
+    organizingLibrary: "Porządkowanie biblioteki",
+    checkingBrowserCoverCache: "Sprawdzanie pamięci podręcznej okładek przeglądarki",
+    decodingBrowserCoverPages: "Dekodowanie stron okładek przeglądarki",
+    reusingBrowserCovers: "Ponowne używanie okładek przeglądarki",
+    loadingSavedBrowserCovers: "Wczytywanie zapisanych okładek przeglądarki",
+    preparingBrowserCovers: "Przygotowywanie okładek przeglądarki",
+    savingBrowserCoverCache: "Zapisywanie pamięci podręcznej okładek przeglądarki",
+    originalCovers: (count: number) => `${count} ${count === 1 ? "oryginalna okładka" : count % 10 >= 2 && count % 10 <= 4 && !(count % 100 >= 12 && count % 100 <= 14) ? "oryginalne okładki" : "oryginalnych okładek"}`,
+    atlasPages: (count: number) => `${count} ${count === 1 ? "strona atlasu" : count % 10 >= 2 && count % 10 <= 4 && !(count % 100 >= 12 && count % 100 <= 14) ? "strony atlasu" : "stron atlasu"}`,
   },
   sdSync: {
     upgradeLabelPre: "Zaktualizuj Retro-Go do",

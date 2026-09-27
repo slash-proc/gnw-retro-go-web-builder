@@ -1,6 +1,7 @@
 import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderPt: DeviceHeaderStrings = {
+  targetUnresponsive: "O dispositivo deixou de responder. A aguardar que volte a responder…",
   changeInstallationMethod: "Mudar método de instalação",
   connectionLost: "Conexão perdida",
   noConnection: "Sem conexão",

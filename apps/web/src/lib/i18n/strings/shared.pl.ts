@@ -25,7 +25,7 @@ export const sharedPl: SharedStrings = {
     rescan: "Skanuj ponownie",
     restartRecoveryMode: "Uruchom ponownie tryb odzyskiwania",
     startRecoveryMode: "Uruchom tryb odzyskiwania",
-    changeAdapter: "Zmień adapter",
+    changeAdapter: "Konfiguruj adapter",
     disconnectDevice: "Rozłącz urządzenie",
   },
   stubLoadModal: {

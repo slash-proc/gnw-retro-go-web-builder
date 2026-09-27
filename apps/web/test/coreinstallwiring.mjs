@@ -106,8 +106,8 @@ function auditBuilder(src) {
   if (!/lfsDirs/.test(src)) {
     problems.push("the plan carries no lfsDirs, so an install with no cores builds a partition with no directories");
   }
-  if (!/lfsDirs:\s*\[paths\.cores,\s*paths\.data\]/.test(src)) {
-    problems.push("lfsDirs is not [paths.cores, paths.data] from the resolved manifest paths");
+  if (!/lfsDirs:\s*\[paths\.cores,\s*paths\.data,\s*"cheats"\]/.test(src)) {
+    problems.push("lfsDirs does not include cores, data, and cheats");
   }
   return problems;
 }

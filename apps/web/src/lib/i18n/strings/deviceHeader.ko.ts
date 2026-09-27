@@ -3,6 +3,7 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 export const deviceHeaderKo: DeviceHeaderStrings = {
   changeInstallationMethod: "설치 방식 변경",
   connectionLost: "연결 끊김",
+  targetUnresponsive: "기기가 응답하지 않습니다. 다시 응답할 때까지 기다리는 중…",
   noConnection: "연결 없음",
   connectedRecoveryMode: "연결됨 (복구 모드)",
   connectedRetroGo: "연결됨 (Retro-Go)",

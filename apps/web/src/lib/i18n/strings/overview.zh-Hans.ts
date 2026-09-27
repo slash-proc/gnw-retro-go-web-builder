@@ -69,6 +69,7 @@ export const overviewZhHans: OverviewStrings = {
     title: "外部闪存",
     scanningPleaseWait: "扫描中…请稍候",
     scan: "扫描",
+    fullScan: "完整扫描",
     enterRecoveryToScan: "进入恢复模式以扫描",
     freeOfTotal: (total: string) => `可用，共 ${total}`,
   },

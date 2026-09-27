@@ -674,8 +674,12 @@ class RomSelectionStore {
       // left alone deliberately: cheats are device-truth (see the cheats rework), so whether an
       // orphan cheat is waste or a deliberate carry-over is a question for that system, not a
       // line to change in passing.
-      if (!(cat === "bios" || cat === "cheat" || cat === "cover" || sel.has(key))) continue;
-      const path = basePath(key);
+      const sourcePath = basePath(key);
+      const parsed = cat === "game" ? parseRomPath(key) : null;
+      const path = parsed
+        ? `${parsed.system}/${sourcePath.slice(sourcePath.indexOf("/") + 1)}`
+        : sourcePath;
+      if (!(cat === "bios" || cat === "cheat" || cat === "cover" || sel.has(path))) continue;
       const cut = path.lastIndexOf("/");
       planned.push({
         dir: cut < 0 ? "" : path.slice(0, cut),
@@ -723,7 +727,7 @@ class RomSelectionStore {
     for (const p of plan.accepted) {
       const key = p.from!;
       const data = bytes.get(key);
-      if (data) out.set(basePath(key), data);
+      if (data) out.set(p.dir ? `${p.dir}/${p.name}` : p.name, data);
     }
     return out;
   }

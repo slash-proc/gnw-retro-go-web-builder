@@ -372,11 +372,14 @@
 
   let aspects = $state<Record<string, number>>({});
   let loadedMainUrls = $state<Record<string, string>>({});
-  function onImgLoad(id: string, e: Event) {
+  async function onImgLoad(id: string, e: Event) {
     const target = e.target as HTMLImageElement;
+    const url = target.currentSrc || target.src;
+    try { await target.decode(); } catch { return; }
+    if ((target.currentSrc || target.src) !== url) return;
     const { naturalWidth: w, naturalHeight: h } = target;
     if (!w || !h) return;
-    loadedMainUrls[id] = target.currentSrc || target.src;
+    loadedMainUrls[id] = url;
     const ratio = Math.max(0.6, Math.min(1.8, w / h));
     if (Math.abs((aspects[id] ?? 0) - ratio) >= 0.001) {
       aspects[id] = ratio;
@@ -424,31 +427,34 @@
     };
   });
 
-  // Wheel handling
+  // Wheel navigation mirrors the arrow keys: one wheel notch advances one selected cover.
   onMount(() => {
-    if (!vpRef) return;
-    const el = vpRef;
     let accum = 0;
     let lastTs = 0;
-    const THRESHOLD = 30; // pixels per game scrub
-    
-    const onWheel = (e: WheelEvent) => {
-      // Horizontal scroll
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-        e.preventDefault();
-        if (e.timeStamp - lastTs > 100) accum = 0;
-        lastTs = e.timeStamp;
-        
-        accum += e.deltaX;
-        if (Math.abs(accum) >= THRESHOLD) {
-          const steps = Math.trunc(accum / THRESHOLD);
-          accum -= steps * THRESHOLD;
-          go(steps);
-        }
+    const THRESHOLD = 100;
+    const onWheel = (event: WheelEvent) => {
+      const rawDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!rawDelta) return;
+      event.preventDefault();
+      if (event.timeStamp - lastTs > 120) accum = 0;
+      lastTs = event.timeStamp;
+      const scale = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 40
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? (vpRef?.clientHeight ?? 800)
+          : 1;
+      accum += rawDelta * scale;
+      if (Math.abs(accum) >= THRESHOLD) {
+        const steps = Math.trunc(accum / THRESHOLD);
+        accum -= steps * THRESHOLD;
+        go(steps, true);
       }
     };
-    el.addEventListener("wheel", onWheel as any, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel as any);
+    const targets = [vpRef, scrubberRef].filter((el): el is HTMLElement => !!el);
+    for (const target of targets) target.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      for (const target of targets) target.removeEventListener("wheel", onWheel);
+    };
   });
 
   const ALPHABET = "#ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -729,12 +735,12 @@
               {@const layout = getLayout(offset)}
               {@const ratio = aspects[cover.id] ?? ASPECT}
               {@const fullResOpacity = index === visualCenter || !atlasCell ? 1 : Math.max(0, Math.min(1, (FULL_RES_MAX_SPEED + FULL_RES_FADE_BAND / 2 - tilesPerSecond) / FULL_RES_FADE_BAND))}
+              {@const showFullRes = !!mainUrl && (!atlasCell || (loadedMainUrls[cover.id] === mainUrl && fullResOpacity >= 0.5))}
               
               <button
                 type="button"
                 class="coverflow-item {isSelected ? 'coverflow-item--selected' : ''}"
                 style="
-                  --full-res-opacity: {fullResOpacity};
                   width: {cardW}px;
                   height: {cardH}px;
                   transform: translate(-50%, -50%) translateX({layout.x}px) translateZ({layout.z}px) rotateY({layout.ry}deg) scale({layout.sc});
@@ -746,7 +752,7 @@
                 data-version={version}
               >
                 {#if atlasCell || mainUrl || lodUrl}
-                  {#if atlasCell}
+                  {#if atlasCell && !showFullRes}
                     <span
                       class="coverflow-item__atlas"
                       aria-hidden="true"
@@ -761,7 +767,7 @@
                     <img class="coverflow-item__lod" src={lodUrl} alt="" data-version={version} draggable={false} decoding="async" />
                   {/if}
                   {#if mainUrl}
-                    <img class="coverflow-item__main" class:coverflow-item__main--loaded={!atlasCell || loadedMainUrls[cover.id] === mainUrl} src={mainUrl} alt="" data-version={version} draggable={false} decoding="async" onload={(e) => onImgLoad(cover.id, e)} />
+                    <img class="coverflow-item__main" class:coverflow-item__main--loaded={showFullRes} src={mainUrl} alt="" data-version={version} draggable={false} decoding="async" onload={(e) => onImgLoad(cover.id, e)} />
                   {/if}
                 {:else}
                   <span class="coverflow-item__placeholder" aria-hidden="true"></span>
@@ -886,10 +892,9 @@
   }
   .coverflow-item__main {
     opacity: 0;
-    transition: opacity 90ms linear;
   }
   .coverflow-item__main--loaded {
-    opacity: var(--full-res-opacity, 1);
+    opacity: 1;
   }
   .coverflow-item__atlas {
     position: absolute;

@@ -380,7 +380,7 @@
     // the backup half -- Branch B literally dumps the stock firmware off the device -- and
     // unlocking mass-erases both flashes, so unlocking first would destroy the very image
     // this flow just read. Backup, THEN unlock, THEN write (engine/unlockGate.ts).
-    await device.ensureUnlocked();
+    await device.ensureUnlocked(true);
 
     report.start("patch");
     report.log("patch", msg((t) => t.officialFirmware.logPatchingModel, targetModel!, targetInt.length, targetExt.length));

@@ -25,7 +25,7 @@ export const sharedNo: SharedStrings = {
     rescan: "Skann på nytt",
     restartRecoveryMode: "Start gjenopprettingsmodus på nytt",
     startRecoveryMode: "Start gjenopprettingsmodus",
-    changeAdapter: "Bytt adapter",
+    changeAdapter: "Konfigurer adapter",
     disconnectDevice: "Koble fra enheten",
   },
   stubLoadModal: {

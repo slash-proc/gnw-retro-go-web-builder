@@ -1,6 +1,25 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsJa: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) =>
+    `選択したカバー画像 ${count} 件を FrogFS 用に準備できませんでした: ${files}`,
+  backgroundProgress: {
+    readingLibraryFiles: "ライブラリファイルを読み込み中",
+    findingGames: "ゲームを検索中",
+    loadingGames: "ゲームを読み込み中",
+    ready: "準備完了",
+    reconcilingFolders: "フォルダーを同期中",
+    reconcilingDuplicates: "重複を整理中",
+    organizingLibrary: "ライブラリを整理中",
+    checkingBrowserCoverCache: "ブラウザーのカバーキャッシュを確認中",
+    decodingBrowserCoverPages: "ブラウザーのカバーページをデコード中",
+    reusingBrowserCovers: "ブラウザーのカバーを再利用中",
+    loadingSavedBrowserCovers: "保存済みブラウザーカバーを読み込み中",
+    preparingBrowserCovers: "ブラウザー用カバーを準備中",
+    savingBrowserCoverCache: "ブラウザーのカバーキャッシュを保存中",
+    originalCovers: (count: number) => `元のカバー画像 ${count} 枚`,
+    atlasPages: (count: number) => `アトラスページ ${count} 枚`,
+  },
   firefoxWarning: {
     dismissAriaLabel: "警告を閉じる",
     boldLead: "Firefoxは一部の機能のみサポートしています。",
@@ -58,7 +77,7 @@ export const romsJa: RomsStrings = {
     installFirstPrompt: "このデバイスにはコア／セーブ用パーティションが見つかりません。先にRetro-Goをインストールしてください。",
     calculatingLayout: "レイアウトを計算中…",
     lzmaCheckboxLabel: "ROMをLZMAで圧縮する ",
-    lzmaSoon: "現時点では非圧縮",
+    lzmaSoon: "現在は無効",
     syncLibraryButton: "ライブラリを同期",
     installTitle: "インストール",
     installBody: "ゲーム・BIOS・言語をデバイスにインストールします。",

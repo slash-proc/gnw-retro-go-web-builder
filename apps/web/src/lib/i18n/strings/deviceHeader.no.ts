@@ -3,6 +3,7 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 export const deviceHeaderNo: DeviceHeaderStrings = {
   changeInstallationMethod: "Bytt installasjonsmetode",
   connectionLost: "Mistet forbindelsen",
+  targetUnresponsive: "Enheten svarer ikke. Venter på at den skal våkne…",
   noConnection: "Ingen forbindelse",
   connectedRecoveryMode: "Tilkoblet (gjenopprettingsmodus)",
   connectedRetroGo: "Tilkoblet (Retro-Go)",

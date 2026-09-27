@@ -181,6 +181,102 @@ export async function scanExtflashPartitions(
   return parts;
 }
 
+/** Coarse-first geometry scan: 1 MiB probes, then 128 KiB probes for at most 2 MiB
+ * after the first unrecognized probe. Recognition uses the same signatures as the full scan. */
+export async function scanExtflashPartitionsLazy(
+  read: ExtReadFn,
+  flashSize: number,
+  onProgress?: (done: number, total: number) => void,
+): Promise<ExtPartition[]> {
+  const parts: ExtPartition[] = [];
+  const seen = new Set<number>();
+  const add = (p: ExtPartition) => {
+    if (!parts.some((q) => q.offset === p.offset && q.size === p.size)) parts.push(p);
+  };
+  const probe = async (addr: number): Promise<boolean> => {
+    if (addr < 0 || addr + 512 > flashSize) return false;
+    const sec = await read(addr, 512);
+    let recognized = false;
+    if (ascii(sec, 0, "FROG")) {
+      const binSize = u32(sec, 8);
+      if (binSize > 0 && addr + binSize <= flashSize) {
+        add({ offset: addr, size: binSize, type: "FrogFS", fs: "frogfs", meta: { binSize } });
+        recognized = true;
+      }
+    } else if (sec[510] === 0x55 && sec[511] === 0xaa && (sec[0] === 0xeb || sec[0] === 0xe9)) {
+      const bps = u16(sec, 0x0b);
+      const totalSectors = u16(sec, 0x13) || u32(sec, 0x20);
+      if (bps >= 512 && bps <= 4096 && totalSectors) {
+        add({ offset: addr, size: totalSectors * bps, type: "FAT", fs: "fat", meta: { bytesPerSector: bps, totalSectors } });
+        recognized = true;
+      }
+    } else if (eq(sec, 0, MARIO_INT_SIG) || eq(sec, 0, ZELDA_INT_SIG)) {
+      const w = addr + 131072 <= flashSize ? await read(addr + 131068, 4) : null;
+      const dev = eq(sec, 0, MARIO_INT_SIG) ? "Mario" : "Zelda";
+      add({ offset: addr, size: 131072, type: `${dev} ${w && w[3] !== 0xff ? "Pat(Int)" : "OFW (Int)"}` });
+      recognized = true;
+    } else if (eq(sec, 0, ZELDA_STOCK_SIG) && addr + (4 << 20) <= flashSize) {
+      add({ offset: addr, size: 4 << 20, type: "Zelda OFW" });
+      recognized = true;
+    } else if (eq(sec, 0, ZELDA_PATCHED_SIG) && addr >= 0x20000 && addr - 0x20000 + (4 << 20) <= flashSize) {
+      add({ offset: addr - 0x20000, size: 4 << 20, type: "Zelda Assets" });
+      recognized = true;
+    } else if (eq(sec, 0, MARIO_STOCK_SIG) && addr + (1 << 20) <= flashSize) {
+      add({ offset: addr, size: 1 << 20, type: "Mario OFW" });
+      recognized = true;
+    } else if (eq(sec, 0, MARIO_PATCHED_SIG) && addr + (1 << 20) <= flashSize) {
+      add({ offset: addr, size: 1 << 20, type: "Mario Assets" });
+      recognized = true;
+    }
+    if (!recognized) {
+      if (isLfsSuperblock(sec)) {
+        addLfsPartition(add, addr, sec, flashSize);
+        recognized = true;
+      }
+    }
+    seen.add(addr);
+    onProgress?.(seen.size, Math.ceil(flashSize / (1 << 20)) + 16);
+    return recognized;
+  };
+
+  for (let coarse = 0; coarse < flashSize;) {
+    if (seen.has(coarse)) {
+      coarse += 1 << 20;
+      continue;
+    }
+    const covering = parts.find((p) => coarse > p.offset && coarse < p.offset + p.size);
+    if (covering) {
+      coarse = Math.ceil((covering.offset + covering.size) / (1 << 20)) * (1 << 20);
+      continue;
+    }
+    const found = await probe(coarse);
+    if (found) {
+      const zelda = parts.find((p) => p.offset === coarse && (p.type === "Zelda OFW" || p.type === "Zelda Assets"));
+      const discovered = parts.find((p) => p.offset === coarse);
+      coarse = zelda
+        ? coarse + (4 << 20)
+        : discovered
+          ? Math.max(coarse + (1 << 20), Math.ceil((discovered.offset + discovered.size) / (1 << 20)) * (1 << 20))
+          : coarse + (1 << 20);
+      continue;
+    }
+    let foundNearby = false;
+    for (let fine = coarse + (1 << 20) / 8; fine < Math.min(flashSize, coarse + (2 << 20)); fine += (1 << 20) / 8) {
+      if (await probe(fine)) foundNearby = true;
+    }
+    if (!foundNearby) break;
+    coarse += 1 << 20;
+  }
+  for (let anchor = flashSize - 4096; anchor >= Math.max(0, flashSize - 16384); anchor -= 4096) {
+    const block = await read(anchor, 32);
+    if (isLfsSuperblock(block)) {
+      addLfsPartition(add, anchor, block, flashSize);
+      break;
+    }
+  }
+  return parts;
+}
+
 /** Derive a LittleFS partition from a superblock anchor (mirrors the C size math). */
 function addLfsPartition(
   add: (p: ExtPartition) => void,

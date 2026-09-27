@@ -3,6 +3,7 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 export const deviceHeaderZhHant: DeviceHeaderStrings = {
   changeInstallationMethod: "變更安裝方式",
   connectionLost: "連線中斷",
+  targetUnresponsive: "目標裝置沒有回應，正在等待裝置恢復…",
   noConnection: "未連線",
   connectedRecoveryMode: "已連線（復原模式）",
   connectedRetroGo: "已連線（Retro-Go）",

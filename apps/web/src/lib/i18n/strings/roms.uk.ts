@@ -1,6 +1,7 @@
 import type { RomsStrings } from "./roms.js";
 
 export const romsUk: RomsStrings = {
+  coverPrepareFailed: (count: number, files: string) => `Не вдалося підготувати вибрані зображення обкладинок (${count}) для FrogFS: ${files}.`,
   firefoxWarning: {
     dismissAriaLabel: "Сховати попередження",
     // RomManagementTab joins these two directly, so `body` carries its own leading space.
@@ -61,7 +62,7 @@ export const romsUk: RomsStrings = {
       "На цьому пристрої немає розділу ядер і збережень, тому спершу встановіть Retro-Go.",
     calculatingLayout: "Обчислення розмітки…",
     lzmaCheckboxLabel: "Стискати ROM через LZMA ",
-    lzmaSoon: "поки без стиснення",
+    lzmaSoon: "наразі вимкнено",
     syncLibraryButton: "Синхронізувати бібліотеку",
     installTitle: "Встановлення",
     installBody: "Ігри, BIOS і мови буде встановлено на пристрій.",
@@ -95,6 +96,23 @@ export const romsUk: RomsStrings = {
       `device: stub mailbox alive=${alive}, ${ms} мс`,
     logRescanning: `device: пересканування геометрії та встановлених ігор`,
     wontFitDetail: "Не вміститься у вільне місце. Зніміть вибір з частини ігор.",
+  },
+  backgroundProgress: {
+    readingLibraryFiles: "Читання файлів бібліотеки",
+    findingGames: "Пошук ігор",
+    loadingGames: "Завантаження ігор",
+    ready: "Готово",
+    reconcilingFolders: "Узгодження папок",
+    reconcilingDuplicates: "Усунення дублікатів",
+    organizingLibrary: "Упорядкування бібліотеки",
+    checkingBrowserCoverCache: "Перевірка кешу обкладинок браузера",
+    decodingBrowserCoverPages: "Декодування сторінок обкладинок браузера",
+    reusingBrowserCovers: "Повторне використання обкладинок браузера",
+    loadingSavedBrowserCovers: "Завантаження збережених обкладинок браузера",
+    preparingBrowserCovers: "Підготовка обкладинок браузера",
+    savingBrowserCoverCache: "Збереження кешу обкладинок браузера",
+    originalCovers: (count: number) => `${count} ${count % 10 === 1 && count % 100 !== 11 ? "оригінальна обкладинка" : count % 10 >= 2 && count % 10 <= 4 && !(count % 100 >= 12 && count % 100 <= 14) ? "оригінальні обкладинки" : "оригінальних обкладинок"}`,
+    atlasPages: (count: number) => `${count} ${count % 10 === 1 && count % 100 !== 11 ? "сторінка атласу" : count % 10 >= 2 && count % 10 <= 4 && !(count % 100 >= 12 && count % 100 <= 14) ? "сторінки атласу" : "сторінок атласу"}`,
   },
   sdSync: {
     // Ends right before the version dropdown, so the phrase has to stop on `до`.

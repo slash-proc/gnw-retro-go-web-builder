@@ -29,6 +29,7 @@ import { mkdtempSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import "./carouselatlas.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 let passed = 0;
@@ -65,9 +66,9 @@ const HOMEBREW = [{ key: "o/celeste", displayName: "Celeste", deviceFiles: ["Cel
 
 let seq = 0;
 /** Build and import `romSelection` with the device and homebrew selection this case needs. */
-async function selectionWith({ installedGames = [], homebrewSelected = false }) {
+async function selectionWith({ installedGames = [], homebrewSelected = false, folderPaths = FOLDER }) {
   const dir = join(root, `b${seq++}`);
-  const folder = `new Map([${FOLDER.map((k) => `[${JSON.stringify(k)}, new Uint8Array(4)]`).join(",")}])`;
+  const folder = `new Map([${folderPaths.map((k) => `[${JSON.stringify(k)}, new Uint8Array(4)]`).join(",")}])`;
   const fakes = {
     "library.svelte.js": `export const library = { scan: { userRoms: ${folder} }, fileOrigin: new Map(), markDirty(){} };`,
     "device.svelte.js": `export const device = { installedGames: ${JSON.stringify(installedGames)}, targetMedia: 'flash', installedFrogfs: null };`,
@@ -125,6 +126,21 @@ await check("a cover rides in with the game it depicts, and only that game", asy
   ok(keys.includes("nes/Mario.nes"), "the preserved game");
   ok(keys.includes("covers/nes/Mario.png"), "its cover");
   ok(!keys.includes("covers/nes/Zelda.png"), "the unselected game's cover stays behind");
+});
+
+await check("selected games in differently-cased console folders reach canonical install paths", async () => {
+  const { romSelection } = await selectionWith({
+    folderPaths: ["GBC/Pinball.gbc", "MSX/Pinball.rom"],
+    installedGames: [
+      { system: "gbc", name: "Pinball.gbc", size: 4 },
+      { system: "msx", name: "Pinball.rom", size: 4 },
+    ],
+  });
+  eq(
+    [...romSelection.selectedFolderRoms().keys()].sort(),
+    ["gbc/Pinball.gbc", "msx/Pinball.rom"],
+    "selected rows must match source paths case-insensitively and install under canonical console names",
+  );
 });
 
 await check("a homebrew cover follows its title's selection", async () => {

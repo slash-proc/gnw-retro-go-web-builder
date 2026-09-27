@@ -69,6 +69,7 @@ export const overviewZhHant: OverviewStrings = {
     title: "外部快閃記憶體",
     scanningPleaseWait: "掃描中…請稍候",
     scan: "掃描",
+    fullScan: "完整掃描",
     enterRecoveryToScan: "進入復原模式以掃描",
     freeOfTotal: (total: string) => `可用，共 ${total}`,
   },
