@@ -261,6 +261,8 @@ class DeviceStore {
    *  `_doScan()`'s tail (Flash/LittleFS) and `scanSdCardGames()` (SD-card files). Null until
    *  the first check completes; best-effort, never blocks or fails a scan. */
   coreVersionCheck = $state<CoreVersionCheck | null>(null);
+  /** True after the current flash-mode core inventory scan settles, even if LittleFS was corrupt. */
+  coreInventoryReady = $state(false);
   /** Paths seen on the selected SD card during its last scan (covers included). */
   sdInstalledPaths = $state<Set<string>>(new Set());
   /** Distinguishes a completed scan of an empty card from a card that has not been scanned. */
@@ -1248,6 +1250,7 @@ class DeviceStore {
     const gen = ++this._gen; // supersede any in-flight background reads from a prior scan
     if (this.targetMedia !== "sd") {
       this.coreVersionCheck = null;
+      this.coreInventoryReady = false;
     }
     this.scanning = true;
     this.scanProgress = 0;
@@ -1502,9 +1505,15 @@ class DeviceStore {
           const coreVersionCheck = import("./engine/lfsBrowser.js")
             .then(({ checkCoreVersions }) => checkCoreVersions(firmwareVersion, () => gen !== this._gen))
             .then((res) => {
-              if (gen === this._gen) this.coreVersionCheck = res;
+              if (gen === this._gen) {
+                this.coreVersionCheck = res;
+                this.coreInventoryReady = true;
+              }
             })
-            .catch((e) => dbg(`[scan] Core version check failed: ${e}`));
+            .catch((e) => {
+              if (gen === this._gen) this.coreInventoryReady = true;
+              dbg(`[scan] Core version check failed: ${e}`);
+            });
           void started(
             coreVersionCheck,
           );

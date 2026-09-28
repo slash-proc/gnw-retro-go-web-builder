@@ -5,7 +5,7 @@
   import { extflashSegments, intflashSegments } from "../engine/classify.js";
   import { INT_BAR_NOTE, INT_BAR_SIZE, EXT_BAR_NOTE, extBarSize } from "./addr.js";
   import type { FrogfsFile, LittlefsTreeNode } from "@gnw/fs-builders";
-  import { LittleFsImage } from "@gnw/fs-builders";
+  import { LittleFsImage, readLittleFsTree, reverseLfsBlocks } from "@gnw/fs-builders";
   import { dumpRegion } from "../engine/flasher.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import { download, formatSize } from "../util.js";
@@ -198,9 +198,51 @@
       }
       for (const d of [...dirs].sort((a, b) => a.split("/").length - b.split("/").length)) image.mkdir(`/${d}`);
       for (const [p, data] of files) image.writeFile(`/${p}`, data);
-      await flashImage((force) => device.ensureStub(undefined, force, true, force), 0, part.offset, image.finish(), undefined, undefined, { compress: true, verify: false });
+      // The device maps LittleFS block b from the top of the partition downward. The
+      // standalone WASM image is block 0 first, so reverse blocks before flashing (same as
+      // buildCoresLittlefs). Writing the linear image directly makes the next mount fail
+      // with LFS_ERR_CORRUPT (-84).
+      const onDeviceImage = reverseLfsBlocks(image.finish(), bs, bc);
+      await flashImage((force) => device.ensureStub(undefined, force, true, force), 0, part.offset, onDeviceImage, undefined, undefined, { compress: true, verify: false });
       lfsTree = null;
       device.installedLfsTree = null;
+      await loadLittleFs();
+    } catch (e) {
+      mutationError = e instanceof Error ? e.message : String(e);
+    } finally {
+      deviceSafety.release();
+      mutating = null;
+    }
+  }
+
+  /** Recover the exact block-order mistake made by the old File Browser delete path. */
+  async function repairLittleFsBlockOrder() {
+    if (!canMutate || !confirm("Repair the LittleFS block order? This reads and rewrites the full partition, and is only safe for corruption caused by the File Browser delete operation.")) return;
+    mutating = "repair-littlefs";
+    mutationError = null;
+    deviceSafety.hold();
+    try {
+      const part = device.partitions.find((p) => p.fs === "littlefs");
+      if (!part) throw new Error("LittleFS partition not found.");
+      const bs = part.meta?.blockSize ?? device.info?.minEraseSizeBytes ?? 4096;
+      const bc = part.meta?.blockCount ?? Math.floor(part.size / bs);
+      const flasher = await device.ensureStub(undefined, true, true, true);
+      const raw = await dumpRegion(flasher, 0, part.offset, part.size);
+      if (raw.length !== bs * bc) throw new Error("LittleFS partition read returned an unexpected size.");
+
+      // In the affected build, image.finish() was written linearly at the partition base.
+      // Verify that exact byte sequence is a valid filesystem before changing flash.
+      const checked = await readLittleFsTree(bs, bc, async (block) =>
+        raw.slice(block * bs, (block + 1) * bs),
+      );
+      if (!(checked.children?.length)) throw new Error("The partition does not match the known File Browser block-order failure; left it unchanged.");
+
+      const repaired = reverseLfsBlocks(raw, bs, bc);
+      await flashImage(flasher, 0, part.offset, repaired, undefined, undefined, { compress: true, verify: false });
+      device.lfsBlockCache.clear();
+      device.lfsChunkHashes.clear();
+      device.installedLfsTree = null;
+      lfsTree = null;
       await loadLittleFs();
     } catch (e) {
       mutationError = e instanceof Error ? e.message : String(e);
@@ -364,6 +406,11 @@
                progress track above stands alone until it does. -->
         {:else if lfsError}
           <p class="error">{lfsError}</p>
+          {#if lfsError.includes("littlefs error -84") && canMutate}
+            <Button variant="default" onclick={() => void repairLittleFsBlockOrder()}>
+              Repair LittleFS block order
+            </Button>
+          {/if}
         {:else if lfsTree && lfsTree.children && lfsTree.children.length > 0}
           <div class="fs-view">
             <div class="tree">

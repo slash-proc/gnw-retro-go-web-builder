@@ -2757,26 +2757,26 @@ import { navigate } from "../nav.js";
     return out;
   });
 
-  const installedCoreNames = $derived.by(() => {
-    const out = new Set<string>();
-    for (const path of device.coreVersionCheck ? Object.keys(device.coreVersionCheck.cores) : []) {
-      if (path.startsWith("cores/")) out.add(path.slice("cores/".length));
-    }
+  const installedLittlefsCorePaths = $derived.by(() => {
+    const out = new Set<string>(
+      Object.keys(device.coreVersionCheck?.cores ?? {}).map((path) => path.replace(/^\//, "")),
+    );
     function collectInstalledCores(node: any): void {
       for (const child of node.children ?? []) {
         if (child.isDirectory) collectInstalledCores(child);
-        else if (child.path.startsWith("/cores/")) out.add(child.path.slice("/cores/".length));
+        else if (child.path.startsWith("/cores/")) out.add(child.path.slice(1));
       }
     }
     if (device.installedLfsTree) collectInstalledCores(device.installedLfsTree);
-    for (const path of deviceCoreFiles()) {
-      if (path.startsWith("cores/")) out.add(path.slice("cores/".length));
-    }
     return out;
   });
 
+  const installedMappedCorePaths = $derived(new Set(deviceCoreFiles()));
+
   const missingCoreTargetCount = $derived.by(() => {
-    if (!device.coreVersionCheck || requiredCoreTargetKeys.size === 0) return 0;
+    // Wait for the background LittleFS inventory. A failed mount (including LFS_ERR_CORRUPT)
+    // is still a completed, empty inventory so Library Sync can offer to restore required cores.
+    if (!device.coreInventoryReady || requiredCoreTargetKeys.size === 0) return 0;
     let missing = 0;
     for (const targetKey of requiredCoreTargetKeys) {
       let present = false;
@@ -2784,7 +2784,15 @@ import { navigate } from "../nav.js";
         if (!row.manifest) continue;
         const target = row.manifest.targets.find((t) => `${row.repo}#${t.id}` === targetKey);
         if (!target) continue;
-        if ((target.artifacts ?? []).some((a) => installedCoreNames.has(a.filename.split("/").at(-1) ?? a.filename))) {
+        const artifacts = target.artifacts ?? [];
+        const hasAllInCorrectFilesystems = artifacts.length > 0 && artifacts.every((artifact) => {
+          const name = artifact.filename.replace(/^\/+/, "");
+          const path = name.startsWith("cores/") ? name : `cores/${name}`;
+          return artifact.mapped === true
+            ? installedMappedCorePaths.has(path)
+            : installedLittlefsCorePaths.has(path);
+        });
+        if (hasAllInCorrectFilesystems) {
           present = true;
           break;
         }

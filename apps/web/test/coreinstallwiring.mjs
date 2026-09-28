@@ -114,6 +114,8 @@ function auditBuilder(src) {
 
 const romSection = readFileSync(join(here, "../src/lib/advanced/RomSection.svelte"), "utf8");
 const flashImage = readFileSync(join(here, "../../../packages/fs-builders/src/flashImage.ts"), "utf8");
+const romManagement = readFileSync(join(here, "../src/lib/views/RomManagementTab.svelte"), "utf8");
+const fileBrowser = readFileSync(join(here, "../src/lib/advanced/FileBrowserSection.svelte"), "utf8");
 
 check("a flash firmware install packs every active core and passes the relocation facts", () => {
   const problems = auditInstall(romSection);
@@ -138,6 +140,25 @@ check("buildCoresLittlefs creates them as directories, before any file", () => {
   // opendir fails on a file. Verified as distinguishable: mkdir yields type 2 and a zero-byte
   // writeFile yields type 1 through listDirFromImage.
   assert(!/writeFile\(path,/.test(body), "the structural directories are written as files, which opendir cannot open");
+});
+
+check("Library requires every core artifact in the filesystem its manifest declares", () => {
+  const start = romManagement.indexOf("const missingCoreTargetCount =");
+  const end = romManagement.indexOf("const installedGamesNeedCores", start);
+  assert(start >= 0 && end > start, "Library missing-core calculation is absent");
+  const body = romManagement.slice(start, end);
+  assert(/artifacts\.every\(/.test(body), "Library accepts a core with only one of its artifacts");
+  assert(/artifact\.mapped === true/.test(body), "Library does not check mapped artifacts separately");
+  assert(/installedMappedCorePaths\.has\(path\)/.test(body), "mapped artifacts are not required in FrogFS");
+  assert(/installedLittlefsCorePaths\.has\(path\)/.test(body), "ordinary artifacts are not required in LittleFS");
+  assert(/coreInventoryReady/.test(body), "a failed/corrupt LittleFS inventory cannot trigger a repair sync");
+});
+
+check("File Browser deletes flash the device's reversed LittleFS block order", () => {
+  assert(/reverseLfsBlocks\(image\.finish\(\),\s*bs,\s*bc\)/.test(fileBrowser),
+    "delete rebuild is not block-reversed for the downward-growing device partition");
+  assert(!/flashImage\([^\n]*image\.finish\(\)/.test(fileBrowser),
+    "raw linear LittleFS image is still flashed directly");
 });
 
 // ANTI-VACUITY. Strip the core packing and the relocation facts, and every assertion above must
