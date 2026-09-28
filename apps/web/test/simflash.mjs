@@ -47,6 +47,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, symlinkSync } from 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { countMappedWords, gbaMappedSpec } from "./gbaArtifacts.mjs";
 import { createHash } from "node:crypto";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -227,10 +228,9 @@ function blob(seed, len = 4096) {
 }
 const GBA_BIN_KEY = "cores/gba.bin";
 const GBA_XIP_KEY = "cores/gba.xip";
-/** `GBA_CODE_BASE`, `Core/Src/porting/gba/main_gba.c`; the manifest declares it as `relocBase`. */
-const GBA_CODE_BASE = 0xdec00000;
-/** Measured over the owner's real gba.xip at that base; pinned so a drift fails rather than passes. */
-const SENTINEL_WORDS = 263;
+const GBA_CODE_BASE = gbaMappedSpec(ASSET_DIR, XIP.data).relocBase;
+const SENTINEL_WORDS = countMappedWords(XIP.data, GBA_CODE_BASE);
+if (SENTINEL_WORDS === 0) die("gba.xip has no aligned words in the manifest's relocation window");
 
 const bundle = () => ({
   manifest: { cores: [], dist: { paths: undefined } },

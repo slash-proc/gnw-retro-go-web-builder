@@ -34,6 +34,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, symlinkSync } from 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { countMappedWords, gbaMappedSpec } from "./gbaArtifacts.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../../..");
@@ -187,18 +188,16 @@ function blob(seed, len = 4096) {
 }
 
 /**
- * The FIXTURE MANIFEST, and exactly what it assumes. The GBA core's real manifest is not in
- * this repo, so the two artifact facts are declared here:
+ * The GBA release manifest declares these artifact facts (the four-file fallback fixture
+ * retains the known relocBase when no manifest is staged):
  *
  *  - `cores/gba.bin` -- role `cores`, NOT mapped. It is loaded into RAM, so it is an ordinary
  *    file and belongs in the writable partition.
  *  - `cores/gba.xip` -- role `cores`, `mapped: true`, `relocBase` 0xDEC00000.
  *
- * `relocBase` is NOT a guess and NOT derived from the bytes. It is `GBA_CODE_BASE`, declared by
- * the firmware itself in `Core/Src/porting/gba/main_gba.c` (upstream/main), the base gpSP's
- * renderer and bundled BIOS are linked at before the blob is placed. The owner's real `gba.xip`
- * holds 263 words in `[base, base + size)`, 246 of them distinct and 154 Thumb-tagged, so the
- * window is dense, unambiguous, and nothing like opcode aliasing.
+ * `relocBase` is read from that manifest, never guessed from the bytes. The expected word count
+ * comes from the supplied artifact itself because it can change with a new core build; below,
+ * every in-window word is still checked after relocation.
  *
  * WHY THE INSTALLER RELOCATES AT ALL, given the firmware has its own `patch_gba_sentinels`:
  * `odroid_overlay_cache_file_in_flash_relocate` (`Core/Src/porting/odroid_overlay.c`) runs the
@@ -211,11 +210,9 @@ function blob(seed, len = 4096) {
  */
 const GBA_BIN_KEY = "cores/gba.bin";
 const GBA_XIP_KEY = "cores/gba.xip";
-/** `GBA_CODE_BASE`, `Core/Src/porting/gba/main_gba.c` (upstream/main). */
-const GBA_CODE_BASE = 0xdec00000;
-/** Measured over the owner's real gba.xip at that base. Pinned so a drift is a failure, not a
- *  quietly different number: 246 of these are distinct and 154 carry the Thumb bit. */
-const SENTINEL_WORDS = 263;
+const GBA_CODE_BASE = gbaMappedSpec(ASSET_DIR, XIP.data).relocBase;
+const SENTINEL_WORDS = countMappedWords(XIP.data, GBA_CODE_BASE);
+if (SENTINEL_WORDS === 0) die("gba.xip has no aligned words in the manifest's relocation window");
 const MAPPED = new Map([[GBA_XIP_KEY, { relocBase: GBA_CODE_BASE, bytes: XIP.data.length }]]);
 
 /** The bundle's own content: a base firmware install, with no GBA anything in it. */
@@ -350,7 +347,8 @@ await check("5a. gba.xip is placed at EXTBASE + frogfsOffset + dataOffs", () => 
  * This once ran against a fabricated relocBase because the suite believed gba.xip had no
  * sentinel and the main build therefore changed no bytes -- with nothing moved, the builder's
  * own footer was already correct and deleting the rewrite left the suite green. The real
- * sentinel makes that scaffolding unnecessary: the main build moves 263 words, so the footer is
+ * sentinel makes that scaffolding unnecessary: the main build moves every word in the declared
+ * window, so the footer is
  * load-bearing in the build the rest of the suite already inspects.
  */
 await check("5b. the relocation rewrites the trailing CRC32", async () => {
