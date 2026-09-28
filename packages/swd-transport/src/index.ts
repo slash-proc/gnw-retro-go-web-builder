@@ -85,7 +85,11 @@ export function isDeadHandleError(e: unknown): boolean {
 
 export interface SwdTransport {
   connect(): Promise<void>; // navigator.usb.requestDevice gesture (caller-owned)
-  readMemory(addr: number, len: number, onProgress?: ProgressFn, reportProgress?: boolean): Promise<Uint8Array>;
+  /** Change probe SWD clock for this live connection without changing user preferences. */
+  setClockFrequency?(hz: number): Promise<void>;
+  readMemory(addr: number, len: number, onProgress?: ProgressFn, reportProgress?: boolean, requestSize?: number): Promise<Uint8Array>;
+  /** Optional one-off MEM-AP width probe used by locked-firmware diagnostics. */
+  readMemoryUnitAtWidth?(addr: number, widthBytes: 1 | 2 | 4): Promise<number>;
   writeMemory(addr: number, data: Uint8Array, onProgress?: ProgressFn): Promise<void>;
   readWord(addr: number): Promise<number>;
   writeWord(addr: number, val: number): Promise<void>;
@@ -126,6 +130,11 @@ const DBG_WWDG1 = 1 << 6;
 const DBGMCU_APB4FZ1 = 0x5c001054;
 const DBG_IWDG1 = 1 << 18;
 
+// OpenOCD's target/stm32h7x.cfg sets CSW.HPROT[3] so MEM-AP accesses see the
+// Cortex-M7 data cache. Without it, a successful read can return stale physical
+// SRAM instead of the firmware bytes the CPU just copied there.
+const CSW_HPROT_CACHEABLE = 1 << 27;
+
 const POLL_TRIES = 200; // each iteration is a USB round-trip (~ms)
 
 /** ARM core register name → DCRSR selector number (shared by both backends). */
@@ -143,13 +152,15 @@ const assertWordAligned = (addr: number, len: number) => {
 
 /**
  * Shared logic over the four primitives each backend provides:
- * readWord/writeWord and single-shot _readMemRaw/_writeMemRaw (≤ CHUNK bytes),
+ * readWord/writeWord and single-shot _readMemRaw/_writeMemRaw (backend-sized blocks),
  * plus _readCoreReg/_writeCoreReg. Implements block chunking, register-name
  * mapping, and halt/resume/reset.
  */
 abstract class BaseTransport implements SwdTransport {
-  /** Max bytes per raw transfer; ST-Link/dapjs both stay safe at 1 KiB. */
+  /** Default memory request size for ordinary reads. */
   protected readonly CHUNK: number = 1024;
+  /** Larger reads are opt-in; the default remains the proven 1 KiB request size. */
+  protected readonly MAX_READ_REQUEST: number = 1024;
 
   abstract connect(): Promise<void>;
   abstract readWord(addr: number): Promise<number>;
@@ -163,20 +174,41 @@ abstract class BaseTransport implements SwdTransport {
   // pacing delay), not a duplicate of apps/web's engine/chunkedRead.ts or
   // screenshot.ts helpers — those build on top of readMemory, calling it with a
   // chosen chunk size. See docs/AUDIT_NOTES.md item #2.
-  async readMemory(addr: number, len: number, onProgress?: ProgressFn, reportProgress = true): Promise<Uint8Array> {
+  async readMemory(addr: number, len: number, onProgress?: ProgressFn, reportProgress = true, requestSize = this.CHUNK): Promise<Uint8Array> {
     assertWordAligned(addr, len);
     const out = new Uint8Array(len);
+    const requestLimit = Math.min(Math.max(this.CHUNK, requestSize), this.MAX_READ_REQUEST);
     // Announce at 0 so the indicator appears when the transfer STARTS, not when its first
     // chunk lands -- a 16 MB read would otherwise show nothing for its first chunk's latency.
     if (reportProgress) emitTransfer("read", 0, len);
     let off = 0;
     while (off < len) {
-      // Keep a request inside the probe's 1 KiB transfer boundary. FrogFS
-      // retained-file addresses are commonly unaligned; crossing that boundary
-      // has produced periodic corruption in returned payloads on these probes.
-      const boundary = 1024 - ((addr + off) & 1023);
-      const n = Math.min(this.CHUNK, boundary, len - off);
-      out.set(await this._readMemRaw(addr + off, n), off);
+      // Normal reads stay inside the probe's 1 KiB transfer boundary. A caller
+      // may opt into larger, aligned requests for a DAP backend that packetizes
+      // them internally (such as GnWManager's staged SRAM dump).
+      const boundary = requestLimit <= 1024
+        ? 1024 - ((addr + off) & 1023)
+        : requestLimit - ((addr + off) % requestLimit);
+      const n = Math.min(requestLimit, boundary, len - off);
+      let chunk: Uint8Array | null = null;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const read = await this._readMemRaw(addr + off, n);
+          if (read.byteLength !== n) {
+            throw new Error(
+              `Transfer count mismatch: SWD read at 0x${(addr + off).toString(16)} returned ${read.byteLength} of ${n} bytes`,
+            );
+          }
+          chunk = read;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      }
+      if (!chunk) throw lastError instanceof Error ? lastError : new Error(String(lastError));
+      out.set(chunk, off);
       onProgress?.(off + n, len);
       if (reportProgress) emitTransfer("read", off + n, len);
       if (len > this.CHUNK) await new Promise((r) => setTimeout(r, 10));
@@ -293,6 +325,12 @@ const u32ToU8LE = (words: Uint32Array): Uint8Array => {
  */
 export interface CortexMLike {
   connect?(): Promise<void>;
+  proxy?: {
+    swjClock?(hz: number): Promise<void>;
+    transfer?(port: number, mode: number, register: number, value: number): Promise<number>;
+  };
+  writeAPCommand?(register: number, value: number): unknown[];
+  transferSequence?(commands: unknown[]): Promise<unknown>;
   readMem32(addr: number): Promise<number>;
   writeMem32(addr: number, val: number): Promise<void>;
   readBlock?(addr: number, words: number): Promise<Uint32Array>;
@@ -303,12 +341,125 @@ export interface CortexMLike {
 
 /** SwdTransport over an injected dapjs `CortexM` (CMSIS-DAP v2 over WebUSB). */
 export class DapjsTransport extends BaseTransport {
-  // NOTE: kept at the base 1 KiB. Larger blocks (tested at 16 KiB) corrupt
-  // writes on at least some CMSIS-DAP probes (whole first block dropped), so
-  // speeding this up needs a probe-safe approach, not a blind bump.
-  constructor(private readonly cortexM: CortexMLike) {
+  // The exceptional 128 KiB SRAM dump is exposed as one request to DAPJS.
+  // _readMemRaw still subdivides it into 1 KiB TAR-safe windows internally.
+  protected readonly MAX_READ_REQUEST: number = 128 * 1024;
+  constructor(
+    private readonly cortexM: CortexMLike,
+    private readonly onDapReadDiagnostic?: (line: string) => void,
+  ) {
     super();
+    // DAPJS hardcodes 0x23000052 for both scalar and block memory accesses.
+    // Apply the STM32H7 attribute before its CSW-value cache checks the command;
+    // a one-time writeAP(CSW, ...) would be undone by the next memory operation.
+    // This covers reads, writes, core-register access and diagnostic widths alike.
+    if (cortexM.writeAPCommand) {
+      const writeAPCommand = cortexM.writeAPCommand.bind(cortexM);
+      cortexM.writeAPCommand = (register, value) => writeAPCommand(
+        register,
+        register === 0 ? (value | CSW_HPROT_CACHEABLE) >>> 0 : value,
+      );
+    }
+    // Capture the actual CMSIS-DAP TransferBlock replies for the bad SRAM ranges.
+    // This is intentionally routed to the app's debug sink rather than DevTools:
+    // users can retrieve the evidence from Activity after the failed backup.
+    const proxy = (cortexM as CortexMLike & {
+      proxy?: {
+        transport?: {
+          read?: () => Promise<DataView>;
+          write?: (data: Uint8Array) => Promise<void>;
+        };
+      };
+    }).proxy;
+    const usb = proxy?.transport;
+    if (usb?.read) {
+      if (usb.write) {
+        const write = usb.write.bind(usb);
+        usb.write = async (data) => {
+          const request = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+          const context = this.dapDiagnosticRead;
+          const scalarAddress = this.dapDiagnosticScalarAddress;
+          if (scalarAddress !== null && request[0] === 5) {
+            const raw = Array.from(request, (b) => b.toString(16).padStart(2, "0")).join("");
+            this.onDapReadDiagnostic?.(`[dap-scalar-tx] addr=0x${scalarAddress.toString(16)} raw=${raw}`);
+          }
+          if (context && context.enabled && request[0] === 5) {
+            const transferCount = request[2];
+            const requestView = new DataView(request.buffer, request.byteOffset, request.byteLength);
+            for (let i = 0; i < transferCount; i++) {
+              const offset = 3 + i * 5;
+              const transfer = request[offset];
+              const port = transfer & 1;
+              const read = (transfer & 2) !== 0;
+              const register = transfer & 12;
+              if (port !== 1 || read || (register !== 0 && register !== 4)) continue;
+              const value = requestView.getUint32(offset + 1, true);
+              if (register === 0 || value >= 0x24000000 && value < 0x24020000) {
+                this.onDapReadDiagnostic?.(
+                  `[dap-tx] ap=${register === 0 ? "CSW" : "TAR"} value=0x${value.toString(16).padStart(8, "0")}`,
+                );
+              }
+            }
+          } else if (context && context.enabled && request[0] === 6 && request.byteLength >= 5) {
+            const words = request[2] | (request[3] << 8);
+            const packetAddress = context.addr + context.blockOffset;
+            const packetEnd = packetAddress + words * 4;
+            const overlapsFirstMismatch = packetAddress < 0x240000a0 && packetEnd > 0x24000080;
+            const overlapsBadTail = packetAddress < 0x24020000 && packetEnd > 0x2401f000;
+            if (overlapsFirstMismatch || overlapsBadTail) {
+              this.onDapReadDiagnostic?.(
+                `[dap-tx] addr=0x${packetAddress.toString(16)} words=${words} request=0x${request[4].toString(16).padStart(2, "0")}`,
+              );
+            }
+          }
+          await write(data);
+        };
+      }
+      const read = usb.read.bind(usb);
+      usb.read = async () => {
+        const view = await read();
+        const context = this.dapDiagnosticRead;
+        const scalarAddress = this.dapDiagnosticScalarAddress;
+        const viewBytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+        if (scalarAddress !== null && viewBytes[0] === 5) {
+          const raw = Array.from(viewBytes, (b) => b.toString(16).padStart(2, "0")).join("");
+          this.onDapReadDiagnostic?.(`[dap-scalar-rx] addr=0x${scalarAddress.toString(16)} raw=${raw}`);
+        }
+        if (context && context.enabled && viewBytes[0] === 6 && viewBytes.byteLength >= 4) {
+          const response = new DataView(view.buffer, view.byteOffset, view.byteLength);
+          const words = response.getUint16(1, true);
+          const packetAddress = context.addr + context.blockOffset;
+          const packetEnd = packetAddress + words * 4;
+          const overlapsFirstMismatch = packetAddress < 0x240000a0 && packetEnd > 0x24000080;
+          const overlapsBadTail = packetAddress < 0x24020000 && packetEnd > 0x2401f000;
+          if (this.onDapReadDiagnostic && (overlapsFirstMismatch || overlapsBadTail)) {
+            const raw = Array.from(viewBytes, (b) => b.toString(16).padStart(2, "0")).join("");
+            this.onDapReadDiagnostic(
+              `[dap-rx] addr=0x${packetAddress.toString(16)} words=${words} status=0x${response.getUint8(3).toString(16)} ` +
+              `view=${view.byteOffset}+${view.byteLength}/${view.buffer.byteLength} raw=${raw}`,
+            );
+          }
+          context.blockOffset += words * 4;
+        }
+        // DAPJS 2.3 decodes DAP_TRANSFER_BLOCK payloads with
+        // `result.buffer.slice(4, ...)`, which assumes byteOffset is zero.
+        // WebUSB returns a DataView; make its visible bytes a tight buffer before
+        // DAPJS sees it so a non-zero view offset cannot shift/corrupt the dump.
+        const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice();
+        return new DataView(bytes.buffer);
+      };
+    }
   }
+
+  async setClockFrequency(hz: number): Promise<void> {
+    const swjClock = this.cortexM.proxy?.swjClock;
+    if (!swjClock) throw new Error("This CMSIS-DAP probe cannot change SWD clock while connected.");
+    await swjClock.call(this.cortexM.proxy, hz);
+  }
+
+  private dapDiagnosticRead: { addr: number; blockOffset: number; enabled: boolean } | null = null;
+  private dapDiagnosticScalarAddress: number | null = null;
+  private dapDiagnosticCaptured = false;
 
   async connect(): Promise<void> {
     await this.cortexM.connect?.();
@@ -328,7 +479,31 @@ export class DapjsTransport extends BaseTransport {
   }
 
   async readWord(addr: number): Promise<number> {
-    return (await this.cortexM.readMem32(addr)) >>> 0;
+    const scalarDiagnostic = addr === 0x24000080 || addr === 0x2401f000 || addr === 0x2401f310 || addr === 0x2401fff0;
+    const previousAddress = this.dapDiagnosticScalarAddress;
+    if (scalarDiagnostic) this.dapDiagnosticScalarAddress = addr;
+    try {
+      return (await this.cortexM.readMem32(addr)) >>> 0;
+    } finally {
+      this.dapDiagnosticScalarAddress = previousAddress;
+    }
+  }
+
+  /** Read one diagnostic unit with an explicit MEM-AP access width. */
+  async readMemoryUnitAtWidth(addr: number, widthBytes: 1 | 2 | 4): Promise<number> {
+    const adi = this.cortexM;
+    const dap = this.cortexM.proxy;
+    if (!adi.writeAPCommand || !adi.transferSequence || !dap?.transfer) {
+      throw new Error("DAPJS MEM-AP diagnostic methods are unavailable");
+    }
+    const sizeBits = widthBytes === 1 ? 0 : widthBytes === 2 ? 1 : 2;
+    // Match DAPJS readBlock's single-increment CSW, changing only SIZE.
+    const csw = (0x23000050 | sizeBits) >>> 0;
+    await adi.transferSequence([
+      ...adi.writeAPCommand(0, csw),
+      ...adi.writeAPCommand(4, addr >>> 0),
+    ]);
+    return (await dap.transfer(1, 2, 12, 0)) >>> 0;
   }
   async writeWord(addr: number, val: number): Promise<void> {
     await this.cortexM.writeMem32(addr, val >>> 0);
@@ -336,8 +511,33 @@ export class DapjsTransport extends BaseTransport {
 
   protected async _readMemRaw(addr: number, len: number): Promise<Uint8Array> {
     if (typeof this.cortexM.readBlock === "function") {
-      const words = await this.transferWithRetry(() => this.cortexM.readBlock!(addr, len / 4));
-      return u32ToU8LE(words);
+      const capture = addr === 0x24000000 && len === 128 * 1024 && !this.dapDiagnosticCaptured;
+      if (capture) this.dapDiagnosticCaptured = true;
+      const out = new Uint8Array(len);
+      for (let off = 0; off < len;) {
+        // DAPJS does not safely advance the MEM-AP TAR across its 1 KiB wrap
+        // boundary. Keep each raw block inside that window, even when the caller
+        // requested a larger staged SRAM dump.
+        const n = Math.min(1024 - ((addr + off) & 1023), len - off);
+        const previous = this.dapDiagnosticRead;
+        this.dapDiagnosticRead = { addr: addr + off, blockOffset: 0, enabled: capture };
+        try {
+          const words = await this.transferWithRetry(() => this.cortexM.readBlock!(addr + off, n / 4));
+          if (words.length !== n / 4) {
+            throw new Error(`Transfer count mismatch: DAP block read at 0x${(addr + off).toString(16)} returned ${words.length * 4} of ${n} bytes`);
+          }
+          out.set(u32ToU8LE(words), off);
+        } finally {
+          this.dapDiagnosticRead = previous;
+        }
+        off += n;
+        // Large caller requests (notably the 128 KiB locked-firmware SRAM dump)
+        // are split here into MEM-AP-safe windows. Preserve the same probe settling
+        // cadence as BaseTransport.readMemory(), which applies this delay between
+        // its ordinary 1 KiB reads to avoid saturating the probe.
+        if (off < len) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      return out;
     }
     const out = new Uint8Array(len);
     const dv = new DataView(out.buffer);
@@ -374,6 +574,7 @@ export interface Stlinkv2Like {
   set_mem32(addr: number, data: Uint8Array): Promise<unknown>;
   get_reg(reg: number): Promise<number>;
   set_reg(reg: number, data: number): Promise<unknown>;
+  set_swd_freq?(hz: number): Promise<unknown>;
 }
 
 /** SwdTransport over an injected webstlink `Stlinkv2` (ST-Link v2 over WebUSB). */
@@ -387,6 +588,11 @@ export class WebStlinkTransport extends BaseTransport {
 
   // The webstlink instance is attached by the caller before construction.
   async connect(): Promise<void> {}
+
+  async setClockFrequency(hz: number): Promise<void> {
+    if (!this.stlink.set_swd_freq) throw new Error("This ST-Link cannot change SWD clock while connected.");
+    await this.stlink.set_swd_freq(hz);
+  }
 
   async readWord(addr: number): Promise<number> {
     return (await this.stlink.get_debugreg32(addr)) >>> 0;

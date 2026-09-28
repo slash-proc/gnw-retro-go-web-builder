@@ -210,6 +210,17 @@ const idx = (trace, pred) => trace.findIndex(pred);
 
 // ------------------------------------------- chunking + word alignment ------
 {
+  const backing = Uint8Array.from([0xee, 0xff, 0x00, 0x01, 0x02, 0x03, 0xdd]);
+  const transport = { async read() { return new DataView(backing.buffer, 1, 5); } };
+  const cm = makeCortexM();
+  cm.proxy = { blockSize: 59, transport };
+  new DapjsTransport(cm);
+  const view = await transport.read();
+  check(view.byteOffset === 0 && view.buffer.byteLength === 5, "DAPJS USB read normalizes non-zero DataView offsets");
+  check(new Uint8Array(view.buffer).join() === "255,0,1,2,3", "DAPJS USB read preserves only the visible response bytes");
+}
+
+{
   const cm = makeCortexM();
   const t = new DapjsTransport(cm);
   for (let a = 0; a < 4096; a += 4) cm.mem.set(0x24000000 + a, a);
@@ -242,6 +253,24 @@ const idx = (trace, pred) => trace.findIndex(pred);
     threw++;
   }
   check(threw === 2, "readMemory(): rejects unaligned addr and unaligned len");
+}
+
+{
+  const cm = makeCortexM();
+  const t = new DapjsTransport(cm);
+  for (let a = 0; a < 8192; a += 4) cm.mem.set(0x24000000 + a, a);
+  const expected = new Uint8Array(8192);
+  for (let a = 0; a < expected.length; a += 4) {
+    expected[a] = a & 0xff;
+    expected[a + 1] = (a >>> 8) & 0xff;
+  }
+  const progress = [];
+  const got = await t.readMemory(0x24000000, 8192, (done, total) => progress.push([done, total]), true, 8192);
+  const blocks = cm.trace.filter((e) => e[0] === "rb");
+  check(blocks.length === 8, `8 KiB request uses eight safe 1 KiB MEM-AP windows (got ${blocks.length})`);
+  check(blocks.every((b) => b[2] === 256), "8 KiB request does not cross MEM-AP TAR wrap boundaries");
+  check(got.every((b, i) => b === expected[i]), "8 KiB read preserves byte order across windows");
+  check(progress.length === 1 && progress[0][0] === 8192 && progress[0][1] === 8192, "8 KiB request reports progress once per GnWManager-sized block");
 }
 
 {

@@ -1,6 +1,7 @@
 // Probe connection: prompt for an ST-Link or CMSIS-DAP probe, build the matching
 // SwdTransport. Ported from the test harness (probe/swd/dap.js).
 import { DapjsTransport, WebStlinkTransport, type SwdTransport } from "@gnw/swd-transport";
+import { dbg } from "../debug.js";
 import { CortexM, WebUSB } from "dapjs";
 import WebStlink from "@webstlink/webstlink.js";
 import * as libstlink from "@webstlink/lib/package.js";
@@ -31,6 +32,8 @@ export interface SerialTransport extends SwdTransport {
    *  liveness poll skip while a flash/dump runs, so its time-boxed ping never queues behind
    *  a long op and mistakes the wait for a lost device. */
   busy(): boolean;
+  /** Set the live probe clock through the serial queue; does not persist user preference. */
+  setClockFrequency(hz: number): Promise<void>;
 }
 
 export function serialTransport(t: SwdTransport): SerialTransport {
@@ -49,7 +52,14 @@ export function serialTransport(t: SwdTransport): SerialTransport {
   return {
     busy: () => pending > 0,
     connect: () => q(() => t.connect()),
-    readMemory: (a, l, p, reportProgress) => q(() => t.readMemory(a, l, p, reportProgress)),
+    setClockFrequency: (hz) => q(async () => {
+      if (!t.setClockFrequency) throw new Error("This debug adapter cannot change SWD clock while connected.");
+      await t.setClockFrequency(hz);
+    }),
+    readMemory: (a, l, p, reportProgress, requestSize) => q(() => t.readMemory(a, l, p, reportProgress, requestSize)),
+    ...(t.readMemoryUnitAtWidth ? {
+      readMemoryUnitAtWidth: (a: number, width: 1 | 2 | 4) => q(() => t.readMemoryUnitAtWidth!(a, width)),
+    } : {}),
     writeMemory: (a, d, p) => q(() => t.writeMemory(a, d, p)),
     readWord: (a) => q(() => t.readWord(a)),
     writeWord: (a, v) => q(() => t.writeWord(a, v)),
@@ -161,9 +171,9 @@ export async function connectProbe(opts: { forcePicker?: boolean; swdClockHz?: n
   let cortexM!: CortexM;
   await withTimeoutAndRetry(
     async () => {
-      cortexM = new CortexM(new WebUSB(dev));
-      // @ts-expect-error dapjs exposes clockFrequency on the instance.
-      cortexM.clockFrequency = opts.swdClockHz ?? DEFAULT_SWD_CLOCK_HZ;
+      // The clock belongs to DAPJS's CMSIS-DAP proxy, not the CortexM instance.
+      // Pass it through the constructor so connect() sends the selected SWD rate.
+      cortexM = new CortexM(new WebUSB(dev), undefined, opts.swdClockHz ?? DEFAULT_SWD_CLOCK_HZ);
       await cortexM.connect();
     },
     1000,
@@ -173,7 +183,7 @@ export async function connectProbe(opts: { forcePicker?: boolean; swdClockHz?: n
   );
 
   return {
-    transport: new DapjsTransport(cortexM as never),
+    transport: new DapjsTransport(cortexM as never, (line) => dbg(line)),
     probeName: dev.productName || "CMSIS-DAP",
     device: dev,
     dispose: () => cortexM.disconnect().catch(() => {}),

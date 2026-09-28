@@ -29,9 +29,8 @@ export async function makeDapTransport(device, logEl = null) {
     if (logEl) logEl.appendChild(Object.assign(document.createElement("div"), { textContent: msg }));
   };
 
-  const cortexM = new DAPjs.CortexM(new DAPjs.WebUSB(device));
-  // Override dapjs's 10 MHz default before connect() sends DAP_SWJ_Clock.
-  cortexM.clockFrequency = SWD_CLOCK_HZ;
+  // Pass the clock to the CMSIS-DAP proxy; CortexM has no clockFrequency setting.
+  const cortexM = new DAPjs.CortexM(new DAPjs.WebUSB(device), undefined, SWD_CLOCK_HZ);
   log(`Connecting to ${device.productName || "CMSIS-DAP device"} at ${SWD_CLOCK_HZ / 1e6} MHz SWD…`);
   await cortexM.connect();
 
