@@ -176,11 +176,10 @@
         {#if prompt.checkboxes.length > 0}
           <div class="confirm-checkboxes">
             {#each prompt.checkboxes as cb (cb.id)}
-              <label class:disabled={cb.id === "migrateGames"}>
+              <label>
                 <input
                   type="checkbox"
                   checked={installProgress.checkboxValues[cb.id]}
-                  disabled={cb.id === "migrateGames"}
                   onchange={(e) => installProgress.setCheckbox(cb.id, e.currentTarget.checked)}
                 />
                 {cb.label}
@@ -464,10 +463,6 @@
     align-items: center;
     gap: 0.35rem;
     cursor: pointer;
-  }
-  .confirm-checkboxes label.disabled {
-    color: var(--ink-faint);
-    cursor: not-allowed;
   }
   /* ModalInstallConfirm.dc.html:243 — the action row sits 22px below the body with a 20px
      gap between Cancel and the confirm button. */

@@ -9,6 +9,7 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
   import RomManagementTab from "./RomManagementTab.svelte";
   import Sources from "./Sources.svelte";
   import Wizard from "./Wizard.svelte";
+  import Button from "../ui/Button.svelte";
 
   // The Advanced shell (§2): tab strip + multi-open accordion. Persistent
   // DeviceHeader + DeviceOverview stay mounted in App.svelte above this.
@@ -79,32 +80,20 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
   // now, not `.docked`: its rail owns all four sides of both columns.
   const docked = $derived(tab === "roms");
 
-  // Firmware Setup requires a responsive target, so open the header's adapter configuration
-  // whenever the tab is entered without one.
-  let connectGateActive = false;
-  $effect(() => {
-    if (tab !== "device" || device.isConnected) return;
-    if (connectGateActive) return;
-    connectGateActive = true;
-    device.requestAdapterConfiguration()
-      .catch(() => untrack(() => selectTab("info", false)))
-      .finally(() => (connectGateActive = false));
-  });
-
-  // Guided Setup (the Wizard) additionally requires Recovery Mode (the stub) — a layer below the
-  // basic connection gate above. Fires once per entry into wizard mode while connected+not booted;
-  // if the user cancels the confirm, route them to the Advanced sub-view instead of leaving them stuck.
-  let stubGateRequested = false;
-  $effect(() => {
-    if (tab !== "device" || mode !== "wizard" || !device.isConnected) {
-      stubGateRequested = false;
-      return;
+  let recoveryStarting = $state(false);
+  let recoveryError = $state<string | null>(null);
+  async function connectForFirmware() {
+    if (recoveryStarting) return;
+    recoveryStarting = true;
+    recoveryError = null;
+    try {
+      await device.connectAndStartRecoveryMode();
+    } catch (e) {
+      recoveryError = e instanceof Error ? e.message : String(e);
+    } finally {
+      recoveryStarting = false;
     }
-    if (device.utilLoaded || stubGateRequested) return;
-    stubGateRequested = true;
-    device.ensureStub()
-      .catch(() => untrack(() => selectMode("advanced", false))); // gate cancelled: derived, replace
-  });
+  }
 
   // ---- hash deep-link: #<tab>/<sec,sec> (§2.3) ----
   // URL segment names reflect the actual (flat, non-"advanced") tab structure: "info" and
@@ -302,7 +291,7 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
       >{locale.t.advanced.tabRoms}</button>
 
     </div>
-    {#if tab === "device" && device.isConnected}
+    {#if tab === "device"}
       <nav class="modeswitch" aria-label={locale.t.advanced.tabFirmwareSetup}>
         <button class:active={mode === "wizard"} onclick={() => selectMode("wizard")}
           >{locale.t.advanced.modeGuidedSetup}</button
@@ -331,8 +320,23 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
       <OverviewTab selected={overviewRail} onSelect={selectOverviewRail} />
     {:else if tab === "device"}
       {#if !device.isConnected}
-        <p class="connecting-placeholder">{locale.t.advanced.waitingForDevice}</p>
+        <div class="connecting-placeholder">
+          <p>{locale.t.advanced.waitingForDevice}</p>
+          <Button variant="action" disabled={recoveryStarting} onclick={() => void connectForFirmware()}>
+            {recoveryStarting ? locale.t.shared.common.connecting : locale.t.shared.common.connect}
+          </Button>
+          {#if recoveryError}<p class="recovery-error">{recoveryError}</p>{/if}
+        </div>
       {:else}
+        {#if device.debuggingDisabled && !device.utilLoaded}
+          <div class="recovery-notice">
+            <span>{locale.t.deviceHeader.connectedDebuggingDisabled}</span>
+            <Button variant="action" disabled={recoveryStarting} onclick={() => void connectForFirmware()}>
+              {recoveryStarting ? locale.t.shared.common.connecting : locale.t.shared.deviceControls.startRecoveryMode}
+            </Button>
+            {#if recoveryError}<span class="recovery-error">{recoveryError}</span>{/if}
+          </div>
+        {/if}
         {#if mode === "wizard"}
           <Wizard
             onComplete={() => selectTab("roms")}
@@ -356,6 +360,22 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
     font-size: var(--fs-caption);
     color: var(--ink-soft);
     text-align: center;
+  }
+  .connecting-placeholder p {
+    margin: 0 0 0.75rem;
+  }
+  .recovery-notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin: 0 auto 1rem;
+    color: var(--ink-soft);
+    font-size: var(--fs-caption);
+  }
+  .recovery-error {
+    color: var(--danger);
   }
   /* Audit S0.2. The per-tab width modifiers (`.wide` 'none' / default 1000px /
      `.narrow` 900px) are gone: every 12-column artboard body — Main.dc.html

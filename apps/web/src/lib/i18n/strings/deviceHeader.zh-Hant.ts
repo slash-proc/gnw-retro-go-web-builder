@@ -9,6 +9,7 @@ export const deviceHeaderZhHant: DeviceHeaderStrings = {
   connectedRetroGo: "已連線（Retro-Go）",
   connectedAs: (label: string) => `已連線（${label}）`,
   connected: "已連線",
+  connectedDebuggingDisabled: "已連線。偵錯功能已停用。",
   scanning: "掃描中…",
   dash: "—",
   patchMissing: "缺少修補",

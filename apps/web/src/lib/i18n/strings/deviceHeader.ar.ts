@@ -9,6 +9,7 @@ export const deviceHeaderAr: DeviceHeaderStrings = {
   connectedRetroGo: "متصل (Retro-Go)",
   connectedAs: (label: string) => `متصل (${label})`,
   connected: "متصل",
+  connectedDebuggingDisabled: "متصل. تصحيح الأخطاء معطّل.",
   scanning: "جارٍ الفحص…",
   dash: "—",
   patchMissing: "الباتش مفقود",

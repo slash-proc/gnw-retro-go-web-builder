@@ -161,6 +161,8 @@
           ? locale.t.deviceHeader.unsafeWritingStatus
         : deviceSafety.state === "settling"
             ? locale.t.deviceHeader.unsafeSettlingStatus
+        : device.debuggingDisabled
+          ? locale.t.deviceHeader.connectedDebuggingDisabled
         : device.utilLoaded
         ? locale.t.deviceHeader.connectedRecoveryMode
         : device.runtimeKind === "retro-go"

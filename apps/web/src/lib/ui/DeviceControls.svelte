@@ -63,36 +63,14 @@
   }
   function toggleRecoveryMode() {
     open = false;
-    // NOT a bare `void` (that is what surfaced the stub-boot race as an "Uncaught (in promise)"
-    // in the console and nowhere else), and NOT a bare swallow either: a failed Recovery Mode
-    // boot must reach the user. The single exception is the user's own Cancel on StubLoadModal,
-    // which is not an error state.
-    //
-    // CAVEAT, verified 2026-09-07: `device.error` has NO renderer anywhere — the store writes it
-    // in five places and no `.svelte` file reads it. So this makes the failure catchable and
-    // stateful rather than an uncaught console rejection, but the user still sees only the
-    // status LED (which for THIS site stays green — the link is fine, only the boot failed).
-    //
-    // Re-checked 2026-09-08 against every artboard in docs/design/mockups. The HEADER still
-    // draws no error state anywhere: the status line only ever carries the four approved
-    // strings (Connected (Recovery Mode) / ... Do not disconnect / connection lost / no
-    // connection), and FlashFailure.dc.html — the one board that shows a failure — deliberately
-    // draws the chrome IDLE: white band, GREEN chip, static 3px gold lip, "Connected (Recovery
-    // Mode)". The chip is not an error light. What FlashFailure adds is a MODAL error surface
-    // (the BAD_HASH_FLASH spec: named failing blocks, Save log / Close / Retry install), which
-    // is specific to a flash-install result, not a general `device.error` renderer. So a
-    // renderer for THIS failure (a Recovery Mode boot) is still BLOCKED on the owner drawing
-    // the slot. Do not infer one from that modal; see the report on branch agent/wt-err.
-    // `startRecoveryMode`, not a bare `ensureStub`: entering recovery resets the target, so the
-    // scan taken while Retro-Go was running no longer describes this device. See the store.
-    device.startRecoveryMode().catch((e) => {
+    // Recovery resets the target, so always rescan after boot. Cancellation stays silent;
+    // real failures are recorded in the device log.
+    const recovery = device.isTargetUnresponsive || device.debuggingDisabled
+      ? device.connectAndStartRecoveryMode()
+      : device.startRecoveryMode();
+    recovery.catch((e) => {
       if (e instanceof StubLoadCancelled) return;
       device.error = e instanceof Error ? e.message : String(e);
-      // AND INTO THE LOG, which is the half `device.error` cannot do. The caveat above is still
-      // true -- nothing renders that field -- so until the owner draws the slot this line is
-      // the ONLY trace a failed boot leaves. Without it "the boot failed" and "the click never
-      // landed" read identically, which is exactly how a real race got reported as a hardware
-      // flake. A Cancel returns above, so nothing here fires for the user's own dismissal.
       auditLog.add("error", "device", msg((t) => t.shared.auditLog.recoveryFailed, device.error));
     });
   }
@@ -147,7 +125,7 @@
     try {
       if (customFrequencyMode) applyCustomFrequency();
       device.setAdapterFrequency(device.adapterFrequencyHz);
-      await device.connect(undefined, { reconnect: true });
+      await device.connectAndStartRecoveryMode();
       if (!device.isConnected) throw new Error(device.error ?? locale.t.shared.connectGateModal.connectionFailed);
       configureOpen = false;
       device.resolveAdapterConfiguration();
@@ -163,7 +141,11 @@
   }
   function connect() {
     open = false;
-    void device.connect();
+    void device.connectAndStartRecoveryMode().catch((e) => {
+      if (e instanceof StubLoadCancelled) return;
+      device.error = e instanceof Error ? e.message : String(e);
+      auditLog.add("error", "device", msg((t) => t.shared.auditLog.recoveryFailed, device.error));
+    });
   }
 </script>
 
@@ -196,14 +178,18 @@
         <button class="menu-item" role="menuitem" onclick={changeAdapter}>{locale.t.shared.deviceControls.changeAdapter}</button>
         <button class="menu-item danger" role="menuitem" onclick={disconnectDevice}>{locale.t.shared.deviceControls.disconnectDevice}</button>
       {:else}
-        <button class="menu-item" role="menuitem" onclick={connect}>{locale.t.shared.common.connect}</button>
+        {#if device.isTargetUnresponsive && device.transport}
+          <button class="menu-item" role="menuitem" onclick={toggleRecoveryMode}>{locale.t.shared.deviceControls.startRecoveryMode}</button>
+        {:else}
+          <button class="menu-item" role="menuitem" onclick={connect}>{locale.t.shared.common.connect}</button>
+        {/if}
         <button class="menu-item" role="menuitem" onclick={changeAdapter}>{locale.t.shared.deviceControls.changeAdapter}</button>
       {/if}
   </div>
 {/if}
 
 {#if configureOpen}
-  <ModalShell onDismiss={() => !configuring && dismissAdapterConfig()} maxWidth="26rem">
+  <ModalShell onDismiss={dismissAdapterConfig} maxWidth="26rem">
     {#snippet children()}
       <div class="adapter-config">
         <h3>Configure Adapter</h3>
@@ -229,7 +215,7 @@
         {/if}
         {#if configureError}<p class="config-error">{configureError}</p>{/if}
         <div class="config-actions">
-          <button class="config-cancel" disabled={configuring} onclick={dismissAdapterConfig}>{locale.t.shared.common.cancel}</button>
+          <button class="config-cancel" onclick={dismissAdapterConfig}>{locale.t.shared.common.cancel}</button>
           <button class="config-connect" disabled={configuring} onclick={confirmAdapterConfig}>{device.adapterConfigPrompt ? locale.t.shared.common.connect : "OK"}</button>
         </div>
       </div>

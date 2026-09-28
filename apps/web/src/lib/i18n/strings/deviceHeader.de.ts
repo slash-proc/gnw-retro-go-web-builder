@@ -9,6 +9,7 @@ export const deviceHeaderDe: DeviceHeaderStrings = {
   connectedRetroGo: "Verbunden (Retro-Go)",
   connectedAs: (label: string) => `Verbunden (${label})`,
   connected: "Verbunden",
+  connectedDebuggingDisabled: "Verbunden. Debugging ist deaktiviert.",
   scanning: "Wird gescannt…",
   dash: "—",
   patchMissing: "Patch fehlt",

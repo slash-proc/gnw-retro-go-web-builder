@@ -9,6 +9,7 @@ export const deviceHeaderUk: DeviceHeaderStrings = {
   connectedRetroGo: "Підключено (Retro-Go)",
   connectedAs: (label: string) => `Підключено (${label})`,
   connected: "Підключено",
+  connectedDebuggingDisabled: "Підключено. Налагодження вимкнено.",
   scanning: "Сканування…",
   dash: "—",
   patchMissing: "Патч відсутній",

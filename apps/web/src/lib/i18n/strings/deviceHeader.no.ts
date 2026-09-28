@@ -9,6 +9,7 @@ export const deviceHeaderNo: DeviceHeaderStrings = {
   connectedRetroGo: "Tilkoblet (Retro-Go)",
   connectedAs: (label: string) => `Tilkoblet (${label})`,
   connected: "Tilkoblet",
+  connectedDebuggingDisabled: "Tilkoblet. Feilsøking er deaktivert.",
   scanning: "Skanner…",
   dash: "—",
   patchMissing: "Patch mangler",

@@ -228,6 +228,8 @@ class DeviceStore {
   info = $state<DeviceInfo | null>(null);
   /** When set, a confirmation modal is asking the user to load the RAM flash utility. */
   stubPrompt = $state<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
+  /** The probe is attached, but target debug reads are unavailable until Recovery Mode boots. */
+  debuggingDisabled = $state(false);
 
   /** Set while `UnlockConfirmModal` is asking whether to unlock a device with no backup.
    *  Store-level singleton for the same reason `stubPrompt` is: it is rendered at the App
@@ -412,8 +414,8 @@ class DeviceStore {
 
   private _connectPromise: Promise<void> | null = null;
 
-  /** Attach to a probe ONLY — the RAM util loads later, on demand (see ensureStub). */
-  connect(log?: (m: string) => void, opts?: { forcePicker?: boolean; reconnect?: boolean; swdClockHz?: number }): Promise<void> {
+  /** Attach to a probe; recoveryOnly skips target reads for stock firmware with SWD disabled. */
+  connect(log?: (m: string) => void, opts?: { forcePicker?: boolean; reconnect?: boolean; swdClockHz?: number; recoveryOnly?: boolean }): Promise<void> {
     // Dedupe by the in-flight promise ALONE, not by `connection === "connecting"`. A lost link
     // starts reconnectLoop() while the USB `connect` event independently fires connectSilent();
     // connectSilent's "am I still lost?" guard is checked BEFORE its own await of
@@ -484,6 +486,17 @@ class DeviceStore {
         // and the device log are refreshed immediately after reconnect.
         this._banksScannedAt = 0;
         const transport = this.transport;
+        if (opts?.recoveryOnly) {
+          // Stock firmware can disable debug reads while still allowing the adapter to
+          // reset the target and load our RAM utility. Do not probe its mailbox or memory
+          // first: those reads fail (or can stall) and leave the user unable to start recovery.
+          this.flasher = null;
+          this.utilLoaded = false;
+          this.debuggingDisabled = true;
+          this.everConnected = true;
+          this.connection = "attention";
+          return;
+        }
         const utilUp = await Promise.race([
           isStubAlive(transport),
           new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 800)),
@@ -502,11 +515,11 @@ class DeviceStore {
         }
         this.everConnected = true;
         this.connection = "connected";
+        this.debuggingDisabled = false;
         // Do not gate the adapter handshake on a target ping here. A preceding mailbox
         // probe may still be queued after its timeout; pingTarget would then wait behind it
         // and falsely time out. The regular poll checks only when the transport is idle.
         this.lastTargetAnswerAt = Date.now();
-        this.startPoll();
         // A full geometry scan is intentionally expensive. Read only the live VTOR
         // and the small version field at VTOR+0x400 first, so a running Retro-Go
         // becomes identifiable immediately after a power cycle and the device-log
@@ -514,10 +527,18 @@ class DeviceStore {
         await this.quickRuntimeProbe(transport);
         const targetResponding = await raceWithFallback(pingTarget(transport), 300, false);
         if (!targetResponding) {
-          this.markTargetUnresponsive();
+          // The adapter is attached and can still reset/load the RAM utility, even when
+          // stock firmware refuses normal debug transactions. Keep this actionable as a
+          // recovery state instead of turning it into a lost-device wait screen.
+          this.connection = "attention";
+          this.debuggingDisabled = !this.utilLoaded;
+          this.targetUnresponsive = false;
+          this.error = null;
           return;
         }
         this.lastTargetAnswerAt = Date.now();
+        this.debuggingDisabled = false;
+        this.startPoll();
         // A reconnect can land mid-install (a stub boot re-enumerates the probe by design), so
         // normal firmware connections use the quick scan and never compete with a write. When
         // the probe is already attached to a live stub, startup is an explicit Recovery Mode
@@ -897,6 +918,10 @@ class DeviceStore {
     this.info = await readInfo(this.flasher, dbgLog("stub", log));
     this.locked = this.info.locked;
     this.extSizeMB = this.info.externalFlashSizeMiB;
+    this.connection = "connected";
+    this.debuggingDisabled = false;
+    this.targetUnresponsive = false;
+    this.error = null;
     // A reboot invalidates any "banks already scanned this connection" freshness — force a
     // real re-scan of intflash on the next runScan() rather than trusting cached banks.
     this._banksScannedAt = 0;
@@ -964,29 +989,35 @@ class DeviceStore {
     // A type annotation in here makes that lift throw, and its armed guard then fails the whole
     // suite rather than silently testing nothing. Keep this body free of TS syntax.
     let err = "";
+    // Keep the liveness poll out of the gaps between recovery retries and the final rescan.
+    // ensureStub also suspends it around each individual boot; this outer hold is nested.
+    this.suspendPoll();
     try {
       // A probe can report as connected after its WebUSB handle has been closed by a prior
       // re-enumeration. That is exactly the failure Chrome reports as `transferOut ... must be
       // opened first`; retrying bootStub on the same transport can never work. Reattach the
       // authorized probe and retry automatically so a transient stale handle does not require
       // the user to press Start Recovery Mode several times.
-      for (let attempt = 1; ; attempt++) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           await this.ensureStub(undefined, true);
           break;
         } catch (e) {
-          // Only a genuinely dead USB handle is safe to recover automatically. Target-side
-          // halt/reset failures leave the live session in an unknown state; tearing it down
-          // and reconnecting here races the library scanner and produces a reconnect storm.
-          if (!isDeadHandleError(e) || attempt >= 3) throw e;
-          dbg(`[recovery] stale USB handle during stub boot; reattaching (retry ${attempt}/2)`);
-          await this._teardownConnection();
-          this.connection = "lost";
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          await this.connect();
-          // connect() starts an automatic scan; finish it before the next boot so the scan
-          // cannot take the freshly opened probe away from ensureStub again.
-          if (this._scanPromise) await this._scanPromise.catch(() => {});
+          if (e instanceof StubLoadCancelled || attempt >= 3) throw e;
+          dbg(`[recovery] stub boot attempt ${attempt}/3 failed: ${e instanceof Error ? e.message : String(e)}`);
+          if (isDeadHandleError(e)) {
+            await this._teardownConnection();
+            this.connection = "connecting";
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            // Reattach without target reads. On stock firmware those reads are exactly
+            // what Recovery Mode is needed to bypass.
+            await this.connect(undefined, { recoveryOnly: true });
+            // _teardownConnection resets the suspension depth with the dead handle. Restore
+            // this operation's outer hold before the next boot attempt.
+            this.suspendPoll();
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
         }
       }
       bootMs = Date.now() - t0;
@@ -998,6 +1029,7 @@ class DeviceStore {
       err = e instanceof Error ? e.message : String(e);
       throw e;
     } finally {
+      this.resumePoll();
       dbg(
         `[recovery] ${JSON.stringify({
           outcome,
@@ -1010,6 +1042,28 @@ class DeviceStore {
           utilLoaded: this.utilLoaded,
         })}`,
       );
+    }
+  }
+
+  /** Explicit Firmware-tab Connect: attach to the adapter without target reads, then boot
+   *  and scan the RAM utility. This works when stock firmware has disabled SWD debug access. */
+  async connectAndStartRecoveryMode(): Promise<void> {
+    try {
+      if (!this.probe || !this.transport || this.targetUnresponsive) {
+        await this.connect(undefined, {
+          reconnect: !!this.probe,
+          recoveryOnly: true,
+        });
+      }
+      await this.startRecoveryMode();
+    } catch (e) {
+      // Keep the retained adapter usable and represent this as an attached-but-unreadable
+      // target so Firmware setup remains available for another explicit recovery attempt.
+      if (this.probe && this.transport && !this.utilLoaded) {
+        this.connection = "attention";
+        this.debuggingDisabled = true;
+      }
+      throw e;
     }
   }
 
@@ -1713,6 +1767,17 @@ class DeviceStore {
       if (!ok) {
         this.firstRecoveryAnswerAt = 0;
         this.targetPingStalled = this.transport.busy();
+        if (!this.utilLoaded) {
+          // Without the RAM utility, a non-answering target can be stock firmware refusing
+          // debug transactions. Preserve the live adapter session for an explicit recovery boot.
+          this.debuggingDisabled = true;
+          this.targetUnresponsive = false;
+          this.connection = "attention";
+          this.error = null;
+          this.stopPoll();
+          dbg("[poll] target debug access disabled; keeping the adapter session open for recovery");
+          return;
+        }
         if (Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) this.markTargetUnresponsive();
         return;
       }
@@ -1877,6 +1942,7 @@ class DeviceStore {
     this.transport = null;
     this.flasher = null;
     this.utilLoaded = false;
+    this.debuggingDisabled = false;
     this.scanning = false;
     this._gen++; // supersede any in-flight background FS-stat reads
   }

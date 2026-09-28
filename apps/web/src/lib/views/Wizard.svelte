@@ -752,8 +752,6 @@
 
     // Read live from the confirm modal's own checkboxes (rendered inside InstallProgressModal
     // itself, not on this card) rather than local component state.
-    // Temporarily disabled while FrogFS game migration is being repaired. Keep the option
-    // visible as a reminder, but never allow a stale checkbox value to enable it.
     const migrateGames = installProgress.checkboxValues.migrateGames ?? false;
     const migrateSaves = installProgress.checkboxValues.migrateSaves ?? false;
 

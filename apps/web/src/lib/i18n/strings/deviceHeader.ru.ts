@@ -13,6 +13,7 @@ export const deviceHeaderRu: DeviceHeaderStrings = {
   connectedRetroGo: "Подключено (Retro-Go)",
   connectedAs: (label: string) => `Подключено (${label})`,
   connected: "Подключено",
+  connectedDebuggingDisabled: "Подключено. Отладка отключена.",
   scanning: "Сканирование…",
   dash: "—",
   patchMissing: "Нет патча",
