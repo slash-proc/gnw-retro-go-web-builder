@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   /**
    * Tab — Overview. `docs/design/proposals/overview-v2/`.
    *
@@ -47,7 +48,23 @@
   let screenshotProgress = $state({ done: 0, total: 1 });
   let latestScreenshotUrl = $state<string | null>(null);
   let screenshotErr = $state<string | null>(null);
+  let screenshotDisplay = $state({ width: 320, height: 240, dockWidth: 360 });
 
+  // Choose 1x/2x/3x from the window's display-pixel width, then convert that target back
+  // into CSS pixels. This keeps the intended size when desktop scaling or browser zoom changes.
+  onMount(() => {
+    const updateScreenshotDisplay = () => {
+      const ratio = window.devicePixelRatio || 1;
+      const displayWidth = window.innerWidth * ratio;
+      const scale = displayWidth >= 2560 ? 3 : displayWidth >= 1920 ? 2 : 1;
+      const width = (320 * scale) / ratio;
+      const height = (240 * scale) / ratio;
+      screenshotDisplay = { width, height, dockWidth: width + 40 };
+    };
+    updateScreenshotDisplay();
+    window.addEventListener("resize", updateScreenshotDisplay);
+    return () => window.removeEventListener("resize", updateScreenshotDisplay);
+  });
   // Single-phase, no substeps — a screenshot capture has no natural internal decomposition
   // beyond "capturing" with a byte-progress counter (see engine/screenshot.ts's halt / 64KiB
   // chunk / resume sequence, which this must NOT touch).
@@ -115,7 +132,10 @@
   }
 </script>
 
-<div class="overview">
+<div
+  class="overview"
+  style={`--screenshot-width:${screenshotDisplay.width}px;--screenshot-height:${screenshotDisplay.height}px;--screenshot-dock-width:${screenshotDisplay.dockWidth}px`}
+>
   <!-- The rail is drawn CONNECTED OR NOT. `StatusNoDevice.dc.html` is explicit that "Activity
        stays live in the rail", and it is right for a reason beyond the board: the audit log
        fills up from Sources and the Library with no device in the room at all, so a rail that
@@ -147,11 +167,12 @@
         {#if latestScreenshotUrl}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <canvas
-            bind:this={canvasEl}
+          <img
+            src={latestScreenshotUrl}
+            alt={locale.t.overview.screenshot.sectionLabel}
             onclick={downloadScreenshot}
             title={locale.t.overview.screenshot.clickToDownload}
-          ></canvas>
+          />
         {:else}
           <div class="screenshot-placeholder">{locale.t.overview.screenshot.noScreenshotCaptured}</div>
         {/if}
@@ -191,10 +212,8 @@
      gate to catch it. */
   .overview {
     display: grid;
-    /* 360px = the 320px panel + `--page-pad-x` (40px) of trailing gutter on `.screendock`.
-       It was 260px, which left 220px of content, and the panel's `max-width: 100%` then capped
-       it to 220 without a word. Change either number and you resize the capture. */
-    grid-template-columns: minmax(0, 1fr) 360px;
+    /* The image and its trailing page gutter scale together. */
+    grid-template-columns: minmax(0, 1fr) var(--screenshot-dock-width);
     align-items: stretch;
     flex: 1;
     width: 100%;
@@ -251,14 +270,9 @@
     color: var(--ink-soft);
     cursor: not-allowed;
   }
-  /* EXACTLY 320x240, the device's own panel, at one image pixel per CSS pixel.
-     The capture IS 320x240 (`engine/screenshot.ts` even repairs a 319/239 readback), so any
-     other size is a resample of a 76800-pixel image -- `image-rendering: pixelated` keeps the
-     edges hard but cannot put back what scaling removed. This used to be `width: 100%`, which
-     made the shot whatever the sidebar happened to be.
-     `max-width` is the one concession: below ~320px of column there is nowhere to put it, and
-     the rule that the page body never scrolls sideways outranks matching the panel. It shrinks
-     and letterboxes there (`object-fit: contain`) rather than distorting or being clipped. */
+  /* The source is 320x240. Its CSS dimensions are derived from the chosen integer display scale.
+     If the viewport is too narrow, the existing overview breakpoint hides the dock rather
+     than shrinking and resampling the screenshot. */
   .screenshot-area {
     border: 1px solid var(--hairline);
     border-radius: var(--r-panel);
@@ -273,34 +287,17 @@
        screenshot, and still a resample of every one of the 76800 pixels. Declared here so the
        CONTENT box is the panel and the border sits outside it. */
     box-sizing: content-box;
-    width: 320px;
-    height: 240px;
+    width: var(--screenshot-width);
+    height: var(--screenshot-height);
   }
   .screenshot-area img {
     display: block;
-    flex: 0 0 320px;
-    width: 320px;
-    height: 240px;
+    flex: 0 0 var(--screenshot-width);
+    width: var(--screenshot-width);
+    height: var(--screenshot-height);
     object-fit: contain;
     image-rendering: pixelated;
     cursor: pointer;
-  }
-  /* On a sufficiently wide high-DPI display, give the native pixels a clean integer 2×
-     presentation. The dock grows as a whole, so the rail and the rest of the page keep their
-     normal geometry; there is deliberately no 1.25×/1.5× fallback. */
-  @media (min-width: 1920px) and (min-resolution: 2dppx) {
-    .overview {
-      grid-template-columns: minmax(0, 1fr) 680px;
-    }
-    .screenshot-area {
-      width: 640px;
-      height: 480px;
-    }
-    .screenshot-area img {
-      flex-basis: 640px;
-      width: 640px;
-      height: 480px;
-    }
   }
   .screenshot-placeholder {
     color: var(--ink-soft);

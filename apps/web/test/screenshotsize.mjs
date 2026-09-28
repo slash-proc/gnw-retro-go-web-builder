@@ -43,10 +43,10 @@ const NATIVE = { width: 320, height: 240 };
 
 check("the capture area is exactly the device's panel", () => {
   const body = ruleBody(".screenshot-area");
-  ok(new RegExp(`width:\\s*${NATIVE.width}px`).test(body),
-    `.screenshot-area must be exactly ${NATIVE.width}px wide: ${JSON.stringify(body.trim())}`);
-  ok(new RegExp(`height:\\s*${NATIVE.height}px`).test(body),
-    `.screenshot-area must be exactly ${NATIVE.height}px tall: ${JSON.stringify(body.trim())}`);
+  ok(/width:\s*var\(--screenshot-width\)/.test(body),
+    ".screenshot-area width must follow the calculated integer display scale");
+  ok(/height:\s*var\(--screenshot-height\)/.test(body),
+    ".screenshot-area height must follow the calculated integer display scale");
 });
 
 check("the border sits outside the panel, not inside it", () => {
@@ -69,19 +69,11 @@ check("nothing stretches or caps the area", () => {
 });
 
 check("the column is wide enough to hold the panel", () => {
-  // THE REAL FAILURE. The rule said 320px and the panel rendered 220, because the grid column
-  // was 260px and `.screendock` spends `--page-pad-x` of it on a right gutter. Nothing about
-  // the .screenshot-area rule was wrong, so checking only that rule proved nothing.
   const clean = src.replace(/\/\*[\s\S]*?\*\//g, "");
-  const col = clean.match(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*(\d+)px/);
-  ok(col, "no fixed screendock column found in .overview");
-  const pad = readFileSync(join(here, "../src/styles/tokens.css"), "utf8")
-    .match(/--page-pad-x:\s*(\d+)px/);
-  ok(pad, "no --page-pad-x in tokens.css");
-  const content = Number(col[1]) - Number(pad[1]);
-  ok(content === NATIVE.width,
-    `the dock column leaves ${content}px for a ${NATIVE.width}px panel `
-    + `(column ${col[1]}px minus --page-pad-x ${pad[1]}px); the capture will not be ${NATIVE.width} wide`);
+  ok(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*var\(--screenshot-dock-width\)/.test(clean),
+    "the dock grid column must grow with the calculated screenshot size");
+  ok(/dockWidth:\s*width\s*\+\s*40/.test(clean),
+    "the dock column must include its trailing 40px page gutter");
 });
 
 check("the image fills the area without distorting", () => {
@@ -92,18 +84,20 @@ check("the image fills the area without distorting", () => {
     "a 320x240 panel must not be smoothed");
   ok(!/height:\s*auto/.test(body),
     "`height: auto` lets the image set its own height, defeating the fixed area");
-  ok(/width:\s*320px/.test(body) && /height:\s*240px/.test(body),
-    "the image must have explicit native dimensions; a fractional flex/grid size is forbidden");
+  ok(/width:\s*var\(--screenshot-width\)/.test(body)
+      && /height:\s*var\(--screenshot-height\)/.test(body),
+    "the image must use the calculated integer display scale");
 });
 
-check("the optional high-DPI presentation is exactly 2x", () => {
+check("the window's display-pixel width selects exact 1x, 2x, or 3x scaling", () => {
   const clean = src.replace(/\/\*[\s\S]*?\*\//g, "");
-  ok(/min-width:\s*1920px/.test(clean), "2x preview must require a 4K-class viewport");
-  ok(/min-resolution:\s*2dppx/.test(clean), "2x preview must require 2x device resolution");
-  ok(/\.screenshot-area\s*\{[^}]*width:\s*640px[^}]*height:\s*480px/s.test(clean),
-    "the high-DPI panel must be exactly 640x480");
-  ok(/\.screenshot-area img\s*\{[^}]*width:\s*640px[^}]*height:\s*480px/s.test(clean),
-    "the high-DPI image must be exactly 640x480");
+  ok(/window\.innerWidth\s*\*\s*ratio/.test(clean),
+    "scale must depend on the window's display-pixel width");
+  ok(/displayWidth\s*>=\s*2560\s*\?\s*3/.test(clean), "3x scale threshold is missing");
+  ok(/displayWidth\s*>=\s*1920\s*\?\s*2/.test(clean), "2x scale threshold is missing");
+  ok(/\(320\s*\*\s*scale\)\s*\/\s*ratio/.test(clean)
+      && /\(240\s*\*\s*scale\)\s*\/\s*ratio/.test(clean),
+    "display-pixel dimensions must be converted back to CSS pixels");
 });
 
 check("the pinned size is the size the engine actually produces", () => {
