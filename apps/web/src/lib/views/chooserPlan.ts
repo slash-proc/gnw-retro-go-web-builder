@@ -86,6 +86,7 @@ export function floorNote(extMB: number | null): FloorNote {
 /** The spine ids, in order. Mirrors `SpineId` in `Wizard.svelte`. */
 export type SpineId =
   | "backup"
+  | "patch"
   | "install"
   | "sources"
   | "roms"
@@ -106,7 +107,7 @@ export type SpineId =
 export function spineFor(path: ChooserCard, showBackupStep: boolean, removeBank2 = false): SpineId[] {
   if (path === "stock") return ["select-backup", "restore", "remove-rgo"];
   return [
-    ...(showBackupStep ? (["backup"] as SpineId[]) : []),
+    ...(showBackupStep ? (path === "dual" ? (["backup", "patch"] as SpineId[]) : (["backup"] as SpineId[])) : []),
     "install",
     ...(removeBank2 ? (["remove-bank2"] as SpineId[]) : []),
     "sources",

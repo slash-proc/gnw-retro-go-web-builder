@@ -24,6 +24,9 @@ export const wizardIt: WizardStrings = {
     buttonAction: (isBroken: boolean) => (isBroken ? "Applica patch" : "Backup e patch"),
     skip: "Salta",
     titleBackupOnly: "Backup del firmware originale",
+    bodyBackupBeforePatch: 'Scegli una cartella in cui salvare e verificare una copia del firmware originale. Questo passaggio non modifica il dispositivo; l’applicazione della patch è separata.',
+    bodyPatch: 'Usa il backup verificato per applicare la patch necessaria al dual boot. Questo passaggio modifica il dispositivo. Lascialo collegato fino al termine.',
+    errNeedValidBackup: 'Prima di applicare la patch, scegli una cartella che contenga backup validi del firmware interno ed esterno.',
     bodyBackupOnly:
       "Verrà chiesto di selezionare una cartella sul computer, dove sarà salvata una copia del firmware originale del dispositivo. Conservare questi file al sicuro, perché non è possibile scaricarli di nuovo. Nulla viene scritto sul dispositivo: Retro-Go sostituisce il firmware originale nel passaggio successivo.",
     buttonBackupOnly: "Esegui backup",

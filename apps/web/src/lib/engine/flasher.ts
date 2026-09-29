@@ -52,13 +52,22 @@ const VTOR_ADDR = 0xe000ed08;
 /** Liveness ping: validate the Cortex-M7 CPUID and a separate VTOR read. A probe can
  *  echo a stale CPUID as data from unrelated addresses when target reads fail. An erased
  *  VTOR remains acceptable so a locked device can still enter the unlock flow. */
-export async function pingTarget(transport: SwdTransport): Promise<boolean> {
+export async function pingTarget(
+  transport: SwdTransport,
+  onDiagnostic?: (detail: string) => void,
+): Promise<boolean> {
   try {
     const id = (await transport.readWord(CPUID_ADDR)) >>> 0;
-    if ((id >>> 24) !== 0x41 || ((id >>> 4) & 0xfff) !== 0xc27) return false;
+    if ((id >>> 24) !== 0x41 || ((id >>> 4) & 0xfff) !== 0xc27) {
+      onDiagnostic?.(`CPUID=0x${id.toString(16).padStart(8, "0")} (not Cortex-M7)`);
+      return false;
+    }
     const vtor = (await transport.readWord(VTOR_ADDR)) >>> 0;
-    return (vtor & 0x7f) === 0 || vtor === 0xffffffff;
-  } catch {
+    const validVtor = (vtor & 0x7f) === 0 || vtor === 0xffffffff;
+    onDiagnostic?.(`CPUID=0x${id.toString(16).padStart(8, "0")} VTOR=0x${vtor.toString(16).padStart(8, "0")} valid=${validVtor}`);
+    return validVtor;
+  } catch (error) {
+    onDiagnostic?.(`read failed: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
 }

@@ -132,23 +132,12 @@
     untrack(() => void backupPresence.refresh());
   });
 
-  // A LOCKED DEVICE CANNOT BE BACKED UP AT ALL, so it must not be offered the button.
-  // RDP 1 makes internal flash unreadable over SWD, which is why `OfficialFirmwareSection`
-  // disables its own `Back up now` on `device.locked === true` and `doBackup` throws
-  // `errDeviceLocked` before it starts. Routing someone there from here would land them on a
-  // disabled control -- the same defect the beginner audit found on the unsupported-browser
-  // card, which was clickable and led nowhere.
-  //
-  // Unlocking is NOT offered as the way out, and that is deliberate: clearing RDP mass-erases
-  // both flashes, so on a device with no backup it is precisely the action that guarantees the
-  // original firmware can never be saved (`engine/unlockGate.ts`). There is no action here that
-  // helps, so there is no action. The value stays truthful and the Read protection row directly
-  // above already reads `Locked`, which is where the reason lives.
+  // Locked devices can now be backed up through gnwmanager's payload/power-cycle procedure.
+  // Route the user to the same backup action regardless of RDP state; that flow keeps unlock
+  // behind successful on-disk hash verification.
   //
   // `Connect folder` is NOT suppressed: picking a folder is a filesystem action that has
   // nothing to do with the device, and a locked device's owner may well have a backup already.
-  const canBackUp = $derived(device.locked !== true);
-
   async function connectBackupFolder(): Promise<void> {
     try {
       await backupPresence.connect();
@@ -221,7 +210,7 @@
         {:else}
           <span class:warn={backupMissing}>{backupValue}</span>
         {/if}
-        {#if (backup.kind === "none" || backupMismatch) && canBackUp}
+        {#if backup.kind === "none" || backupMismatch}
           <button class="row-action" onclick={() => go("firmware/ofw")}>{s.backUpNow}</button>
         {:else if backup.kind === "disconnected"}
           <button class="row-action" onclick={() => void connectBackupFolder()}>{s.connectFolder}</button>

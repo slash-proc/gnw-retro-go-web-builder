@@ -1,7 +1,7 @@
 import type { Widen } from "../widen.js";
 
-// Guided Setup / wizard copy (views/Wizard.svelte): the 3-step linear flow (Backup & Patch
-// official firmware → Install Retro-Go → Install ROMs). Runtime/device-derived substrings
+// Guided Setup / wizard copy (views/Wizard.svelte): the guided firmware backup, patch,
+// install, and ROM stages. Runtime/device-derived substrings
 // (model names, version tags, byte/MiB counts, filenames, error messages caught from a thrown
 // Error) stay as function args or are left inline in the .svelte file — only literal
 // surrounding copy lives here. Generic button labels already covered by shared.common (Cancel,
@@ -31,6 +31,9 @@ export const wizardEn = {
     skip: "Skip",
     // Retro-Go-only path: the same step, minus the patch (see Wizard.svelte's openBackupOnly).
     titleBackupOnly: "Back Up Original Firmware",
+    bodyBackupBeforePatch: "Choose a folder to save and verify a copy of the original firmware. This step does not patch the device; patching is separate.",
+    bodyPatch: "Use the verified backup to patch the device for dual boot. This step changes the device. Keep it connected until the process finishes.",
+    errNeedValidBackup: "Select a folder containing a valid internal and external firmware backup before patching.",
     bodyBackupOnly:
       "You will be prompted to select a folder on your computer, where a copy of your device's original firmware will be saved. Keep these files safe, because you cannot download them again. Nothing is written to the device: Retro-Go replaces the original firmware in the next step.",
     buttonBackupOnly: "Back Up",

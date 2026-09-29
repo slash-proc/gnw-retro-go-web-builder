@@ -24,6 +24,9 @@ export const wizardDe: WizardStrings = {
     buttonAction: (isBroken: boolean) => (isBroken ? "Patchen" : "Backup & Patch"),
     skip: "Überspringen",
     titleBackupOnly: "Originalfirmware sichern",
+    bodyBackupBeforePatch: 'Wähle einen Ordner, in dem eine Kopie der Original-Firmware gespeichert und überprüft wird. Dieser Schritt patcht das Gerät nicht; das Patchen erfolgt separat.',
+    bodyPatch: 'Verwende das überprüfte Backup, um das Gerät für den Dual-Boot zu patchen. Dabei wird das Gerät verändert. Lass es verbunden, bis der Vorgang abgeschlossen ist.',
+    errNeedValidBackup: 'Wähle vor dem Patchen einen Ordner mit einem gültigen internen und externen Firmware-Backup aus.',
     bodyBackupOnly:
       "Sie werden aufgefordert, einen Ordner auf Ihrem Computer auszuwählen, in dem eine Kopie der Originalfirmware Ihres Geräts gespeichert wird. Bewahren Sie diese Dateien sicher auf – Sie können sie nicht erneut herunterladen. Auf das Gerät wird nichts geschrieben: Retro-Go ersetzt die Originalfirmware im nächsten Schritt.",
     buttonBackupOnly: "Sichern",

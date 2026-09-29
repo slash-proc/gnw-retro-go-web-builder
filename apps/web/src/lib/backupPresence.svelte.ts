@@ -11,14 +11,10 @@
  *
  * The truth is the folder. `engine/ofw.ts` already owns reading it; this owns REMEMBERING which
  * folder, re-adopting it silently across reloads, and caching the answer so a status row can ask
- * cheaply and often.
+ * without trusting a remembered boolean.
  *
- * WHAT IT DELIBERATELY DOES NOT DO. It does not hash-validate. `scanBackupFolder` reads every
- * candidate in full to check it against the stock SHA-1s, which is right before writing those
- * bytes to a device and far too expensive for a row on a tab the user opens constantly. This
- * uses `probeBackupFolder` (names, sizes, dates) instead. "A file of the right name and a
- * plausible size is here" is a weaker claim than "these bytes are genuine stock", and the copy
- * this drives is careful to make only the weaker one.
+ * `probeBackupFolder` hashes plausible-size files and confirms both stock firmware hashes.
+ * That way this status cannot claim the user has a usable backup based only on a filename.
  *
  * `device.backupTaken` is NOT replaced. It answers a different question -- "did the guided flow
  * complete its backup step" -- and `Wizard.svelte` needs exactly that, deliberately latched, so
@@ -57,6 +53,10 @@ export type BackupPresence =
   | { kind: "present"; hits: BackupProbeHit[] };
 
 class BackupPresenceStore {
+  /** Bumped when the firmware-backup progress modal closes. FirmwareRail keys the Backup &
+   *  Patch page by this value so it remounts and rescans the persisted folder handle. */
+  firmwarePageRevision = $state(0);
+
   /** The cached answer. `unknown` until `refresh()` has completed once. */
   state = $state<BackupPresence>({ kind: "unknown" });
   /** True while a probe is in flight, so overlapping calls collapse into one. Deliberately NOT
@@ -122,8 +122,8 @@ class BackupPresenceStore {
   /**
    * The remembered folder itself, re-adopted silently, or null if there is not one we can read.
    *
-   * For a caller that needs the FULL `scanBackupFolder` (hash-validated, bytes read) rather than
-   * this module's cheap probe -- the guided Return to Stock step, which is about to write those
+   * For a caller that needs the FULL `scanBackupFolder` result and file bytes rather than
+   * this module's hash-verified presence summary -- the guided Return to Stock step, which is about to write those
    * exact bytes to a device and cannot act on "a file of the right size is here". The folder is
    * remembered in exactly one place and this is how everything else asks for it, so picking a
    * folder on the Firmware tab and restoring from it in the wizard cannot disagree about which
@@ -161,6 +161,10 @@ class BackupPresenceStore {
   forget(): void {
     this.handle = null;
     this.state = { kind: "unknown" };
+  }
+
+  requestFirmwarePageReload(): void {
+    this.firmwarePageRevision++;
   }
 }
 

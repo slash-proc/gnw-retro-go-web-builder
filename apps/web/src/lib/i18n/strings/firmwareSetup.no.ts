@@ -8,6 +8,7 @@ import type {
   FileBrowserSectionStrings,
   RetroGoTabStrings,
 } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 
 export const advancedNo: AdvancedStrings = {
   tabbarLabel: "Avanserte verktøy",
@@ -21,6 +22,29 @@ export const advancedNo: AdvancedStrings = {
 } as const;
 
 export const officialFirmwareNo: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: 'Slå enheten av og på for å lese beskyttet fastvare',
+  lockedPowerCycleStepOff: 'Koble fra all strøm fra konsollen, inkludert batteriet, slik at den slås helt av.',
+  lockedPowerCycleStepOn: 'Koble til batteriet og/eller USB-C-strøm igjen, og trykk én gang på av/på-knappen.',
+  lockedPowerCycleStepContinue: 'Fortsett her når enheten er på og viser en blå skjerm, slik at den interne fastvaren kan sikkerhetskopieres.',
+  lockedPowerCycleNoteLabel: 'Merk:',
+  lockedPowerCycleNote: 'Den blå skjermen er midlertidig. Den opprinnelige eksterne fastvaresikkerhetskopien gjenopprettes før eventuell opplåsing.',
+  lockedPowerCycleStatusLabel: 'Status:',
+  lockedPowerCycleStatusNoDevice: 'Ingen enhet oppdaget.',
+  lockedPowerCycleStatusNotBlue: 'Enhet oppdaget, men den blå skjermen vises ikke.',
+  lockedPowerCycleStatusBlue: 'Enhet oppdaget, og blå skjerm er bekreftet.',
+  lockedBackupConfirmBody: 'Enheten kontrolleres før fastvaren endres. En låst enhet må slås helt av og på igjen for at den beskyttede interne fastvaren skal kunne leses.',
+  lockedBackupStageRecovery: 'Gå til og bekreft gjenopprettingsmodus',
+  lockedBackupStageIdentify: 'Finn original fastvare',
+  lockedBackupStageReadExternal: 'Les ekstern flash',
+  lockedBackupStageSaveExternal: 'Lagre og bekreft ekstern sikkerhetskopi',
+  lockedBackupStageReuseExternal: 'Bruk bekreftet ekstern sikkerhetskopi på nytt',
+  lockedBackupStagePrepareRead: 'Klargjør lesing av intern fastvare',
+  lockedBackupStagePowerCycle: 'Slå enheten helt av og på',
+  lockedBackupStageReadInternal: 'Les intern fastvare',
+  lockedBackupStageVerify: 'Bekreft og lagre fastvaresikkerhetskopier',
+  lockedBackupStageRestore: 'Gjenopprett opprinnelig ekstern fastvare',
+  lockedBackupStageVerifyRestore: 'Bekreft gjenopprettet fastvare',
   pageSubtitle: "Lagre originalfirmwaren, og patch den så alternativ firmware kan starte.",
   step1Title: "Firmware-sikkerhetskopi",
   chromiumRequired: "Mappevalg krever en Chromium-nettleser (som WebUSB).",

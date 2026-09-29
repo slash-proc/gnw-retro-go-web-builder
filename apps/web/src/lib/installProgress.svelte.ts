@@ -156,6 +156,8 @@ interface PromptConfig {
   versionPicker: VersionPicker | null;
   choicePicker: ChoicePicker | null;
   exec: (r: PhaseReporter) => Promise<void>;
+  /** Runs when this operation's modal is dismissed, after its work has settled. */
+  onClose?: () => void | Promise<void>;
   resolve: () => void;
   reject: (e: Error) => void;
 }
@@ -230,6 +232,8 @@ class InstallProgressStore {
     confirmGate?: ConfirmGate;
     versionPicker?: VersionPicker;
     choicePicker?: ChoicePicker;
+    /** Runs when the user closes the completed/cancelled/failed modal. */
+    onClose?: () => void | Promise<void>;
     exec: (r: PhaseReporter) => Promise<void>;
   }): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -268,6 +272,7 @@ class InstallProgressStore {
         versionPicker: opts.versionPicker ?? null,
         choicePicker: opts.choicePicker ?? null,
         exec: opts.exec,
+        onClose: opts.onClose,
         resolve,
         reject,
       };
@@ -331,11 +336,13 @@ class InstallProgressStore {
     subFinish: (id, substepId) => {
       const s = this.ensure(id);
       s.substepStatus = { ...s.substepStatus, [substepId]: "done" };
+      if (this.activePhaseId === id && this.activeSubstepId === substepId) this.activeSubstepId = null;
       this.phaseState = { ...this.phaseState };
     },
     subError: (id, substepId) => {
       const s = this.ensure(id);
       s.substepStatus = { ...s.substepStatus, [substepId]: "error" };
+      if (this.activePhaseId === id && this.activeSubstepId === substepId) this.activeSubstepId = null;
       this.phaseState = { ...this.phaseState };
     },
     log: (id, line, substepId) => {
@@ -519,7 +526,13 @@ class InstallProgressStore {
   close(): void {
     const p = this.prompt;
     this.prompt = null;
-    if (p) p.resolve();
+    if (!p) return;
+    p.resolve();
+    // The caller may need to refresh UI from files written by the operation. Run that
+    // refresh at the modal-dismiss boundary, when the user returns to the owning page.
+    void Promise.resolve(p.onClose?.()).catch((error) => {
+      dbg(`[install-progress] modal close callback failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 }
 

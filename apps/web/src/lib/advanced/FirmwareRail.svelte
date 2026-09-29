@@ -19,6 +19,7 @@
   import { createPaneFooterSlot } from "./paneFooter.svelte.js";
   import { listVersions, type FirmwareVersion } from "../artifacts.js";
   import { installTitleState } from "../firmwareDist/compare.js";
+  import { backupPresence } from "../backupPresence.svelte.js";
 
   // The anchored footer bar every Advanced artboard ends with (audit 5.1). Sections declare
   // their own bar with <PaneFooter>; it is drawn here, as the pane column's second child.
@@ -131,7 +132,7 @@
   </nav>
 
   <div class="pane" class:narrow={selected === "install"}>
-    {#key selected}
+    {#key selected === "ofw" ? `${selected}:${backupPresence.firmwarePageRevision}` : selected}
       <div class="panebody">
       <header class="pagehead">
         <h2 class="pagetitle">{pagehead.title}</h2>

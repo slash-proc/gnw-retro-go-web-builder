@@ -24,6 +24,9 @@ export const wizardFr: WizardStrings = {
     buttonAction: (isBroken: boolean) => (isBroken ? "Patcher" : "Sauvegarde et patch"),
     skip: "Ignorer",
     titleBackupOnly: "Sauvegarder le firmware d'origine",
+    bodyBackupBeforePatch: 'Choisissez un dossier où enregistrer et vérifier une copie du firmware d’origine. Cette étape ne modifie pas l’appareil ; le patch est effectué séparément.',
+    bodyPatch: 'Utilisez la sauvegarde vérifiée pour appliquer le patch nécessaire au double démarrage. Cette étape modifie l’appareil. Laissez-le connecté jusqu’à la fin.',
+    errNeedValidBackup: 'Avant de patcher, choisissez un dossier contenant des sauvegardes valides des firmwares interne et externe.',
     bodyBackupOnly:
       "Vous serez invité à sélectionner un dossier sur votre ordinateur, où une copie du firmware d'origine de votre appareil sera enregistrée. Conservez ces fichiers précieusement : vous ne pourrez pas les retélécharger. Rien n'est écrit sur l'appareil : Retro-Go remplacera le firmware d'origine à l'étape suivante.",
     buttonBackupOnly: "Sauvegarder",

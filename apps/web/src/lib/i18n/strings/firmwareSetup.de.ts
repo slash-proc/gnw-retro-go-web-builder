@@ -1,4 +1,5 @@
 import type { AdvancedStrings, DumpSectionStrings, EraseSectionStrings, FileBrowserSectionStrings, FlashSectionStrings, OfficialFirmwareStrings, RetroGoTabStrings, RomSectionStrings } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 
 export const advancedDe: AdvancedStrings = {
   tabbarLabel: "Erweiterte Werkzeuge",
@@ -12,6 +13,29 @@ export const advancedDe: AdvancedStrings = {
 };
 
 export const officialFirmwareDe: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: 'Gerät aus- und einschalten, um geschützte Firmware auszulesen',
+  lockedPowerCycleStepOff: 'Trenne alle Stromquellen vom Gerät, einschließlich des Akkus, damit es vollständig ausgeht.',
+  lockedPowerCycleStepOn: 'Schließe den Akku und/oder USB-C-Strom wieder an und drücke einmal die Einschalttaste.',
+  lockedPowerCycleStepContinue: 'Fahre hier fort, sobald das Gerät eingeschaltet ist und einen blauen Bildschirm zeigt, damit die interne Firmware gesichert werden kann.',
+  lockedPowerCycleNoteLabel: 'Hinweis:',
+  lockedPowerCycleNote: 'Der blaue Bildschirm wird nur vorübergehend angezeigt. Das originale externe Firmware-Backup wird wiederhergestellt, bevor das Gerät entsperrt wird.',
+  lockedPowerCycleStatusLabel: 'Status:',
+  lockedPowerCycleStatusNoDevice: 'Kein Gerät erkannt.',
+  lockedPowerCycleStatusNotBlue: 'Gerät erkannt, aber der blaue Bildschirm wird nicht angezeigt.',
+  lockedPowerCycleStatusBlue: 'Gerät erkannt und blauer Bildschirm bestätigt.',
+  lockedBackupConfirmBody: 'Das Gerät wird geprüft, bevor Firmware geändert wird. Bei einem gesperrten Gerät muss die Stromversorgung vollständig getrennt und wiederhergestellt werden, um die geschützte interne Firmware auszulesen.',
+  lockedBackupStageRecovery: 'Recovery-Modus starten und prüfen',
+  lockedBackupStageIdentify: 'Original-Firmware erkennen',
+  lockedBackupStageReadExternal: 'Externen Flash-Speicher lesen',
+  lockedBackupStageSaveExternal: 'Externes Backup speichern und prüfen',
+  lockedBackupStageReuseExternal: 'Geprüftes externes Backup wiederverwenden',
+  lockedBackupStagePrepareRead: 'Lesen der internen Firmware vorbereiten',
+  lockedBackupStagePowerCycle: 'Gerät aus- und wieder einschalten',
+  lockedBackupStageReadInternal: 'Interne Firmware lesen',
+  lockedBackupStageVerify: 'Firmware-Backups prüfen und speichern',
+  lockedBackupStageRestore: 'Originale externe Firmware wiederherstellen',
+  lockedBackupStageVerifyRestore: 'Wiederhergestellte Firmware prüfen',
   pageSubtitle: "Sichere deine Original-Firmware und patche sie dann, damit Custom-Firmware starten kann.",
   step1Title: "Firmware-Backup",
   chromiumRequired: "Die Ordnerauswahl benötigt einen Chromium-Browser (wie WebUSB).",

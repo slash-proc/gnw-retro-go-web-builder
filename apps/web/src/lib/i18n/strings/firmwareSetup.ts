@@ -27,6 +27,34 @@ export const officialFirmwareEn = {
   // The rail pane page subtitle (BackupPatch.dc.html).
   pageSubtitle: "Save your stock firmware, then patch it so custom firmware can boot.",
   step1Title: "Firmware backup",
+  lockedBackupConfirmBody: "The device will be checked before any firmware is changed. A locked device must be fully power-cycled to read its protected internal firmware.",
+  lockedBackupStageRecovery: "Enter and verify Recovery Mode",
+  lockedBackupStageIdentify: "Identify stock firmware",
+  lockedBackupStageReadExternal: "Read external flash",
+  lockedBackupStageSaveExternal: "Save and verify external backup",
+  lockedBackupStageReuseExternal: "Reuse verified external backup",
+  lockedBackupStagePrepareRead: "Prepare internal firmware read",
+  lockedBackupStagePowerCycle: "Power-cycle device",
+  lockedBackupStageReadInternal: "Read internal firmware",
+  lockedBackupStageVerify: "Verify and save firmware backups",
+  lockedBackupStageRestore: "Restore original external firmware",
+  lockedBackupStageVerifyRestore: "Verify restored firmware",
+  lockedPowerCycleTitle: "Power-cycle to read protected firmware",
+  lockedPowerCycleStepOff: "Disconnect all power from the console, including the battery, so it turns off completely.",
+  lockedPowerCycleStepOn: "Reconnect the battery and/or USB-C power, then press the power button once.",
+  lockedPowerCycleStepContinue: "Continue here once the device is on and shows a blue screen so the internal firmware can be backed up.",
+  lockedPowerCycleNoteLabel: "Note:",
+  lockedPowerCycleNote: "The blue screen is temporary. The original external firmware backup is restored before any unlock.",
+  lockedPowerCycleStatusLabel: "Status:",
+  lockedPowerCycleStatusNoDevice: "No device detected.",
+  lockedPowerCycleStatusNotBlue: "Device detected, but it is not showing the blue screen.",
+  lockedPowerCycleStatusBlue: "Device detected and blue screen confirmed.",
+  lockedBackupFailureTitle: "Internal firmware backup failed",
+  lockedBackupFailureDetails: (mhz: string) => `The verified original external backup is safe. Retry at ${mhz} MHz (each retry halves the SWD clock, down to 1 MHz), restore the original firmware, or stop and leave the temporary payload in place to resume later. If the read succeeds, this clock speed is saved as your adapter preference. The device has not been unlocked.`,
+  lockedBackupStop: "Stop and resume later",
+  lockedBackupRestore: "Restore original firmware",
+  lockedBackupRetry: (mhz: string) => `Retry at ${mhz} MHz`,
+  lockedBackupBlueScreenLog: "Blue-screen payload detected; resuming internal firmware read.",
   chromiumRequired: "Folder selection needs a Chromium browser (same as WebUSB).",
   pickFolderIntro: "Pick a folder holding your stock backups, or an empty folder to save a backup.",
   pickFolderLookForPre: "We look for",
@@ -357,6 +385,3 @@ export const retroGoTabEn = {
 } as const;
 
 export type RetroGoTabStrings = Widen<typeof retroGoTabEn>;
-
-
-

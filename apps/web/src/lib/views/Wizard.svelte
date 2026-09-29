@@ -5,13 +5,13 @@
   import { localFolders } from "../sources/localFolders.svelte.js";
   import Button from "../ui/Button.svelte";
   import AddSourcesModal from "../ui/AddSourcesModal.svelte";
-  import { installProgress, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
+  import { installProgress, deviceSafety, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
   import { msg, errText, sumBytes } from "../logEntry.js";
   import { locale } from "../i18n/locale.svelte.js";
 
   import {
-    pickBackupFolder, dumpBackup, writeBackup, patchAndFlash, detectDevice,
-    scanBackupFolder, defaultBackup, restoreStock, type FoundBackup, type BackupDir
+    pickBackupFolder, dumpBackup, dumpLockedBackup, isLockedBackupBlueScreen, writeBackup, patchAndFlash, detectDevice,
+    scanBackupFolder, defaultBackup, restoreStock, restoreSavedExternal, type FoundBackup, type BackupDir, type OfwModel
   } from "../engine/ofw.js";
   import { evaluateRestore } from "../engine/restoreGuards.js";
   import { buildFlashInstall, flashInstallToDevice, type FlashRegion } from "../engine/flashInstall.js";
@@ -196,35 +196,19 @@
     untrack(() => void backupPresence.refresh());
   });
 
-  // Step 1: Backup & Patch
+  // Backup and patch are separate dual-boot stages. The backup remains useful on its own if
+  // the user plans to replace the NOR chip before installing dual boot.
   // Manual escape hatch: detection can be wrong (or the user knows better) — lets them
   // bypass the "Backup & Patch" gate and proceed straight to step 2, same idea as step 2's
   // "Reinstall" button being a subtle secondary action next to the primary state.
   let step1Skipped = $state(false);
-  // On the Retro-Go-only path the step is BACKUP ONLY — it never patches, so `isPatched` can
-  // never be what completes it; the recorded backup is.
-  /**
-   * This step is "back up, then patch". On the dual-boot path, a patched OFW in bank 1 is
-   * durable device evidence that the patch phase already happened, even when this browser has
-   * no remembered backup record. Retro-Go-only still requires the local backup because that
-   * path never patches the device.
-   *
-   * It used to read `isPatched`, which also requires `hasAssets` -- a stock-asset partition
-   * still present in extflash. That extra condition belongs to "will the OFW boot", not to
-   * "did this step run": a device with a patched OFW, a recorded backup and its assets since
-   * overwritten showed the step as not done, with no way to make it done short of re-patching.
-   * Reported from the device.
-   *
-   * The blank-device false positive the `hasAssets` check was guarding against is handled by
-   * the patch evidence itself: `deviceClass.ofw.patched` comes from the bank scan, so an erased
-   * intflash has no `ofw` at all and cannot report patched. A patched bank-1 image is sufficient
-   * evidence for dual boot; requiring a local backup record there made an already-patched
-   * Zelda/Mario device look unfinished after a reload or when prepared by another session.
-   */
-  let step1Done = $derived(
-    step1Skipped || (path === "rgo" ? backupTaken || backupPresent : !!device.deviceClass?.ofw?.patched),
+  let lockedExternalRecovery = $state<{ dir: BackupDir; models: OfwModel[] } | null>(null);
+  let backupStepDone = $derived(
+    step1Skipped || backupTaken || backupPresent || (path === "dual" && !!device.deviceClass?.ofw?.patched),
   );
-  let step1Active = $derived(!step1Done);
+  let backupStepActive = $derived(!backupStepDone);
+  let patchStepDone = $derived(path === "dual" && isPatched);
+  let patchStepActive = $derived(path === "dual" && backupStepDone && !patchStepDone);
 
   // NOT NEGOTIABLE (device behaviour): the dual-boot patch is COMPUTED from the dumped stock
   // firmware, so there is nothing to patch without the dump — the dual-boot path can never
@@ -242,18 +226,24 @@
   const canSkipBackup = $derived(path === "rgo");
   let skipExpanded = $state(false);
 
-  // Dual boot: back up, then patch and flash the result. Unchanged behaviour — and the backup
-  // here is NOT optional in any sense: `patchAndFlash` computes the patch FROM the dumped stock
-  // image, so a dual-boot run with no dump has nothing to patch.
-  function openStep1() {
+  // The original backup is a complete, non-destructive stage. Patching is offered separately.
+  function openBackupStep() {
     void installProgress.run({
-      title: isBroken ? locale.t.wizard.step1.titlePatch : locale.t.wizard.step1.titleBackupAndPatch,
-      body: isBroken
-        ? locale.t.wizard.step1.bodyBroken
-        : locale.t.wizard.step1.bodyNormal,
-      confirmText: isBroken ? locale.t.wizard.step1.confirmPatch : locale.t.wizard.step1.confirmSelectFolderAndStart,
-      phases: step1Phases,
-      exec: (report) => runStep1(report, true),
+      title: locale.t.wizard.step1.titleBackupOnly,
+      body: locale.t.wizard.step1.bodyBackupBeforePatch,
+      confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
+      phases: backupOnlyPhases,
+      exec: runStep1,
+    });
+  }
+
+  function openPatchStep() {
+    void installProgress.run({
+      title: locale.t.wizard.step1.titlePatch,
+      body: isBroken ? locale.t.wizard.step1.bodyBroken : locale.t.wizard.step1.bodyPatch,
+      confirmText: locale.t.wizard.step1.confirmPatch,
+      phases: patchPhases,
+      exec: runPatchStep,
     });
   }
 
@@ -268,18 +258,28 @@
       body: locale.t.wizard.step1.bodyBackupOnly,
       confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
       phases: backupOnlyPhases,
-      exec: (report) => runStep1(report, false),
+      exec: runStep1,
     });
   }
 
-  // The backup-only run stops after "read-device", so it advertises only the phases it will
-  // actually walk — an unreachable "Patch firmware" row would read as a stall.
+  // The backup run stops after "read-device"; patching has its own progress modal and phase list.
+  const lockedBackupStages = [
+    { id: "identify", label: locale.t.officialFirmware.lockedBackupStageIdentify },
+    { id: "read-external", label: locale.t.officialFirmware.lockedBackupStageReadExternal },
+    { id: "save-external", label: locale.t.officialFirmware.lockedBackupStageSaveExternal },
+    { id: "reuse-external", label: locale.t.officialFirmware.lockedBackupStageReuseExternal },
+    { id: "flash-payload", label: locale.t.officialFirmware.lockedBackupStagePrepareRead },
+    { id: "power-cycle", label: locale.t.officialFirmware.lockedBackupStagePowerCycle },
+    { id: "read-internal", label: locale.t.officialFirmware.lockedBackupStageReadInternal },
+    { id: "verify-backups", label: locale.t.officialFirmware.lockedBackupStageVerify },
+    { id: "restore-external", label: locale.t.officialFirmware.lockedBackupStageRestore },
+  ];
   const backupOnlyPhases: PhaseDef[] = [
     { id: "locate-backup", label: locale.t.wizard.step1.phaseLocateBackup },
-    { id: "read-device", label: locale.t.wizard.step1.phaseReadDevice },
+    { id: "read-device", label: locale.t.wizard.step1.phaseReadDevice, substeps: lockedBackupStages },
   ];
-  const step1Phases: PhaseDef[] = [
-    ...backupOnlyPhases,
+  const patchPhases: PhaseDef[] = [
+    { id: "locate-backup", label: locale.t.wizard.step1.phaseLocateBackup },
     { id: "patch", label: locale.t.wizard.step1.phasePatch },
     { id: "flash-internal", label: locale.t.wizard.step1.phaseFlashInternal },
     { id: "flash-external", label: locale.t.wizard.step1.phaseFlashExternal },
@@ -302,7 +302,7 @@
    * The dump is NOT skippable when `patch` is true: the patch is computed from the dumped
    * image, so there is nothing to patch without it.
    */
-  async function runStep1(report: PhaseReporter, patch: boolean) {
+  async function runStep1(report: PhaseReporter, patch = false) {
     report.start("locate-backup");
     const dir = await pickBackupFolder();
     if (!dir) {
@@ -316,11 +316,30 @@
     const chosen = defaultBackup(found, device.model);
 
     const reuseExisting = !!(chosen && chosen.internalOk && chosen.externalOk);
-    // Recovery Mode is needed to read the device. On the dual-boot path it is ALSO needed for
-    // the flash below, so it stays where it was — before the branch, one unforced (confirming)
-    // call that every later getter then reuses silently. Backup-only reusing an on-disk backup
+    // The patch stage may only use an already hash-verified backup. If there is no such pair
+    // in the selected folder, stop before entering Recovery Mode or reading/changing the device.
+    if (patch && !reuseExisting) {
+      report.finish("locate-backup");
+      throw new Error(isBroken
+        ? locale.t.wizard.step1.errMustSelectBackup
+        : locale.t.wizard.step1.errNeedValidBackup);
+    }
+    // Recovery Mode is needed to read the device. On the normal dual-boot path, load the
+    // flasher here so the later flash reuses the confirmed stub. The locked-backup routine
+    // owns its own flasher setup; preloading it here would run ensureStub twice before that
+    // flow starts (unlike the advanced backup page). Backup-only reusing an on-disk backup
     // touches the device not at all, so it must not demand Recovery Mode for nothing.
-    const flasher = patch || !reuseExisting ? await device.ensureStub() : null;
+    // A fresh read must first enter Recovery Mode and refresh the lock state. A stock device
+    // can answer the initial USB connection while refusing the reads that classify it correctly.
+    const needsRead = !reuseExisting;
+    const resumeFromBlueScreen = needsRead && !!device.transport && await isLockedBackupBlueScreen(device.transport);
+    let flasher: Awaited<ReturnType<typeof device.ensureStub>> | null = null;
+    if (patch || needsRead) {
+      if (!resumeFromBlueScreen) await device.startRecoveryMode();
+      if (!resumeFromBlueScreen && needsRead && (!device.utilLoaded || device.locked === null))
+        throw new Error("Recovery Mode started, but the device's read-protection state could not be verified. Try Recovery Mode again.");
+      if (!resumeFromBlueScreen && device.locked !== true) flasher = await device.ensureStub(undefined, false, true);
+    }
     let targetModel = chosen?.model;
     let targetInt: Uint8Array;
     let targetExt: Uint8Array;
@@ -331,7 +350,7 @@
       device.markBackupTaken();
       report.log("locate-backup", msg((t) => t.wizard.step1.logReusingBackup, chosen!.model, chosen!.internal.length, chosen!.external.length));
       report.finish("locate-backup");
-      report.finish("read-device"); // nothing to read — using the existing backup (Branch A)
+      if (!patch) report.finish("read-device"); // backup-only branch reuses the on-disk pair
     } else {
       if (isBroken) {
         report.log("locate-backup", msg((t) => t.wizard.step1.logNoBackupBroken));
@@ -347,22 +366,91 @@
       report.finish("locate-backup");
 
       report.start("read-device");
-      const dumps = await withTimeout(
-        (progressReport) => dumpBackup(flasher!, extSize, progressReport),
-        30000,
-        (d, t, label) => {
-          report.progress("read-device", d, t);
+      device.suspendPoll();
+      deviceSafety.hold();
+      let dumps: { internal: Uint8Array; external: Uint8Array };
+      let activeLockedBackupStage: string | null = null;
+      try {
+        if (device.locked === true || resumeFromBlueScreen) {
+          if (!device.transport) throw new Error("The debug adapter is not connected.");
+          let result: Awaited<ReturnType<typeof dumpLockedBackup>>;
+          try {
+            result = await dumpLockedBackup({
+            transport: () => {
+              if (!device.transport) throw new Error("The debug adapter is not connected.");
+              return device.transport;
+            },
+            initialSwdClockHz: device.adapterFrequencyHz,
+            persistSwdClockHz: (hz) => device.setAdapterFrequency(hz),
+            reconnect: () => device.connect(undefined, { reconnect: true, recoveryOnly: true }),
+            ensureStub: () => device.ensureStub(undefined, false, true),
+            requestPowerCycle: async () => {
+              // This is the one safe point in the write transaction to use the regular
+              // liveness poll: no flash operation is active while the user power-cycles.
+              // Let it own reconnect detection instead of polling the old transport in UI.
+              device.resumePoll();
+              try {
+                await new Promise<void>((resolve, reject) => {
+                  device.lockedBackupPrompt = { resolve, reject };
+                  device.beginLockedBackupPowerCycleMonitoring();
+                });
+                await device.connect(undefined, { reconnect: true, recoveryOnly: true });
+              } finally {
+                device.suspendPoll();
+              }
+            },
+            requestReadFailureChoice: (error, nextSwdClockHz) => new Promise((resolve) => {
+              device.lockedBackupFailurePrompt = { error, nextSwdClockHz, resolve };
+            }),
+            resumeFromBlueScreen,
+            }, dir, await scanBackupFolder(dir), (stage, done, total, outcome) => {
+            if (stage === "done") {
+              if (activeLockedBackupStage) report.subFinish("read-device", activeLockedBackupStage);
+              activeLockedBackupStage = null;
+              return;
+            }
+            if (outcome === "error") {
+              report.subError("read-device", stage);
+              if (activeLockedBackupStage === stage) activeLockedBackupStage = null;
+              return;
+            }
+            if (activeLockedBackupStage && activeLockedBackupStage !== stage)
+              report.subFinish("read-device", activeLockedBackupStage);
+            activeLockedBackupStage = stage;
+            report.subStart("read-device", stage);
+            if (done !== undefined && total !== undefined)
+              report.progress("read-device", done, total, stage, "bytes");
+            });
+          } catch (e) {
+            const partials = await scanBackupFolder(dir).catch(() => []);
+            const models = partials.filter((b) => b.externalOk).map((b) => b.model);
+            lockedExternalRecovery = models.length ? { dir, models } : null;
+            throw e;
+          }
+          dumps = result.dumps;
+          if (activeLockedBackupStage) report.subFinish("read-device", activeLockedBackupStage);
+        } else {
+          dumps = await withTimeout(
+            (progressReport) => dumpBackup(flasher!, extSize, progressReport), 30000,
+            (d, t) => report.progress("read-device", d, t),
+          );
         }
-      );
+      } finally {
+        deviceSafety.release();
+        device.resumePoll();
+      }
 
       const det = await detectDevice(dumps.internal, dumps.external);
-      if (!det.model || !det.internalOk) {
+      if (!det.model || !det.internalOk || !det.externalOk) {
         throw new Error(locale.t.wizard.step1.errDumpedFirmwareMismatch);
       }
       report.log("read-device", msg((t) => t.wizard.step1.logDetectedModel, det.model, dumps.internal.length, dumps.external.length));
 
       report.log("read-device", msg((t) => t.wizard.step1.logSavingBackup));
-      await writeBackup(dir, det.model, dumps);
+      if (!(await scanBackupFolder(dir)).some((b) => b.model === det.model && b.internalOk && b.externalOk))
+        await writeBackup(dir, det.model, dumps);
+      if (!(await scanBackupFolder(dir)).some((b) => b.model === det.model && b.internalOk && b.externalOk))
+        throw new Error("Saved firmware backup failed hash verification; the device will remain locked.");
       report.finish("read-device");
 
       targetModel = det.model;
@@ -446,6 +534,45 @@
     report.finish("rescan");
   }
 
+  async function runPatchStep(report: PhaseReporter): Promise<void> {
+    await runStep1(report, true);
+  }
+
+  function restoreLockedExternal(model: OfwModel): void {
+    const recovery = lockedExternalRecovery;
+    if (!recovery) return;
+    void installProgress.run({
+      title: "Restore saved stock firmware",
+      body: "The verified external firmware dump will be written back and hash-checked. The internal firmware backup is still incomplete.",
+      confirmText: "Restore external firmware",
+      danger: true,
+      phases: [
+        { id: "recover", label: "Reconnect and enter Recovery Mode" },
+        { id: "restore", label: "Restore original external firmware" },
+      ],
+      exec: async (report) => {
+        report.start("recover");
+        deviceSafety.hold();
+        try {
+          await device.connect(undefined, { reconnect: true, recoveryOnly: true });
+          await device.startRecoveryMode();
+          report.finish("recover");
+          report.start("restore");
+          await restoreSavedExternal(
+            recovery.dir,
+            model,
+            (force) => device.ensureStub(undefined, force, true),
+            (done, total) => report.progress("restore", done, total, undefined, "bytes"),
+          );
+          report.finish("restore");
+          lockedExternalRecovery = null;
+        } finally {
+          deviceSafety.release();
+        }
+      },
+    });
+  }
+
   function withTimeout<T>(
     runFn: (report: (...args: any[]) => void, signal: AbortSignal) => Promise<T>,
     timeoutMs: number,
@@ -508,7 +635,7 @@
   );
 
   // Step 2: Install Retro-Go
-  let step2Active = $derived(step1Done && !isInstalled);
+  let step2Active = $derived((path === "dual" ? patchStepDone : backupStepDone) && !isInstalled);
   let step2Done = $derived(isInstalled);
 
   // The whole index, not just the newest tag: `versionRelation` orders by POSITION in this
@@ -1292,10 +1419,12 @@
   function spineTitle(id: SpineId): string {
     return titleOf(id, path === "dual");
   }
-  function titleOf(id: SpineId, dual: boolean): string {
+  function titleOf(id: SpineId, _dual: boolean): string {
     switch (id) {
       case "backup":
-        return dual ? w.spine.backupAndPatchOriginal : w.spine.backUpOriginal;
+        return w.spine.backUpOriginal;
+      case "patch":
+        return w.step1.titlePatch;
       case "install":
         return w.spine.installRetroGo;
       case "sources":
@@ -1441,12 +1570,14 @@
           {:else}
             {#each spine as id, i (id)}
               {@const stepDone =
-                (id === "backup" && step1Done) || (id === "install" && step2Done) || (id === "restore" && restoreDone) ||
+                (id === "backup" && backupStepDone) || (id === "patch" && patchStepDone) ||
+                (id === "install" && step2Done) || (id === "restore" && restoreDone) ||
                 (id === "sources" && curatedReady) || (id === "select-backup" && restoreValid) ||
                 (id === "remove-bank2" && bank2CleanupDone)}
               {@const stepActive =
                 !stepDone &&
-                ((id === "backup" && step1Active) ||
+                ((id === "backup" && backupStepActive) ||
+                  (id === "patch" && patchStepActive) ||
                   (id === "install" && step2Active) ||
                   (id === "roms" && step3Active) ||
                   id === "sources" ||
@@ -1486,15 +1617,16 @@
                   </div>
 
                   {#if id === "backup"}
-                    {#if step1Done}
-                      <Button variant="quiet" onclick={path === "dual" ? openStep1 : openBackupOnly}>
-                        {w.spine.runAgain}
-                      </Button>
+                    {#if backupStepDone}
+                      {#if path === "rgo" || !isBroken}
+                        <Button variant="quiet" onclick={path === "dual" ? openBackupStep : openBackupOnly}>
+                          {w.spine.runAgain}
+                        </Button>
+                      {/if}
                     {:else}
                       <div class="row">
-                        <!-- Dual boot patches; Retro-Go-only backs up and stops (see openBackupOnly). -->
-                        <Button variant="action" disabled={!step1Active} onclick={path === "dual" ? openStep1 : openBackupOnly}>
-                          {path === "dual" ? w.step1.buttonAction(isBroken) : w.step1.buttonBackupOnly}
+                        <Button variant="action" disabled={!backupStepActive} onclick={path === "dual" ? openBackupStep : openBackupOnly}>
+                          {w.step1.buttonBackupOnly}
                         </Button>
                         <!-- GuidedSkipBackup: once the caution is open the Skip affordance is gone,
                              leaving only "Skip anyway" inside the panel. -->
@@ -1512,6 +1644,25 @@
                           </button>
                         </div>
                       {/if}
+                      {#if lockedExternalRecovery}
+                        <div class="locked-recovery">
+                          <p>A verified stock external image is saved. Restore it now to return to stock, or retry the backup later; the saved image will be reused.</p>
+                          {#each lockedExternalRecovery.models as model (model)}
+                            <Button variant="quiet" onclick={() => restoreLockedExternal(model)}>
+                              Restore saved {modelLabel(model)} external firmware
+                            </Button>
+                          {/each}
+                        </div>
+                      {/if}
+                    {/if}
+
+                  {:else if id === "patch"}
+                    {#if patchStepDone}
+                      <Button variant="quiet" onclick={openPatchStep}>{w.spine.runAgain}</Button>
+                    {:else}
+                      <Button variant="action" disabled={!patchStepActive} onclick={openPatchStep}>
+                        {w.step1.buttonAction(true)}
+                      </Button>
                     {/if}
 
                   {:else if id === "install"}
@@ -1967,6 +2118,22 @@
   /* GuidedSkipBackup sets the caution body in plain ink, not the caution brown; the panel's
      tint and left rule already say "caution". --ink flips in dark theme like the brown did. */
   .caution p {
+    margin: 0;
+    font-size: var(--fs-btn-sm);
+    color: var(--ink);
+  }
+  .locked-recovery {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 10px 13px;
+    border-inline-start: 2px solid var(--caution);
+    background: var(--surface-sunk);
+  }
+  .locked-recovery p {
+    flex-basis: 100%;
     margin: 0;
     font-size: var(--fs-btn-sm);
     color: var(--ink);

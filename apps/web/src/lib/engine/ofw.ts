@@ -6,8 +6,9 @@
 import type { GnwFlasher } from "@gnw/gnw-flasher";
 import { patchModel } from "./patch.js";
 import { flashImage, dumpRegion } from "./flasher.js";
-import { dbgLog } from "../debug.js";
+import { dbg, dbgLog } from "../debug.js";
 import bootloaderUrl from "@gnw/gnw-patch/vendor/gnw_bootloader_0x08032000.bin?url";
+import unlockPayloadUrl from "@gnw/gnw-flasher/blobs/unlock.bin?url";
 
 export type OfwModel = "mario" | "zelda";
 
@@ -18,6 +19,13 @@ const BOOTLOADER_OFFSET = 200 << 10; // 0x32000 → flashed at 0x08032000
 
 const SHEET_OFFSET = 8192; // mario external hash excludes the trailing save bank
 const INTERNAL_STOCK_LEN = 0x20000; // 128 KiB stock internal image (also the patch-engine input size)
+const GNWMANAGER_INTERNAL_READ_CHUNK = INTERNAL_STOCK_LEN;
+const GNWMANAGER_EXTERNAL_READ_CHUNK = 256 << 10;
+const LOCKED_MODEL = {
+  mario: { itcmOffset: 0, itcmSha1: "ca71a54c0a22cca5c6ee129faee9f99f3a346ca0", payloadOffset: 0 },
+  zelda: { itcmOffset: 0x20, itcmSha1: "2f70156235ffd871599facf64457040d549353b4", payloadOffset: 0x30c3a8 },
+} as const;
+let unlockPayload: Uint8Array | null = null;
 
 interface DeviceDesc {
   name: string;
@@ -87,11 +95,133 @@ export async function detectDevice(intBytes: Uint8Array, extBytes: Uint8Array): 
 // --- Backup file naming (gnwmanager cli/_unlock.py) ------------------------------------
 export const intBackupName = (m: OfwModel): string => `internal_flash_backup_${m}.bin`;
 export const extBackupName = (m: OfwModel): string => `flash_backup_${m}.bin`;
+export const itcmBackupName = (m: OfwModel): string => `itcm_backup_${m}.bin`;
+const unverifiedInternalName = (m: OfwModel): string => `internal_flash_unverified_${m}.bin`;
 
 // --- Device-side dump -----------------------------------------------------------------
 export interface BackupDumps {
   internal: Uint8Array; // 128 KiB stock internal (bank 1)
   external: Uint8Array; // full external flash (bank 0)
+}
+
+export type LockedBackupStage =
+  | "identify"
+  | "read-external"
+  | "save-external"
+  | "reuse-external"
+  | "flash-payload"
+  | "power-cycle"
+  | "read-internal"
+  | "verify-backups"
+  | "restore-external"
+  | "done";
+export type LockedBackupProgress = (
+  stage: LockedBackupStage,
+  done?: number,
+  total?: number,
+  outcome?: "error",
+) => void;
+
+/** The GnWManager unlock payload paints the display blue before its cold-boot copy is done.
+ * A blue screen alone therefore does not prove that the required power-cycle happened. Only
+ * resume in place once the PC reaches the payload's post-copy loop (either model's ITCM base). */
+export async function isLockedBackupBlueScreen(transport: {
+  halt(): Promise<void>;
+  readWord(addr: number): Promise<number>;
+  readRegister(name: string): Promise<number>;
+}): Promise<boolean> {
+  let halted = false;
+  try {
+    if (!(await isLockedBackupBlueDisplay(transport))) return false;
+    await transport.halt();
+    halted = true;
+    if (!(await isLockedBackupBlueDisplay(transport))) {
+      await transport.resume();
+      halted = false;
+      return false;
+    }
+    const pc = (await transport.readRegister("pc")) >>> 0;
+    const address = pc & ~1;
+    const copyComplete = (address >= 0x4e2 && address <= 0x4ea) || (address >= 0x502 && address <= 0x50a);
+    dbg(`[locked-backup] blue-screen signature; PC=0x${pc.toString(16)} copyComplete=${copyComplete}`);
+    const matches = copyComplete;
+    if (!matches) {
+      // The payload is still copying SRAM. Let it continue and poll again shortly.
+      await transport.resume();
+      halted = false;
+    }
+    return matches;
+  } catch (error) {
+    if (halted) await transport.resume().catch(() => {});
+    dbg(`[locked-backup] blue-screen probe failed: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
+/** True as soon as the payload has painted its blue screen, even while its SRAM copy runs. */
+export async function isLockedBackupBlueDisplay(transport: {
+  readWord(addr: number): Promise<number>;
+}, onDiagnostic?: (detail: string) => void): Promise<boolean> {
+  try {
+    const words: number[] = [];
+    for (const address of [0x50001084, 0x5000109c, 0x50001104, 0x5000102c])
+      words.push((await transport.readWord(address)) >>> 0);
+    const matches = words[0] === 0 && words[1] === 0xff0000ff && words[2] === 0 && words[3] === 0;
+    onDiagnostic?.(`${words.map((word) => word.toString(16).padStart(8, "0")).join(" ")} match=${matches}`);
+    return matches;
+  } catch (error) {
+    const message = `read failed: ${error instanceof Error ? error.message : String(error)}`;
+    onDiagnostic?.(message);
+    dbg(`[locked-backup] blue-display probe failed: ${message}`);
+    return false;
+  }
+}
+
+/** The payload paints blue before copying flash to SRAM. Confirm it reached its watchdog
+ * loop after the copy before reading SRAM. Zelda's ITCM image is based at offset 0x20,
+ * which shifts the payload's PC addresses by 0x20. */
+async function waitForLockedPayloadCopy(transport: {
+  halt(): Promise<void>;
+  resume(): Promise<void>;
+  readRegister(name: string): Promise<number>;
+}, model: OfwModel): Promise<void> {
+  const COPY_COMPLETE_PC_MIN = 0x4e2 + LOCKED_MODEL[model].itcmOffset;
+  const COPY_COMPLETE_PC_MAX = 0x4ea + LOCKED_MODEL[model].itcmOffset;
+  const isCopyComplete = (pc: number) => {
+    const address = (pc >>> 0) & ~1;
+    return address >= COPY_COMPLETE_PC_MIN && address <= COPY_COMPLETE_PC_MAX;
+  };
+  let pc = (await transport.readRegister("pc")) >>> 0;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (isCopyComplete(pc)) {
+      dbg(`[locked-backup] payload copy complete; PC=0x${pc.toString(16)} after ${attempt} resume(s)`);
+      return;
+    }
+    await transport.resume();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await transport.halt();
+    pc = (await transport.readRegister("pc")) >>> 0;
+  }
+  throw new Error(`Blue-screen payload did not reach its post-copy loop (PC 0x${pc.toString(16)}); internal SRAM was not read.`);
+}
+
+/** Reuse the original ITCM signature captured before a prior attempt modified extflash.
+ *  Identify by content hash, not by filename; include legacy dated backup folders. */
+async function findSavedItcm(dir: BackupDir): Promise<{ model: OfwModel; bytes: Uint8Array } | null> {
+  const dirs = [dir];
+  for await (const [name, handle] of dir.entries())
+    if (handle.kind === "directory" && name.startsWith("backups-")) dirs.push(handle);
+  for (const source of dirs) {
+    for await (const [, handle] of source.entries()) {
+      if (handle.kind !== "file") continue;
+      const file = await handle.getFile();
+      if (file.size !== 1300) continue;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      for (const model of Object.keys(LOCKED_MODEL) as OfwModel[])
+        if (await sha1Hex(bytes) === LOCKED_MODEL[model].itcmSha1) return { model, bytes };
+    }
+  }
+  return null;
 }
 
 /** Dump the stock internal (128 KiB) + full external flash over the loaded RAM util.
@@ -105,11 +235,357 @@ export async function dumpBackup(
   const internal = await dumpRegion(flasher, 1, 0, INTERNAL_STOCK_LEN, (d) =>
     report?.(d, total, "internal flash"),
   );
-  const external = await dumpRegion(flasher, 0, 0, extSize, (d) =>
+  const external = await dumpRegionInChunks(flasher, 0, 0, extSize, GNWMANAGER_EXTERNAL_READ_CHUNK, (d) =>
     report?.(INTERNAL_STOCK_LEN + d, total, "external flash"),
   );
   return { internal, external };
 }
+
+/** Match GnWManager's DeviceModel.read_external_flash() operation boundaries. Its host
+ *  backend reads external flash in 256 KiB calls; keep the same boundaries here while the
+ *  SWD transport handles probe-specific packetization underneath. */
+async function dumpRegionInChunks(
+  flasher: GnwFlasher,
+  bank: number,
+  offset: number,
+  size: number,
+  chunkSize: number,
+  onProgress?: (done: number, total: number) => void,
+): Promise<Uint8Array> {
+  const result = new Uint8Array(size);
+  for (let done = 0; done < size;) {
+    const length = Math.min(chunkSize, size - done);
+    const chunk = await dumpRegion(flasher, bank, offset + done, length, (chunkDone) =>
+      onProgress?.(done + chunkDone, size),
+    );
+    if (chunk.byteLength !== length)
+      throw new Error(`Short flash read at 0x${(offset + done).toString(16)}: got ${chunk.byteLength} of ${length} bytes`);
+    result.set(chunk, done);
+    done += length;
+  }
+  return result;
+}
+
+/** Read a stock backup from an RDP-locked device using gnwmanager's unlock payload, without
+ * clearing RDP. The caller must write and hash-verify the returned pair before unlocking. */
+export async function dumpLockedBackup(
+  deps: {
+    transport: () => { readMemory(addr: number, len: number, onProgress?: (done: number, total: number) => void, reportProgress?: boolean, requestSize?: number): Promise<Uint8Array>; setClockFrequency(hz: number): Promise<void>; halt(): Promise<void>; resume(): Promise<void>; readRegister(name: string): Promise<number> };
+    initialSwdClockHz: number;
+    persistSwdClockHz: (hz: number) => void;
+    reconnect: () => Promise<void>;
+    ensureStub: (forceReboot?: boolean) => Promise<GnwFlasher>;
+    requestPowerCycle: () => Promise<void>;
+    requestReadFailureChoice: (message: string, nextSwdClockHz: number) => Promise<"retry" | "restore" | "stop">;
+    resumeFromBlueScreen?: boolean;
+  },
+  backupDir: BackupDir,
+  existingBackups: FoundBackup[] = [],
+  progress?: LockedBackupProgress,
+): Promise<{ model: OfwModel; dumps: BackupDumps; directory: BackupDir }> {
+  // Do not try protected reads against a merely attached adapter. Ensure the flasher/recovery
+  // stub is live before probing ITCM or external flash; stock firmware can reject SWD reads.
+  let flasher: GnwFlasher | null = deps.resumeFromBlueScreen ? null : await deps.ensureStub();
+  progress?.("identify");
+  let savedItcm = await findSavedItcm(backupDir);
+  let model: OfwModel | null = savedItcm?.model ?? null;
+  let itcm = savedItcm?.bytes ?? new Uint8Array();
+  if (!savedItcm) {
+    if (deps.resumeFromBlueScreen)
+      throw new Error("Blue-screen mode is active, but no verified ITCM backup is available to resume safely.");
+    if (!flasher) flasher = await deps.ensureStub();
+    for (const candidate of Object.keys(LOCKED_MODEL) as OfwModel[]) {
+      const sig = LOCKED_MODEL[candidate];
+      const bytes = await deps.transport().readMemory(sig.itcmOffset, 1300);
+      if (await sha1Hex(bytes) === sig.itcmSha1) {
+        model = candidate;
+        itcm = bytes;
+        break;
+      }
+    }
+  }
+  if (!model) throw new Error("Unable to identify stock firmware from its ITCM hash; device was not changed.");
+  if (!savedItcm) {
+    // Persist the original ITCM before any external-flash writes, matching GnWManager's
+    // resume behavior. Subsequent retries can rebuild the payload without depending on the
+    // device still running original code.
+    await writeFile(backupDir, itcmBackupName(model), itcm);
+    const saved = new Uint8Array(await (await (await backupDir.getFileHandle(itcmBackupName(model))).getFile()).arrayBuffer());
+    if (await sha1Hex(saved) !== LOCKED_MODEL[model].itcmSha1)
+      throw new Error("Saved ITCM backup failed hash verification; device was not changed.");
+  }
+  const dev = DEVICES[model];
+  const extSize = dev.externalSizeMiB * (1 << 20);
+  const target = backupDir;
+  const existingExternal = existingBackups.find((backup) => backup.model === model && backup.externalOk);
+  let external: Uint8Array;
+  if (existingExternal) {
+    // A prior attempt already captured this exact stock image. Rehash and reuse it so a retry
+    // of the internal read does not spend time dumping external flash again.
+    external = existingExternal.external;
+    if (external.length !== extSize || await sha1Hex(dev.externalSlice(external)) !== dev.externalSha1)
+      throw new Error("Saved external stock firmware failed hash verification; device was not changed.");
+    progress?.("reuse-external");
+  } else {
+    if (deps.resumeFromBlueScreen)
+      throw new Error("The blue-screen payload is running, but no verified external backup is available to resume safely.");
+    if (!flasher) flasher = await deps.ensureStub();
+    progress?.("read-external", 0, extSize);
+    external = await dumpRegionInChunks(flasher, 0, 0, extSize, GNWMANAGER_EXTERNAL_READ_CHUNK,
+      (d, t) => progress?.("read-external", d, t));
+    if (await sha1Hex(dev.externalSlice(external)) !== dev.externalSha1)
+      throw new Error("External stock firmware hash mismatch; device was not changed.");
+    progress?.("save-external");
+    await writeFile(target, extBackupName(model), external);
+    const externalFile = await (await target.getFileHandle(extBackupName(model))).getFile();
+    if (await sha1Hex(dev.externalSlice(new Uint8Array(await externalFile.arrayBuffer()))) !== dev.externalSha1)
+      throw new Error("Saved external backup failed hash verification; device was not changed.");
+  }
+  let modifiedExternal: Uint8Array | null = null;
+  if (!deps.resumeFromBlueScreen) {
+    if (!unlockPayload) unlockPayload = new Uint8Array(await (await fetch(unlockPayloadUrl)).arrayBuffer());
+    modifiedExternal = new Uint8Array(external);
+    const payloadOffset = LOCKED_MODEL[model].payloadOffset;
+    if (payloadOffset + unlockPayload.length > external.length || unlockPayload.length > itcm.length)
+      throw new Error("Unlock payload does not fit the detected stock firmware.");
+    for (let i = 0; i < unlockPayload.length; i++)
+      modifiedExternal[payloadOffset + i] = unlockPayload[i] ^ itcm[i] ^ external[payloadOffset + i];
+  }
+
+  // The validated external dump is already saved to disk before temporarily replacing it.
+  let internal = new Uint8Array();
+  let previousRejectedInternal: Uint8Array | null = null;
+  let scalarReadDiagnosticDone = false;
+  let readSwdClockHz = deps.initialSwdClockHz;
+  let diskPair: FoundBackup | undefined;
+  let internalReadFailed = false;
+  let userChoseStop = false;
+  try {
+    if (!deps.resumeFromBlueScreen) {
+      progress?.("flash-payload");
+      // Acquire through the getter so flashImage can force a clean RAM-stub boot and retry
+      // after a mailbox counter desync. Passing the cached object directly made this write
+      // non-retryable: on the first failed chunk the catch below restored stock firmware,
+      // skipping the cold boot that produces the blue screen and internal read.
+      await flashImage(
+        (forceReboot) => deps.ensureStub(forceReboot), 0, 0, modifiedExternal!,
+        (done, total) => progress?.("flash-payload", done, total),
+        dbgLog("locked-backup-payload"),
+      );
+      progress?.("power-cycle");
+      await deps.requestPowerCycle();
+    }
+    // Match gnwmanager: after the payload's cold boot, halt before reading the staged SRAM.
+    // Retry the read a bounded number of times automatically; after that, the user can retry
+    // in place while the blue-screen payload is still running, without reflashing or power-cycling.
+    const readAndValidateInternal = async (): Promise<Uint8Array> => {
+      let actualInternalHash = "";
+      // Announce this stage before the payload wait. The wait can fail before an SRAM transfer
+      // starts; otherwise recovery jumps straight to restoring external flash while the UI
+      // misleadingly leaves internal read pending.
+      progress?.("read-internal", 0, INTERNAL_STOCK_LEN);
+      try {
+        // The power-cycle prompt can now continue as soon as the screen turns blue;
+        // wait for the payload's SRAM copy loop before reading the staged firmware.
+        await waitForLockedPayloadCopy(deps.transport(), model);
+      } catch (error) {
+        progress?.("read-internal", undefined, undefined, "error");
+        throw error;
+      }
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        progress?.("read-internal", 0, INTERNAL_STOCK_LEN);
+        try {
+          await deps.transport().halt();
+          const data = await deps.transport().readMemory(0x24000000, INTERNAL_STOCK_LEN,
+            (d, t) => progress?.("read-internal", d, t), true, GNWMANAGER_INTERNAL_READ_CHUNK);
+          internal = data;
+          actualInternalHash = await sha1Hex(data);
+          dbg(`[locked-backup] SRAM read ${attempt}/3 SHA-1 ${actualInternalHash}${actualInternalHash === dev.internalSha1 ? " (valid)" : " (mismatch)"}`);
+          // Compare a few words through DAP_Transfer (readWord) against the bulk
+          // DAP_TransferBlock dump. This separates bad MEM-AP block transfers from
+          // a bad target address/state without rereading the whole 128 KiB.
+          if (!scalarReadDiagnosticDone && actualInternalHash !== dev.internalSha1) {
+            scalarReadDiagnosticDone = true;
+            const scalarTransport = deps.transport();
+            const samples = [
+              { offset: 0x80, words: 8 },
+              { offset: 0x1f000, words: 4 },
+              { offset: 0x1f310, words: 4 },
+              { offset: 0x1fff0, words: 4 },
+            ];
+            try {
+              for (const sample of samples) {
+                const bulkView = new DataView(data.buffer, data.byteOffset + sample.offset, sample.words * 4);
+                const bulk = Array.from({ length: sample.words }, (_, i) =>
+                  bulkView.getUint32(i * 4, true).toString(16).padStart(8, "0"),
+                ).join("");
+                const scalarWords: string[] = [];
+                for (let i = 0; i < sample.words; i++) {
+                  const word = await scalarTransport.readWord(0x24000000 + sample.offset + i * 4);
+                  scalarWords.push((word >>> 0).toString(16).padStart(8, "0"));
+                }
+                dbg(`[locked-backup] SRAM scalar compare offset=0x${sample.offset.toString(16)} words=${sample.words} bulk=${bulk} scalar=${scalarWords.join("")}`);
+              }
+              const widthTransport = scalarTransport as typeof scalarTransport & {
+                readMemoryUnitAtWidth?: (addr: number, widthBytes: 1 | 2 | 4) => Promise<number>;
+              };
+              if (widthTransport.readMemoryUnitAtWidth) {
+                for (const offset of [0x80, 0x1f000, 0x1f310, 0x1fff0]) {
+                  const addr = 0x24000000 + offset;
+                  const values: string[] = [];
+                  for (const width of [1, 2, 4] as const) {
+                    const value = await widthTransport.readMemoryUnitAtWidth(addr, width);
+                    values.push(`${width}B=0x${value.toString(16).padStart(8, "0")}`);
+                  }
+                  dbg(`[locked-backup] SRAM width probe offset=0x${offset.toString(16)} ${values.join(" ")}`);
+                }
+              }
+            } catch (error) {
+              dbg(`[locked-backup] SRAM scalar comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+          if (previousRejectedInternal) {
+            let changedBytes = 0;
+            let changedBlocks = 0;
+            let firstChanged = -1;
+            let lastChanged = -1;
+            for (let off = 0; off < data.length; off += 1024) {
+              let blockChanged = false;
+              const end = Math.min(data.length, off + 1024);
+              for (let i = off; i < end; i++) {
+                if (data[i] !== previousRejectedInternal[i]) {
+                  changedBytes++;
+                  blockChanged = true;
+                }
+              }
+              if (blockChanged) {
+                changedBlocks++;
+                if (firstChanged < 0) firstChanged = off;
+                lastChanged = off;
+              }
+            }
+            dbg(`[locked-backup] SRAM repeat comparison: ${changedBytes} bytes changed in ${changedBlocks}/128 1 KiB blocks${firstChanged < 0 ? "" : ` (0x${firstChanged.toString(16)}–0x${lastChanged.toString(16)})`}`);
+          }
+          previousRejectedInternal = data.slice();
+          if (actualInternalHash === dev.internalSha1) {
+            if (readSwdClockHz !== deps.initialSwdClockHz) deps.persistSwdClockHz(readSwdClockHz);
+            return data;
+          }
+        } catch (error) {
+          progress?.("read-internal", undefined, undefined, "error");
+          throw error;
+        }
+        if (attempt < 3) {
+          if (deps.resumeFromBlueScreen) await waitForLockedPayloadCopy(deps.transport(), model);
+          else await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
+      progress?.("verify-backups");
+      // The transfer completed, but its bytes did not constitute a valid firmware dump. Mark
+      // both the unusable read and the hash-validation stage failed in the modal.
+      progress?.("read-internal", undefined, undefined, "error");
+      progress?.("verify-backups", undefined, undefined, "error");
+      // Keep the last rejected read for diagnosis, separate from the canonical backup file.
+      // It remains untrusted and is never used by the patch or unlock path.
+      await writeFile(target, unverifiedInternalName(model), internal);
+      throw new Error(`Internal stock firmware hash mismatch after 3 reads (actual SHA-1 ${actualInternalHash}); rejected bytes saved as ${unverifiedInternalName(model)}.`);
+    };
+
+    while (true) {
+      internalReadFailed = false;
+      try {
+        internal = await readAndValidateInternal();
+        break;
+      } catch (error) {
+        internalReadFailed = true;
+        const message = error instanceof Error ? error.message : String(error);
+        const nextSwdClockHz = Math.max(1_000_000, Math.floor(readSwdClockHz / 2));
+        const choice = await deps.requestReadFailureChoice(message, nextSwdClockHz);
+        if (choice === "retry") {
+          if (nextSwdClockHz < readSwdClockHz) {
+            await deps.transport().setClockFrequency(nextSwdClockHz);
+            readSwdClockHz = nextSwdClockHz;
+            dbg(`[locked-backup] user retry lowering SWD clock to ${readSwdClockHz} Hz`);
+          } else {
+            dbg(`[locked-backup] user retry stays at minimum SWD clock ${readSwdClockHz} Hz`);
+          }
+          continue;
+        }
+        userChoseStop = choice === "stop";
+        throw error;
+      }
+    }
+
+    progress?.("verify-backups");
+    try {
+      const validated = await detectDevice(internal, external);
+      if (validated.model !== model || !validated.internalOk || !validated.externalOk)
+        throw new Error("Combined stock firmware hash verification failed.");
+      progress?.("verify-backups");
+      await writeBackupInto(target, model, { internal, external });
+      diskPair = (await scanBackupFolder(target)).find((b) => b.model === model && b.internalOk && b.externalOk);
+      if (!diskPair) throw new Error("Saved firmware backups did not pass hash verification.");
+    } catch (error) {
+      progress?.("verify-backups", undefined, undefined, "error");
+      throw error;
+    }
+  } catch (e) {
+    if (internalReadFailed && userChoseStop) {
+      const message = e instanceof Error ? e.message : String(e);
+      throw new Error(`${message} The temporary read payload remains on the device; retry the backup later or restore the saved external firmware.`);
+    }
+    // The original external image is still held in memory. Restore it on cancel/failure too.
+    try {
+      progress?.("restore-external");
+      // A physical target power-cycle can leave the probe's SWD session stale. gnwmanager
+      // closes/reopens its backend around this same step; do the equivalent before attempting
+      // recovery so a transient transfer-count error doesn't strand the temporary payload.
+      await deps.reconnect();
+      await flashImage(
+        () => deps.ensureStub(), 0, 0, external,
+        (done, total) => progress?.("restore-external", done, total),
+        dbgLog("locked-backup-restore"),
+      );
+      // flashImage waits for the device to hash-check every programmed 256 KiB block and
+      // reports completion only after the device is idle. A second SWD dump of the whole
+      // external image would duplicate that verification and add hundreds of KiB of traffic.
+      progress?.("done");
+    } catch (restoreError) {
+      throw new Error(`Backup failed (${e instanceof Error ? e.message : String(e)}); restoring stock external flash also failed (${restoreError instanceof Error ? restoreError.message : String(restoreError)}).`);
+    }
+    throw e;
+  }
+
+  // Return to untouched stock firmware before any caller can reach ensureUnlocked().
+  progress?.("restore-external");
+  await flashImage(
+    () => deps.ensureStub(), 0, 0, external,
+    (done, total) => progress?.("restore-external", done, total),
+    dbgLog("locked-backup-restore"),
+  );
+  // flashImage returns after the device has hash-verified every block and reached IDLE.
+  if (!diskPair) throw new Error("Saved firmware backups did not pass hash verification; do not unlock the device.");
+  progress?.("done");
+  return { model, dumps: { internal: diskPair.internal, external: diskPair.external }, directory: target };
+}
+
+/** Restore a previously hash-validated external stock image from the selected folder. This is
+ *  intentionally usable when the internal read failed after the temporary payload was flashed. */
+export async function restoreSavedExternal(
+  dir: BackupDir,
+  model: OfwModel,
+  flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
+  progress?: (done: number, total: number) => void,
+): Promise<void> {
+  const backup = (await scanBackupFolder(dir)).find((b) => b.model === model && b.externalOk);
+  if (!backup) throw new Error(`No hash-verified ${model} external firmware dump was found in the selected folder.`);
+  const desc = DEVICES[model];
+  if (await sha1Hex(desc.externalSlice(backup.external)) !== desc.externalSha1)
+    throw new Error("The saved external firmware failed hash verification; it will not be flashed.");
+  await flashImage(flasherOrGetter, 0, 0, backup.external, progress, dbgLog("locked-backup-recovery"));
+  // flashImage returns only after the device has hash-verified every block and reached IDLE.
+}
+
 
 // --- Patch + flash --------------------------------------------------------------------
 export type ProgressReport = (
@@ -248,128 +724,82 @@ export interface FoundBackup {
   external: Uint8Array;
   internalOk: boolean;
   externalOk: boolean;
+  /** Physical size of the canonical internal file, even when its contents fail validation. */
+  internalFileSize?: number;
 }
 
-/** The dated subfolder `writeBackup` creates when the picked folder is not empty. */
-const BACKUP_SUBDIR_PREFIX = "backups-";
+type FlatBackupScan = { found: FoundBackup[]; hits: BackupProbeHit[] };
 
-/**
- * Every directory a backup pair could be in, NEWEST FIRST: the dated `backups-*` subfolders in
- * descending name order, then the picked folder itself.
- *
- * WHY THIS EXISTS. `writeBackup` puts the pair in the picked folder when that folder is empty
- * and in a `backups-<stamp>/` subfolder when it is not, but the scan only ever looked at the
- * top level. So a user who picked a folder with ANYTHING already in it had their very first
- * backup written somewhere the scan could never see, and was told they had none. Later backups
- * into an already-used folder had the same problem. The top level comes last because it is
- * where the OLDEST backup lives (it is the one written while the folder was still empty).
- *
- * The stamp sorts lexicographically exactly as it sorts chronologically (`backupStamp` is
- * zero-padded, most-significant-first), so ordering these needs no file reads at all.
- */
-async function backupDirs(dir: BackupDir): Promise<BackupDir[]> {
-  const subs: BackupDir[] = [];
+/** Hash-classify plausible dumps independent of filenames. New backups are flat; also inspect
+ *  old dated backup subfolders so existing backups made by earlier versions remain usable. */
+async function scanFlatBackupFolder(dir: BackupDir): Promise<FlatBackupScan> {
+  const dirs = [dir];
   for await (const [name, handle] of dir.entries()) {
-    if (handle.kind === "directory" && name.startsWith(BACKUP_SUBDIR_PREFIX)) subs.push(handle);
+    if (handle.kind === "directory" && name.startsWith("backups-")) dirs.push(handle);
   }
-  subs.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
-  return [...subs, dir];
-}
-
-/** The two file handles of one model's pair in ONE directory, or null if either is absent. */
-async function pairHandles(
-  dir: BackupDir,
-  model: OfwModel,
-): Promise<{ internal: FsFileHandle; external: FsFileHandle } | null> {
-  const files = new Map<string, FsFileHandle>();
-  for await (const [name, handle] of dir.entries()) {
-    if (handle.kind === "file") files.set(name, handle);
-  }
-  const internal = files.get(intBackupName(model));
-  const external = files.get(extBackupName(model));
-  return internal && external ? { internal, external } : null;
-}
-
-/** Scan a folder (and its dated `backups-*` subfolders) for EVERY
- *  `{internal,flash}_flash_backup_{model}.bin` pair present -- a folder commonly holds both
- *  Mario and Zelda -- and validate each. Returns one entry per model found, in `DEVICES` order;
- *  empty if none. */
-export async function scanBackupFolder(dir: BackupDir): Promise<FoundBackup[]> {
-  const dirs = await backupDirs(dir);
-  const found: FoundBackup[] = [];
-  for (const model of Object.keys(DEVICES) as OfwModel[]) {
-    let best: FoundBackup | null = null;
-    for (const d of dirs) {
-      const handles = await pairHandles(d, model);
-      if (!handles) continue;
-      const internal = new Uint8Array(await (await handles.internal.getFile()).arrayBuffer());
-      const external = new Uint8Array(await (await handles.external.getFile()).arrayBuffer());
-      const det = await detectDevice(internal, external);
-      const entry: FoundBackup = {
-        model,
-        internal,
-        external,
-        internalOk: det.model === model && det.internalOk,
-        externalOk: det.externalOk,
-      };
-      // Newest wins, and the first VALID pair ends the walk -- a folder holding many backups
-      // does not get every one of them read. An invalid pair is kept only as a fallback, so a
-      // corrupt newest backup can neither hide a good older one nor vanish silently when it is
-      // the only thing there (the UI still has something to report as broken).
-      if (entry.internalOk && entry.externalOk) {
-        best = entry;
-        break;
+  const candidates: { file: File; bytes: Uint8Array }[] = [];
+  const internalFileSizes = new Map<OfwModel, { size: number; modified: number }>();
+  for (const source of dirs) {
+    for await (const [, handle] of source.entries()) {
+      if (handle.kind !== "file") continue;
+      const file = await handle.getFile();
+      for (const model of Object.keys(DEVICES) as OfwModel[]) {
+        if (file.name === intBackupName(model)) {
+          const previous = internalFileSizes.get(model);
+          if (!previous || file.lastModified >= previous.modified)
+            internalFileSizes.set(model, { size: file.size, modified: file.lastModified });
+        }
       }
-      if (!best) best = entry;
+      const plausible = file.size === INTERNAL_STOCK_LEN ||
+        (Object.values(DEVICES) as DeviceDesc[]).some((d) => file.size === d.externalSizeMiB * 1048576);
+      if (plausible) candidates.push({ file, bytes: new Uint8Array(await file.arrayBuffer()) });
     }
-    if (best) found.push(best);
   }
-  return found;
+  candidates.sort((a, b) => b.file.lastModified - a.file.lastModified);
+
+  const internals = new Map<OfwModel, { bytes: Uint8Array; file: File }>();
+  const externals = new Map<OfwModel, { bytes: Uint8Array; file: File }>();
+  for (const { bytes, file } of candidates) {
+    for (const model of Object.keys(DEVICES) as OfwModel[]) {
+      const desc = DEVICES[model];
+      if (bytes.length === INTERNAL_STOCK_LEN && !internals.has(model) && await sha1Hex(bytes) === desc.internalSha1)
+        internals.set(model, { bytes, file });
+      if (bytes.length === desc.externalSizeMiB * 1048576 && !externals.has(model) &&
+          await sha1Hex(desc.externalSlice(bytes)) === desc.externalSha1)
+        externals.set(model, { bytes, file });
+    }
+  }
+
+  const found: FoundBackup[] = [];
+  const hits: BackupProbeHit[] = [];
+  for (const model of Object.keys(DEVICES) as OfwModel[]) {
+    const internal = internals.get(model);
+    const external = externals.get(model);
+    if (!internal && !external) continue;
+    found.push({ model, internal: internal?.bytes ?? new Uint8Array(), external: external?.bytes ?? new Uint8Array(),
+      internalOk: !!internal, externalOk: !!external,
+      internalFileSize: internal?.file.size ?? internalFileSizes.get(model)?.size });
+    if (internal && external) hits.push({ model, at: Math.max(internal.file.lastModified, external.file.lastModified), dirName: dir.name });
+  }
+  return { found, hits };
 }
 
-/**
- * A CHEAP "is there a backup here" probe: filenames and sizes only, no file contents.
- *
- * `scanBackupFolder` above reads every candidate in full (128 KiB internal plus up to 16 MiB
- * external) because it hash-validates against the stock SHA-1s. That is the right thing for the
- * patch flow, which is about to write those exact bytes to a device, and the wrong thing for a
- * status row that just wants to know whether the user has a backup at all. `getFile()` returns
- * a lazy `File`: `size` and `lastModified` come from the directory entry, and nothing is read
- * until something asks for the bytes.
- *
- * Returned newest first, by the same folder ordering `scanBackupFolder` uses.
- */
+/** Find stock firmware by expected hashes, not filenames. */
+export async function scanBackupFolder(dir: BackupDir): Promise<FoundBackup[]> {
+  return (await scanFlatBackupFolder(dir)).found;
+}
+
+/** Hash-verified backup presence for the status row. */
 export interface BackupProbeHit {
   model: OfwModel;
   /** Newest `lastModified` of the pair, epoch ms. The real file date, not a local record. */
   at: number;
-  /** The folder the pair actually sits in (the picked folder, or a dated subfolder). */
+  /** The selected folder. */
   dirName: string;
 }
 
 export async function probeBackupFolder(dir: BackupDir): Promise<BackupProbeHit[]> {
-  const dirs = await backupDirs(dir);
-  const hits: BackupProbeHit[] = [];
-  for (const d of dirs) {
-    for (const model of Object.keys(DEVICES) as OfwModel[]) {
-      if (hits.some((h) => h.model === model)) continue; // newest already found
-      const handles = await pairHandles(d, model);
-      if (!handles) continue;
-      const internal = await handles.internal.getFile();
-      const external = await handles.external.getFile();
-      // Size is the only cheap validity signal there is. A pair that cannot possibly contain a
-      // stock image is not a backup, however it is named -- this is what stops a zero-byte or
-      // half-written file from reading as "you are covered".
-      if (internal.size < INTERNAL_STOCK_LEN) continue;
-      if (external.size < DEVICES[model].externalSizeMiB * 1024 * 1024) continue;
-      hits.push({
-        model,
-        at: Math.max(internal.lastModified, external.lastModified),
-        dirName: d.name,
-      });
-    }
-  }
-  return hits;
+  return (await scanFlatBackupFolder(dir)).hits;
 }
 
 /** Pick which scanned backup to pre-select: the one matching the connected hardware, else Zelda
@@ -386,20 +816,6 @@ export function defaultBackup(
   return found.find((f) => f.model === "zelda") ?? found[0];
 }
 
-/** gnwmanager's dated-backup folder name: `backups-YYYY-MM-DD-HH-MM-SS`. */
-function backupStamp(): string {
-  const d = new Date();
-  const p = (n: number): string => String(n).padStart(2, "0");
-  return `backups-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
-}
-
-async function isEmptyDir(dir: BackupDir): Promise<boolean> {
-  for await (const [name] of dir.entries()) {
-    if (!name.startsWith(".")) return false;
-  }
-  return true;
-}
-
 async function writeFile(dir: BackupDir, name: string, data: Uint8Array): Promise<void> {
   const fh = await dir.getFileHandle(name, { create: true });
   const w = await fh.createWritable();
@@ -407,17 +823,19 @@ async function writeFile(dir: BackupDir, name: string, data: Uint8Array): Promis
   await w.close();
 }
 
-/** Write the backup pair into `dir` (if empty) or a `backups-<iso>/` subfolder (if not).
- *  Returns the directory the files actually landed in — that becomes the selected folder. */
+/** Write the backup pair directly into the selected folder. */
 export async function writeBackup(
   dir: BackupDir,
   model: OfwModel,
   dumps: BackupDumps,
 ): Promise<BackupDir> {
-  const target = (await isEmptyDir(dir)) ? dir : await dir.getDirectoryHandle(backupStamp(), { create: true });
+  await writeBackupInto(dir, model, dumps);
+  return dir;
+}
+
+async function writeBackupInto(target: BackupDir, model: OfwModel, dumps: BackupDumps): Promise<void> {
   await writeFile(target, intBackupName(model), dumps.internal);
   await writeFile(target, extBackupName(model), dumps.external);
-  return target;
 }
 
 // --- Restore to stock -----------------------------------------------------------------

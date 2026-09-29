@@ -5,6 +5,9 @@
     scanBackupFolder,
     defaultBackup,
     dumpBackup,
+    dumpLockedBackup,
+    isLockedBackupBlueScreen,
+    restoreSavedExternal,
     writeBackup,
     detectDevice,
     patchAndFlash,
@@ -18,12 +21,14 @@
   import { evaluateRestore } from "../engine/restoreGuards.js";
   import { loadSel, saveSel, saveDir, loadDir, handlePermission } from "../persist.js";
   import Button from "../ui/Button.svelte";
-  import { installProgress, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
+  import { installProgress, deviceSafety, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
   import { msg } from "../logEntry.js";
+  import { dbg } from "../debug.js";
   import { locale } from "../i18n/locale.svelte.js";
   import { formatSize } from "../util.js";
   import PaneFooter from "./PaneFooter.svelte";
   import { localFolders } from "../sources/localFolders.svelte.js";
+  import { backupPresence } from "../backupPresence.svelte.js";
 
   // Official Firmware — a staged, progressive-disclosure flow:
   //   1. Firmware Backup  — pick a folder; validate existing backups or take a fresh one.
@@ -40,17 +45,14 @@
   // how you install a *different* official firmware (e.g. Mario↔Zelda) onto a patched device. So we
   // only suppress the fresh-dump path, not the folder-pick / select-backup / patch flow.
   const alreadyPatched = $derived(
-    device.deviceClass 
-      ? device.deviceClass.ofw 
-        ? device.deviceClass.ofw.patched 
-        : device.deviceClass.kind !== "locked" 
-      : false
+    !!device.info && (device.deviceClass?.kind === "retrogo-sd" || device.deviceClass?.kind === "retrogo-old"),
   );
 
   let dir = $state<BackupDir | null>(null);
   let pendingDir = $state<BackupDir | null>(null); // a remembered folder awaiting a permission re-grant
   let triedRestore = $state(false);
   let scanResults = $state<FoundBackup[]>([]); // every backup pair found in the folder (mario and/or zelda)
+  let scanGeneration = 0;
   let chosenModel = $state<OfwModel | null>(null); // the user's single-selection (radio list)
   let noBackup = $state(false); // folder scanned, no usable pair present
   let pickErr = $state<string | null>(null);
@@ -64,10 +66,9 @@
   );
 
   let backupBusy = $state(false);
-  let backupDone = $state(0);
-  let backupTotal = $state(0);
-  let backupLabel = $state("");
   let backupErr = $state<string | null>(null);
+  let backupRecoveryNotice = $state<string | null>(null);
+  const recoverableExternals = $derived(scanResults.filter((b) => b.externalOk && !b.internalOk));
 
   let bootloader = $state(loadSel("ofwBootloader", true));
   $effect(() => saveSel("ofwBootloader", bootloader));
@@ -178,7 +179,7 @@
       if (!d) return; // cancelled
       dir = d;
       pendingDir = null;
-      void saveDir("ofwBackupDir", d);
+      await saveDir("ofwBackupDir", d);
       await localFolders.adoptOfwBackup(d);
       patched = false;
       await rescan();
@@ -220,54 +221,229 @@
 
   // (Re)scan the selected folder for every existing backup pair; default-select one.
   async function rescan(): Promise<void> {
-    if (!dir) return;
-    const found = await scanBackupFolder(dir);
+    const target = dir;
+    if (!target) return;
+    const generation = ++scanGeneration;
+    const found = await scanBackupFolder(target);
+    // Folder selection or a newer post-write scan may have superseded this scan while
+    // File System Access was reading files. Only the latest result for the selected handle
+    // is allowed to replace the rows.
+    if (generation !== scanGeneration || dir !== target) return;
     scanResults = found;
     noBackup = found.length === 0;
     chosenModel = defaultBackup(found, device.model)?.model ?? null;
+    dbg(`[ofw-backup] folder rescan "${target.name}": ${found.map((f) => `${f.model} int=${f.internalFileSize ?? f.internal.length}B/${f.internalOk ? "valid" : "invalid"} ext=${f.external.length}B/${f.externalOk ? "valid" : "invalid"}`).join(", ") || "no stock images"}`);
   }
+
+  const backupStages = [
+    { id: "recovery", label: locale.t.officialFirmware.lockedBackupStageRecovery },
+    { id: "identify", label: locale.t.officialFirmware.lockedBackupStageIdentify },
+    { id: "read-external", label: locale.t.officialFirmware.lockedBackupStageReadExternal },
+    { id: "save-external", label: locale.t.officialFirmware.lockedBackupStageSaveExternal },
+    { id: "reuse-external", label: locale.t.officialFirmware.lockedBackupStageReuseExternal },
+    { id: "flash-payload", label: locale.t.officialFirmware.lockedBackupStagePrepareRead },
+    { id: "power-cycle", label: locale.t.officialFirmware.lockedBackupStagePowerCycle },
+    { id: "read-internal", label: locale.t.officialFirmware.lockedBackupStageReadInternal },
+    { id: "verify-backups", label: locale.t.officialFirmware.lockedBackupStageVerify },
+    { id: "restore-external", label: locale.t.officialFirmware.lockedBackupStageRestore },
+  ];
+  const backupPhases: PhaseDef[] = [{
+    id: "backup",
+    label: locale.t.officialFirmware.step1Title,
+    substeps: backupStages,
+  }];
 
   async function doBackup(): Promise<void> {
     if (!dir) return;
     backupErr = null;
+    backupRecoveryNotice = null;
     backupBusy = true;
-    backupDone = 0;
-    backupTotal = 0;
     try {
-      // Deliberately NOT device.ensureUnlocked(). Every other flow unlocks on the way to a
-      // write; this one is the backup itself, and unlocking mass-erases the firmware it is
-      // trying to save. A locked device's internal flash cannot be read either way, so there
-      // is nothing here to back up and saying so is the only truthful outcome.
-      if (device.locked) throw new Error(locale.t.officialFirmware.errDeviceLocked);
-      const flasher = await device.ensureStub();
-      let extSize = device.extFlashBytes;
-      const actualModel = device.deviceClass?.model ?? device.model;
-      if (actualModel === "mario") extSize = 1048576; // 1 MB
-      else if (actualModel === "zelda") extSize = 4194304; // 4 MB
+      await installProgress.run({
+        title: locale.t.officialFirmware.step1Title,
+        body: locale.t.officialFirmware.lockedBackupConfirmBody,
+        confirmText: locale.t.officialFirmware.backUpNow,
+        phases: backupPhases,
+        // The progress modal lives at App scope and can outlive this section. Bump the shared
+        // revision so FirmwareRail destroys and recreates Backup & Patch; its mount path then
+        // reloads the persisted directory handle and scans the actual files from disk.
+        onClose: () => backupPresence.requestFirmwarePageReload(),
+        exec: async (report) => {
+          report.start("backup");
+          let activeStage: string | null = null;
+          const startStage = (id: string) => {
+            if (activeStage && activeStage !== id) report.subFinish("backup", activeStage);
+            if (activeStage === id) return;
+            activeStage = id;
+            report.subStart("backup", id);
+          };
+          try {
+            // Check the payload's LTDC signature before Recovery Mode resets the staged SRAM.
+            const resumeFromBlueScreen = !!device.transport && await isLockedBackupBlueScreen(device.transport);
+            startStage("recovery");
+            if (resumeFromBlueScreen) {
+              report.log("backup", msg((t) => t.officialFirmware.lockedBackupBlueScreenLog));
+            } else {
+              await device.startRecoveryMode();
+            }
+            if (!resumeFromBlueScreen && (!device.utilLoaded || device.locked === null))
+              throw new Error("Recovery Mode started, but the device's read-protection state could not be verified. Try Recovery Mode again.");
+            report.subFinish("backup", "recovery");
 
-      const dumps = await dumpBackup(flasher, extSize, (d, t, label) => {
-        backupDone = d;
-        backupTotal = t;
-        backupLabel = label;
+            device.suspendPoll();
+            deviceSafety.hold();
+            let dumps: { internal: Uint8Array; external: Uint8Array };
+            let backupDir = dir!;
+            let lockedFlowCompleted = false;
+            try {
+              if (device.locked === true || resumeFromBlueScreen) {
+                if (!device.transport) throw new Error("The debug adapter is not connected.");
+                const result = await dumpLockedBackup({
+                  transport: () => {
+                    if (!device.transport) throw new Error("The debug adapter is not connected.");
+                    return device.transport;
+                  },
+                  initialSwdClockHz: device.adapterFrequencyHz,
+                  persistSwdClockHz: (hz) => device.setAdapterFrequency(hz),
+                  reconnect: () => device.connect(undefined, { reconnect: true, recoveryOnly: true }),
+                  ensureStub: (forceReboot = false) => device.ensureStub(undefined, forceReboot, true),
+                  requestPowerCycle: async () => {
+                    // No flash operation is active while the user power-cycles. Resume the
+                    // normal liveness poll so its reconnect path owns detection during this
+                    // window; the modal reflects device state instead of probing a stale link.
+                    device.resumePoll();
+                    try {
+                      await new Promise<void>((resolve, reject) => {
+                        device.lockedBackupPrompt = { resolve, reject };
+                        device.beginLockedBackupPowerCycleMonitoring();
+                      });
+                      await device.connect(undefined, { reconnect: true, recoveryOnly: true });
+                    } finally {
+                      device.suspendPoll();
+                    }
+                  },
+                  requestReadFailureChoice: (error, nextSwdClockHz) => new Promise((resolve) => {
+                    device.lockedBackupFailurePrompt = { error, nextSwdClockHz, resolve };
+                  }),
+                  resumeFromBlueScreen,
+                }, backupDir, await scanBackupFolder(backupDir), (stage, done, total, outcome) => {
+                  if (stage === "done") {
+                    if (activeStage) report.subFinish("backup", activeStage);
+                    activeStage = null;
+                    return;
+                  }
+                  if (outcome === "error") {
+                    report.subError("backup", stage);
+                    if (activeStage === stage) activeStage = null;
+                    return;
+                  }
+                  startStage(stage);
+                  if (done !== undefined && total !== undefined)
+                    report.progress("backup", done, total, stage, "bytes");
+                });
+                dumps = result.dumps;
+                backupDir = result.directory;
+                lockedFlowCompleted = true;
+              } else {
+                startStage("read-external");
+                const flasher = await device.ensureStub(undefined, false, true);
+                let extSize = device.extFlashBytes;
+                const actualModel = device.deviceClass?.model ?? device.model;
+                if (actualModel === "mario") extSize = 1048576;
+                else if (actualModel === "zelda") extSize = 4194304;
+                dumps = await dumpBackup(flasher, extSize, (done, total, label) => {
+                  const stage = label === "internal flash" ? "read-internal" : "read-external";
+                  startStage(stage);
+                  report.progress("backup", done, total, stage, "bytes");
+                });
+                startStage("verify-backups");
+              }
+
+              if (!lockedFlowCompleted) startStage("verify-backups");
+              const det = await detectDevice(dumps.internal, dumps.external);
+              if (!det.model || !det.internalOk || !det.externalOk)
+                throw new Error(locale.t.officialFirmware.errFirmwareMismatch);
+              // These are the just-read, hash-verified images. Always commit them to the
+              // selected folder; an earlier scan can be stale or can describe a different
+              // on-disk generation, and must not suppress the fresh internal dump write.
+              backupDir = await writeBackup(backupDir, det.model, dumps);
+              if (!(await scanBackupFolder(backupDir)).some((f) => f.model === det.model && f.internalOk && f.externalOk))
+                throw new Error("Saved firmware backup failed hash verification; the device will remain locked.");
+              // The backup may have been written during this operation, so rebuild the UI
+              // from the directory contents instead of retaining the pre-backup scan (or
+              // synthesizing a result from the in-memory dump). Persist and adopt the same
+              // handle so the patch flow and a later reload use this exact folder.
+              dir = backupDir;
+              pendingDir = null;
+              await saveDir("ofwBackupDir", backupDir);
+              await localFolders.adoptOfwBackup(backupDir);
+              await rescan();
+              if (!scanResults.some((f) => f.model === det.model && f.internalOk && f.externalOk))
+                throw new Error("Saved firmware backup is not visible in the selected folder after rescanning.");
+              device.markBackupTaken();
+              chosenModel = det.model;
+              if (activeStage) report.subFinish("backup", activeStage);
+              report.finish("backup");
+            } finally {
+              deviceSafety.release();
+              device.resumePoll();
+            }
+          } catch (e) {
+            backupErr = e instanceof Error ? e.message : String(e);
+            throw e;
+          }
+        },
       });
-      const det = await detectDevice(dumps.internal, dumps.external);
-      if (!det.model || !det.internalOk) {
-        throw new Error(locale.t.officialFirmware.errFirmwareMismatch);
-      }
-      dir = await writeBackup(dir, det.model, dumps);
-      const fb: FoundBackup = {
-        model: det.model,
-        internal: dumps.internal,
-        external: dumps.external,
-        internalOk: det.internalOk,
-        externalOk: det.externalOk,
-      };
-      // Replace any prior entry for this model, then select it.
-      scanResults = [...scanResults.filter((f) => f.model !== det.model), fb];
-      noBackup = false;
-      chosenModel = det.model;
     } catch (e) {
-      backupErr = e instanceof Error ? e.message : String(e);
+      if (!backupErr) backupErr = e instanceof Error ? e.message : String(e);
+      await rescan().catch(() => {});
+    } finally {
+      backupBusy = false;
+    }
+  }
+
+  async function restoreSavedExternalNow(model: OfwModel): Promise<void> {
+    if (!dir || backupBusy) return;
+    backupBusy = true;
+    backupErr = null;
+    backupRecoveryNotice = null;
+    try {
+      await installProgress.run({
+        title: "Restore saved stock firmware",
+        body: "The verified external firmware dump will be written back to the device and hash-checked. The internal firmware backup is still incomplete.",
+        confirmText: "Restore external firmware",
+        danger: true,
+        phases: [
+          { id: "recover", label: "Reconnect and enter Recovery Mode" },
+          { id: "restore", label: "Restore original external firmware" },
+        ],
+        exec: async (report) => {
+          try {
+            report.start("recover");
+            device.suspendPoll();
+            deviceSafety.hold();
+            try {
+              await device.connect(undefined, { reconnect: true, recoveryOnly: true });
+              await device.startRecoveryMode();
+              report.finish("recover");
+              report.start("restore");
+              await restoreSavedExternal(dir!, model, (force) => device.ensureStub(undefined, force, true),
+                (done, total) => report.progress("restore", done, total, undefined, "bytes"));
+              report.finish("restore");
+            } finally {
+              deviceSafety.release();
+              device.resumePoll();
+            }
+            backupRecoveryNotice = `Original ${modelLabel(model)} external firmware restored and device-verified during flashing. The internal backup is still incomplete.`;
+            await rescan();
+          } catch (e) {
+            backupErr = e instanceof Error ? e.message : String(e);
+            throw e;
+          }
+        },
+      });
+    } catch (e) {
+      if (!backupErr) backupErr = e instanceof Error ? e.message : String(e);
     } finally {
       backupBusy = false;
     }
@@ -441,7 +617,7 @@
         <div class="rows">
           <div class="row">
             <span class="rname">{intBackupName(fb.model)}</span>
-            <span class="rsize mono">{formatSize(fb.internal.length)}</span>
+            <span class="rsize mono">{formatSize(fb.internalOk ? fb.internal.length : fb.internalFileSize ?? fb.internal.length)}</span>
             {#if fb.internalOk}
               <span class="rchip ok-chip">{locale.t.officialFirmware.rowValid}</span>
             {:else}
@@ -468,7 +644,7 @@
             <label class="row" class:sel={chosenModel === fb.model}>
               <input type="radio" name="ofw-backup" value={fb.model} bind:group={chosenModel} />
               <span class="rname">{modelLabel(fb.model)}</span>
-              <span class="rsize mono">int {formatSize(fb.internal.length)}</span>
+              <span class="rsize mono">int {formatSize(fb.internalOk ? fb.internal.length : fb.internalFileSize ?? fb.internal.length)}</span>
               <span class="rsize mono">ext {formatSize(fb.external.length)}</span>
               {#if fb.internalOk && fb.externalOk}
                 <span class="rchip ok-chip">{locale.t.officialFirmware.rowValid}</span>
@@ -499,12 +675,6 @@
             {backupBusy ? locale.t.officialFirmware.backingUp : locale.t.officialFirmware.backUpAgain}
           </button>
         </div>
-        {#if backupBusy}
-          <div class="prog">
-            <div class="track"><div class="fill" style="width:{backupTotal ? Math.round((backupDone / backupTotal) * 100) : 0}%"></div></div>
-            <span class="mono">{backupLabel} — {MiB(backupDone)} / {MiB(backupTotal)} MB</span>
-          </div>
-        {/if}
         {#if backupErr}<p class="notice warn">{backupErr}</p>{/if}
       {/if}
       {#if offerBackup}
@@ -518,25 +688,28 @@
           <div>
             <Button
               variant="default"
-              disabled={!device.isConnected || backupBusy || device.locked === true}
+              disabled={!device.isConnected || backupBusy}
               onclick={doBackup}
             >
               {backupBusy ? locale.t.officialFirmware.backingUp : locale.t.officialFirmware.backUpNow}
             </Button>
             {#if !device.isConnected}
               <span class="hint">{locale.t.officialFirmware.connectToBackUp}</span>
-            {:else if device.locked === true}
-              <span class="hint">{locale.t.officialFirmware.lockedCannotBackUp}</span>
             {/if}
           </div>
-          {#if backupBusy}
-            <div class="prog">
-              <div class="track"><div class="fill" style="width:{backupTotal ? Math.round((backupDone / backupTotal) * 100) : 0}%"></div></div>
-              <span class="mono">{backupLabel} — {MiB(backupDone)} / {MiB(backupTotal)} MB</span>
-            </div>
-          {/if}
           {#if backupErr}<p class="notice warn">{backupErr}</p>{/if}
         {/if}
+      {/if}
+      {#if backupRecoveryNotice}<p class="ok">{backupRecoveryNotice}</p>{/if}
+      {#if backupErr && recoverableExternals.length > 0}
+        <div class="recovery-actions">
+          <p class="notice warn">A hash-verified external stock image is saved. Restore it to return to stock, or retry the internal backup later; the saved image will be reused.</p>
+          {#each recoverableExternals as partial (partial.model)}
+            <Button variant="default" disabled={backupBusy} onclick={() => restoreSavedExternalNow(partial.model)}>
+              Restore saved {modelLabel(partial.model)} external firmware
+            </Button>
+          {/each}
+        </div>
       {/if}
     {/if}
     </div>
@@ -758,6 +931,13 @@
   .warn {
     color: var(--caution);
   }
+  .recovery-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .recovery-actions .notice { flex-basis: 100%; }
   /* BackupPatch.dc.html:96 — `display:flex; align-items:center; gap:10px`, 14px label with a
      13px `(recommended)` hint. */
   .check {

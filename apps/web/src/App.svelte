@@ -13,6 +13,7 @@
   import Landing from "./lib/views/Landing.svelte";
   import Advanced from "./lib/views/Advanced.svelte";
   import StubLoadModal from "./lib/ui/StubLoadModal.svelte";
+  import LockedBackupModal from "./lib/ui/LockedBackupModal.svelte";
   import UnlockConfirmModal from "./lib/ui/UnlockConfirmModal.svelte";
   import FolderGateModal from "./lib/ui/FolderGateModal.svelte";
   import ConnectGateModal from "./lib/ui/ConnectGateModal.svelte";
@@ -177,6 +178,7 @@
 
 <div class="app" data-model={device.accent ?? undefined}>
   <StubLoadModal />
+  <LockedBackupModal />
   <UnlockConfirmModal />
   <FolderGateModal />
   <ConnectGateModal />

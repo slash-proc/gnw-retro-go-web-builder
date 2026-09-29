@@ -1,4 +1,5 @@
 import type { AdvancedStrings, DumpSectionStrings, EraseSectionStrings, FileBrowserSectionStrings, FlashSectionStrings, OfficialFirmwareStrings, RetroGoTabStrings, RomSectionStrings } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 
 // Russian copy for the Firmware area. Log lines keep their English channel prefix and
 // translate only the prose after it. The ✓/✗/⚠/⛔/🔒 marks are drawn by the artboards and are
@@ -15,6 +16,29 @@ export const advancedRu: AdvancedStrings = {
 };
 
 export const officialFirmwareRu: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: 'Перезапуск для чтения защищённой прошивки',
+  lockedPowerCycleStepOff: 'Отключите от консоли все источники питания, включая аккумулятор, чтобы полностью выключить её.',
+  lockedPowerCycleStepOn: 'Подключите аккумулятор и/или питание USB-C и один раз нажмите кнопку питания.',
+  lockedPowerCycleStepContinue: 'Продолжите здесь, когда устройство включится и покажет синий экран, чтобы сохранить копию внутренней прошивки.',
+  lockedPowerCycleNoteLabel: 'Примечание:',
+  lockedPowerCycleNote: 'Синий экран появляется временно. Исходная резервная копия внешней прошивки будет восстановлена до разблокировки.',
+  lockedPowerCycleStatusLabel: 'Статус:',
+  lockedPowerCycleStatusNoDevice: 'Устройство не обнаружено.',
+  lockedPowerCycleStatusNotBlue: 'Устройство обнаружено, но синего экрана нет.',
+  lockedPowerCycleStatusBlue: 'Устройство обнаружено, синий экран подтверждён.',
+  lockedBackupConfirmBody: 'Перед изменением прошивки устройство будет проверено. Чтобы прочитать защищённую внутреннюю прошивку заблокированного устройства, его нужно полностью выключить и снова включить.',
+  lockedBackupStageRecovery: 'Войти в режим Recovery и проверить его',
+  lockedBackupStageIdentify: 'Определить исходную прошивку',
+  lockedBackupStageReadExternal: 'Прочитать внешнюю флеш-память',
+  lockedBackupStageSaveExternal: 'Сохранить и проверить внешнюю копию',
+  lockedBackupStageReuseExternal: 'Повторно использовать проверенную внешнюю копию',
+  lockedBackupStagePrepareRead: 'Подготовить чтение внутренней прошивки',
+  lockedBackupStagePowerCycle: 'Полностью выключить и включить устройство',
+  lockedBackupStageReadInternal: 'Прочитать внутреннюю прошивку',
+  lockedBackupStageVerify: 'Проверить и сохранить копии прошивки',
+  lockedBackupStageRestore: 'Восстановить исходную внешнюю прошивку',
+  lockedBackupStageVerifyRestore: 'Проверить восстановленную прошивку',
   pageSubtitle: "Сохраните заводскую прошивку, затем наложите на неё патч, чтобы могла загружаться альтернативная.",
   step1Title: "Резервная копия прошивки",
   chromiumRequired: "Для выбора папки нужен браузер на Chromium (как и для WebUSB).",

@@ -8,6 +8,7 @@ import type {
   FileBrowserSectionStrings,
   RetroGoTabStrings,
 } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 
 export const advancedAr: AdvancedStrings = {
   tabbarLabel: "أدوات متقدمة",
@@ -22,6 +23,29 @@ export const advancedAr: AdvancedStrings = {
 } as const;
 
 export const officialFirmwareAr: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: 'إيقاف التشغيل وإعادة التشغيل لقراءة البرنامج الثابت المحمي',
+  lockedPowerCycleStepOff: 'افصل كل مصادر الطاقة عن الجهاز، بما فيها البطارية، حتى ينطفئ تمامًا.',
+  lockedPowerCycleStepOn: 'أعد توصيل البطارية و/أو طاقة USB-C، ثم اضغط زر التشغيل مرة واحدة.',
+  lockedPowerCycleStepContinue: 'تابع هنا بعد تشغيل الجهاز وظهور شاشة زرقاء لنسخ البرنامج الثابت الداخلي احتياطيًا.',
+  lockedPowerCycleNoteLabel: 'ملاحظة:',
+  lockedPowerCycleNote: 'الشاشة الزرقاء مؤقتة. ستتم استعادة النسخة الاحتياطية للبرنامج الثابت الخارجي الأصلي قبل أي فتح للقفل.',
+  lockedPowerCycleStatusLabel: 'الحالة:',
+  lockedPowerCycleStatusNoDevice: 'لم يتم اكتشاف أي جهاز.',
+  lockedPowerCycleStatusNotBlue: 'تم اكتشاف الجهاز، لكن الشاشة الزرقاء غير ظاهرة.',
+  lockedPowerCycleStatusBlue: 'تم اكتشاف الجهاز والتأكد من ظهور الشاشة الزرقاء.',
+  lockedBackupConfirmBody: 'سيتم فحص الجهاز قبل تغيير أي برنامج ثابت. يجب إيقاف تشغيل الجهاز المقفل بالكامل ثم إعادة تشغيله لقراءة برنامجه الثابت الداخلي المحمي.',
+  lockedBackupStageRecovery: 'الدخول إلى وضع الاسترداد والتحقق منه',
+  lockedBackupStageIdentify: 'تحديد البرنامج الثابت الأصلي',
+  lockedBackupStageReadExternal: 'قراءة الذاكرة الوميضية الخارجية',
+  lockedBackupStageSaveExternal: 'حفظ النسخة الاحتياطية الخارجية والتحقق منها',
+  lockedBackupStageReuseExternal: 'إعادة استخدام النسخة الاحتياطية الخارجية التي تم التحقق منها',
+  lockedBackupStagePrepareRead: 'التحضير لقراءة البرنامج الثابت الداخلي',
+  lockedBackupStagePowerCycle: 'إيقاف تشغيل الجهاز وإعادة تشغيله',
+  lockedBackupStageReadInternal: 'قراءة البرنامج الثابت الداخلي',
+  lockedBackupStageVerify: 'التحقق من النسخ الاحتياطية وحفظها',
+  lockedBackupStageRestore: 'استعادة البرنامج الثابت الخارجي الأصلي',
+  lockedBackupStageVerifyRestore: 'التحقق من البرنامج الثابت المستعاد',
   pageSubtitle: "احفظ برنامجك الثابت الأصلي، ثم رقّعه ليتمكن برنامج ثابت مخصص من الإقلاع.",
   step1Title: "نسخة البرنامج الثابت",
   chromiumRequired: "يحتاج اختيار المجلد إلى متصفح Chromium (مثل WebUSB).",

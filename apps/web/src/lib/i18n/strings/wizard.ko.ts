@@ -24,6 +24,9 @@ export const wizardKo: WizardStrings = {
     buttonAction: (isBroken: boolean) => (isBroken ? "패치" : "백업 & 패치"),
     skip: "건너뛰기",
     titleBackupOnly: "순정 펌웨어 백업",
+    bodyBackupBeforePatch: '원본 펌웨어 사본을 저장하고 검증할 폴더를 선택하세요. 이 단계에서는 기기를 패치하지 않습니다. 패치는 별도 단계입니다.',
+    bodyPatch: '검증된 백업을 사용해 듀얼 부팅을 위한 패치를 적용합니다. 이 단계에서는 기기가 변경됩니다. 완료될 때까지 연결을 유지하세요.',
+    errNeedValidBackup: '패치하기 전에 유효한 내부 및 외부 펌웨어 백업이 들어 있는 폴더를 선택하세요.',
     bodyBackupOnly:
       "컴퓨터에서 폴더를 선택하라는 안내가 표시되며, 해당 폴더에 기기의 순정 펌웨어 사본이 저장됩니다. 다시 내려받을 수 없으므로 파일을 안전하게 보관하세요. 기기에는 아무것도 기록되지 않습니다. 순정 펌웨어는 다음 단계에서 Retro-Go로 대체됩니다.",
     buttonBackupOnly: "백업",

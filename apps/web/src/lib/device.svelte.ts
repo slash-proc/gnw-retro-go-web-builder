@@ -214,6 +214,8 @@ class DeviceStore {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pinging = false;
   private targetUnresponsive = false;
+  private powerCycleReconnectMode = false;
+  private powerCycleReconnectPromise: Promise<void> | null = null;
   private targetPingStalled = false;
   private lastTargetAnswerAt = 0;
   private firstRecoveryAnswerAt = 0;
@@ -228,6 +230,14 @@ class DeviceStore {
   info = $state<DeviceInfo | null>(null);
   /** When set, a confirmation modal is asking the user to load the RAM flash utility. */
   stubPrompt = $state<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
+  /** Confirmation gate for gnwmanager's cold-power-cycle payload backup on locked stock units. */
+  lockedBackupPrompt = $state<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
+  /** After an internal-read failure, let the user restore stock or leave the temporary payload for a later retry. */
+  lockedBackupFailurePrompt = $state<{
+    error: string;
+    nextSwdClockHz: number;
+    resolve: (choice: "retry" | "restore" | "stop") => void;
+  } | null>(null);
   /** The probe is attached, but target debug reads are unavailable until Recovery Mode boots. */
   debuggingDisabled = $state(false);
 
@@ -539,11 +549,15 @@ class DeviceStore {
         this.lastTargetAnswerAt = Date.now();
         this.debuggingDisabled = false;
         this.startPoll();
-        // A reconnect can land mid-install (a stub boot re-enumerates the probe by design), so
-        // normal firmware connections use the quick scan and never compete with a write. When
-        // the probe is already attached to a live stub, startup is an explicit Recovery Mode
-        // state and should establish the complete geometry before the UI settles.
-        void this.runScan("connect", { auto: !utilUp });
+        // A reconnect can land mid-install (a stub boot re-enumerates the probe by design).
+        // A live stub normally means a deliberate Recovery Mode scan, except while an operation
+        // owns the link: that scan must wait/drop like every other automatic scan, or it can
+        // overwrite the operation's mailbox context. A rejected background scan is already
+        // recorded by _doScan in the audit log; consume the rejection here so it cannot escape
+        // as a separate unhandled browser error.
+        void this.runScan("connect", { auto: !utilUp || deviceSafety.state === "writing" }).catch((e) =>
+          dbg(`[scan] connect background scan failed: ${e instanceof Error ? e.message : String(e)}`),
+        );
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e);
         // INTO THE LOG TOO. `this.error` is write-only (no component reads it), and every
@@ -1000,7 +1014,9 @@ class DeviceStore {
       // the user to press Start Recovery Mode several times.
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          await this.ensureStub(undefined, true);
+          // Let the standard StubLoadModal authorize the first reset. The user has already
+          // confirmed this recovery operation, so automatic retries must not prompt again.
+          await this.ensureStub(undefined, attempt > 1);
           break;
         } catch (e) {
           if (e instanceof StubLoadCancelled || attempt >= 3) throw e;
@@ -1144,6 +1160,63 @@ class DeviceStore {
     const p = this.stubPrompt;
     this.stubPrompt = null;
     p?.reject(new StubLoadCancelled("Loading the flash utility was cancelled."));
+  }
+
+  confirmLockedBackupPowerCycle(): void {
+    const p = this.lockedBackupPrompt;
+    this.lockedBackupPrompt = null;
+    this.powerCycleReconnectMode = false;
+    p?.resolve();
+  }
+
+  cancelLockedBackupPowerCycle(): void {
+    const p = this.lockedBackupPrompt;
+    this.lockedBackupPrompt = null;
+    this.powerCycleReconnectMode = false;
+    p?.reject(new Error("Locked-device backup was cancelled."));
+  }
+
+  /** Use the shared liveness poll as soon as the user begins the cold power-cycle. */
+  beginLockedBackupPowerCycleMonitoring(): void {
+    if (!this.lockedBackupPrompt) return;
+    this.powerCycleReconnectMode = true;
+    this.targetPingStalled = false;
+    this.lastTargetAnswerAt = Date.now();
+  }
+
+  /** Reopen the selected probe after an expected target-only power-cycle. USB stays
+   *  connected, so no USB disconnect event replaces the stale WebStlink transport. */
+  reconnectLockedBackupTarget(): Promise<void> {
+    if (this.powerCycleReconnectPromise) return this.powerCycleReconnectPromise;
+    // A failed attach tears down the stale probe and clears targetUnresponsive. Keep
+    // retrying from the modal while the prompt is active even in that state; otherwise
+    // the first failed reattach leaves the LED red forever with no handle to poll.
+    if (!this.lockedBackupPrompt || (this.probe && this.transport && !this.targetUnresponsive)) return Promise.resolve();
+    this.powerCycleReconnectMode = true;
+    this.powerCycleReconnectPromise = (async () => {
+      this.suspendPoll();
+      try {
+        await this.connect(undefined, { reconnect: true, recoveryOnly: true });
+      } catch (error) {
+        dbg(`[locked-backup] probe reattach failed: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        if (this.lockedBackupPrompt && this.powerCycleReconnectMode) {
+          this.targetUnresponsive = true;
+          this.connection = "lost";
+          this.error = "Target is not responding. Waiting for it to wake up…";
+        }
+        this.resumePoll();
+        if (this.transport) this.startPoll();
+        this.powerCycleReconnectPromise = null;
+      }
+    })();
+    return this.powerCycleReconnectPromise;
+  }
+
+  chooseLockedBackupFailure(choice: "retry" | "restore" | "stop"): void {
+    const p = this.lockedBackupFailurePrompt;
+    this.lockedBackupFailurePrompt = null;
+    p?.resolve(choice);
   }
 
   /**
@@ -1767,6 +1840,11 @@ class DeviceStore {
       if (!ok) {
         this.firstRecoveryAnswerAt = 0;
         this.targetPingStalled = this.transport.busy();
+        if (this.powerCycleReconnectMode && this.lockedBackupPrompt) {
+          this.targetUnresponsive = true;
+          this.connection = "lost";
+          return;
+        }
         if (!this.utilLoaded) {
           // Without the RAM utility, a non-answering target can be stock firmware refusing
           // debug transactions. Preserve the live adapter session for an explicit recovery boot.
@@ -1791,11 +1869,21 @@ class DeviceStore {
         this.firstRecoveryAnswerAt = 0;
         this.connection = "connected";
         this.error = null;
+        if (this.powerCycleReconnectMode && this.lockedBackupPrompt) {
+          this.powerCycleReconnectMode = false;
+          this.debuggingDisabled = false;
+          this.lastTargetAnswerAt = Date.now();
+          deviceSafety.markQuiet();
+          dbg(`[poll] target answered after the locked-backup power-cycle`);
+          return;
+        }
         this._banksScannedAt = 0;
         deviceSafety.markQuiet();
         dbg(`[poll] target answered again; refreshing its runtime`);
         await this.quickRuntimeProbe(this.transport);
-        void this.runScan("target resumed", { auto: true });
+        void this.runScan("target resumed", { auto: true }).catch((e) =>
+          dbg(`[scan] target resumed background scan failed: ${e instanceof Error ? e.message : String(e)}`),
+        );
         return;
       }
       
@@ -1840,7 +1928,11 @@ class DeviceStore {
         // this passive/automatic trigger only — deliberate calls to runScan() elsewhere (after
         // an install, an explicit Scan button, etc.) always run regardless.
         const scanIsFresh = Date.now() - this._lastFullScanAt < DeviceStore.AUTO_SCAN_FRESHNESS_WINDOW_MS;
-        if (utilAlive && !this.utilLoaded && !scanIsFresh) void this.runScan("liveness poll", { auto: true });
+        if (utilAlive && !this.utilLoaded && !scanIsFresh) {
+          void this.runScan("liveness poll", { auto: true }).catch((e) =>
+            dbg(`[scan] liveness poll background scan failed: ${e instanceof Error ? e.message : String(e)}`),
+          );
+        }
         this.utilLoaded = utilAlive;
       }
       // Runtime classification comes from the live VTOR probe above, never from the persistent
@@ -2024,6 +2116,11 @@ class DeviceStore {
       this.stubPrompt.reject(new Error("Connection lost."));
       this.stubPrompt = null;
     }
+    if (this.lockedBackupPrompt) {
+      this.lockedBackupPrompt.reject(new Error("Connection lost."));
+      this.lockedBackupPrompt = null;
+    }
+    this.chooseLockedBackupFailure("stop");
     if (this.unlockPrompt) {
       this.unlockPrompt.reject(new Error("Connection lost."));
       this.unlockPrompt = null;
@@ -2058,6 +2155,11 @@ class DeviceStore {
       this.stubPrompt.reject(new Error("Disconnected."));
       this.stubPrompt = null;
     }
+    if (this.lockedBackupPrompt) {
+      this.lockedBackupPrompt.reject(new Error("Disconnected."));
+      this.lockedBackupPrompt = null;
+    }
+    this.chooseLockedBackupFailure("stop");
     if (this.unlockPrompt) {
       this.unlockPrompt.reject(new Error("Disconnected."));
       this.unlockPrompt = null;
@@ -2096,6 +2198,11 @@ class DeviceStore {
       this.stubPrompt.reject(new Error("Device reset."));
       this.stubPrompt = null;
     }
+    if (this.lockedBackupPrompt) {
+      this.lockedBackupPrompt.reject(new Error("Device reset."));
+      this.lockedBackupPrompt = null;
+    }
+    this.chooseLockedBackupFailure("stop");
     if (this.unlockPrompt) {
       this.unlockPrompt.reject(new Error("Device reset."));
       this.unlockPrompt = null;

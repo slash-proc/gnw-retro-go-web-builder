@@ -1,4 +1,5 @@
 import type { AdvancedStrings } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 import type { OfficialFirmwareStrings } from "./firmwareSetup.js";
 import type { RomSectionStrings } from "./firmwareSetup.js";
 import type { DumpSectionStrings } from "./firmwareSetup.js";
@@ -19,6 +20,29 @@ export const advancedKo: AdvancedStrings = {
 } as const;
 
 export const officialFirmwareKo: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: '보호된 펌웨어를 읽기 위해 전원 껐다 켜기',
+  lockedPowerCycleStepOff: '기기의 전원을 완전히 끄려면 배터리를 포함한 모든 전원을 분리하세요.',
+  lockedPowerCycleStepOn: '배터리 및/또는 USB-C 전원을 다시 연결한 다음 전원 버튼을 한 번 누르세요.',
+  lockedPowerCycleStepContinue: '기기가 켜지고 파란 화면이 표시되면 여기서 계속해 내부 펌웨어를 백업하세요.',
+  lockedPowerCycleNoteLabel: '참고:',
+  lockedPowerCycleNote: '파란 화면은 잠시만 표시됩니다. 잠금을 해제하기 전에 원래 외부 펌웨어 백업을 복원합니다.',
+  lockedPowerCycleStatusLabel: '상태:',
+  lockedPowerCycleStatusNoDevice: '기기가 감지되지 않았습니다.',
+  lockedPowerCycleStatusNotBlue: '기기는 감지되었지만 파란 화면이 표시되지 않습니다.',
+  lockedPowerCycleStatusBlue: '기기가 감지되었고 파란 화면이 확인되었습니다.',
+  lockedBackupConfirmBody: '펌웨어를 변경하기 전에 기기를 확인합니다. 잠긴 기기의 보호된 내부 펌웨어를 읽으려면 전원을 완전히 껐다가 다시 켜야 합니다.',
+  lockedBackupStageRecovery: '복구 모드 진입 및 확인',
+  lockedBackupStageIdentify: '정품 펌웨어 확인',
+  lockedBackupStageReadExternal: '외부 플래시 읽기',
+  lockedBackupStageSaveExternal: '외부 백업 저장 및 확인',
+  lockedBackupStageReuseExternal: '확인된 외부 백업 재사용',
+  lockedBackupStagePrepareRead: '내부 펌웨어 읽기 준비',
+  lockedBackupStagePowerCycle: '기기 전원 껐다 켜기',
+  lockedBackupStageReadInternal: '내부 펌웨어 읽기',
+  lockedBackupStageVerify: '펌웨어 백업 확인 및 저장',
+  lockedBackupStageRestore: '원래 외부 펌웨어 복원',
+  lockedBackupStageVerifyRestore: '복원된 펌웨어 확인',
   pageSubtitle: "정품 펌웨어를 백업한 다음, 커스텀 펌웨어가 부팅되도록 패치해요.",
   step1Title: "펌웨어 백업",
   chromiumRequired: "폴더 선택에는 Chromium 계열 브라우저가 필요해요 (WebUSB와 동일).",

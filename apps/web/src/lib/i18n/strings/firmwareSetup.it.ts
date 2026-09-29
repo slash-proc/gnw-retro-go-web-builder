@@ -8,6 +8,7 @@ import type {
   FileBrowserSectionStrings,
   RetroGoTabStrings,
 } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 
 export const advancedIt: AdvancedStrings = {
   tabbarLabel: "Strumenti avanzati",
@@ -21,6 +22,29 @@ export const advancedIt: AdvancedStrings = {
 } as const;
 
 export const officialFirmwareIt: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: 'Riavviare per leggere il firmware protetto',
+  lockedPowerCycleStepOff: 'Scollega tutte le fonti di alimentazione dalla console, batteria inclusa, così da spegnerla completamente.',
+  lockedPowerCycleStepOn: 'Ricollega la batteria e/o l’alimentazione USB-C, quindi premi una volta il pulsante di accensione.',
+  lockedPowerCycleStepContinue: 'Continua qui quando il dispositivo è acceso e mostra una schermata blu, così da salvare il firmware interno.',
+  lockedPowerCycleNoteLabel: 'Nota:',
+  lockedPowerCycleNote: 'La schermata blu è temporanea. Il backup del firmware esterno originale viene ripristinato prima di qualsiasi sblocco.',
+  lockedPowerCycleStatusLabel: 'Stato:',
+  lockedPowerCycleStatusNoDevice: 'Nessun dispositivo rilevato.',
+  lockedPowerCycleStatusNotBlue: 'Dispositivo rilevato, ma la schermata blu non è visualizzata.',
+  lockedPowerCycleStatusBlue: 'Dispositivo rilevato e schermata blu confermata.',
+  lockedBackupConfirmBody: 'Il dispositivo verrà controllato prima di modificare il firmware. Per leggere il firmware interno protetto, un dispositivo bloccato deve essere spento completamente e riacceso.',
+  lockedBackupStageRecovery: 'Accedere e verificare la modalità Recovery',
+  lockedBackupStageIdentify: 'Identificare il firmware originale',
+  lockedBackupStageReadExternal: 'Leggere la memoria flash esterna',
+  lockedBackupStageSaveExternal: 'Salvare e verificare il backup esterno',
+  lockedBackupStageReuseExternal: 'Riutilizzare il backup esterno verificato',
+  lockedBackupStagePrepareRead: 'Preparare la lettura del firmware interno',
+  lockedBackupStagePowerCycle: 'Spegnere e riaccendere il dispositivo',
+  lockedBackupStageReadInternal: 'Leggere il firmware interno',
+  lockedBackupStageVerify: 'Verificare e salvare i backup del firmware',
+  lockedBackupStageRestore: 'Ripristinare il firmware esterno originale',
+  lockedBackupStageVerifyRestore: 'Verificare il firmware ripristinato',
   pageSubtitle: "Salvare il firmware originale, poi applicarvi la patch per consentire l’avvio di un firmware personalizzato.",
   step1Title: "Backup del firmware",
   chromiumRequired: "La selezione delle cartelle richiede un browser Chromium (come WebUSB).",

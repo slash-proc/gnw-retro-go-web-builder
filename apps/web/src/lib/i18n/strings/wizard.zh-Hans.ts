@@ -24,6 +24,9 @@ export const wizardZhHans: WizardStrings = {
     buttonAction: (isBroken: boolean) => (isBroken ? "打补丁" : "备份并打补丁"),
     skip: "跳过",
     titleBackupOnly: "备份原始固件",
+    bodyBackupBeforePatch: '选择一个文件夹，用于保存并验证原始固件副本。此步骤不会修改设备；打补丁是单独的步骤。',
+    bodyPatch: '使用已验证的备份为设备打补丁以启用双启动。此步骤会修改设备。请保持设备连接，直到操作完成。',
+    errNeedValidBackup: '打补丁前，请选择一个包含有效内部和外部固件备份的文件夹。',
     bodyBackupOnly:
       "接下来会让你在电脑上选择一个文件夹，设备原始固件的副本会保存在那里。请妥善保管这些文件，它们无法再次下载。此步骤不会写入设备：下一步 Retro-Go 才会替换原始固件。",
     buttonBackupOnly: "备份",

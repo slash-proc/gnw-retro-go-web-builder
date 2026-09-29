@@ -328,15 +328,6 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
           {#if recoveryError}<p class="recovery-error">{recoveryError}</p>{/if}
         </div>
       {:else}
-        {#if device.debuggingDisabled && !device.utilLoaded}
-          <div class="recovery-notice">
-            <span>{locale.t.deviceHeader.connectedDebuggingDisabled}</span>
-            <Button variant="action" disabled={recoveryStarting} onclick={() => void connectForFirmware()}>
-              {recoveryStarting ? locale.t.shared.common.connecting : locale.t.shared.deviceControls.startRecoveryMode}
-            </Button>
-            {#if recoveryError}<span class="recovery-error">{recoveryError}</span>{/if}
-          </div>
-        {/if}
         {#if mode === "wizard"}
           <Wizard
             onComplete={() => selectTab("roms")}
@@ -363,16 +354,6 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
   }
   .connecting-placeholder p {
     margin: 0 0 0.75rem;
-  }
-  .recovery-notice {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    margin: 0 auto 1rem;
-    color: var(--ink-soft);
-    font-size: var(--fs-caption);
   }
   .recovery-error {
     color: var(--danger);

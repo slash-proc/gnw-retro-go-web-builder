@@ -8,6 +8,7 @@ import type {
   FileBrowserSectionStrings,
   RetroGoTabStrings,
 } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 
 export const advancedZhHans: AdvancedStrings = {
   tabbarLabel: "高级工具",
@@ -21,6 +22,29 @@ export const advancedZhHans: AdvancedStrings = {
 };
 
 export const officialFirmwareZhHans: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: '断电重启以读取受保护的固件',
+  lockedPowerCycleStepOff: '断开主机的所有电源（包括电池），让设备完全关机。',
+  lockedPowerCycleStepOn: '重新连接电池和/或 USB-C 电源，然后按一次电源键。',
+  lockedPowerCycleStepContinue: '设备开机并显示蓝屏后，在此继续以备份内部固件。',
+  lockedPowerCycleNoteLabel: '注意：',
+  lockedPowerCycleNote: '蓝屏只是暂时状态。解锁前会先恢复原始外部固件备份。',
+  lockedPowerCycleStatusLabel: '状态：',
+  lockedPowerCycleStatusNoDevice: '未检测到设备。',
+  lockedPowerCycleStatusNotBlue: '已检测到设备，但未显示蓝屏。',
+  lockedPowerCycleStatusBlue: '已检测到设备并确认蓝屏。',
+  lockedBackupConfirmBody: '更改任何固件前都会检查设备。要读取已锁定设备中受保护的内部固件，必须先让设备完全断电再重新开机。',
+  lockedBackupStageRecovery: '进入并验证恢复模式',
+  lockedBackupStageIdentify: '识别原厂固件',
+  lockedBackupStageReadExternal: '读取外部闪存',
+  lockedBackupStageSaveExternal: '保存并验证外部备份',
+  lockedBackupStageReuseExternal: '重复使用已验证的外部备份',
+  lockedBackupStagePrepareRead: '准备读取内部固件',
+  lockedBackupStagePowerCycle: '将设备完全断电并重新开机',
+  lockedBackupStageReadInternal: '读取内部固件',
+  lockedBackupStageVerify: '验证并保存固件备份',
+  lockedBackupStageRestore: '恢复原始外部固件',
+  lockedBackupStageVerifyRestore: '验证已恢复的固件',
   pageSubtitle: "先保存原厂固件，再为它打补丁，自定义固件才能启动。",
   step1Title: "固件备份",
   chromiumRequired: "选择文件夹需要 Chromium 内核浏览器（与 WebUSB 相同）。",

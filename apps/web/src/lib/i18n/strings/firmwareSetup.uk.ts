@@ -8,6 +8,7 @@ import type {
   RetroGoTabStrings,
   RomSectionStrings,
 } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 
 /**
  * Ukrainian numeral agreement: nominative singular after 1 (but not 11), nominative plural
@@ -36,6 +37,29 @@ export const advancedUk: AdvancedStrings = {
 } as const;
 
 export const officialFirmwareUk: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: 'Перезапустіть пристрій, щоб зчитати захищену прошивку',
+  lockedPowerCycleStepOff: 'Від’єднайте від консолі всі джерела живлення, включно з акумулятором, щоб повністю її вимкнути.',
+  lockedPowerCycleStepOn: 'Під’єднайте акумулятор та/або живлення USB-C і один раз натисніть кнопку живлення.',
+  lockedPowerCycleStepContinue: 'Продовжте тут, коли пристрій увімкнеться й покаже синій екран, щоб зберегти копію внутрішньої прошивки.',
+  lockedPowerCycleNoteLabel: 'Примітка:',
+  lockedPowerCycleNote: 'Синій екран тимчасовий. Оригінальну резервну копію зовнішньої прошивки буде відновлено до розблокування.',
+  lockedPowerCycleStatusLabel: 'Стан:',
+  lockedPowerCycleStatusNoDevice: 'Пристрій не виявлено.',
+  lockedPowerCycleStatusNotBlue: 'Пристрій виявлено, але синього екрана немає.',
+  lockedPowerCycleStatusBlue: 'Пристрій виявлено, синій екран підтверджено.',
+  lockedBackupConfirmBody: 'Пристрій буде перевірено до зміни прошивки. Щоб зчитати захищену внутрішню прошивку заблокованого пристрою, його потрібно повністю вимкнути й увімкнути знову.',
+  lockedBackupStageRecovery: 'Увійти в режим Recovery та перевірити його',
+  lockedBackupStageIdentify: 'Визначити оригінальну прошивку',
+  lockedBackupStageReadExternal: 'Зчитати зовнішню флешпам’ять',
+  lockedBackupStageSaveExternal: 'Зберегти й перевірити зовнішню копію',
+  lockedBackupStageReuseExternal: 'Повторно використати перевірену зовнішню копію',
+  lockedBackupStagePrepareRead: 'Підготувати зчитування внутрішньої прошивки',
+  lockedBackupStagePowerCycle: 'Повністю вимкнути й увімкнути пристрій',
+  lockedBackupStageReadInternal: 'Зчитати внутрішню прошивку',
+  lockedBackupStageVerify: 'Перевірити й зберегти копії прошивки',
+  lockedBackupStageRestore: 'Відновити оригінальну зовнішню прошивку',
+  lockedBackupStageVerifyRestore: 'Перевірити відновлену прошивку',
   pageSubtitle:
     "Збережіть оригінальну прошивку, а потім пропатчте її, щоб могла завантажуватися нестандартна.",
   step1Title: "Резервна копія прошивки",

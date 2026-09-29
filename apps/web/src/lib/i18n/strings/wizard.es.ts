@@ -24,6 +24,9 @@ export const wizardEs: WizardStrings = {
     buttonAction: (isBroken: boolean) => (isBroken ? "Parchear" : "Copia de seguridad y parche"),
     skip: "Omitir",
     titleBackupOnly: "Copia del firmware original",
+    bodyBackupBeforePatch: 'Elige una carpeta para guardar y verificar una copia del firmware original. Este paso no modifica el dispositivo; el parcheado se realiza por separado.',
+    bodyPatch: 'Usa la copia de seguridad verificada para parchear el dispositivo y habilitar el arranque dual. Este paso modifica el dispositivo. Mantenlo conectado hasta que termine.',
+    errNeedValidBackup: 'Antes de aplicar el parche, elige una carpeta que contenga copias válidas del firmware interno y externo.',
     bodyBackupOnly:
       "Se te pedirá que selecciones una carpeta en tu ordenador, donde se guardará una copia del firmware original de tu dispositivo. Guarda bien estos archivos: no podrás volver a descargarlos. No se escribe nada en el dispositivo: Retro-Go sustituirá el firmware original en el siguiente paso.",
     buttonBackupOnly: "Hacer copia",

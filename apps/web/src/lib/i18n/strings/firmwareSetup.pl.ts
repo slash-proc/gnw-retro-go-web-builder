@@ -1,4 +1,5 @@
 import type { AdvancedStrings } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 import type { OfficialFirmwareStrings } from "./firmwareSetup.js";
 import type { RomSectionStrings } from "./firmwareSetup.js";
 import type { DumpSectionStrings } from "./firmwareSetup.js";
@@ -19,6 +20,29 @@ export const advancedPl: AdvancedStrings = {
 };
 
 export const officialFirmwarePl: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: 'Wyłącz i włącz urządzenie, aby odczytać chronione oprogramowanie',
+  lockedPowerCycleStepOff: 'Odłącz całe zasilanie konsoli, także baterię, aby całkowicie ją wyłączyć.',
+  lockedPowerCycleStepOn: 'Podłącz ponownie baterię i/lub zasilanie USB-C, a następnie naciśnij raz przycisk zasilania.',
+  lockedPowerCycleStepContinue: 'Kontynuuj tutaj, gdy urządzenie będzie włączone i pokaże niebieski ekran, aby wykonać kopię pamięci wewnętrznej.',
+  lockedPowerCycleNoteLabel: 'Uwaga:',
+  lockedPowerCycleNote: 'Niebieski ekran jest tymczasowy. Oryginalna kopia zewnętrznego oprogramowania zostanie przywrócona przed odblokowaniem.',
+  lockedPowerCycleStatusLabel: 'Stan:',
+  lockedPowerCycleStatusNoDevice: 'Nie wykryto urządzenia.',
+  lockedPowerCycleStatusNotBlue: 'Wykryto urządzenie, ale nie wyświetla niebieskiego ekranu.',
+  lockedPowerCycleStatusBlue: 'Wykryto urządzenie i potwierdzono niebieski ekran.',
+  lockedBackupConfirmBody: 'Urządzenie zostanie sprawdzone przed zmianą oprogramowania. Aby odczytać chronione oprogramowanie wewnętrzne z zablokowanego urządzenia, trzeba całkowicie odłączyć i ponownie włączyć zasilanie.',
+  lockedBackupStageRecovery: 'Uruchom i sprawdź tryb Recovery',
+  lockedBackupStageIdentify: 'Rozpoznaj oryginalne oprogramowanie',
+  lockedBackupStageReadExternal: 'Odczytaj pamięć zewnętrzną',
+  lockedBackupStageSaveExternal: 'Zapisz i sprawdź kopię zewnętrzną',
+  lockedBackupStageReuseExternal: 'Użyj ponownie sprawdzonej kopii zewnętrznej',
+  lockedBackupStagePrepareRead: 'Przygotuj odczyt pamięci wewnętrznej',
+  lockedBackupStagePowerCycle: 'Wyłącz i ponownie włącz urządzenie',
+  lockedBackupStageReadInternal: 'Odczytaj pamięć wewnętrzną',
+  lockedBackupStageVerify: 'Sprawdź i zapisz kopie oprogramowania',
+  lockedBackupStageRestore: 'Przywróć oryginalne oprogramowanie zewnętrzne',
+  lockedBackupStageVerifyRestore: 'Sprawdź przywrócone oprogramowanie',
   pageSubtitle: "Zapisz oryginalny firmware, a następnie spatchuj go, aby mógł uruchomić się firmware niestandardowy.",
   step1Title: "Kopia zapasowa firmware'u",
   chromiumRequired: "Wybór folderu wymaga przeglądarki opartej na Chromium (tak jak WebUSB).",

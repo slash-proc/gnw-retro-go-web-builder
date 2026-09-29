@@ -24,6 +24,9 @@ export const wizardNo: WizardStrings = {
     buttonAction: (isBroken: boolean) => (isBroken ? "Patch" : "Sikkerhetskopier og patch"),
     skip: "Hopp over",
     titleBackupOnly: "Sikkerhetskopier originalfirmwaren",
+    bodyBackupBeforePatch: 'Velg en mappe der en kopi av originalfastvaren kan lagres og verifiseres. Dette trinnet endrer ikke enheten; oppdateringen gjøres separat.',
+    bodyPatch: 'Bruk den verifiserte sikkerhetskopien til å klargjøre enheten for dual boot. Dette trinnet endrer enheten. Hold den tilkoblet til prosessen er ferdig.',
+    errNeedValidBackup: 'Velg en mappe med gyldige sikkerhetskopier av både intern og ekstern fastvare før du fortsetter.',
     bodyBackupOnly:
       "Du blir bedt om å velge en mappe på maskinen din, der en kopi av enhetens originale firmware lagres. Ta godt vare på disse filene, for du kan ikke laste dem ned igjen. Ingenting skrives til enheten: Retro-Go erstatter originalfirmwaren i neste steg.",
     buttonBackupOnly: "Sikkerhetskopier",

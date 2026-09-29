@@ -247,7 +247,9 @@
            group at `gap: 11px`, sitting `gap: 13px` from the media icon and the dividers. -->
       <span class="statusgroup">
         <DeviceControls {statusColor} />
-        <strong class="status">{statusText}</strong>
+        {#if !(device.lockedBackupPrompt && device.connection === "lost")}
+          <strong class="status">{statusText}</strong>
+        {/if}
       </span>
 
       {#if device.isConnected || device.everConnected}

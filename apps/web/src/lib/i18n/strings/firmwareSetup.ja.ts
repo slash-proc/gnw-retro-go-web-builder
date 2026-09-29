@@ -1,4 +1,5 @@
 import type { AdvancedStrings } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 import type { OfficialFirmwareStrings } from "./firmwareSetup.js";
 import type { RomSectionStrings } from "./firmwareSetup.js";
 import type { DumpSectionStrings } from "./firmwareSetup.js";
@@ -19,6 +20,29 @@ export const advancedJa: AdvancedStrings = {
 };
 
 export const officialFirmwareJa: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: '保護されたファームウェアを読み取るために再起動',
+  lockedPowerCycleStepOff: '本体の電源を完全に切るため、バッテリーを含むすべての電源を取り外します。',
+  lockedPowerCycleStepOn: 'バッテリーおよび／またはUSB-C電源を再接続し、電源ボタンを1回押します。',
+  lockedPowerCycleStepContinue: '本体の電源が入り、青い画面が表示されたらここから続行し、内部ファームウェアをバックアップします。',
+  lockedPowerCycleNoteLabel: '注意：',
+  lockedPowerCycleNote: '青い画面は一時的なものです。ロック解除の前に、元の外部ファームウェアのバックアップを復元します。',
+  lockedPowerCycleStatusLabel: '状態：',
+  lockedPowerCycleStatusNoDevice: 'デバイスが検出されません。',
+  lockedPowerCycleStatusNotBlue: 'デバイスを検出しましたが、青い画面は表示されていません。',
+  lockedPowerCycleStatusBlue: 'デバイスを検出し、青い画面を確認しました。',
+  lockedBackupConfirmBody: 'ファームウェアを変更する前にデバイスを確認します。ロックされたデバイスの保護された内部ファームウェアを読み取るには、完全に電源を切ってから再起動する必要があります。',
+  lockedBackupStageRecovery: 'リカバリーモードに入り確認',
+  lockedBackupStageIdentify: '純正ファームウェアを特定',
+  lockedBackupStageReadExternal: '外部フラッシュを読み取り',
+  lockedBackupStageSaveExternal: '外部バックアップを保存して検証',
+  lockedBackupStageReuseExternal: '検証済みの外部バックアップを再利用',
+  lockedBackupStagePrepareRead: '内部ファームウェアの読み取りを準備',
+  lockedBackupStagePowerCycle: 'デバイスの電源を切って再起動',
+  lockedBackupStageReadInternal: '内部ファームウェアを読み取り',
+  lockedBackupStageVerify: 'ファームウェアのバックアップを検証して保存',
+  lockedBackupStageRestore: '元の外部ファームウェアを復元',
+  lockedBackupStageVerifyRestore: '復元したファームウェアを検証',
   pageSubtitle: "純正ファームウェアをバックアップし、カスタムファームウェアが起動できるようにパッチを当てます。",
   step1Title: "ファームウェアのバックアップ",
   chromiumRequired: "フォルダの選択にはChromium系ブラウザが必要です（WebUSBと同様）。",

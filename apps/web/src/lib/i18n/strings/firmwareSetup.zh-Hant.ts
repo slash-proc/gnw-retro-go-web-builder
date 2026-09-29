@@ -8,6 +8,7 @@ import type {
   FileBrowserSectionStrings,
   RetroGoTabStrings,
 } from "./firmwareSetup.js";
+import { officialFirmwareEn } from "./firmwareSetup.js";
 
 export const advancedZhHant: AdvancedStrings = {
   tabbarLabel: "進階工具",
@@ -21,6 +22,29 @@ export const advancedZhHant: AdvancedStrings = {
 };
 
 export const officialFirmwareZhHant: OfficialFirmwareStrings = {
+  ...officialFirmwareEn,
+  lockedPowerCycleTitle: '重新開機以讀取受保護的韌體',
+  lockedPowerCycleStepOff: '拔除主機的所有電源（包括電池），讓裝置完全關機。',
+  lockedPowerCycleStepOn: '重新接上電池及／或 USB-C 電源，然後按一下電源鍵。',
+  lockedPowerCycleStepContinue: '裝置開機並顯示藍色畫面後，請在此繼續備份內部韌體。',
+  lockedPowerCycleNoteLabel: '注意：',
+  lockedPowerCycleNote: '藍色畫面只是暫時狀態。解鎖前會先還原原始外部韌體備份。',
+  lockedPowerCycleStatusLabel: '狀態：',
+  lockedPowerCycleStatusNoDevice: '未偵測到裝置。',
+  lockedPowerCycleStatusNotBlue: '已偵測到裝置，但未顯示藍色畫面。',
+  lockedPowerCycleStatusBlue: '已偵測到裝置並確認藍色畫面。',
+  lockedBackupConfirmBody: '變更任何韌體前會先檢查裝置。若要讀取已鎖定裝置中受保護的內部韌體，必須先讓裝置完全斷電再重新開機。',
+  lockedBackupStageRecovery: '進入並驗證復原模式',
+  lockedBackupStageIdentify: '辨識原廠韌體',
+  lockedBackupStageReadExternal: '讀取外部快閃記憶體',
+  lockedBackupStageSaveExternal: '儲存並驗證外部備份',
+  lockedBackupStageReuseExternal: '重複使用已驗證的外部備份',
+  lockedBackupStagePrepareRead: '準備讀取內部韌體',
+  lockedBackupStagePowerCycle: '將裝置完全斷電並重新開機',
+  lockedBackupStageReadInternal: '讀取內部韌體',
+  lockedBackupStageVerify: '驗證並儲存韌體備份',
+  lockedBackupStageRestore: '還原原始外部韌體',
+  lockedBackupStageVerifyRestore: '驗證已還原的韌體',
   pageSubtitle: "先保存原廠韌體，再修補它，自製韌體才能開機。",
   step1Title: "韌體備份",
   chromiumRequired: "選擇資料夾需要 Chromium 系瀏覽器（與 WebUSB 相同）。",

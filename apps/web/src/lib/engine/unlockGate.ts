@@ -20,15 +20,10 @@
  * a recording harness and fails if `unlock` is called before the backup check, or at all after
  * a declined prompt.
  *
- * THE ONE SURVIVING PROMPT. A locked device's internal flash cannot be read over SWD at all,
- * so when no backup exists there is nothing to save first and unlocking destroys the original
- * firmware irrecoverably. That is genuinely one-way, so it asks. Everything else just happens.
- *
- * (gnwmanager's full `unlock` command avoids that prompt by backing up ITCM + external flash,
- * flashing an XOR-obfuscated payload that dumps internal flash to SRAM across a user-performed
- * power cycle, and only then clearing RDP. Porting that -- it needs `blobs/unlock.bin`, which
- * is already vendored -- would turn most of these prompts into automatic backups. It is not
- * built; see docs/ARCHITECTURE.md "Device Scan & Classification".)
+ * A locked device's internal flash cannot be read directly over SWD. Fresh-backup flows use
+ * gnwmanager's ITCM/external hashes and XOR payload to copy it to SRAM across a user-performed
+ * cold power cycle. They save and hash-verify both backup files and restore the original
+ * external image before calling this gate. `backupTaken` is set only after that verification.
  */
 
 /** What `ensureUnlocked` did, for the caller's audit-log line. */

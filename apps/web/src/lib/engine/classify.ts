@@ -63,7 +63,10 @@ export function classifyDevice(
   const littlefs = parts.some((p) => p.fs === "littlefs");
   const versionBank = banks.find((b) => b.retroGoVersion);
   const version = versionBank?.retroGoVersion;
-  const hasApp = banks.some((b) => !["empty", "unknown", "unreadable"].includes(b.type) && !b.type.includes("OFW"));
+  // A non-empty bank is not proof of a Retro-Go install: locked/unreadable stock flash can
+  // yield "unknown data", and bank 2 may contain unrelated residue. Older Retro-Go is only
+  // identified when the internal image itself carries the Retro-Go marker.
+  const hasRetroGoMarker = banks.some((b) => b.type === "Retro-Go" || !!b.retroGoVersion);
 
   // Official firmware (model + stock/patched) detected by the bank scan, if any.
   const ofw = banks.map((b) => b.ofw).find(Boolean) ?? null;
@@ -96,12 +99,13 @@ export function classifyDevice(
       (installOrigin === "flash" || installOrigin === "sd" ? `-${installOrigin}` : "")
     : undefined;
 
-  // If there's no app in intflash (neither a version string nor an unknown app),
-  // then any leftover FrogFS or LittleFS partitions are just orphaned data.
-  if (version || hasApp) {
-    // The version string is "Retro-Go SD v…", so finding it ⇒ retro-go-sd (even before
-    // games/saves content is written). FrogFS implies SD too.
-    if (version || frogfs)
+  // Firmware identity must come from internal flash. External FrogFS/LittleFS partitions can
+  // remain after a different firmware is installed, so by themselves they cannot establish
+  // which firmware is currently running.
+  if (version || hasRetroGoMarker) {
+    // The version string is "Retro-Go SD v…", so finding it identifies the SD fork. A
+    // marker-only pre-version image is the older Retro-Go family.
+    if (version)
       return {
         kind: "retrogo-sd",
         label: versionLabel ?? "Retro-Go (SD)",
@@ -113,17 +117,16 @@ export function classifyDevice(
         installOrigin,
       };
 
-    if (littlefs || hasApp)
-      return {
-        kind: "retrogo-old",
-        label: `Retro-Go ${locale.t.deviceHeader.retroGoOlderSuffix}`,
-        ofw: ofw ? { ...ofw, patched: true } : null,
-        retroGoVersion: undefined,
-        hasGames: false,
-        hasSaves: littlefs,
-        installBanks: [1],
-        installOrigin,
-      };
+    return {
+      kind: "retrogo-old",
+      label: `Retro-Go ${locale.t.deviceHeader.retroGoOlderSuffix}`,
+      ofw: ofw ? { ...ofw, patched: true } : null,
+      retroGoVersion: undefined,
+      hasGames: false,
+      hasSaves: littlefs,
+      installBanks: [1],
+      installOrigin,
+    };
   }
 
   if (ofw && ofw.patched) {

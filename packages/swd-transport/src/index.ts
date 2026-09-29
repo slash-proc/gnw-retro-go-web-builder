@@ -161,6 +161,8 @@ abstract class BaseTransport implements SwdTransport {
   protected readonly CHUNK: number = 1024;
   /** Larger reads are opt-in; the default remains the proven 1 KiB request size. */
   protected readonly MAX_READ_REQUEST: number = 1024;
+  /** Inter-transfer pause used by probes that need settling time between reads. */
+  protected readonly READ_INTER_CHUNK_DELAY_MS: number = 10;
 
   abstract connect(): Promise<void>;
   abstract readWord(addr: number): Promise<number>;
@@ -211,7 +213,8 @@ abstract class BaseTransport implements SwdTransport {
       out.set(chunk, off);
       onProgress?.(off + n, len);
       if (reportProgress) emitTransfer("read", off + n, len);
-      if (len > this.CHUNK) await new Promise((r) => setTimeout(r, 10));
+      if (len > this.CHUNK && this.READ_INTER_CHUNK_DELAY_MS > 0)
+        await new Promise((r) => setTimeout(r, this.READ_INTER_CHUNK_DELAY_MS));
       off += n;
     }
     return out;
@@ -344,6 +347,9 @@ export class DapjsTransport extends BaseTransport {
   // The exceptional 128 KiB SRAM dump is exposed as one request to DAPJS.
   // _readMemRaw still subdivides it into 1 KiB TAR-safe windows internally.
   protected readonly MAX_READ_REQUEST: number = 128 * 1024;
+  // PyOCD-backed GnWManager reads do not add a host sleep per MEM-AP transfer.
+  // Keep the 1 KiB TAR-safe windows, but avoid adding ~41 s of sleeps to a 4 MiB dump.
+  protected readonly READ_INTER_CHUNK_DELAY_MS: number = 0;
   constructor(
     private readonly cortexM: CortexMLike,
     private readonly onDapReadDiagnostic?: (line: string) => void,

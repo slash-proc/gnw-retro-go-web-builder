@@ -24,6 +24,9 @@ export const wizardZhHant: WizardStrings = {
     buttonAction: (isBroken: boolean) => (isBroken ? "修補" : "備份與修補"),
     skip: "略過",
     titleBackupOnly: "備份原始韌體",
+    bodyBackupBeforePatch: '選擇資料夾以儲存並驗證原始韌體副本。此步驟不會修改裝置；修補是另一個獨立步驟。',
+    bodyPatch: '使用已驗證的備份為裝置修補以啟用雙重開機。此步驟會修改裝置。請保持裝置連線直到完成。',
+    errNeedValidBackup: '修補前，請選擇包含有效內部與外部韌體備份的資料夾。',
     bodyBackupOnly:
       "接著會請你在電腦上選一個資料夾，用來存放裝置原始韌體的副本。請妥善保存這些檔案，因為無法再次下載。這一步不會寫入裝置：Retro-Go 會在下一步取代原始韌體。",
     buttonBackupOnly: "備份",
