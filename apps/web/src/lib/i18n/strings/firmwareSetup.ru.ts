@@ -40,6 +40,8 @@ export const officialFirmwareRu: OfficialFirmwareStrings = {
   lockedBackupStageRestore: 'Восстановить исходную внешнюю прошивку',
   lockedBackupStageVerifyRestore: 'Проверить восстановленную прошивку',
   pageSubtitle: "Сохраните заводскую прошивку, затем наложите на неё патч, чтобы могла загружаться альтернативная.",
+  filterBoth: "Обе",
+  filterVariants: "Фильтр вариантов прошивки",
   step1Title: "Резервная копия прошивки",
   chromiumRequired: "Для выбора папки нужен браузер на Chromium (как и для WebUSB).",
   pickFolderIntro: "Выберите папку с заводскими копиями или пустую папку для новой копии.",

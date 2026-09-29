@@ -116,6 +116,7 @@ export const wizardDe: WizardStrings = {
     removeRetroGo: "Retro-Go entfernen",
     skipCaution: "Das lässt sich nicht rückgängig machen, und das Herunterladen der Originalfirmware ist in deiner Rechtsordnung wahrscheinlich illegal.",
     skipAnyway: "Trotzdem überspringen",
+    skipBackupAcknowledgement: 'Mir ist klar, dass sich dies nicht rückgängig machen lässt und Original-Firmware online möglicherweise nicht ohne Weiteres oder legal verfügbar ist.',
     chipOptional: "Optional",
     runAgain: "Erneut ausführen",
     sourcesButtonLabel: "Quellen hinzufügen",

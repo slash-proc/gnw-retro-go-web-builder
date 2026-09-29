@@ -116,6 +116,7 @@ export const wizardEs: WizardStrings = {
     removeRetroGo: "Eliminar Retro-Go",
     skipCaution: "Esto no se puede deshacer, y descargar el firmware original probablemente sea ilegal en tu jurisdicción.",
     skipAnyway: "Omitir de todos modos",
+    skipBackupAcknowledgement: 'Entiendo que esto no se puede deshacer y que los archivos del firmware original quizá no estén disponibles fácilmente ni de forma legal en Internet.',
     chipOptional: "Opcional",
     runAgain: "Ejecutar de nuevo",
     sourcesButtonLabel: "Añadir Fuentes",

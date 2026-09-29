@@ -116,6 +116,7 @@ export const wizardKo: WizardStrings = {
     removeRetroGo: "Retro-Go 제거",
     skipCaution: "이 작업은 되돌릴 수 없으며, 순정 펌웨어를 내려받는 것은 사용자의 관할 지역에서 불법일 가능성이 높아요.",
     skipAnyway: "그래도 건너뛰기",
+    skipBackupAcknowledgement: '이 작업은 되돌릴 수 없으며 순정 펌웨어 파일을 온라인에서 쉽게 또는 합법적으로 구할 수 없을 수 있음을 이해합니다.',
     chipOptional: "선택",
     runAgain: "다시 실행",
     sourcesButtonLabel: "소스 추가",

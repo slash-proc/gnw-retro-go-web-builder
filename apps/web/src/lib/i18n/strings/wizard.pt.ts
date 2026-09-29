@@ -112,6 +112,7 @@ export const wizardPt: WizardStrings = {
     removeRetroGo: "Remover o Retro-Go",
     skipCaution: "Isto não pode ser desfeito, e transferir o firmware original é provavelmente ilegal na sua jurisdição.",
     skipAnyway: "Ignorar mesmo assim",
+    skipBackupAcknowledgement: 'Compreendo que isto não pode ser desfeito e que os ficheiros do firmware original podem não estar facilmente ou legalmente disponíveis na Internet.',
     chipOptional: "Opcional",
     runAgain: "Executar de novo",
     sourcesButtonLabel: "Adicionar fontes",

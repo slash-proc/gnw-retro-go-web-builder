@@ -46,6 +46,8 @@ export const officialFirmwareZhHans: OfficialFirmwareStrings = {
   lockedBackupStageRestore: '恢复原始外部固件',
   lockedBackupStageVerifyRestore: '验证已恢复的固件',
   pageSubtitle: "先保存原厂固件，再为它打补丁，自定义固件才能启动。",
+  filterBoth: "全部",
+  filterVariants: "筛选固件版本",
   step1Title: "固件备份",
   chromiumRequired: "选择文件夹需要 Chromium 内核浏览器（与 WebUSB 相同）。",
   pickFolderIntro: "选择一个存放原厂备份的文件夹，或选一个空文件夹来保存备份。",

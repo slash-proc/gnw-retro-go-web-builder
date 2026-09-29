@@ -46,6 +46,8 @@ export const officialFirmwareNo: OfficialFirmwareStrings = {
   lockedBackupStageRestore: 'Gjenopprett opprinnelig ekstern fastvare',
   lockedBackupStageVerifyRestore: 'Bekreft gjenopprettet fastvare',
   pageSubtitle: "Lagre originalfirmwaren, og patch den så alternativ firmware kan starte.",
+  filterBoth: "Begge",
+  filterVariants: "Filtrer fastvarevarianter",
   step1Title: "Firmware-sikkerhetskopi",
   chromiumRequired: "Mappevalg krever en Chromium-nettleser (som WebUSB).",
   pickFolderIntro: "Velg en mappe med originale sikkerhetskopier, eller en tom mappe for å lagre en ny.",

@@ -2,12 +2,13 @@
   import { untrack } from "svelte";
   import { device, modelLabel } from "../device.svelte.js";
   import { backupPresence } from "../backupPresence.svelte.js";
-  import { localFolders } from "../sources/localFolders.svelte.js";
+  import { localFolders, displayName } from "../sources/localFolders.svelte.js";
   import Button from "../ui/Button.svelte";
   import AddSourcesModal from "../ui/AddSourcesModal.svelte";
   import { installProgress, deviceSafety, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
   import { msg, errText, sumBytes } from "../logEntry.js";
   import { locale } from "../i18n/locale.svelte.js";
+  import { saveDir } from "../persist.js";
 
   import {
     pickBackupFolder, dumpBackup, dumpLockedBackup, isLockedBackupBlueScreen, writeBackup, patchAndFlash, detectDevice,
@@ -39,7 +40,7 @@
     canRetroGo as planCanRetroGo,
     canDualBoot as planCanDualBoot,
     spineFor,
-    needsBackupStep,
+    includesBackupStage,
     type ChooserCard,
     type SpineId,
   } from "./chooserPlan.js";
@@ -202,9 +203,10 @@
   // bypass the "Backup & Patch" gate and proceed straight to step 2, same idea as step 2's
   // "Reinstall" button being a subtle secondary action next to the primary state.
   let step1Skipped = $state(false);
+  let skipBackupAcknowledged = $state(false);
   let lockedExternalRecovery = $state<{ dir: BackupDir; models: OfwModel[] } | null>(null);
   let backupStepDone = $derived(
-    step1Skipped || backupTaken || backupPresent || (path === "dual" && !!device.deviceClass?.ofw?.patched),
+    step1Skipped || (path === "rgo" ? backupPresent : backupTaken || backupPresent || !!device.deviceClass?.ofw?.patched),
   );
   let backupStepActive = $derived(!backupStepDone);
   let patchStepDone = $derived(path === "dual" && isPatched);
@@ -225,24 +227,67 @@
   const showBackupStep = $derived(path === "dual" || (path === "rgo" && rgoNeedsBackup));
   const canSkipBackup = $derived(path === "rgo");
   let skipExpanded = $state(false);
+  let backupSourceChoices = $state<Array<{ id: string; dir: BackupDir; backup: FoundBackup; sourceName: string }>>([]);
+  let backupSourceChoiceId = $state("");
+
+  async function refreshBackupSourceChoices(): Promise<void> {
+    const snapshots = await backupPresence.scanDirectories();
+    backupSourceChoices = snapshots.flatMap(({ source, backups }) =>
+      source.status === "ready" && source.handle
+        ? backups.filter((backup) => backup.internalOk && backup.externalOk).map((backup) => ({
+            id: `${source.id}:${backup.model}`,
+            dir: source.handle as BackupDir,
+            backup,
+            sourceName: displayName(source),
+          }))
+        : [],
+    );
+    const preferred = backupSourceChoices.find((x) => device.model !== "unknown" && x.backup.model === device.model)
+      ?? backupSourceChoices.find((x) => x.backup.model === "zelda")
+      ?? backupSourceChoices[0];
+    if (!backupSourceChoices.some((x) => x.id === backupSourceChoiceId)) backupSourceChoiceId = preferred?.id ?? "";
+  }
+
+  function backupSourcePicker() {
+    return backupSourceChoices.length > 1 ? {
+      label: locale.t.wizard.spine.selectBackup,
+      options: () => backupSourceChoices.map(({ id, backup, sourceName }) => ({
+        value: id,
+        label: `${modelLabel(backup.model)} — ${sourceName}`,
+      })),
+      selected: () => backupSourceChoiceId,
+      onSelect: (value: string) => { backupSourceChoiceId = value; },
+    } : undefined;
+  }
+
+  function skipBackupWithoutCopy(): void {
+    if (!backupPresent && !skipBackupAcknowledged) return;
+    step1Skipped = true;
+    skipExpanded = false;
+  }
 
   // The original backup is a complete, non-destructive stage. Patching is offered separately.
-  function openBackupStep() {
+  async function openBackupStep() {
+    await refreshBackupSourceChoices();
     void installProgress.run({
       title: locale.t.wizard.step1.titleBackupOnly,
       body: locale.t.wizard.step1.bodyBackupBeforePatch,
       confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
       phases: backupOnlyPhases,
+      choicePicker: backupSourcePicker(),
+      onClose: () => backupPresence.refresh(),
       exec: runStep1,
     });
   }
 
-  function openPatchStep() {
+  async function openPatchStep() {
+    await refreshBackupSourceChoices();
     void installProgress.run({
       title: locale.t.wizard.step1.titlePatch,
       body: isBroken ? locale.t.wizard.step1.bodyBroken : locale.t.wizard.step1.bodyPatch,
       confirmText: locale.t.wizard.step1.confirmPatch,
       phases: patchPhases,
+      choicePicker: backupSourcePicker(),
       exec: runPatchStep,
     });
   }
@@ -252,12 +297,15 @@
   // thrown away on the very next step, on a device whose owner just said they don't want to
   // dual boot. The dump itself is still worth taking — it's the user's only copy of a firmware
   // they can't legally re-download — so this path offers it, it just never patches.
-  function openBackupOnly() {
+  async function openBackupOnly() {
+    await refreshBackupSourceChoices();
     void installProgress.run({
       title: locale.t.wizard.step1.titleBackupOnly,
       body: locale.t.wizard.step1.bodyBackupOnly,
       confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
       phases: backupOnlyPhases,
+      choicePicker: backupSourcePicker(),
+      onClose: () => backupPresence.refresh(),
       exec: runStep1,
     });
   }
@@ -304,16 +352,37 @@
    */
   async function runStep1(report: PhaseReporter, patch = false) {
     report.start("locate-backup");
-    const dir = await pickBackupFolder();
+    let preferredChoice = backupSourceChoices.find((choice) => choice.id === backupSourceChoiceId);
+    let dir = preferredChoice?.dir ?? null;
     if (!dir) {
-      report.finish("locate-backup");
-      return;
+      const registered = await backupPresence.directories();
+      let available = registered.find((row) => row.status === "ready" && row.handle);
+      if (!available) {
+        for (const row of registered) {
+          if (row.status !== "needs-permission" || !row.handle) continue;
+          if (await localFolders.grant(row.id)) { available = row; break; }
+        }
+      }
+      if (available) dir = available.handle as BackupDir;
+      else if (registered.length >= 2)
+        throw new Error("Reconnect one of the registered firmware backup directories before continuing.");
+      else {
+        dir = await pickBackupFolder();
+        if (!dir) {
+          report.finish("locate-backup");
+          return;
+        }
+        const source = await localFolders.adoptOfwBackup(dir);
+        await saveDir("ofwBackupDir", dir);
+        backupSourceChoiceId = `${source.id}:`;
+      }
     }
 
     await localFolders.adoptOfwBackup(dir);
-
     const found = await scanBackupFolder(dir);
-    const chosen = defaultBackup(found, device.model);
+    const chosen = preferredChoice && preferredChoice.dir === dir
+      ? found.find((backup) => backup.model === preferredChoice!.backup.model) ?? defaultBackup(found, device.model)
+      : defaultBackup(found, device.model);
 
     const reuseExisting = !!(chosen && chosen.internalOk && chosen.externalOk);
     // The patch stage may only use an already hash-verified backup. If there is no such pair
@@ -1192,26 +1261,32 @@
   let restoreScanned = $state(false); // a folder has been picked and scanned at least once
   let restoreDone = $state(false);
 
-  async function readRestoreDir(dir: BackupDir) {
-    const found = await scanBackupFolder(dir);
+  async function readRestoreDirectories() {
+    const snapshots = await backupPresence.scanDirectories();
+    const byModel = new Map<FoundBackup["model"], FoundBackup>();
+    for (const { backups } of snapshots) {
+      for (const backup of backups) {
+        const previous = byModel.get(backup.model);
+        // Each model gets one restore choice. Prefer a complete validated copy over a partial
+        // copy from another directory; Advanced retains the individual source detail.
+        if (!previous || (backup.internalOk && backup.externalOk && !(previous.internalOk && previous.externalOk)))
+          byModel.set(backup.model, backup);
+      }
+    }
+    const found = [...byModel.values()];
     restoreBackups = found;
     restoreBackup = defaultBackup(found, device.model);
     restoreModelChoice = restoreBackup?.model ?? "zelda";
     restoreScanned = true;
   }
 
-  // READ THE REMEMBERED FOLDER FIRST. This step used to go straight to `pickBackupFolder()`, so
-  // it was the one surface that ignored the folder every other surface already knows about: the
-  // Firmware tab stores it, the Status row reports out of it, and Return to Stock made the user
-  // find it again. `backupPresence.adopted()` is the single owner of "which folder", and it is
-  // silent -- an already-granted permission only, so arriving at this step never raises a prompt.
-  // The button below stays: adopting a folder is not the same as being stuck with it.
+  // Read all registered OFW sources when this step appears. The UI offers an explicit folder
+  // picker as well, which registers an additional source (within the two-directory limit) before
+  // re-aggregating the available variants.
   $effect(() => {
     untrack(() => {
       if (restoreScanned) return;
-      void backupPresence.adopted().then((dir) => {
-        if (dir && !restoreScanned) void readRestoreDir(dir);
-      });
+      void readRestoreDirectories();
     });
   });
 
@@ -1219,7 +1294,8 @@
     const dir = await pickBackupFolder();
     if (!dir) return; // cancelled — leave any previous selection alone
     await localFolders.adoptOfwBackup(dir);
-    await readRestoreDir(dir);
+    await backupPresence.refresh();
+    await readRestoreDirectories();
   }
 
   // The whole admissibility decision lives in engine/restoreGuards.ts (pure, testable —
@@ -1254,8 +1330,7 @@
   const restoreTooBig = $derived(restoreVerdict.refusal === "too-big");
   const canRestore = $derived(restoreVerdict.allowed && device.isConnected && !restoreDone);
   const restoreChoiceNeeded = $derived(
-    device.model === "unknown" &&
-      restoreBackups.filter((backup) => backup.internalOk && backup.externalOk).length > 1,
+    restoreBackups.filter((backup) => backup.internalOk && backup.externalOk).length > 1,
   );
 
   // Only the two writes plus a rescan: unlike the patch flow there is nothing to compute, so
@@ -1380,10 +1455,8 @@
   // nothing here can commit. It falls back to the first card so the column is never empty
   // beside a row of cards that has one.
   //
-  // This is the one place `needsBackupStep` IS derived live rather than latched. The latch
-  // exists so the spine cannot renumber under a user standing on a step; nobody is standing on
-  // a plan they have not chosen, and a preview that ignored `backupTaken` would promise a step
-  // the real spine then drops.
+  // The preview uses the same path-to-stage rule as the selected flow. The selected flow latches
+  // its stage list so it cannot renumber under a user standing on a step.
   let hoverPath = $state<ChooserCard | null>(null);
   const previewPath = $derived<ChooserCard | null>(
     hoverPath !== null && chooserCards.includes(hoverPath) ? hoverPath : (chooserCards[0] ?? null),
@@ -1405,7 +1478,7 @@
       ? []
       : spineFor(
           previewPath,
-          needsBackupStep(previewPath, { isStock, backupTaken: backupTaken || backupPresent }),
+          includesBackupStage(previewPath),
           previewPath === "rgo" && device.banks.some((b) => b.index === 2 && b.retroGoVersion),
         ),
   );
@@ -1445,11 +1518,10 @@
   function choose(p: WizardPath) {
     path = p;
     skipExpanded = false;
-    // Latch here (see `rgoNeedsBackup`): Retro-Go-only needs the backup step only while there
-    // is still unpatched stock on the device and no backup of THIS unit has been recorded.
-    // Same predicate the preview column derives live, so the plan the user was shown is the
-    // plan they get -- but read ONCE, here, and then frozen.
-    rgoNeedsBackup = p === "rgo" && needsBackupStep(p, { isStock, backupTaken: backupTaken || backupPresent });
+    // Latch here (see `rgoNeedsBackup`): the Retro-Go-only backup step is always present and
+    // optional. Taking a backup must not remove the step while the user is interacting with it.
+    rgoNeedsBackup = p === "rgo" && includesBackupStage(p);
+    skipBackupAcknowledged = false;
     rgoNeedsBank2Cleanup = p === "rgo" && device.banks.some((b) => b.index === 2 && b.retroGoVersion);
     bank2CleanupDone = false;
   }
@@ -1584,7 +1656,7 @@
                   (id === "remove-bank2" && !bank2CleanupDone) ||
                   (id === "select-backup" && !restoreDone) ||
                   (id === "restore" && restoreValid && !restoreDone))}
-              {@const stepOptional = id === "sources" || id === "remove-rgo"}
+              {@const stepOptional = id === "sources" || id === "remove-rgo" || (id === "backup" && path === "rgo")}
               <div class="wizard-step" class:active={stepActive} class:done={stepDone}>
                 <div class="rail">
                   <span class="step-num">
@@ -1639,7 +1711,18 @@
                       {#if canSkipBackup && skipExpanded}
                         <div class="caution">
                           <p>{w.spine.skipCaution}</p>
-                          <button type="button" class="skip-anyway" onclick={() => { step1Skipped = true; skipExpanded = false; }}>
+                          {#if !backupPresent}
+                            <label class="skip-acknowledgement">
+                              <input type="checkbox" bind:checked={skipBackupAcknowledged} />
+                              <span>{w.spine.skipBackupAcknowledgement}</span>
+                            </label>
+                          {/if}
+                          <button
+                            type="button"
+                            class="skip-anyway"
+                            disabled={!backupPresent && !skipBackupAcknowledged}
+                            onclick={skipBackupWithoutCopy}
+                          >
                             {w.spine.skipAnyway}
                           </button>
                         </div>
@@ -2121,6 +2204,19 @@
     margin: 0;
     font-size: var(--fs-btn-sm);
     color: var(--ink);
+  }
+  .skip-acknowledgement {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: 620px;
+    font-size: var(--fs-btn-sm);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .skip-acknowledgement input {
+    margin: 3px 0 0;
+    flex: 0 0 auto;
   }
   .locked-recovery {
     display: flex;

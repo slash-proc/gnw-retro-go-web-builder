@@ -44,6 +44,8 @@ export const officialFirmwareKo: OfficialFirmwareStrings = {
   lockedBackupStageRestore: '원래 외부 펌웨어 복원',
   lockedBackupStageVerifyRestore: '복원된 펌웨어 확인',
   pageSubtitle: "정품 펌웨어를 백업한 다음, 커스텀 펌웨어가 부팅되도록 패치해요.",
+  filterBoth: "모두",
+  filterVariants: "펌웨어 종류 필터",
   step1Title: "펌웨어 백업",
   chromiumRequired: "폴더 선택에는 Chromium 계열 브라우저가 필요해요 (WebUSB와 동일).",
   pickFolderIntro: "순정 백업이 들어 있는 폴더를 선택하거나, 백업을 저장할 빈 폴더를 선택하세요.",

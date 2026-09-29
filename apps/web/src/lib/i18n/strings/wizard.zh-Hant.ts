@@ -112,6 +112,7 @@ export const wizardZhHant: WizardStrings = {
     removeRetroGo: "移除 Retro-Go",
     skipCaution: "這無法復原，而且在你所在的司法管轄區，下載原始韌體很可能是違法的。",
     skipAnyway: "仍要略過",
+    skipBackupAcknowledgement: '我了解此操作無法復原，而且原始韌體檔案可能無法輕易或合法地從網路取得。',
     chipOptional: "選用",
     runAgain: "再執行一次",
     sourcesButtonLabel: "新增來源",

@@ -119,6 +119,7 @@ export const wizardPl: WizardStrings = {
     removeRetroGo: "Usuń Retro-Go",
     skipCaution: "Tej operacji nie da się cofnąć, a pobranie oryginalnego firmware'u jest prawdopodobnie nielegalne w Twojej jurysdykcji.",
     skipAnyway: "Mimo to pomiń",
+    skipBackupAcknowledgement: 'Rozumiem, że nie można tego cofnąć, a pliki oryginalnego firmware’u mogą nie być łatwo ani legalnie dostępne w internecie.',
     chipOptional: "Opcjonalnie",
     runAgain: "Uruchom ponownie",
     sourcesButtonLabel: "Dodaj źródła",

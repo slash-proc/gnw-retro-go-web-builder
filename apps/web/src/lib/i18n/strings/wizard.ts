@@ -125,6 +125,7 @@ export const wizardEn = {
     removeRetroGo: "Remove Retro-Go",
     skipCaution: "This cannot be undone, and downloading the original firmware is probably illegal in your jurisdiction.",
     skipAnyway: "Skip anyway",
+    skipBackupAcknowledgement: 'I understand this cannot be undone, and original firmware files may not be readily or legally available online.',
     chipOptional: "Optional",
     runAgain: "Run again",
     sourcesButtonLabel: "Add Sources",

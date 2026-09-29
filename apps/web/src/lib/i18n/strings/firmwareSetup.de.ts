@@ -37,6 +37,8 @@ export const officialFirmwareDe: OfficialFirmwareStrings = {
   lockedBackupStageRestore: 'Originale externe Firmware wiederherstellen',
   lockedBackupStageVerifyRestore: 'Wiederhergestellte Firmware prüfen',
   pageSubtitle: "Sichere deine Original-Firmware und patche sie dann, damit Custom-Firmware starten kann.",
+  filterBoth: "Beide",
+  filterVariants: "Firmware-Varianten filtern",
   step1Title: "Firmware-Backup",
   chromiumRequired: "Die Ordnerauswahl benötigt einen Chromium-Browser (wie WebUSB).",
   pickFolderIntro: "Wähle einen Ordner mit deinen Original-Backups oder einen leeren Ordner für ein neues Backup.",

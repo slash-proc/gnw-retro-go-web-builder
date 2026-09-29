@@ -10,11 +10,12 @@
  * thing to authorise on the strength of a boolean nobody has checked.
  *
  * The truth is the folder. `engine/ofw.ts` already owns reading it; this owns REMEMBERING which
- * folder, re-adopting it silently across reloads, and caching the answer so a status row can ask
- * without trusting a remembered boolean.
+ * directories, re-adopting them silently across reloads, and caching the answer so a status row
+ * can ask without trusting a remembered boolean.
  *
- * `probeBackupFolder` hashes plausible-size files and confirms both stock firmware hashes.
- * That way this status cannot claim the user has a usable backup based only on a filename.
+ * `probeBackupFolder` hashes plausible-size files in every registered OFW directory and
+ * confirms both stock firmware hashes. That way this status cannot claim the user has a usable
+ * backup based only on a filename, and a copy in a second directory is not invisible.
  *
  * `device.backupTaken` is NOT replaced. It answers a different question -- "did the guided flow
  * complete its backup step" -- and `Wizard.svelte` needs exactly that, deliberately latched, so
@@ -24,7 +25,7 @@
  *
  * FOUR STATES, and the third one is the point:
  *   unknown       nothing has looked yet, or this browser cannot pick folders at all
- *   disconnected  no remembered folder, or its permission was not re-granted
+ *   disconnected  no remembered folders, or their permissions were not re-granted
  *   none          a folder we CAN read, scanned, holding no usable pair
  *   present       at least one pair is there, ONE HIT PER MODEL
  *
@@ -32,15 +33,20 @@
  * looked" is the same class of lie as the flag this replaces, and it is the direction that gets
  * someone's firmware erased.
  */
-import { loadDir, saveDir, handlePermission } from "./persist.js";
+import { loadDir, saveDir, deleteDir, handlePermission } from "./persist.js";
 import {
   backupPickerSupported,
   pickBackupFolder,
+  scanBackupFolder,
   probeBackupFolder,
   type BackupDir,
+  type FoundBackup,
   type BackupProbeHit,
 } from "./engine/ofw.js";
-import { localFolders, OFW_BACKUP_USED_BY_KEY } from "./sources/localFolders.svelte.js";
+import {
+  localFolders,
+  type LocalFolderRow,
+} from "./sources/localFolders.svelte.js";
 
 /** The IndexedDB key `advanced/OfficialFirmwareSection.svelte` already stores the folder under.
  *  Shared on purpose: picking a folder there and reading it here must never disagree. */
@@ -51,6 +57,11 @@ export type BackupPresence =
   | { kind: "disconnected" }
   | { kind: "none" }
   | { kind: "present"; hits: BackupProbeHit[] };
+
+export interface OfwBackupDirectorySnapshot {
+  source: LocalFolderRow;
+  backups: FoundBackup[];
+}
 
 class BackupPresenceStore {
   /** Bumped when the firmware-backup progress modal closes. FirmwareRail keys the Backup &
@@ -63,8 +74,45 @@ class BackupPresenceStore {
    *  `$state`: nothing renders it, and a reactive flag that `refresh()` both reads and writes
    *  before its first `await` is exactly what lets a mount effect retrigger itself. */
   private busy = false;
+  private refreshAgain = false;
 
   private handle: BackupDir | null = null;
+
+  /** Load the source registry and migrate the old one-folder handle into it. */
+  async directories(): Promise<LocalFolderRow[]> {
+    await localFolders.load();
+    const legacy = (await loadDir(HANDLE_KEY)) as BackupDir | null;
+    if (legacy) {
+      try {
+        // adoptOfwBackup deduplicates by handle identity and caps the registry at two entries.
+        await localFolders.adoptOfwBackup(legacy);
+      } catch {
+        // If two newer registered sources already exist, the old pointer is superseded. Remove
+        // it so a later load cannot keep trying to resurrect an unregistered third directory.
+        await deleteDir(HANDLE_KEY).catch(() => {});
+      }
+    }
+    return localFolders.ofwBackupFolders();
+  }
+
+  /** Hash-scan every permitted registered OFW directory, preserving each set's source. */
+  async scanDirectories(): Promise<OfwBackupDirectorySnapshot[]> {
+    const rows = await this.directories();
+    const snapshots: OfwBackupDirectorySnapshot[] = [];
+    for (const source of rows) {
+      const handle = source.handle as BackupDir | null;
+      if (!handle || source.status !== "ready") {
+        snapshots.push({ source, backups: [] });
+        continue;
+      }
+      try {
+        snapshots.push({ source, backups: await scanBackupFolder(handle) });
+      } catch {
+        snapshots.push({ source: { ...source, status: "missing" }, backups: [] });
+      }
+    }
+    return snapshots;
+  }
 
   /**
    * Re-read the folder and update `state`.
@@ -74,7 +122,10 @@ class BackupPresenceStore {
    * `connect()` is the interactive path, and it is driven by a click.
    */
   async refresh(): Promise<void> {
-    if (this.busy) return;
+    if (this.busy) {
+      this.refreshAgain = true;
+      return;
+    }
     // A browser with no directory picker (Firefox) can never connect a folder, so there is
     // nothing here for the user to act on and nothing truthful to claim. It stays `unknown`
     // rather than showing an amber row with a button that cannot work.
@@ -84,31 +135,37 @@ class BackupPresenceStore {
     }
     this.busy = true;
     try {
-      await localFolders.load();
-      let source = localFolders.folders.find((f) => f.usedBy.includes(OFW_BACKUP_USED_BY_KEY));
-      let legacy = (await loadDir(HANDLE_KEY)) as BackupDir | null;
-      // Migrate the old standalone backup handle exactly once. Removing the OFW source clears
-      // this key, so an intentional removal cannot be resurrected on the next startup.
-      if (!source && !this.handle && legacy) {
-        source = await localFolders.adoptOfwBackup(legacy);
-      }
-      const handle = (source?.handle as BackupDir | null) ?? legacy;
-      if (!handle) {
+      const rows = await this.directories();
+      if (rows.length === 0) {
         this.state = { kind: "disconnected" };
         return;
       }
-      if (!(await handlePermission(handle, "readwrite", false))) {
-        // Remembered, but this visit has not been granted access. We genuinely cannot see it.
-        this.state = { kind: "disconnected" };
-        return;
+      const hits: BackupProbeHit[] = [];
+      let inaccessible = false;
+      for (const source of rows) {
+        const handle = source.handle as BackupDir | null;
+        if (!handle || !(await handlePermission(handle, "readwrite", false))) {
+          inaccessible = true;
+          continue;
+        }
+        this.handle = handle;
+        try {
+          hits.push(...await probeBackupFolder(handle));
+        } catch {
+          inaccessible = true;
+        }
       }
-      this.handle = handle;
-      // Every model, not just the newest hit. `probeBackupFolder` already returns one entry per
-      // model, so knowing WHICH consoles are covered costs nothing over knowing THAT one is:
-      // the row that reports "Zelda and Mario" and the row that reported a single date read the
-      // same directory entries.
-      const hits = await probeBackupFolder(handle);
-      this.state = hits.length > 0 ? { kind: "present", hits } : { kind: "none" };
+      // Overview is a model summary, so collapse duplicate copies of one model across sources.
+      // The newest verified pair is representative; Advanced retains and displays each source.
+      const newest = new Map<string, BackupProbeHit>();
+      for (const hit of hits) {
+        const previous = newest.get(hit.model);
+        if (!previous || hit.at > previous.at) newest.set(hit.model, hit);
+      }
+      const aggregated = [...newest.values()];
+      this.state = aggregated.length > 0
+        ? { kind: "present", hits: aggregated }
+        : inaccessible ? { kind: "disconnected" } : { kind: "none" };
     } catch {
       // A folder that has been deleted or unmounted since it was remembered throws here. We
       // cannot see it, which is `disconnected` -- never `none`, which would assert something
@@ -116,6 +173,10 @@ class BackupPresenceStore {
       this.state = { kind: "disconnected" };
     } finally {
       this.busy = false;
+      if (this.refreshAgain) {
+        this.refreshAgain = false;
+        void this.refresh();
+      }
     }
   }
 
@@ -134,13 +195,15 @@ class BackupPresenceStore {
   async adopted(): Promise<BackupDir | null> {
     if (!backupPickerSupported()) return null;
     try {
-      await localFolders.load();
-      const source = localFolders.folders.find((f) => f.usedBy.includes(OFW_BACKUP_USED_BY_KEY));
-      const handle = (source?.handle as BackupDir | null) ?? ((await loadDir(HANDLE_KEY)) as BackupDir | null);
-      if (!handle) return null;
-      if (!(await handlePermission(handle, "readwrite", false))) return null;
-      this.handle = handle;
-      return handle;
+      const rows = await this.directories();
+      for (const source of rows) {
+        const handle = source.handle as BackupDir | null;
+        if (handle && await handlePermission(handle, "readwrite", false)) {
+          this.handle = handle;
+          return handle;
+        }
+      }
+      return null;
     } catch {
       return null;
     }
@@ -151,8 +214,10 @@ class BackupPresenceStore {
     const picked = await pickBackupFolder();
     if (!picked) return; // cancelled
     this.handle = picked;
-    await saveDir(HANDLE_KEY, picked);
     await localFolders.adoptOfwBackup(picked);
+    // Keep the legacy pointer aimed at the most recently chosen OFW source while old builds
+    // still exist; the registry remains authoritative for this build.
+    await saveDir(HANDLE_KEY, picked);
     await this.refresh();
   }
 

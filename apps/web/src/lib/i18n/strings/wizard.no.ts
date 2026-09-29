@@ -112,6 +112,7 @@ export const wizardNo: WizardStrings = {
     removeRetroGo: "Fjern Retro-Go",
     skipCaution: "Dette kan ikke angres, og å laste ned originalfirmwaren er trolig ulovlig der du bor.",
     skipAnyway: "Hopp over likevel",
+    skipBackupAcknowledgement: 'Jeg forstår at dette ikke kan angres, og at original fastvare kanskje ikke er lett tilgjengelig eller lovlig på nettet.',
     chipOptional: "Valgfritt",
     runAgain: "Kjør på nytt",
     sourcesButtonLabel: "Legg til kilder",

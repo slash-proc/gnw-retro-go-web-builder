@@ -116,6 +116,7 @@ export const wizardFr: WizardStrings = {
     removeRetroGo: "Supprimer Retro-Go",
     skipCaution: "Cette action est irréversible, et télécharger le firmware d'origine est probablement illégal dans votre juridiction.",
     skipAnyway: "Ignorer quand même",
+    skipBackupAcknowledgement: 'Je comprends que cette action est irréversible et que les fichiers du firmware d’origine ne sont peut-être pas facilement disponibles, ni légalement en ligne.',
     chipOptional: "Facultatif",
     runAgain: "Relancer",
     sourcesButtonLabel: "Ajouter des sources",

@@ -46,6 +46,8 @@ export const officialFirmwareIt: OfficialFirmwareStrings = {
   lockedBackupStageRestore: 'Ripristinare il firmware esterno originale',
   lockedBackupStageVerifyRestore: 'Verificare il firmware ripristinato',
   pageSubtitle: "Salvare il firmware originale, poi applicarvi la patch per consentire l’avvio di un firmware personalizzato.",
+  filterBoth: "Entrambi",
+  filterVariants: "Filtra le varianti del firmware",
   step1Title: "Backup del firmware",
   chromiumRequired: "La selezione delle cartelle richiede un browser Chromium (come WebUSB).",
   pickFolderIntro: "Scegliere una cartella con i backup originali, oppure una cartella vuota in cui salvarne uno.",

@@ -726,6 +726,11 @@ export interface FoundBackup {
   externalOk: boolean;
   /** Physical size of the canonical internal file, even when its contents fail validation. */
   internalFileSize?: number;
+  /** Whether a file for this model exists, including a canonical file that failed its hash. */
+  internalPresent?: boolean;
+  externalPresent?: boolean;
+  /** Physical size of the canonical external file, even when its contents fail validation. */
+  externalFileSize?: number;
 }
 
 type FlatBackupScan = { found: FoundBackup[]; hits: BackupProbeHit[] };
@@ -739,6 +744,7 @@ async function scanFlatBackupFolder(dir: BackupDir): Promise<FlatBackupScan> {
   }
   const candidates: { file: File; bytes: Uint8Array }[] = [];
   const internalFileSizes = new Map<OfwModel, { size: number; modified: number }>();
+  const externalFileSizes = new Map<OfwModel, { size: number; modified: number }>();
   for (const source of dirs) {
     for await (const [, handle] of source.entries()) {
       if (handle.kind !== "file") continue;
@@ -748,6 +754,11 @@ async function scanFlatBackupFolder(dir: BackupDir): Promise<FlatBackupScan> {
           const previous = internalFileSizes.get(model);
           if (!previous || file.lastModified >= previous.modified)
             internalFileSizes.set(model, { size: file.size, modified: file.lastModified });
+        }
+        if (file.name === extBackupName(model)) {
+          const previous = externalFileSizes.get(model);
+          if (!previous || file.lastModified >= previous.modified)
+            externalFileSizes.set(model, { size: file.size, modified: file.lastModified });
         }
       }
       const plausible = file.size === INTERNAL_STOCK_LEN ||
@@ -775,10 +786,15 @@ async function scanFlatBackupFolder(dir: BackupDir): Promise<FlatBackupScan> {
   for (const model of Object.keys(DEVICES) as OfwModel[]) {
     const internal = internals.get(model);
     const external = externals.get(model);
-    if (!internal && !external) continue;
+    const internalFile = internalFileSizes.get(model);
+    const externalFile = externalFileSizes.get(model);
+    if (!internal && !external && !internalFile && !externalFile) continue;
     found.push({ model, internal: internal?.bytes ?? new Uint8Array(), external: external?.bytes ?? new Uint8Array(),
       internalOk: !!internal, externalOk: !!external,
-      internalFileSize: internal?.file.size ?? internalFileSizes.get(model)?.size });
+      internalPresent: !!internal || !!internalFile,
+      externalPresent: !!external || !!externalFile,
+      internalFileSize: internal?.file.size ?? internalFile?.size,
+      externalFileSize: external?.file.size ?? externalFile?.size });
     if (internal && external) hits.push({ model, at: Math.max(internal.file.lastModified, external.file.lastModified), dirName: dir.name });
   }
   return { found, hits };

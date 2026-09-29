@@ -152,15 +152,18 @@
   // menu asks to be brought into view. `block: "nearest"` is what keeps that correct at the TOP
   // of a short page too: it does nothing at all when the menu is already fully visible.
   import { locale } from "../i18n/locale.svelte.js";
+  import { localFolders, OFW_BACKUP_SOURCE_LIMIT } from "../sources/localFolders.svelte.js";
 
   let {
     value = $bindable([]),
     onchange = undefined,
+    folderId = undefined,
   }: {
     /** The selected target keys. EMPTY IS "ANY" — see the header. */
     value: string[];
     /** Called with the new list on every toggle, for callers that persist rather than bind. */
     onchange: ((keys: string[]) => void) | undefined;
+    folderId: string | undefined;
   } = $props();
 
   const t = $derived(locale.t.sources);
@@ -171,6 +174,9 @@
   const bios = $derived(biosOption(t.folders.biosUsedBy));
   const ofwBackup = $derived(ofwBackupOption(t.folders.ofwBackupUsedBy));
   const selected = $derived(expandSelection(value, [...cores, ...homebrews, bios, ofwBackup]));
+  const ofwAtLimit = $derived(
+    localFolders.ofwBackupFolders().filter((row) => row.id !== folderId).length >= OFW_BACKUP_SOURCE_LIMIT && !selected.includes(ofwBackup.key),
+  );
 
   let open = $state(false);
   let menuEl = $state<HTMLDivElement | null>(null);
@@ -246,7 +252,7 @@
         <span class="box" class:on={selected.includes(bios.key)}></span>
         <span class="optlabel">{bios.label}</span>
       </button>
-      <button class="opt" type="button" onclick={() => toggle(ofwBackup.key)}>
+      <button class="opt" type="button" disabled={ofwAtLimit} onclick={() => toggle(ofwBackup.key)}>
         <span class="box" class:on={selected.includes(ofwBackup.key)}></span>
         <span class="optlabel">{ofwBackup.label}</span>
       </button>

@@ -44,6 +44,8 @@ export const officialFirmwareJa: OfficialFirmwareStrings = {
   lockedBackupStageRestore: '元の外部ファームウェアを復元',
   lockedBackupStageVerifyRestore: '復元したファームウェアを検証',
   pageSubtitle: "純正ファームウェアをバックアップし、カスタムファームウェアが起動できるようにパッチを当てます。",
+  filterBoth: "両方",
+  filterVariants: "ファームウェアの種類を絞り込む",
   step1Title: "ファームウェアのバックアップ",
   chromiumRequired: "フォルダの選択にはChromium系ブラウザが必要です（WebUSBと同様）。",
   pickFolderIntro: "純正バックアップが入ったフォルダ、またはバックアップを保存する空のフォルダを選択してください。",

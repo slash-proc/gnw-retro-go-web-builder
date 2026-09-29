@@ -128,7 +128,7 @@
 
   <div class="row">
     <span class="flabel">{t.folders.usedBy}</span>
-    <UsedBySelect bind:value={usedBy} onchange={undefined} />
+    <UsedBySelect bind:value={usedBy} onchange={undefined} folderId={editing?.id} />
   </div>
 </div>
 

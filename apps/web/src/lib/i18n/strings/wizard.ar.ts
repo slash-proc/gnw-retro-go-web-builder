@@ -138,6 +138,7 @@ export const wizardAr: WizardStrings = {
     skipCaution:
       "لا يمكن التراجع عن هذا، وتنزيل البرنامج الثابت الأصلي غالبًا غير قانوني في بلدك.",
     skipAnyway: "تخطٍ على أي حال",
+    skipBackupAcknowledgement: 'أفهم أن هذا الإجراء لا يمكن التراجع عنه، وأن ملفات البرنامج الثابت الأصلي قد لا تكون متاحة بسهولة أو بشكل قانوني عبر الإنترنت.',
     chipOptional: "اختياري",
     runAgain: "تشغيل مرة أخرى",
     sourcesButtonLabel: "إضافة مصادر",

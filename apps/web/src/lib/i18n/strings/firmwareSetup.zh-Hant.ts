@@ -46,6 +46,8 @@ export const officialFirmwareZhHant: OfficialFirmwareStrings = {
   lockedBackupStageRestore: '還原原始外部韌體',
   lockedBackupStageVerifyRestore: '驗證已還原的韌體',
   pageSubtitle: "先保存原廠韌體，再修補它，自製韌體才能開機。",
+  filterBoth: "全部",
+  filterVariants: "篩選韌體版本",
   step1Title: "韌體備份",
   chromiumRequired: "選擇資料夾需要 Chromium 系瀏覽器（與 WebUSB 相同）。",
   pickFolderIntro: "選一個已存有原廠備份的資料夾，或選一個空資料夾來存放備份。",

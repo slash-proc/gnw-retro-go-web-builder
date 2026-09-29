@@ -116,6 +116,7 @@ export const wizardJa: WizardStrings = {
     removeRetroGo: "Retro-Goを削除",
     skipCaution: "この操作は取り消せません。また、純正ファームウェアのダウンロードはお住まいの地域では違法である可能性が高いです。",
     skipAnyway: "それでもスキップ",
+    skipBackupAcknowledgement: 'この操作は取り消せず、純正ファームウェアのファイルはオンラインで簡単または合法的に入手できない場合があることを理解しました。',
     chipOptional: "任意",
     runAgain: "もう一度実行",
     sourcesButtonLabel: "ソースを追加",

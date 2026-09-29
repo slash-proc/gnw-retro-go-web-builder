@@ -112,6 +112,7 @@ export const wizardZhHans: WizardStrings = {
     removeRetroGo: "移除 Retro-Go",
     skipCaution: "此操作无法撤销，而且在你所在的地区，下载原始固件很可能是违法的。",
     skipAnyway: "仍要跳过",
+    skipBackupAcknowledgement: '我了解此操作无法撤销，而且原始固件文件可能无法轻易或合法地从网上获取。',
     chipOptional: "可选",
     runAgain: "再次运行",
     sourcesButtonLabel: "添加源",

@@ -44,6 +44,8 @@ export const officialFirmwarePl: OfficialFirmwareStrings = {
   lockedBackupStageRestore: 'Przywróć oryginalne oprogramowanie zewnętrzne',
   lockedBackupStageVerifyRestore: 'Sprawdź przywrócone oprogramowanie',
   pageSubtitle: "Zapisz oryginalny firmware, a następnie spatchuj go, aby mógł uruchomić się firmware niestandardowy.",
+  filterBoth: "Oba",
+  filterVariants: "Filtruj warianty firmware",
   step1Title: "Kopia zapasowa firmware'u",
   chromiumRequired: "Wybór folderu wymaga przeglądarki opartej na Chromium (tak jak WebUSB).",
   pickFolderIntro: "Wybierz folder z fabrycznymi kopiami zapasowymi albo pusty folder, aby zapisać nową kopię.",

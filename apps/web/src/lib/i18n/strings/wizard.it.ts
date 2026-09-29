@@ -112,6 +112,7 @@ export const wizardIt: WizardStrings = {
     removeRetroGo: "Rimuovi Retro-Go",
     skipCaution: "Questa operazione è irreversibile e scaricare il firmware originale è probabilmente illegale nella propria giurisdizione.",
     skipAnyway: "Salta comunque",
+    skipBackupAcknowledgement: 'Capisco che non si può annullare e che i file del firmware originale potrebbero non essere facilmente o legalmente disponibili online.',
     chipOptional: "Facoltativo",
     runAgain: "Esegui di nuovo",
     sourcesButtonLabel: "Aggiungi sorgenti",

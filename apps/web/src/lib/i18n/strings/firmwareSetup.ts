@@ -26,6 +26,8 @@ export type AdvancedStrings = Widen<typeof advancedEn>;
 export const officialFirmwareEn = {
   // The rail pane page subtitle (BackupPatch.dc.html).
   pageSubtitle: "Save your stock firmware, then patch it so custom firmware can boot.",
+  filterBoth: "Both",
+  filterVariants: "Filter firmware variants",
   step1Title: "Firmware backup",
   lockedBackupConfirmBody: "The device will be checked before any firmware is changed. A locked device must be fully power-cycled to read its protected internal firmware.",
   lockedBackupStageRecovery: "Enter and verify Recovery Mode",

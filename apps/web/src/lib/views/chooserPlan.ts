@@ -116,16 +116,12 @@ export function spineFor(path: ChooserCard, showBackupStep: boolean, removeBank2
 }
 
 /**
- * Whether the plan for `path` includes a backup step, for a device in this state.
+ * Whether the plan for `path` includes a backup stage.
  *
  * The dual-boot path can NEVER drop it: the patch is computed FROM the dumped stock image, so
- * there is nothing to patch without the dump. The Retro-Go-only path needs it only while
- * unpatched stock is still in bank 1 with no backup of this unit recorded.
+ * there is nothing to patch without the dump. Retro-Go always shows the backup stage, where it
+ * is optional because the user may knowingly proceed without a recoverable stock copy.
  */
-export function needsBackupStep(
-  path: ChooserCard,
-  facts: { isStock: boolean; backupTaken: boolean },
-): boolean {
-  if (path === "dual") return true;
-  return path === "rgo" && facts.isStock && !facts.backupTaken;
+export function includesBackupStage(path: ChooserCard): boolean {
+  return path === "dual" || path === "rgo";
 }

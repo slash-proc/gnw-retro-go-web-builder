@@ -47,6 +47,8 @@ export const officialFirmwareAr: OfficialFirmwareStrings = {
   lockedBackupStageRestore: 'استعادة البرنامج الثابت الخارجي الأصلي',
   lockedBackupStageVerifyRestore: 'التحقق من البرنامج الثابت المستعاد',
   pageSubtitle: "احفظ برنامجك الثابت الأصلي، ثم رقّعه ليتمكن برنامج ثابت مخصص من الإقلاع.",
+  filterBoth: "كلاهما",
+  filterVariants: "تصفية إصدارات البرنامج الثابت",
   step1Title: "نسخة البرنامج الثابت",
   chromiumRequired: "يحتاج اختيار المجلد إلى متصفح Chromium (مثل WebUSB).",
   pickFolderIntro:

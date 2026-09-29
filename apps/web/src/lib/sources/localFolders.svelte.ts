@@ -56,6 +56,8 @@ const STORAGE_KEY = "localFolders.v1";
 export const OFW_BACKUP_FOLDER_NAME = "__ofw_backup__";
 /** Reserved association used by the firmware-backup flow. */
 export const OFW_BACKUP_USED_BY_KEY = OFW_BACKUP_FOLDER_NAME;
+/** Maximum number of registered stock-firmware directories. */
+export const OFW_BACKUP_SOURCE_LIMIT = 2;
 
 /** IndexedDB key for one folder's handle. Namespaced so it cannot collide with "romDir". */
 export function handleKey(id: string): string {
@@ -87,6 +89,12 @@ export interface LocalFolderRow extends LocalFolderMeta {
   status: LocalFolderStatus;
   /** The directory handle, when we have one. Never persisted to localStorage. */
   handle: unknown | null;
+}
+
+/** True for current OFW associations and the legacy row shape written before associations. */
+export function isOfwBackupFolder(row: Pick<LocalFolderRow, "usedBy" | "name" | "folderName">): boolean {
+  return row.usedBy.includes(OFW_BACKUP_USED_BY_KEY) ||
+    row.name === OFW_BACKUP_FOLDER_NAME || row.folderName === OFW_BACKUP_FOLDER_NAME;
 }
 
 /** The storage surface this store needs. Defaults to persist.ts; injected by the tests. */
@@ -276,6 +284,8 @@ class LocalFolderStore {
     // not read yet writes a list holding only the new row and silently deletes every folder the
     // user already had. Awaiting the in-flight read is what makes a pick during startup safe.
     await this.load();
+    if ((opts.usedBy ?? []).includes(OFW_BACKUP_USED_BY_KEY) && this.ofwBackupFolders().length >= OFW_BACKUP_SOURCE_LIMIT)
+      throw new Error(`At most ${OFW_BACKUP_SOURCE_LIMIT} firmware backup directories can be registered.`);
     const id = this.deps.newId();
     const row: LocalFolderRow = {
       id,
@@ -340,6 +350,8 @@ class LocalFolderStore {
       const legacy = !row.handle &&
         (row.name === OFW_BACKUP_FOLDER_NAME || row.folderName === OFW_BACKUP_FOLDER_NAME);
       if (!same && !legacy) continue;
+      if (!isOfwBackupFolder(row) && this.ofwBackupFolders().length >= OFW_BACKUP_SOURCE_LIMIT)
+        throw new Error(`At most ${OFW_BACKUP_SOURCE_LIMIT} firmware backup directories can be registered.`);
       const usedBy = row.usedBy.includes(OFW_BACKUP_USED_BY_KEY)
         ? row.usedBy
         : [...row.usedBy, OFW_BACKUP_USED_BY_KEY];
@@ -347,7 +359,34 @@ class LocalFolderStore {
       await this.deps.saveDir(handleKey(row.id), handle);
       return updated ?? row;
     }
+    if (this.ofwBackupFolders().length >= OFW_BACKUP_SOURCE_LIMIT)
+      throw new Error(`At most ${OFW_BACKUP_SOURCE_LIMIT} firmware backup directories can be registered.`);
     return this.add({ handle, usedBy: [OFW_BACKUP_USED_BY_KEY] });
+  }
+
+  /** The OFW directory sources in display order. */
+  ofwBackupFolders(): LocalFolderRow[] {
+    return this.folders.filter(isOfwBackupFolder);
+  }
+
+  /** Remove the OFW role without deleting a directory that also serves other library targets. */
+  async removeOfwBackup(id: string): Promise<void> {
+    const row = this.get(id);
+    if (!row || !isOfwBackupFolder(row)) return;
+    const remaining = row.usedBy.filter((key) => key !== OFW_BACKUP_USED_BY_KEY);
+    if (remaining.length > 0) {
+      this.replace(id, { usedBy: remaining });
+    } else {
+      await this.remove(id);
+      return;
+    }
+    try {
+      const legacy = await this.deps.loadDir("ofwBackupDir");
+      if (legacy && row.handle && await this.deps.isSameEntry(legacy, row.handle))
+        await this.deps.deleteDir("ofwBackupDir");
+    } catch {
+      // The source registry is authoritative; stale legacy keys are handled during migration.
+    }
   }
 
   /** Set (or clear, with "") the user's label. */
@@ -357,13 +396,21 @@ class LocalFolderStore {
 
   /** Replace the association list wholesale. `[]` restores "Any". */
   setUsedBy(id: string, keys: string[]): void {
-    this.replace(id, { usedBy: [...new Set(keys.filter((k) => !!k))] });
+    const next = [...new Set(keys.filter((k) => !!k))];
+    const row = this.get(id);
+    if (next.includes(OFW_BACKUP_USED_BY_KEY) && row && !isOfwBackupFolder(row) &&
+        this.ofwBackupFolders().length >= OFW_BACKUP_SOURCE_LIMIT)
+      throw new Error(`At most ${OFW_BACKUP_SOURCE_LIMIT} firmware backup directories can be registered.`);
+    this.replace(id, { usedBy: next });
   }
 
   /** Narrow the folder to also serve `key`. On an "Any" folder this is a NARROWING. */
   associate(id: string, key: string): void {
     const row = this.get(id);
     if (!row || !key || row.usedBy.includes(key)) return;
+    if (key === OFW_BACKUP_USED_BY_KEY && !isOfwBackupFolder(row) &&
+        this.ofwBackupFolders().length >= OFW_BACKUP_SOURCE_LIMIT)
+      throw new Error(`At most ${OFW_BACKUP_SOURCE_LIMIT} firmware backup directories can be registered.`);
     this.replace(id, { usedBy: [...row.usedBy, key] });
   }
 
@@ -405,8 +452,19 @@ class LocalFolderStore {
     this.folders = this.folders.filter((f) => f.id !== id);
     this.persist();
     await this.deps.deleteDir(handleKey(id));
-    if (row.usedBy.includes(OFW_BACKUP_USED_BY_KEY) || row.name === OFW_BACKUP_FOLDER_NAME || row.folderName === OFW_BACKUP_FOLDER_NAME) {
-      await this.deps.deleteDir("ofwBackupDir");
+    if (isOfwBackupFolder(row)) {
+      // `ofwBackupDir` is a legacy single-source pointer. Removing one of several sources must
+      // not accidentally erase the pointer to another; the source registry is authoritative.
+      try {
+        const legacy = await this.deps.loadDir("ofwBackupDir");
+        if (legacy && row.handle && await this.deps.isSameEntry(legacy, row.handle))
+          await this.deps.deleteDir("ofwBackupDir");
+        else if (this.ofwBackupFolders().length === 0 && legacy)
+          await this.deps.deleteDir("ofwBackupDir");
+      } catch {
+        // The source row and its own handle are already removed; the stale legacy key is harmless
+        // while another registered source exists and is cleared during migration if necessary.
+      }
     }
 
     // The library scan runs `migrateLegacyRomDir` on every load, which re-adds the legacy `romDir`

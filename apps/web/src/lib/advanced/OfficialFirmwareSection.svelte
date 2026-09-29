@@ -19,7 +19,7 @@
     type OfwModel,
   } from "../engine/ofw.js";
   import { evaluateRestore } from "../engine/restoreGuards.js";
-  import { loadSel, saveSel, saveDir, loadDir, handlePermission } from "../persist.js";
+  import { loadSel, saveSel, saveDir } from "../persist.js";
   import Button from "../ui/Button.svelte";
   import { installProgress, deviceSafety, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
   import { msg } from "../logEntry.js";
@@ -27,7 +27,7 @@
   import { locale } from "../i18n/locale.svelte.js";
   import { formatSize } from "../util.js";
   import PaneFooter from "./PaneFooter.svelte";
-  import { localFolders } from "../sources/localFolders.svelte.js";
+  import { localFolders, displayName, OFW_BACKUP_SOURCE_LIMIT } from "../sources/localFolders.svelte.js";
   import { backupPresence } from "../backupPresence.svelte.js";
 
   // Official Firmware — a staged, progressive-disclosure flow:
@@ -48,10 +48,18 @@
     !!device.info && (device.deviceClass?.kind === "retrogo-sd" || device.deviceClass?.kind === "retrogo-old"),
   );
 
-  let dir = $state<BackupDir | null>(null);
-  let pendingDir = $state<BackupDir | null>(null); // a remembered folder awaiting a permission re-grant
+  let sourceSnapshots = $state<Awaited<ReturnType<typeof backupPresence.scanDirectories>>>([]);
+  let selectedSourceId = $state<string | null>(null);
+  let variantFilter = $state<"both" | OfwModel>("both");
+  const sources = $derived(localFolders.ofwBackupFolders());
+  const selectedSource = $derived(sources.find((row) => row.id === selectedSourceId) ?? sources[0] ?? null);
+  const dir = $derived((selectedSource?.handle as BackupDir | null) ?? null);
+  const allBackups = $derived(sourceSnapshots.flatMap((snapshot) => snapshot.backups));
+  const hasBothModels = $derived(
+    (["mario", "zelda"] as const).every((model) => allBackups.some((b) => b.model === model && b.internalOk && b.externalOk)),
+  );
   let triedRestore = $state(false);
-  let scanResults = $state<FoundBackup[]>([]); // every backup pair found in the folder (mario and/or zelda)
+  let scanResults = $state<FoundBackup[]>([]); // selected source's sets
   let scanGeneration = 0;
   let chosenModel = $state<OfwModel | null>(null); // the user's single-selection (radio list)
   let noBackup = $state(false); // folder scanned, no usable pair present
@@ -82,7 +90,7 @@
   // (a Mario device with only a Zelda backup on disk should still be able to back up Mario).
   const offerBackup = $derived(
     device.model !== "unknown"
-      ? !scanResults.some((f) => f.model === device.model && f.internalOk && f.externalOk)
+      ? !allBackups.some((f) => f.model === device.model && f.internalOk && f.externalOk)
       : !backupValid,
   );
   // Cross-model: the backup's firmware vs the scanned hardware. Zelda firmware on Mario
@@ -177,10 +185,9 @@
     try {
       const d = await pickBackupFolder();
       if (!d) return; // cancelled
-      dir = d;
-      pendingDir = null;
+      const row = await localFolders.adoptOfwBackup(d);
+      selectedSourceId = row.id;
       await saveDir("ofwBackupDir", d);
-      await localFolders.adoptOfwBackup(d);
       patched = false;
       await rescan();
     } catch (e) {
@@ -188,51 +195,60 @@
     }
   }
 
-  // On mount, try to silently re-adopt the last-used backup folder (no prompt). If it needs a
-  // permission re-grant, stash it so the UI offers a "Reconnect last folder" button.
+  // The shared source registry is authoritative. Scan each registered OFW directory on mount.
   $effect(() => {
     if (triedRestore) return;
     triedRestore = true;
-    void restoreLastFolder();
+    void rescan();
   });
 
-  async function restoreLastFolder(): Promise<void> {
-    const handle = (await loadDir("ofwBackupDir")) as BackupDir | null;
-    if (!handle || dir) return;
-    if (await handlePermission(handle, "readwrite", false)) {
-      dir = handle;
-      await localFolders.adoptOfwBackup(handle);
-      await rescan();
-    } else {
-      pendingDir = handle;
-    }
+  async function selectSource(id: string): Promise<void> {
+    selectedSourceId = id;
+    chosenModel = null;
+    await rescan();
   }
 
-  async function reconnectFolder(): Promise<void> {
-    const handle = pendingDir;
-    if (!handle) return;
-    if (await handlePermission(handle, "readwrite", true)) {
-      pendingDir = null;
-      dir = handle;
-      await localFolders.adoptOfwBackup(handle);
-      await rescan();
+  async function reconnectSource(id: string): Promise<void> {
+    const row = localFolders.get(id);
+    if (!row) return;
+    if (row.handle) {
+      if (await localFolders.grant(id)) await rescan();
+      return;
     }
+    const picked = await pickBackupFolder();
+    if (!picked) return;
+    await localFolders.repoint(id, picked);
+    await rescan();
+  }
+
+  async function removeSource(id: string): Promise<void> {
+    await localFolders.removeOfwBackup(id);
+    if (selectedSourceId === id) selectedSourceId = null;
+    await backupPresence.refresh();
+    await rescan();
   }
 
   // (Re)scan the selected folder for every existing backup pair; default-select one.
   async function rescan(): Promise<void> {
-    const target = dir;
-    if (!target) return;
     const generation = ++scanGeneration;
-    const found = await scanBackupFolder(target);
-    // Folder selection or a newer post-write scan may have superseded this scan while
-    // File System Access was reading files. Only the latest result for the selected handle
-    // is allowed to replace the rows.
-    if (generation !== scanGeneration || dir !== target) return;
-    scanResults = found;
+    const snapshots = await backupPresence.scanDirectories();
+    if (generation !== scanGeneration) return;
+    sourceSnapshots = snapshots;
+    selectedSourceId = selectedSourceId && snapshots.some((s) => s.source.id === selectedSourceId)
+      ? selectedSourceId
+      : (device.model !== "unknown"
+          ? snapshots.find((s) => s.backups.some((b) => b.model === device.model && b.internalOk && b.externalOk))?.source.id
+          : undefined)
+        ?? snapshots.find((s) => s.backups.some((b) => b.internalOk && b.externalOk))?.source.id
+        ?? snapshots[0]?.source.id
+        ?? null;
+    const target = snapshots.find((s) => s.source.id === selectedSourceId);
+    const found = target?.backups ?? [];
+    scanResults = found.filter((f) => variantFilter === "both" || f.model === variantFilter);
     noBackup = found.length === 0;
-    chosenModel = defaultBackup(found, device.model)?.model ?? null;
-    dbg(`[ofw-backup] folder rescan "${target.name}": ${found.map((f) => `${f.model} int=${f.internalFileSize ?? f.internal.length}B/${f.internalOk ? "valid" : "invalid"} ext=${f.external.length}B/${f.externalOk ? "valid" : "invalid"}`).join(", ") || "no stock images"}`);
+    chosenModel = chosenModel && scanResults.some((f) => f.model === chosenModel)
+      ? chosenModel : defaultBackup(scanResults, device.model)?.model ?? null;
+    dbg(`[ofw-backup] source registry rescan: ${snapshots.map((s) => `${displayName(s.source)}: ${s.backups.map((f) => `${f.model} int=${f.internalFileSize ?? f.internal.length}B/${f.internalOk ? "valid" : "invalid"} ext=${f.externalFileSize ?? f.external.length}B/${f.externalOk ? "valid" : "invalid"}`).join(", ") || "no stock images"}`).join(" | ") || "no sources"}`);
   }
 
   const backupStages = [
@@ -373,10 +389,9 @@
               // from the directory contents instead of retaining the pre-backup scan (or
               // synthesizing a result from the in-memory dump). Persist and adopt the same
               // handle so the patch flow and a later reload use this exact folder.
-              dir = backupDir;
-              pendingDir = null;
               await saveDir("ofwBackupDir", backupDir);
-              await localFolders.adoptOfwBackup(backupDir);
+              selectedSourceId = (await localFolders.adoptOfwBackup(backupDir)).id;
+              variantFilter = "both";
               await rescan();
               if (!scanResults.some((f) => f.model === det.model && f.internalOk && f.externalOk))
                 throw new Error("Saved firmware backup is not visible in the selected folder after rescanning.");
@@ -574,7 +589,7 @@
     <!-- BackupPatch.dc.html goes straight from the step-1 heading to the folder line: the two
          intro paragraphs are the no-folder-chosen state's copy (which no artboard draws), so
          they are kept for that state and dropped once a folder is picked. -->
-    {#if !dir}
+    {#if sources.length === 0}
       <p class="muted">{locale.t.officialFirmware.pickFolderIntro}</p>
       <p class="muted">
         {locale.t.officialFirmware.pickFolderLookForPre}
@@ -582,29 +597,45 @@
         {locale.t.officialFirmware.pickFolderBodyPost}
       </p>
     {/if}
-    {#if dir}
-      <!-- BackupPatch.dc.html's folder line: stroked folder glyph, the path in mono,
-           then "Change folder" as a green link — no button. -->
-      <div class="folderline">
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor"
-             stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M2.5 6a1.5 1.5 0 0 1 1.5-1.5h3l1.5 2h6.5A1.5 1.5 0 0 1 16.5 8v6a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 14z" />
-        </svg>
-        <span class="mono path">{dir.name}</span>
-        <button type="button" class="linklike" disabled={!supported || backupBusy} onclick={doPickFolder}>
-          {locale.t.officialFirmware.changeFolder}
-        </button>
+    <div class="library-toolbar">
+      <div class="segmented" role="group" aria-label={locale.t.officialFirmware.filterVariants}>
+        {#each [{ value: "both", label: locale.t.officialFirmware.filterBoth }, { value: "mario", label: modelLabel("mario") }, { value: "zelda", label: modelLabel("zelda") }] as option}
+          <button class:active={variantFilter === option.value} type="button" aria-pressed={variantFilter === option.value}
+            onclick={() => { variantFilter = option.value as typeof variantFilter; void rescan(); }}>{option.label}</button>
+        {/each}
       </div>
-    {:else}
-      <div class="pickrow">
-        <Button variant="default" disabled={!supported || backupBusy} onclick={doPickFolder}>
-          {locale.t.officialFirmware.chooseBackupFolder}
-        </Button>
-        {#if pendingDir}
-          <Button variant="quiet" disabled={backupBusy} onclick={reconnectFolder}>
-            {locale.t.officialFirmware.reconnectLastFolder}
-          </Button>
-        {/if}
+      {#if sources.length < OFW_BACKUP_SOURCE_LIMIT && !hasBothModels}
+        <Button variant="quiet" disabled={!supported || backupBusy} onclick={doPickFolder}>+ {locale.t.sources.folders.addDirectoryTitle}</Button>
+      {/if}
+    </div>
+    {#if sources.length > 0}
+      <div class="source-list" aria-label={locale.t.sources.folders.ofwBackupUsedBy}>
+        {#each sourceSnapshots as snapshot (snapshot.source.id)}
+          {@const row = snapshot.source}
+          <div class="source-card" class:source-selected={selectedSourceId === row.id}>
+            <button class="source-select" type="button" onclick={() => void selectSource(row.id)} aria-pressed={selectedSourceId === row.id}>
+              <span class="source-dot" class:source-ready={row.status === "ready"}></span>
+              <span><strong>{displayName(row)}</strong><small>{row.folderName || row.name || locale.t.sources.folders.ofwBackupUsedBy}</small></span>
+              <span class="source-count">{snapshot.backups.filter((b) => b.internalOk && b.externalOk).length} · {locale.t.sources.found}</span>
+            </button>
+            <div class="source-variants" aria-label={locale.t.officialFirmware.backupsFoundLegend(true)}>
+              {#each ["mario", "zelda"] as model}
+                {@const pair = snapshot.backups.find((b) => b.model === model)}
+                <span class:variant-ok={pair?.internalOk && pair?.externalOk} class:variant-partial={!!pair && !(pair.internalOk && pair.externalOk)}>
+                  {modelLabel(model as OfwModel)} {pair?.internalOk && pair?.externalOk ? "✓" : pair ? "!" : "—"}
+                </span>
+              {/each}
+            </div>
+            {#if row.status !== "ready"}
+              <Button variant="quiet" disabled={backupBusy} onclick={() => reconnectSource(row.id)}>
+                {row.status === "needs-permission" ? locale.t.officialFirmware.reconnectLastFolder : locale.t.officialFirmware.changeFolder}
+              </Button>
+            {/if}
+            <button class="source-remove" type="button" disabled={backupBusy} title={locale.t.sources.remove} onclick={() => void removeSource(row.id)}>
+              {locale.t.sources.remove}
+            </button>
+          </div>
+        {/each}
       </div>
     {/if}
 
@@ -620,15 +651,19 @@
             <span class="rsize mono">{formatSize(fb.internalOk ? fb.internal.length : fb.internalFileSize ?? fb.internal.length)}</span>
             {#if fb.internalOk}
               <span class="rchip ok-chip">{locale.t.officialFirmware.rowValid}</span>
+            {:else if !fb.internalPresent}
+              <span class="rchip bad-chip">{locale.t.sources.folders.missing}</span>
             {:else}
               <span class="rchip bad-chip">{locale.t.officialFirmware.invalidChip(fb.internalOk, fb.externalOk)}</span>
             {/if}
           </div>
           <div class="row">
             <span class="rname">{extBackupName(fb.model)}</span>
-            <span class="rsize mono">{formatSize(fb.external.length)}</span>
+            <span class="rsize mono">{formatSize(fb.externalOk ? fb.external.length : fb.externalFileSize ?? fb.external.length)}</span>
             {#if fb.externalOk}
               <span class="rchip ok-chip">{locale.t.officialFirmware.rowValid}</span>
+            {:else if !fb.externalPresent}
+              <span class="rchip bad-chip">{locale.t.sources.folders.missing}</span>
             {:else}
               <span class="rchip bad-chip">{locale.t.officialFirmware.invalidChip(fb.internalOk, fb.externalOk)}</span>
             {/if}
@@ -644,8 +679,8 @@
             <label class="row" class:sel={chosenModel === fb.model}>
               <input type="radio" name="ofw-backup" value={fb.model} bind:group={chosenModel} />
               <span class="rname">{modelLabel(fb.model)}</span>
-              <span class="rsize mono">int {formatSize(fb.internalOk ? fb.internal.length : fb.internalFileSize ?? fb.internal.length)}</span>
-              <span class="rsize mono">ext {formatSize(fb.external.length)}</span>
+              <span class="rsize mono">int {fb.internalPresent ? formatSize(fb.internalOk ? fb.internal.length : fb.internalFileSize ?? fb.internal.length) : locale.t.sources.folders.missing}</span>
+              <span class="rsize mono">ext {fb.externalPresent ? formatSize(fb.externalOk ? fb.external.length : fb.externalFileSize ?? fb.external.length) : locale.t.sources.folders.missing}</span>
               {#if fb.internalOk && fb.externalOk}
                 <span class="rchip ok-chip">{locale.t.officialFirmware.rowValid}</span>
               {:else}
@@ -879,6 +914,39 @@
     gap: 0.5rem;
     flex-wrap: wrap;
   }
+  .library-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .segmented { display: inline-flex; padding: 3px; border: 1px solid var(--hairline); border-radius: 10px; gap: 2px; }
+  .segmented button {
+    border: 0; border-radius: 7px; padding: 7px 12px; background: transparent; color: var(--ink-soft);
+    font: inherit; font-size: var(--fs-caption); cursor: pointer;
+  }
+  .segmented button.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px #0002; }
+  .source-list { display: grid; gap: 8px; }
+  .source-card {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--hairline);
+    border-radius: 10px; background: var(--surface); min-width: 0;
+  }
+  .source-card.source-selected { border-color: color-mix(in srgb, var(--zelda-green) 55%, var(--hairline)); background: color-mix(in srgb, var(--zelda-green) 5%, var(--surface)); }
+  .source-select {
+    display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; border: 0; padding: 2px;
+    color: inherit; background: transparent; text-align: start; font: inherit; cursor: pointer;
+  }
+  .source-select > span:nth-child(2) { display: grid; min-width: 0; }
+  .source-select small { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .source-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: var(--gold); }
+  .source-dot.source-ready { background: var(--zelda-green); }
+  .source-count { color: var(--ink-soft); font-size: var(--fs-label); white-space: nowrap; }
+  .source-variants { display: flex; gap: 5px; }
+  .source-variants span { border-radius: 999px; padding: 4px 7px; color: var(--ink-soft); background: var(--surface-raised, var(--surface)); font-size: var(--fs-label); white-space: nowrap; }
+  .source-variants span.variant-ok { color: var(--zelda-green); }
+  .source-variants span.variant-partial { color: var(--gold); }
+  .source-remove { border: 0; background: transparent; color: var(--ink-soft); cursor: pointer; font: inherit; font-size: var(--fs-label); }
   /* 18px for a completed step, 22px for the one you are on (artboard). */
   .steph {
     margin: 0;

@@ -115,6 +115,7 @@ export const wizardRu: WizardStrings = {
     removeRetroGo: "Удаление Retro-Go",
     skipCaution: "Это необратимо, а скачивание оригинальной прошивки в вашей юрисдикции, вероятно, незаконно.",
     skipAnyway: "Всё равно пропустить",
+    skipBackupAcknowledgement: 'Я понимаю, что это нельзя отменить, а файлы исходной прошивки могут быть недоступны в интернете или их получение может быть незаконным.',
     chipOptional: "Необязательно",
     runAgain: "Выполнить снова",
     sourcesButtonLabel: "Добавить источники",

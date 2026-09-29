@@ -62,6 +62,8 @@ export const officialFirmwareUk: OfficialFirmwareStrings = {
   lockedBackupStageVerifyRestore: 'Перевірити відновлену прошивку',
   pageSubtitle:
     "Збережіть оригінальну прошивку, а потім пропатчте її, щоб могла завантажуватися нестандартна.",
+  filterBoth: "Обидва",
+  filterVariants: "Фільтр варіантів прошивки",
   step1Title: "Резервна копія прошивки",
   chromiumRequired: "Для вибору теки потрібен браузер на Chromium (як і для WebUSB).",
   pickFolderIntro:
