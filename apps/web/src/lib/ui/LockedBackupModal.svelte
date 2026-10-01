@@ -122,7 +122,7 @@
 <style>
   h3 { font-size: var(--fs-title); font-weight: 600; letter-spacing: -0.01em; margin-bottom: 0.5rem; }
   .muted { color: var(--ink-soft); font-size: var(--fs-caption); margin-bottom: 0.5rem; }
-  .steps { padding-left: 1.5rem; }
+  .steps { padding-inline-start: 1.5rem; }
   .steps li + li { margin-top: 0.4rem; }
   .device-status { display: flex; align-items: center; gap: 0.55rem; color: var(--ink-soft); font-size: var(--fs-caption); margin: 0.8rem 0 0; }
   .status-led { display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 50%; cursor: help; box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent); }

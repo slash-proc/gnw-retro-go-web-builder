@@ -6,6 +6,8 @@
 import type { GnwFlasher } from "@gnw/gnw-flasher";
 import { patchModel } from "./patch.js";
 import { flashImage, dumpRegion } from "./flasher.js";
+import { LOCKED_MODEL } from "./itcmModel.js";
+export { detectModelFromItcm } from "./itcmModel.js";
 import { dbg, dbgLog } from "../debug.js";
 import bootloaderUrl from "@gnw/gnw-patch/vendor/gnw_bootloader_0x08032000.bin?url";
 import unlockPayloadUrl from "@gnw/gnw-flasher/blobs/unlock.bin?url";
@@ -21,10 +23,6 @@ const SHEET_OFFSET = 8192; // mario external hash excludes the trailing save ban
 const INTERNAL_STOCK_LEN = 0x20000; // 128 KiB stock internal image (also the patch-engine input size)
 const GNWMANAGER_INTERNAL_READ_CHUNK = INTERNAL_STOCK_LEN;
 const GNWMANAGER_EXTERNAL_READ_CHUNK = 256 << 10;
-const LOCKED_MODEL = {
-  mario: { itcmOffset: 0, itcmSha1: "ca71a54c0a22cca5c6ee129faee9f99f3a346ca0", payloadOffset: 0 },
-  zelda: { itcmOffset: 0x20, itcmSha1: "2f70156235ffd871599facf64457040d549353b4", payloadOffset: 0x30c3a8 },
-} as const;
 let unlockPayload: Uint8Array | null = null;
 
 interface DeviceDesc {
@@ -184,7 +182,7 @@ async function waitForLockedPayloadCopy(transport: {
   halt(): Promise<void>;
   resume(): Promise<void>;
   readRegister(name: string): Promise<number>;
-}, model: OfwModel): Promise<void> {
+}, model: OfwModel, abortSignal?: AbortSignal): Promise<void> {
   const COPY_COMPLETE_PC_MIN = 0x4e2 + LOCKED_MODEL[model].itcmOffset;
   const COPY_COMPLETE_PC_MAX = 0x4ea + LOCKED_MODEL[model].itcmOffset;
   const isCopyComplete = (pc: number) => {
@@ -193,6 +191,7 @@ async function waitForLockedPayloadCopy(transport: {
   };
   let pc = (await transport.readRegister("pc")) >>> 0;
   for (let attempt = 0; attempt < 20; attempt++) {
+    if (abortSignal?.aborted) throw new Error("Operation aborted");
     if (isCopyComplete(pc)) {
       dbg(`[locked-backup] payload copy complete; PC=0x${pc.toString(16)} after ${attempt} resume(s)`);
       return;
@@ -207,21 +206,26 @@ async function waitForLockedPayloadCopy(transport: {
 
 /** Reuse the original ITCM signature captured before a prior attempt modified extflash.
  *  Identify by content hash, not by filename; include legacy dated backup folders. */
-async function findSavedItcm(dir: BackupDir): Promise<{ model: OfwModel; bytes: Uint8Array } | null> {
+async function findSavedItcm(dir: BackupDir, expectedModel?: OfwModel): Promise<{ model: OfwModel; bytes: Uint8Array } | null> {
   const dirs = [dir];
   for await (const [name, handle] of dir.entries())
     if (handle.kind === "directory" && name.startsWith("backups-")) dirs.push(handle);
+  let match: { model: OfwModel; bytes: Uint8Array } | null = null;
   for (const source of dirs) {
     for await (const [, handle] of source.entries()) {
       if (handle.kind !== "file") continue;
       const file = await handle.getFile();
       if (file.size !== 1300) continue;
       const bytes = new Uint8Array(await file.arrayBuffer());
-      for (const model of Object.keys(LOCKED_MODEL) as OfwModel[])
-        if (await sha1Hex(bytes) === LOCKED_MODEL[model].itcmSha1) return { model, bytes };
+      for (const model of (expectedModel ? [expectedModel] : Object.keys(LOCKED_MODEL)) as OfwModel[])
+        if (await sha1Hex(bytes) === LOCKED_MODEL[model].itcmSha1) {
+          if (expectedModel) return { model, bytes };
+          if (match && match.model !== model) return null;
+          match = { model, bytes };
+        }
     }
   }
-  return null;
+  return match;
 }
 
 /** Dump the stock internal (128 KiB) + full external flash over the loaded RAM util.
@@ -230,13 +234,16 @@ export async function dumpBackup(
   flasher: GnwFlasher,
   extSize: number,
   report?: (done: number, total: number, label: string) => void,
+  abortSignal?: AbortSignal,
 ): Promise<BackupDumps> {
   const total = INTERNAL_STOCK_LEN + extSize;
+  if (abortSignal?.aborted) throw new Error("Operation aborted");
   const internal = await dumpRegion(flasher, 1, 0, INTERNAL_STOCK_LEN, (d) =>
     report?.(d, total, "internal flash"),
   );
+  if (abortSignal?.aborted) throw new Error("Operation aborted");
   const external = await dumpRegionInChunks(flasher, 0, 0, extSize, GNWMANAGER_EXTERNAL_READ_CHUNK, (d) =>
-    report?.(INTERNAL_STOCK_LEN + d, total, "external flash"),
+    report?.(INTERNAL_STOCK_LEN + d, total, "external flash"), abortSignal,
   );
   return { internal, external };
 }
@@ -251,9 +258,11 @@ async function dumpRegionInChunks(
   size: number,
   chunkSize: number,
   onProgress?: (done: number, total: number) => void,
+  abortSignal?: AbortSignal,
 ): Promise<Uint8Array> {
   const result = new Uint8Array(size);
   for (let done = 0; done < size;) {
+    if (abortSignal?.aborted) throw new Error("Operation aborted");
     const length = Math.min(chunkSize, size - done);
     const chunk = await dumpRegion(flasher, bank, offset + done, length, (chunkDone) =>
       onProgress?.(done + chunkDone, size),
@@ -262,6 +271,7 @@ async function dumpRegionInChunks(
       throw new Error(`Short flash read at 0x${(offset + done).toString(16)}: got ${chunk.byteLength} of ${length} bytes`);
     result.set(chunk, done);
     done += length;
+    if (abortSignal?.aborted) throw new Error("Operation aborted");
   }
   return result;
 }
@@ -275,33 +285,52 @@ export async function dumpLockedBackup(
     persistSwdClockHz: (hz: number) => void;
     reconnect: () => Promise<void>;
     ensureStub: (forceReboot?: boolean) => Promise<GnwFlasher>;
-    requestPowerCycle: () => Promise<void>;
-    requestReadFailureChoice: (message: string, nextSwdClockHz: number) => Promise<"retry" | "restore" | "stop">;
+    /** Used only to choose a saved ITCM snapshot while resuming a blue-screen read. */
+    expectedModel?: OfwModel;
+    requestPowerCycle: (abortSignal?: AbortSignal) => Promise<void>;
+    requestReadFailureChoice: (message: string, nextSwdClockHz: number, abortSignal?: AbortSignal) => Promise<"retry" | "restore" | "stop">;
     resumeFromBlueScreen?: boolean;
   },
   backupDir: BackupDir,
   existingBackups: FoundBackup[] = [],
   progress?: LockedBackupProgress,
+  abortSignal?: AbortSignal,
 ): Promise<{ model: OfwModel; dumps: BackupDumps; directory: BackupDir }> {
+  if (abortSignal?.aborted) throw new Error("Operation aborted");
   // Do not try protected reads against a merely attached adapter. Ensure the flasher/recovery
   // stub is live before probing ITCM or external flash; stock firmware can reject SWD reads.
   let flasher: GnwFlasher | null = deps.resumeFromBlueScreen ? null : await deps.ensureStub();
+  if (abortSignal?.aborted) throw new Error("Operation aborted");
   progress?.("identify");
-  let savedItcm = await findSavedItcm(backupDir);
-  let model: OfwModel | null = savedItcm?.model ?? null;
-  let itcm = savedItcm?.bytes ?? new Uint8Array();
-  if (!savedItcm) {
-    if (deps.resumeFromBlueScreen)
-      throw new Error("Blue-screen mode is active, but no verified ITCM backup is available to resume safely.");
+  let savedItcm: Awaited<ReturnType<typeof findSavedItcm>> = null;
+  let model: OfwModel | null = null;
+  let itcm = new Uint8Array();
+  if (deps.resumeFromBlueScreen) {
+    // ITCM has been replaced by the running payload. A saved snapshot is the only safe
+    // source, and when multiple devices share a directory it must match the known target.
+    savedItcm = await findSavedItcm(backupDir, deps.expectedModel);
+    model = savedItcm?.model ?? null;
+    itcm = savedItcm?.bytes ?? itcm;
+    if (!savedItcm)
+      throw new Error("Blue-screen mode is active, but no verified ITCM backup for this device is available to resume safely.");
+  } else {
+    // Always identify the connected console first. A directory may contain another device's
+    // ITCM and firmware pair; selecting the first saved signature can make a Mario console
+    // silently reuse Zelda data (or the reverse).
     if (!flasher) flasher = await deps.ensureStub();
     for (const candidate of Object.keys(LOCKED_MODEL) as OfwModel[]) {
       const sig = LOCKED_MODEL[candidate];
       const bytes = await deps.transport().readMemory(sig.itcmOffset, 1300);
+      if (abortSignal?.aborted) throw new Error("Operation aborted");
       if (await sha1Hex(bytes) === sig.itcmSha1) {
         model = candidate;
         itcm = bytes;
         break;
       }
+    }
+    if (model) {
+      savedItcm = await findSavedItcm(backupDir, model);
+      if (savedItcm) itcm = savedItcm.bytes;
     }
   }
   if (!model) throw new Error("Unable to identify stock firmware from its ITCM hash; device was not changed.");
@@ -310,6 +339,7 @@ export async function dumpLockedBackup(
     // resume behavior. Subsequent retries can rebuild the payload without depending on the
     // device still running original code.
     await writeFile(backupDir, itcmBackupName(model), itcm);
+    if (abortSignal?.aborted) throw new Error("Operation aborted");
     const saved = new Uint8Array(await (await (await backupDir.getFileHandle(itcmBackupName(model))).getFile()).arrayBuffer());
     if (await sha1Hex(saved) !== LOCKED_MODEL[model].itcmSha1)
       throw new Error("Saved ITCM backup failed hash verification; device was not changed.");
@@ -325,6 +355,7 @@ export async function dumpLockedBackup(
     external = existingExternal.external;
     if (external.length !== extSize || await sha1Hex(dev.externalSlice(external)) !== dev.externalSha1)
       throw new Error("Saved external stock firmware failed hash verification; device was not changed.");
+    if (abortSignal?.aborted) throw new Error("Operation aborted");
     progress?.("reuse-external");
   } else {
     if (deps.resumeFromBlueScreen)
@@ -332,12 +363,14 @@ export async function dumpLockedBackup(
     if (!flasher) flasher = await deps.ensureStub();
     progress?.("read-external", 0, extSize);
     external = await dumpRegionInChunks(flasher, 0, 0, extSize, GNWMANAGER_EXTERNAL_READ_CHUNK,
-      (d, t) => progress?.("read-external", d, t));
+      (d, t) => progress?.("read-external", d, t), abortSignal);
+    if (abortSignal?.aborted) throw new Error("Operation aborted");
     if (await sha1Hex(dev.externalSlice(external)) !== dev.externalSha1)
       throw new Error("External stock firmware hash mismatch; device was not changed.");
     progress?.("save-external");
     await writeFile(target, extBackupName(model), external);
     const externalFile = await (await target.getFileHandle(extBackupName(model))).getFile();
+    if (abortSignal?.aborted) throw new Error("Operation aborted");
     if (await sha1Hex(dev.externalSlice(new Uint8Array(await externalFile.arrayBuffer()))) !== dev.externalSha1)
       throw new Error("Saved external backup failed hash verification; device was not changed.");
   }
@@ -371,9 +404,11 @@ export async function dumpLockedBackup(
         (forceReboot) => deps.ensureStub(forceReboot), 0, 0, modifiedExternal!,
         (done, total) => progress?.("flash-payload", done, total),
         dbgLog("locked-backup-payload"),
+        { abortSignal },
       );
+      if (abortSignal?.aborted) throw new Error("Operation aborted");
       progress?.("power-cycle");
-      await deps.requestPowerCycle();
+      await deps.requestPowerCycle(abortSignal);
     }
     // Match gnwmanager: after the payload's cold boot, halt before reading the staged SRAM.
     // Retry the read a bounded number of times automatically; after that, the user can retry
@@ -387,17 +422,19 @@ export async function dumpLockedBackup(
       try {
         // The power-cycle prompt can now continue as soon as the screen turns blue;
         // wait for the payload's SRAM copy loop before reading the staged firmware.
-        await waitForLockedPayloadCopy(deps.transport(), model);
+        await waitForLockedPayloadCopy(deps.transport(), model, abortSignal);
       } catch (error) {
         progress?.("read-internal", undefined, undefined, "error");
         throw error;
       }
       for (let attempt = 1; attempt <= 3; attempt++) {
+        if (abortSignal?.aborted) throw new Error("Operation aborted");
         progress?.("read-internal", 0, INTERNAL_STOCK_LEN);
         try {
           await deps.transport().halt();
           const data = await deps.transport().readMemory(0x24000000, INTERNAL_STOCK_LEN,
             (d, t) => progress?.("read-internal", d, t), true, GNWMANAGER_INTERNAL_READ_CHUNK);
+          if (abortSignal?.aborted) throw new Error("Operation aborted");
           internal = data;
           actualInternalHash = await sha1Hex(data);
           dbg(`[locked-backup] SRAM read ${attempt}/3 SHA-1 ${actualInternalHash}${actualInternalHash === dev.internalSha1 ? " (valid)" : " (mismatch)"}`);
@@ -476,7 +513,7 @@ export async function dumpLockedBackup(
           throw error;
         }
         if (attempt < 3) {
-          if (deps.resumeFromBlueScreen) await waitForLockedPayloadCopy(deps.transport(), model);
+          if (deps.resumeFromBlueScreen) await waitForLockedPayloadCopy(deps.transport(), model, abortSignal);
           else await new Promise((resolve) => setTimeout(resolve, 300));
         }
       }
@@ -497,10 +534,11 @@ export async function dumpLockedBackup(
         internal = await readAndValidateInternal();
         break;
       } catch (error) {
+        if (abortSignal?.aborted) throw error;
         internalReadFailed = true;
         const message = error instanceof Error ? error.message : String(error);
         const nextSwdClockHz = Math.max(1_000_000, Math.floor(readSwdClockHz / 2));
-        const choice = await deps.requestReadFailureChoice(message, nextSwdClockHz);
+        const choice = await deps.requestReadFailureChoice(message, nextSwdClockHz, abortSignal);
         if (choice === "retry") {
           if (nextSwdClockHz < readSwdClockHz) {
             await deps.transport().setClockFrequency(nextSwdClockHz);
@@ -518,11 +556,14 @@ export async function dumpLockedBackup(
 
     progress?.("verify-backups");
     try {
+      if (abortSignal?.aborted) throw new Error("Operation aborted");
       const validated = await detectDevice(internal, external);
+      if (abortSignal?.aborted) throw new Error("Operation aborted");
       if (validated.model !== model || !validated.internalOk || !validated.externalOk)
         throw new Error("Combined stock firmware hash verification failed.");
       progress?.("verify-backups");
       await writeBackupInto(target, model, { internal, external });
+      if (abortSignal?.aborted) throw new Error("Operation aborted");
       diskPair = (await scanBackupFolder(target)).find((b) => b.model === model && b.internalOk && b.externalOk);
       if (!diskPair) throw new Error("Saved firmware backups did not pass hash verification.");
     } catch (error) {

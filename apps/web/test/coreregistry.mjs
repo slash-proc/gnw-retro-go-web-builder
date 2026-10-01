@@ -521,6 +521,27 @@ const { parseRomPath, parseDeviceGamePath, pressAddsBytes } = await import(
 
 const doomRegistry = buildCoreRegistry([row("slash-proc/doom", doomManifest())]);
 const gbcRegistry = buildCoreRegistry([row("slash-proc/tgb", gbcManifest())]);
+const pico8Registry = buildCoreRegistry([row("slash-proc/pico8", {
+  schemaVersion: 1, project: "pico8", title: "PICO-8", tools: [],
+  targets: [{
+    id: "gnw-retro-go", platform: "game-and-watch", kind: "core",
+    requiresAbi: { version: 2, minSize: 832 }, artifacts: [],
+    systems: [{
+      id: "pico8", longName: "PICO-8", shortName: "PICO-8",
+      extensions: [".p8", ".p8.png"], browse: "file", compression: false,
+    }],
+  }],
+})]);
+
+await check("parseRomPath: PICO-8 compound `.p8.png` carts match the declared extension", async () => {
+  const celeste = parseRomPath("pico8/celeste.p8.png", pico8Registry);
+  const celeste2 = parseRomPath("pico8/celeste2.p8.png", pico8Registry);
+  ok(celeste, "the existing cart is a game");
+  ok(celeste2, "the second cart is a game too");
+  eq(celeste.system, "pico8", "the existing cart is filed under PICO-8");
+  eq(celeste2.name, "celeste2.p8.png", "the second cart keeps its filename");
+  eq(celeste2.role, "installable", "the cart is directly installable");
+});
 
 await check("parseRomPath: a Doom WAD IS a library ROM, marked ingestable", async () => {
   const r = parseRomPath("doom/DOOM.WAD", doomRegistry);
@@ -661,6 +682,18 @@ await check("rows: preparing does NOT rename the row", async () => {
 await check("rows: a stem containing a dot keeps all of it", async () => {
   eq(stripExtension("Sonic 3.5.md"), "Sonic 3.5", "only the LAST extension goes");
   eq(stripExtension("README"), "README", "a dotless name is left alone");
+});
+
+await check("rows: a filename-derived title strips the core's full compound extension", async () => {
+  const extensions = pico8Registry.systems.find((s) => s.folder === "pico8").installable;
+  const rom = { system: { extensions } };
+  const rows = buildGameRows([{
+    key: "pico8/celeste2.p8.png", system: "pico8", name: "celeste2.p8.png",
+    size: 40610, inFolder: true, installed: false, role: "installable", rom,
+  }], outExtFor, noHints);
+  eq(rows[0].listName, "celeste2", "the games list uses the declared core suffix");
+  eq(rows[0].prettyName, "celeste2", "the carousel title uses the same complete suffix");
+  eq(rows[0].originFilename, "celeste2.p8.png", "the original filename remains visible as provenance");
 });
 
 await check("rows: an ordinary ROM is one row and needs no preparing", async () => {

@@ -25,6 +25,8 @@ const {
   sameLibraryFileMeta,
   indexLibraryRoms,
   libraryCoverForPath,
+  inlineCoverPathsForRom,
+  sourceCoverPathForRom,
   libraryCoverCacheKey,
   libraryFileMeta,
   libraryRomId,
@@ -67,7 +69,10 @@ check("derived cover identity includes source and file metadata", () => {
 });
 
 check("cover paths remain beside the ROM with the legacy mirror fallback", () => {
-  const file = { file: libraryFileMeta("Game Boy Advance/Game.gba", 1) };
+  const file = {
+    file: libraryFileMeta("Game Boy Advance/Game.gba", 1),
+    system: { extensions: [".gba"] },
+  };
   eq(coverPathsForRom(file, "jpg"), [
     "Game Boy Advance/Game.jpg",
     "covers/Game Boy Advance/Game.jpg",
@@ -77,10 +82,44 @@ check("cover paths remain beside the ROM with the legacy mirror fallback", () =>
       "Game Boy Advance/Game.png", "covers/Game Boy Advance/Game.png",
       "Game Boy Advance/Game.jpg", "covers/Game Boy Advance/Game.jpg",
       "Game Boy Advance/Game.jpeg", "covers/Game Boy Advance/Game.jpeg",
+      "Game Boy Advance/Game.webp", "covers/Game Boy Advance/Game.webp",
+      "Game Boy Advance/Game.bmp", "covers/Game Boy Advance/Game.bmp",
     ],
     carouselPath: "Game Boy Advance/Game.img",
     deviceImgPath: "covers/Game Boy Advance/Game.img",
   }, "cover relationship");
+});
+
+check("compound ROM extensions keep PICO-8 ROMs out of cover paths", () => {
+  const path = "pico8/celeste.p8.png";
+  const system = { extensions: [".p8", ".p8.png"] };
+  const rom = { file: libraryFileMeta(path, 1), system };
+  eq(coverPathsForRom(rom, "png"), ["pico8/celeste.png", "covers/pico8/celeste.png"], "cover candidates");
+  eq(inlineCoverPathsForRom(path, system.extensions), [
+    "pico8/celeste.p8.img", "pico8/celeste.png", "pico8/celeste.jpg",
+  ], "inline candidates");
+  eq(libraryCoverForPath(path, system.extensions), {
+    originalPaths: [
+      "pico8/celeste.png", "covers/pico8/celeste.png",
+      "pico8/celeste.jpg", "covers/pico8/celeste.jpg",
+      "pico8/celeste.jpeg", "covers/pico8/celeste.jpeg",
+      "pico8/celeste.webp", "covers/pico8/celeste.webp",
+      "pico8/celeste.bmp", "covers/pico8/celeste.bmp",
+      "pico8/celeste.p8.png",
+    ],
+    carouselPath: "pico8/celeste.p8.img",
+    deviceImgPath: "covers/pico8/celeste.p8.img",
+  }, "cover relationship");
+  const singleSuffixRom = { file: libraryFileMeta("pico8/celeste.p8", 1), system };
+  eq(coverPathsForRom(singleSuffixRom, "png"), coverPathsForRom(rom, "png"), "both ROM formats share one PNG");
+  const singleSuffixCover = libraryCoverForPath(singleSuffixRom.file.relativePath, system.extensions);
+  eq(singleSuffixCover.deviceImgPath, "covers/pico8/celeste.img", "single suffix follows firmware cover path");
+  ok(singleSuffixCover.deviceImgPath !== libraryCoverForPath(path, system.extensions).deviceImgPath,
+    "device paths retain firmware's final-extension distinction");
+  ok(!singleSuffixCover.originalPaths.includes(singleSuffixRom.file.relativePath), ".p8 alone is not treated as image art");
+  eq(sourceCoverPathForRom(path, ".png", system.extensions), "pico8/celeste.png", "optional source PNG sits beside the ROM");
+  eq(sourceCoverPathForRom(singleSuffixRom.file.relativePath, ".png", system.extensions), "pico8/celeste.png",
+    "single and compound suffixes share the beside-ROM PNG");
 });
 
 check("indexes expose identity, path and system views", () => {

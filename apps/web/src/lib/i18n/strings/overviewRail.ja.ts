@@ -12,7 +12,6 @@ export const overviewRailJa: OverviewRailStrings = {
   capacity: "容量",
 
   probe: "プローブ",
-  deviceUid: "デバイス UID",
 
   sources: "ソース",
   sourcesCount: (listed: number, active: number) => `${listed} 件中 ${active} 件が有効`,

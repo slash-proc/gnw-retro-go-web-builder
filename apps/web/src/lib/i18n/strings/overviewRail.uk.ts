@@ -12,7 +12,6 @@ export const overviewRailUk: OverviewRailStrings = {
   capacity: "Обсяг",
 
   probe: "Програматор",
-  deviceUid: "UID пристрою",
 
   sources: "Джерела",
   // Label-and-value on both halves, so neither number has to agree with a noun: `активних: 1`

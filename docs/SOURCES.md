@@ -3,6 +3,11 @@
 Read this in full before touching `apps/web/src/lib/sources/`, the Library tab,
 the SD card pane, or anything that decides what a console is or where a file lands.
 
+For the published remote-source chain and complete-file accounting examples (SMW, Zelda 3,
+OpenLara, Doom, and GBA), read [SOURCE_INSTALL_ACCOUNTING.md](./SOURCE_INSTALL_ACCOUNTING.md)
+first. It distinguishes the firmware's curated project list from each project's own release
+manifest and converter outputs.
+
 ## The SD card and the two install paths
 
 - **SD mode vs Flash mode share UI, not budget logic.** `RomManagementTab.svelte`'s game-selection table (Select All / per-game toggles) is rendered ABOVE the `device.targetMedia === "sd"` split, so it's common to both modes. Anything reading `device.partitions`/`device.info`-derived state (`frogfsOffset`, `ceilingOffset`, `fitsGap`, `validateFit()`, the FrogFS-preview-build effect) is a Flash-only concept (the device's real flash-chip gap) and MUST early-out on `device.targetMedia === "sd"`: a device merely being connected while the user manages SD content is not a signal that Flash's constraints apply. This bit us once already (docs/AUDIT_NOTES.md item #14); don't reintroduce it when touching this shared table.

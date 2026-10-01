@@ -30,6 +30,8 @@ export const wizardZhHant: WizardStrings = {
     bodyBackupOnly:
       "接著會請你在電腦上選一個資料夾，用來存放裝置原始韌體的副本。請妥善保存這些檔案，因為無法再次下載。這一步不會寫入裝置：Retro-Go 會在下一步取代原始韌體。",
     buttonBackupOnly: "備份",
+    resumeBackup: "繼續備份",
+    statusIncomplete: "備份未完成",
   },
   step2: {
     title: "安裝 Retro-Go",

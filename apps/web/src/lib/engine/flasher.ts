@@ -47,11 +47,23 @@ export async function isStubAlive(transport: SwdTransport): Promise<boolean> {
  *  succeed") because a disconnected SWD target often returns garbage that reads as success
  *  rather than throwing. */
 const CPUID_ADDR = 0xe000ed00;
-const VTOR_ADDR = 0xe000ed08;
+const FLASH_OPTSR_CUR = 0x5200201c;
+const RDP_LEVEL_0 = 0xaa;
 
-/** Liveness ping: validate the Cortex-M7 CPUID and a separate VTOR read. A probe can
- *  echo a stale CPUID as data from unrelated addresses when target reads fail. An erased
- *  VTOR remains acceptable so a locked device can still enter the unlock flow. */
+/** Read the STM32H7 RDP option byte without probing protected flash. `null` means the
+ *  option register could not be read or returned an erased bus value. */
+export async function readRdpLocked(transport: SwdTransport): Promise<boolean | null> {
+  try {
+    const optionStatus = (await transport.readWord(FLASH_OPTSR_CUR)) >>> 0;
+    if (optionStatus === 0xffffffff) return null;
+    const rdp = (optionStatus >>> 8) & 0xff;
+    return rdp !== RDP_LEVEL_0;
+  } catch {
+    return null;
+  }
+}
+
+/** Liveness ping: validate only the fixed Cortex-M7 CPUID. */
 export async function pingTarget(
   transport: SwdTransport,
   onDiagnostic?: (detail: string) => void,
@@ -62,18 +74,20 @@ export async function pingTarget(
       onDiagnostic?.(`CPUID=0x${id.toString(16).padStart(8, "0")} (not Cortex-M7)`);
       return false;
     }
-    const vtor = (await transport.readWord(VTOR_ADDR)) >>> 0;
-    const validVtor = (vtor & 0x7f) === 0 || vtor === 0xffffffff;
-    onDiagnostic?.(`CPUID=0x${id.toString(16).padStart(8, "0")} VTOR=0x${vtor.toString(16).padStart(8, "0")} valid=${validVtor}`);
-    return validVtor;
+    onDiagnostic?.(`CPUID=0x${id.toString(16).padStart(8, "0")}`);
+    return true;
   } catch (error) {
     onDiagnostic?.(`read failed: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
 }
 
-export async function readInfo(flasher: GnwFlasher, log?: LogFn): Promise<DeviceInfo> {
-  return flasher.info({ log });
+export async function readInfo(
+  flasher: GnwFlasher,
+  log?: LogFn,
+  opts: { flashSizeTimeoutMs?: number; locked?: boolean | null; onTiming?: (phase: string, elapsedMs: number, detail?: string) => void } = {},
+): Promise<DeviceInfo> {
+  return flasher.info({ log, ...opts });
 }
 
 /**
@@ -165,6 +179,10 @@ export async function flashImage(
         log?.(line);
       };
       const flashPromise = flasher.flash(bank, offset, data, {
+        // Bank-0 hashing is a device-side preflight that intentionally has no byte progress.
+        // Keep the no-progress watchdog alive while the stub is answering hash polls, without
+        // moving the visible write-progress bar before programming has started.
+        onActivity: () => { lastProgressTime = Date.now(); },
         compress: compress ? (d) => {
           const res = lzmaCompress(d);
           lastProgressTime = Date.now();
@@ -246,6 +264,7 @@ export async function dumpRegion(
   offset: number,
   size: number,
   onProgress?: ProgressFn,
+  onTiming?: (phase: string, elapsedMs: number) => void,
 ): Promise<Uint8Array> {
-  return flasher.readFlash(bank, offset, size, onProgress);
+  return flasher.readFlash(bank, offset, size, onProgress, onTiming);
 }

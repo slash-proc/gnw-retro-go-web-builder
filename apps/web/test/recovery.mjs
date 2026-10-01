@@ -71,9 +71,10 @@ const STUBS = {
     export const dumpRegion = async () => new Uint8Array();
     export const attachFlasher = (t) => ({ __attached: t });
     export const isStubAlive = async () => globalThis.__fake.stubAlive;
+    export const readRdpLocked = async () => false;
     export const pingTarget = async () => globalThis.__fake.pingOkay;`,
   "./engine/fsscan.js": `export const scanExtflashPartitions = async () => []; export const scanExtflashPartitionsLazy = async () => [];`,
-  "./engine/intflashscan.js": `export const scanIntflashBanks = async () => []; export const INT_BANK_BASES = [0x08000000, 0x08100000];`,
+  "./engine/intflashscan.js": `export const retroGoInfo = () => ({present: false}); export const scanIntflashBanks = async () => []; export const INT_BANK_BASES = [0x08000000, 0x08100000];`,
   "./engine/classify.js": `export const classifyDevice = () => ({ ofw: null });`,
   "./engine/screenshot.js": `export const captureScreenshot = async () => null;`,
   "./engine/frogfsDevice.js": `export const readInstalledFrogfs = async () => null;`,
@@ -214,6 +215,7 @@ function fireUsbDisconnect() {
 
 /** Attach cleanly (no stub) and settle the scan the connect kicks off. */
 async function freshConnect() {
+  fake.pingOkay = true;
   device._suppressAutoRetry = false;
   await device.connect();
   await tick(5);
@@ -412,23 +414,22 @@ await check("a target ping miss does not reconnect a still-attached adapter", as
   const attaches = fake.connectCalls;
   fake.pingOkay = false;
   await device.pollTick();
-  eq(device.connection, "connected", "one transient ping miss does not change the UI");
+  eq(device.connection, "attention", "a transient miss keeps an actionable adapter session");
   await device.pollTick();
   await device.pollTick();
-  eq(device.connection, "connected", "short OFW ping streaks do not flap the UI");
+  eq(device.connection, "attention", "repeated misses retain the adapter until the silence deadline");
   fake.pingOkay = true;
   await device.pollTick();
   device.lastTargetAnswerAt = Date.now() - 10_000;
   fake.pingOkay = false;
   await device.pollTick();
-  eq(device.connection, "connected", "a recent good ping keeps intermittent OFW connected");
+  eq(device.connection, "attention", "a recent good ping preserves the adapter session");
   device.lastTargetAnswerAt = Date.now() - 15_001;
   await device.pollTick();
   eq(device.connection, "lost", "target-unresponsive state disables device actions");
   assert(device.probe === probe && probe.open, "the adapter remains open while OFW is unresponsive");
   await device.connectSilent();
-  await device.connect();
-  eq(fake.connectCalls, attaches, "silent and explicit connects must not attach another handle");
+  eq(fake.connectCalls, attaches, "silent connect preserves the selected session");
   fake.pingOkay = true;
   await device.pollTick();
   eq(device.connection, "lost", "one lucky ping does not flap the UI back to connected");
@@ -445,7 +446,7 @@ await check("an unreadable target does not start an expensive flash scan", async
   const beforeScans = device._scanSeq;
   await device.connect();
   device.stopPoll();
-  eq(device.connection, "lost", "the probe alone does not establish target connectivity");
+  eq(device.connection, "attention", "an unreadable target retains the adapter for Recovery");
   eq(device._scanSeq, beforeScans, "invalid target reads do not launch a bank scan");
   fake.pingOkay = true;
   await device.pollTick();
@@ -587,7 +588,7 @@ await check("a deferred dispose never closes a handle sharing the live probe's U
 
 /** A boot that yields a flasher bound to the transport it was handed (as the real one does). */
 function bootReturningFlasher() {
-  return async (transport) => ({ flasher: true, transport, getContext: async () => 0 });
+  return async (transport) => ({ flasher: true, transport, hasSynchronizedContextCounter: true, getContext: async () => 0 });
 }
 
 await check("PRECONDITION: a healthy cached flasher IS still reused (the gate is not a blanket reboot)", async () => {

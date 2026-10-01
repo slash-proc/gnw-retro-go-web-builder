@@ -229,7 +229,6 @@
   // precondition with a dot and possibly an action, here they are a recorded value.
   const adapterRows = $derived.by((): StatRow[] => {
     const rows: StatRow[] = [{ label: t.probe, value: device.probeName ?? ov.info.unknownValue }];
-    if (device.deviceUid) rows.push({ label: t.deviceUid, value: device.deviceUid });
     rows.push({
       label: ov.info.readProtection,
       value:

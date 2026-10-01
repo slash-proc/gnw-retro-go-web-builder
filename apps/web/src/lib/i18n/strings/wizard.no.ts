@@ -30,6 +30,8 @@ export const wizardNo: WizardStrings = {
     bodyBackupOnly:
       "Du blir bedt om å velge en mappe på maskinen din, der en kopi av enhetens originale firmware lagres. Ta godt vare på disse filene, for du kan ikke laste dem ned igjen. Ingenting skrives til enheten: Retro-Go erstatter originalfirmwaren i neste steg.",
     buttonBackupOnly: "Sikkerhetskopier",
+    resumeBackup: "Fortsett sikkerhetskopiering",
+    statusIncomplete: "Ufullstendig sikkerhetskopi",
   },
   step2: {
     title: "Installer Retro-Go",

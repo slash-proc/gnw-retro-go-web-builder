@@ -52,6 +52,8 @@ export {
   relocateWords,
   MappedRelocError,
   EXTFLASH_BASE,
+  MAPPED_SIDECAR_INDEX_PATH,
+  mappedSidecarIndex,
   type MappedSpec,
   type MappedResult,
 } from "./mappedReloc.js";

@@ -75,6 +75,8 @@ function fakeDevice({ scanInFlight = null, bootThrows = null } = {}) {
   logged.length = 0;
   return {
     events,
+    suspendPoll() { this.pollSuspendDepth++; },
+    resumePoll() { this.pollSuspendDepth--; },
     _scanPromise: scanInFlight,
     // Read by the [recovery] diagnostic. Real names, so a rename in the store shows up here.
     _reconnectAfterBoot: false,
@@ -91,10 +93,10 @@ function fakeDevice({ scanInFlight = null, bootThrows = null } = {}) {
   };
 }
 
-await check("a boot is forced, then the device is rescanned", async () => {
+await check("the utility is ensured, then the device is rescanned", async () => {
   const d = fakeDevice();
   await startRecoveryMode.call(d);
-  eq(d.events, ["boot:forced", "scan:recovery mode"], "boot then scan, in that order");
+  eq(d.events, ["boot:reused", "scan:recovery mode"], "boot then scan, in that order");
 });
 
 await check("the rescan happens EVERY time, with no freshness gate", async () => {
@@ -140,12 +142,12 @@ await check("a rejected in-flight scan does not stop the fresh one", async () =>
 
 await check("a declined boot skips the rescan", async () => {
   // StubLoadModal's Cancel rejects. Nothing was reset, so there is nothing to re-read.
-  const d = fakeDevice({ bootThrows: new Error("declined") });
+  const d = fakeDevice({ bootThrows: new StubLoadCancelled("declined") });
   await startRecoveryMode.call(d).then(
     () => { throw new Error("a declined boot must reject"); },
     () => {},
   );
-  eq(d.events, ["boot:forced"], "no scan after a boot that did not happen");
+  eq(d.events, ["boot:reused"], "no scan after a boot that did not happen");
 });
 
 await check("the menu item calls it, rather than booting the stub itself", async () => {
@@ -237,7 +239,7 @@ await check("the poll is resumed even when the boot throws", async () => {
 // From the outside, "the boot failed" and "the click did nothing" were indistinguishable --
 // which is exactly why the reported workaround was pressing the button again.
 const recoveryLine = () => {
-  const hit = logged.find((m) => m.startsWith("[recovery] "));
+  const hit = logged.find((m) => m.startsWith("[recovery] {"));
   return hit ? JSON.parse(hit.slice("[recovery] ".length)) : null;
 };
 

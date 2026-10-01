@@ -16,6 +16,14 @@ const BOOTLOADER_END = 0x08040000;
 const RECOVERY_START = 0x24000000;
 const RECOVERY_END = 0x24100000;
 const BANK_SIZE = 0x00100000;
+const BANK1_START = 0x08000000;
+const BANK2_START = 0x08100000;
+
+function bankIndexAt(address: number): 1 | 2 | null {
+  if (address >= BANK1_START && address < BANK2_START) return 1;
+  if (address >= BANK2_START && address < BANK2_START + BANK_SIZE) return 2;
+  return null;
+}
 
 function bankAt(address: number, banks: readonly IntflashBank[]): IntflashBank | undefined {
   return banks.find((b) => address >= b.base && address < b.base + BANK_SIZE);
@@ -31,10 +39,13 @@ function classifyBank(bank: IntflashBank | undefined): RuntimeKind {
 function classifyAddress(address: number, banks: readonly IntflashBank[]): RuntimeKind {
   if (address >= RECOVERY_START && address < RECOVERY_END) return "recovery";
   if (address >= BOOTLOADER_START && address < BOOTLOADER_END) return "bootloader";
+  // On this platform, bank 2 is the Retro-Go image; this also classifies VTOR values in it.
+  if (bankIndexAt(address) === 2) return "retro-go";
   return classifyBank(bankAt(address, banks));
 }
 
-/** Identify the code currently executing. VTOR is a live memory read; PC is only a fallback. */
+/** Identify the active image from VTOR without halting. Deliberate unlocked scans may use PC
+ *  only when VTOR does not identify a known region. */
 export async function detectRuntime(
   transport: SwdTransport,
   banks: readonly IntflashBank[],
@@ -45,14 +56,14 @@ export async function detectRuntime(
     vtor = (await transport.readWord(VTOR)) >>> 0;
     const kind = classifyAddress(vtor, banks);
     if (kind !== "unknown") {
-      const bank = bankAt(vtor, banks)?.index ?? null;
+      const bank = bankAt(vtor, banks)?.index ?? bankIndexAt(vtor);
       return { kind, vtor, pc: null, bank };
     }
   } catch {
-    // Fall through to the brief halted PC sample.
+    // An unavailable VTOR falls through only when the caller explicitly permits PC sampling.
   }
 
-  if (options.pcFallback === false) return { kind: "unknown", vtor, pc: null, bank: null };
+  if (options.pcFallback === false) return { kind: "unknown", vtor, pc: null, bank: vtor === null ? null : bankIndexAt(vtor) };
 
   let pc: number | null = null;
   let halted = false;
@@ -61,10 +72,10 @@ export async function detectRuntime(
     halted = true;
     pc = (await transport.readRegister("pc")) >>> 0;
     const kind = classifyAddress(pc & ~1, banks);
-    const bank = bankAt(pc & ~1, banks)?.index ?? null;
+    const bank = bankAt(pc & ~1, banks)?.index ?? bankIndexAt(pc & ~1);
     return { kind, vtor, pc, bank };
   } catch {
-    return { kind: "unknown", vtor, pc, bank: null };
+    return { kind: "unknown", vtor, pc, bank: vtor === null ? null : bankIndexAt(vtor) };
   } finally {
     if (halted) await transport.resume().catch(() => {});
   }

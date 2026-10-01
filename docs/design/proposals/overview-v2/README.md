@@ -135,8 +135,8 @@ blocking the page. Chrome, nav, rail and footer are lifted from `Firmware.dc.htm
 | Read protection, chip, minimum erase | `DeviceInfo`, `packages/gnw-flasher/src/index.ts:133-140` |
 | Partitions | `ExtPartition.offset/.size/.type/.fs`, `engine/fsscan.ts:21-31` |
 | Storage target, card folder | `device.targetMedia`, `device.sdHandle`, `device.svelte.ts:45,52` |
-| Firmware backup | per-unit fact keyed by `deviceUid`, `device.svelte.ts:70` |
-| Probe, device UID | `device.svelte.ts:38,65` |
+| Firmware backup | verified backup files and the in-session guided-flow latch |
+| Probe | `device.svelte.ts` adapter information |
 | Installed firmware, upgrade | `gitTag` + `installTitleState()`, `firmwareDist/compare.ts` |
 | Activity entries | `auditLog.svelte.ts` (`{id, time, severity, source, subject, message, seen}`) |
 | Device log output | `engine/devicelog.ts:15-17` (ring at `0x20000008`, index at `0x20000004`) |
@@ -144,7 +144,7 @@ blocking the page. Chrome, nav, rail and footer are lifted from `Firmware.dc.htm
 ## Not grounded
 
 - **Numbers are plausible, not measured.** No device was attached. Chip size, bank byte counts,
-  card capacity, the UID and the log text are real *shapes* with invented values. Firmware
+  card capacity and the log text are real *shapes* with invented values. Firmware
   versions are the owner's real ones.
 - **Symbolication is drawn, not built.** Nothing in `apps/web` parses an ELF. The chain that
   makes it possible without asking for a file does exist: the installed `gitTag` names the
@@ -186,7 +186,7 @@ New, each a seven-file i18n edit if this is chosen:
 - Status rows: `Debug probe`, `Firmware backup`, `Installed firmware`, `None`,
   `No card selected`, `2 need attention` (count interpolated), `SD card`
 - Details labels: `Bank 1`, `Bank 2`, `Contents`, `Capacity`, `Minimum erase`, `Probe`,
-  `Device UID`, `Sources`, `Browser cache`, `App version`, `Games`, `Covers`, `Saves`,
+  `Sources`, `Browser cache`, `App version`, `Games`, `Covers`, `Saves`,
   `Zelda assets`, `Latest`, `Published`
 - Activity: `All`, `Info`, `Warning`, `Error`, `Debug`, `Converter`, `Device`, `Filter`,
   `Showing N of M` (interpolated), `Copy`, `Save`

@@ -133,7 +133,7 @@ duplicated patterns into shared modules. Check these before hand-rolling the equ
   `dbg()` (`lib/debug.ts`) feeds it through an **injected** sink (`setDbgSink`), so `debug.ts`
   stays store-free; its `/api/debug` POST only ever reached the Express dev server, which meant
   every diagnostic line was discarded in the deployed build, which is exactly the build where
-  someone is asked for a bug report. **Debug has its own 200-entry budget** (`MAX_DEBUG_ENTRIES`) held apart
+  someone is asked for a bug report. **Debug has its own 2,000-entry budget** (`MAX_DEBUG_ENTRIES`) held apart
   from the 500-entry `MAX_ENTRIES` cap, and that separation is the thing that makes the wiring
   safe rather than the pane hiding it: `dbg()` fires per game, cover, cheat and core, so one
   library sync would otherwise flush every error out of a shared ring. Hidden is not evicted.

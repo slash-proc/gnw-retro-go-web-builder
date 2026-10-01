@@ -37,6 +37,8 @@ export const wizardEn = {
     bodyBackupOnly:
       "You will be prompted to select a folder on your computer, where a copy of your device's original firmware will be saved. Keep these files safe, because you cannot download them again. Nothing is written to the device: Retro-Go replaces the original firmware in the next step.",
     buttonBackupOnly: "Back Up",
+    resumeBackup: "Resume backup",
+    statusIncomplete: "Incomplete backup",
   },
   step2: {
     title: "Install Retro-Go",

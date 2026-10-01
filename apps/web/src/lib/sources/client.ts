@@ -255,6 +255,20 @@ function resolveArtifacts(list: unknown, base: string) {
     if (raw.mapped !== undefined && typeof raw.mapped !== "boolean") {
       throw new SourceError("malformed", raw.filename);
     }
+    if (raw.lookupKey !== undefined && (
+      typeof raw.lookupKey !== "string" || raw.lookupKey.length === 0 ||
+      raw.lookupKey.includes("\0")
+    )) {
+      throw new SourceError("malformed", raw.filename);
+    }
+    if (raw.lookupKey !== undefined && raw.mapped !== true) {
+      throw new SourceError("malformed", raw.filename);
+    }
+    if (raw.lookupKey !== undefined && (
+      !Number.isInteger(raw.bytes) || raw.bytes < 1 || raw.bytes > 0xffffffff
+    )) {
+      throw new SourceError("malformed", raw.filename);
+    }
     if (raw.relocBase !== undefined) {
       if (
         typeof raw.relocBase !== "number" ||
@@ -275,6 +289,7 @@ function resolveArtifacts(list: unknown, base: string) {
       url: new URL(raw.url, base).toString(),
       ...(raw.mapped === true ? { mapped: true as const } : {}),
       ...(typeof raw.relocBase === "number" ? { relocBase: raw.relocBase } : {}),
+      ...(typeof raw.lookupKey === "string" ? { lookupKey: raw.lookupKey } : {}),
     };
   });
 }

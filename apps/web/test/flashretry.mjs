@@ -99,16 +99,13 @@ if (!Number.isInteger(DEAD_HANDLE_BUDGET)) {
 
 const DATA = new Uint8Array(64);
 
-await check("liveness rejects a stale CPUID echoed for VTOR", async () => {
-  const cpuid = 0x411fc271;
-  const transport = { readWord: async () => cpuid };
-  eq(await pingTarget(transport), false, "an echoed CPUID is not a live target");
-  transport.readWord = async (address) => address === 0xe000ed00 ? cpuid : 0x08000000;
-  eq(await pingTarget(transport), true, "a plausible vector table confirms the target");
-  transport.readWord = async (address) => address === 0xe000ed00 ? cpuid : 0xffffffff;
-  eq(await pingTarget(transport), true, "a locked or erased target remains accessible for recovery");
-  transport.readWord = async (address) => address === 0xe000ed00 ? cpuid : 0x38c328a3;
-  eq(await pingTarget(transport), false, "misaligned garbage is not a vector table");
+await check("liveness validates CPUID without reading VTOR", async () => {
+  const addresses = [];
+  const transport = { readWord: async (address) => { addresses.push(address); return 0x411fc271; } };
+  eq(await pingTarget(transport), true, "Cortex-M7 responds");
+  eq(JSON.stringify(addresses), JSON.stringify([0xe000ed00]), "ping reads CPUID only");
+  transport.readWord = async () => 0xffffffff;
+  eq(await pingTarget(transport), false, "invalid CPUID is rejected");
 });
 
 /** A GnwFlasher-shaped fake whose flash() throws `mk(attempt)`; counts the calls. */

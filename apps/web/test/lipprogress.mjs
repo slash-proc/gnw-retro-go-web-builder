@@ -226,7 +226,7 @@ const record = (ev) => events.push(ev);
     "the progress state drives the fill's width and nothing else",
   );
   check(
-    /class:hazard=\{deviceSafety\.unsafe\}/.test(stripped),
+    /class:hazard=\{deviceSafety\.writeInProgress\}/.test(stripped),
     "the unsafe stripe still paints, on the fill",
   );
 }

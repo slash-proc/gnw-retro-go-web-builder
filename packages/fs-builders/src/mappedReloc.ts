@@ -39,6 +39,8 @@ export class MappedRelocError extends Error {
 
 /** One mapped artifact, keyed by its FrogFS dest path (e.g. `cores/gba.xip`). */
 export interface MappedSpec {
+  /** Exact opaque key passed by the core to `lookup_data_in_flash()`. */
+  lookupKey?: string;
   /**
    * The sentinel the blob was linked at, from the manifest. ABSENT means the file must be
    * addressable but needs no relocation -- the spec allows `mapped` without `relocBase`, so
@@ -79,10 +81,59 @@ export interface MappedSpec {
 
 export interface MappedResult {
   path: string;
+  /** CRC-32 of the complete ABI lookup key, as stored by the flash-only firmware index. */
+  lookupKeyCrc32?: number;
   /** The real address the blob now sits at. */
   address: number;
+  /** Byte size used by the firmware's mapped-data lookup. */
+  size: number;
+  /** CRC-32 of the cold data before relocation. */
+  crc32: number;
   /** Words rewritten. `undefined` when the spec carried no `relocBase`. */
   patched?: number;
+}
+
+/** The flash-only ABI resolves mapped sidecars from this LittleFS file. */
+export const MAPPED_SIDECAR_INDEX_PATH = "data/mappedsidecars.bin";
+const MAPPED_SIDECAR_RECORD_SIZE = 16;
+const MAPPED_SIDECAR_MAX_RECORDS = 256;
+
+/**
+ * Serialize the flash-only ABI index as a headerless array of the firmware's
+ * `gw_flash_file_metadata_t` records: three little-endian uint32 fields (key CRC, XIP address,
+ * size), a valid byte, then three reserved zero bytes. Its key CRC is over the full opaque key
+ * passed by the core, not the mapped blob's own pre-relocation CRC.
+ */
+export function mappedSidecarIndex(records: readonly MappedResult[]): Uint8Array {
+  const indexed = records
+    .filter((record): record is MappedResult & { lookupKeyCrc32: number } =>
+      record.lookupKeyCrc32 !== undefined)
+    .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+  if (indexed.length > MAPPED_SIDECAR_MAX_RECORDS) {
+    throw new MappedRelocError(
+      `mapped sidecar index has ${indexed.length} records; firmware limit is ${MAPPED_SIDECAR_MAX_RECORDS}`,
+    );
+  }
+  for (const record of indexed) {
+    if (!Number.isInteger(record.address) || record.address < 0 || record.address > 0xffffffff) {
+      throw new MappedRelocError(`${record.path}: XIP address does not fit the firmware's uint32 field`);
+    }
+    if (!Number.isInteger(record.size) || record.size <= 0 || record.size > 0xffffffff) {
+      throw new MappedRelocError(`${record.path}: indexed mapped size must be a positive uint32`);
+    }
+  }
+
+  const bytes = new Uint8Array(indexed.length * MAPPED_SIDECAR_RECORD_SIZE);
+  const view = new DataView(bytes.buffer);
+  indexed.forEach(({ lookupKeyCrc32, address, size }, index) => {
+    const offset = index * MAPPED_SIDECAR_RECORD_SIZE;
+    view.setUint32(offset, lookupKeyCrc32 >>> 0, true);
+    view.setUint32(offset + 4, address >>> 0, true);
+    view.setUint32(offset + 8, size >>> 0, true);
+    view.setUint8(offset + 12, 1);
+    // bytes 13..15 are reserved and remain zero from Uint8Array initialization.
+  });
+  return bytes;
 }
 
 /**
@@ -175,28 +226,34 @@ export function relocateMappedInFrogfs(
     }
 
     const address = extflashBase + frogfsOffset + entry.dataOffs;
+    const blob = image.subarray(entry.dataOffs, entry.dataOffs + entry.dataSize);
+    // Keep the blob CRC separate from the key hash. The former identifies pristine cold data;
+    // the firmware index is keyed by CRC32 of the complete opaque lookup string.
+    const sourceCrc32 = crc32(blob) >>> 0;
+    const lookupKeyCrc32 = spec.lookupKey === undefined
+      ? undefined
+      : crc32(new TextEncoder().encode(spec.lookupKey)) >>> 0;
     // Where the blob's addresses point NOW: the sentinel on a first placement, its own last
     // address once it has been placed.
     const base = spec.placedAt ?? spec.relocBase;
     if (base === undefined) {
-      out.push({ path, address });
+      out.push({ path, lookupKeyCrc32, address, size: entry.dataSize, crc32: sourceCrc32 });
       continue;
     }
     if (base === address) {
       // It has not moved. Scanning would be a no-op with a real chance of a false hit, so the
       // honest thing is to leave the bytes alone.
-      out.push({ path, address, patched: 0 });
+      out.push({ path, lookupKeyCrc32, address, size: entry.dataSize, crc32: sourceCrc32, patched: 0 });
       continue;
     }
 
-    const blob = image.subarray(entry.dataOffs, entry.dataOffs + entry.dataSize);
     const patched = relocateWords(blob, base, address);
     if (spec.expectPatched !== undefined && patched !== spec.expectPatched) {
       throw new MappedRelocError(
         `${path}: relocated ${patched} words, expected ${spec.expectPatched}`,
       );
     }
-    out.push({ path, address, patched });
+    out.push({ path, lookupKeyCrc32, address, size: entry.dataSize, crc32: sourceCrc32, patched });
   }
 
   // The footer is over the body only, and it must be rewritten whatever else happened --

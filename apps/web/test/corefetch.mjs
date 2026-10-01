@@ -84,8 +84,8 @@ function audit(src) {
     if (!reuse || !reuse[0].includes(flag)) {
       problems.push("the preview image is reused without asking whether cores were just fetched");
     }
-    if (!new RegExp(`if \\(${flag}\\)[\\s\\S]{0,200}builtPendingLfs = \\[\\]`).test(run)) {
-      problems.push("a fetch does not clear builtPendingLfs, so the LittleFS half stays stale");
+    if (!/let pendingLfs[^;]*frogfs \? \[\.\.\.builtPendingLfs\] : \[\]/.test(run)) {
+      problems.push("a rebuilt image must start with no cached LittleFS files");
     }
   }
 

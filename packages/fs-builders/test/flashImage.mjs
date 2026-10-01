@@ -16,6 +16,7 @@ import {
   LITTLEFS_FLOOR,
   parseFrogfs,
   relocateMappedInFrogfs,
+  mappedSidecarIndex,
   MappedRelocError,
   EXTFLASH_BASE,
 } from "../dist/index.js";
@@ -476,8 +477,9 @@ ok(mapPlan.mappedDests.length === 1 && mapPlan.mappedDests[0].key === "cores/gba
 
 const mapImage = buildFrogfsFromPlan(mapPlan);
 const FROGFS_OFFSET = 0x00300000;
+const LOOKUP_KEY = "cold:pico8:b13aeac5:107512";
 const placed = relocateMappedInFrogfs(mapImage, FROGFS_OFFSET, new Map([
-  ["cores/gba.xip", { relocBase: RELOC_BASE, bytes: XIP_SIZE }],
+  ["cores/gba.xip", { relocBase: RELOC_BASE, bytes: XIP_SIZE, lookupKey: LOOKUP_KEY }],
 ]));
 ok(placed.length === 1, "one mapped artifact placed");
 
@@ -490,6 +492,23 @@ const wantAddr = (EXTFLASH_BASE + FROGFS_OFFSET + entry.dataOffs) >>> 0;
 ok(placed[0].address === wantAddr,
   `address == EXTFLASH_BASE + frogfsOffset + dataOffs (got ${placed[0].address.toString(16)}, want ${wantAddr.toString(16)})`);
 ok(placed[0].patched === 3, `exactly the three in-window words were patched (got ${placed[0].patched})`);
+
+// The lookup file matches gw_flash_file_metadata_t: a headerless 16-byte LE record, not TSV.
+{
+  const indexBytes = mappedSidecarIndex([
+    placed[0],
+    { path: "cores/no-index.xip", address: wantAddr, size: XIP_SIZE, crc32: 0 },
+  ]);
+  const view = new DataView(indexBytes.buffer, indexBytes.byteOffset, indexBytes.byteLength);
+  ok(indexBytes.length === 16, `one opted-in artifact yields one 16-byte record (got ${indexBytes.length})`);
+  ok(crc32(enc(LOOKUP_KEY)) === 0x9035759b, "full-key CRC matches the firmware reference vector");
+  ok(view.getUint32(0, true) === 0x9035759b, "record stores the full-key CRC in little-endian form");
+  ok(view.getUint32(4, true) === wantAddr, "record address is the final FrogFS XIP address");
+  ok(view.getUint32(8, true) === XIP_SIZE, "record size is the mapped blob size");
+  ok(view.getUint8(12) === 1, "record valid byte is set");
+  ok(indexBytes[13] === 0 && indexBytes[14] === 0 && indexBytes[15] === 0,
+    "record reserved bytes are zero");
+}
 
 // The patched words: those in [base, base+size) moved by the delta, the Thumb bit survived
 // because the delta is added to the UNMASKED value, and nothing else moved.

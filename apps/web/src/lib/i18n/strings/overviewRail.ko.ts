@@ -12,7 +12,6 @@ export const overviewRailKo: OverviewRailStrings = {
   capacity: "용량",
 
   probe: "프로브",
-  deviceUid: "기기 UID",
 
   sources: "소스",
   sourcesCount: (listed: number, active: number) => `${listed}개 중 ${active}개 활성`,

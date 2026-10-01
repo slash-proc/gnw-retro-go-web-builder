@@ -5,6 +5,8 @@ import type { DeviceHeaderStrings } from "./deviceHeader.js";
 // values. `patched`/`stock` are lowercase because they are only ever substituted into
 // `ofwLabel`'s parentheses, never shown alone.
 export const deviceHeaderRu: DeviceHeaderStrings = {
+  noDeviceDetected: "Устройство не обнаружено",
+  noValidAdapterSelected: "Не выбран подходящий адаптер",
   targetUnresponsive: "Устройство перестало отвечать. Ожидание восстановления связи…",
   changeInstallationMethod: "Сменить способ установки",
   connectionLost: "Соединение потеряно",
@@ -35,7 +37,6 @@ export const deviceHeaderRu: DeviceHeaderStrings = {
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "Официальная прошивка",
   unsafeWritingStatus: "Запись во флеш-память. Не отключайте",
-  unsafeSettlingStatus: "Завершение. Не отключайте",
   retroGoOlderSuffix: "(устаревшая)",
   unsafeAria: "Не отключайте устройство",
 };

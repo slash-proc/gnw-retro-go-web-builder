@@ -14,7 +14,6 @@ export const overviewRailRu: OverviewRailStrings = {
   capacity: "Объём",
 
   probe: "Программатор",
-  deviceUid: "UID устройства",
 
   sources: "Источники",
   sourcesCount: (listed: number, active: number) => `${listed} в списке, ${active} активно`,

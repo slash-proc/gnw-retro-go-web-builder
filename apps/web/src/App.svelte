@@ -82,6 +82,12 @@
   // Sources left every core at zero until the Library was visited. One registry signature covers
   // all active cores/homebrew; a source change schedules one merged scan after manifests settle.
   $effect(() => {
+    // Join the Manage Library startup trace to the actual shared top-bar state. This only
+    // observes the lip; directory scanning and cover-atlas work keep their existing behavior.
+    device.observeManageStartupLip(lipProgress.active);
+  });
+
+  $effect(() => {
     library.romFolderSignature;
     // The landing chooser is the first-run wizard (Flash vs SD, Firmware vs Library). It must
     // not trigger a library walk before the user has chosen a destination.
@@ -170,7 +176,7 @@
       // Snapshot connection state NOW: if already connected, the firmware value is stale/known
       // and we should not auto-route on this navigation.
       deviceAlreadyConnected = device.isConnected;
-      void device.connectSilent();
+      void device.startOverviewDeviceScan();
     }
     showLanding = false;
   }
@@ -215,13 +221,13 @@
          HeaderBusy artboards put the lip in the same 3px row in both states). The row lives
          here, in the sticky header that owns it, because a lip split across two components
          coordinates by luck; DeviceHeader is a pure consumer of deviceSafety and renders no
-         lip of its own. This element is a pure presentation mirror of deviceSafety
+         lip of its own. This element mirrors active writes from deviceSafety
          (installProgress.svelte.ts) — it decides nothing about when a write is in flight. -->
     <div
       class="lip"
-      role={deviceSafety.unsafe ? "alert" : undefined}
-      aria-label={deviceSafety.unsafe ? locale.t.deviceHeader.unsafeAria : undefined}
-      aria-hidden={deviceSafety.unsafe ? undefined : "true"}
+      role={deviceSafety.writeInProgress ? "alert" : undefined}
+      aria-label={deviceSafety.writeInProgress ? locale.t.deviceHeader.unsafeAria : undefined}
+      aria-hidden={deviceSafety.writeInProgress ? undefined : "true"}
     >
       <!-- The FILL, not a second strip: the row stays 3px and only the fill's extent and
            paint change, which is what GF3 records ("3px constant height, fill-swap only").
@@ -230,7 +236,7 @@
            the --surface-sunk track this project already uses behind a fill (--seg-free). -->
       <div
         class="lip-fill"
-        class:hazard={deviceSafety.unsafe}
+        class:hazard={deviceSafety.writeInProgress}
         style={lipProgress.active ? `width: ${lipProgress.percent}%` : undefined}
       ></div>
     </div>

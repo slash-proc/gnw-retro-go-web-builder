@@ -12,7 +12,6 @@ export const overviewRailPl: OverviewRailStrings = {
   capacity: "Pojemność",
 
   probe: "Sonda",
-  deviceUid: "UID urządzenia",
 
   sources: "Źródła",
   sourcesCount: (listed: number, active: number) => `${listed} na liście, ${active} aktywne`,

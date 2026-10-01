@@ -130,7 +130,13 @@ export function parseRomPath(key: string, reg: CoreRegistry = coreRegistry.curre
 
   const dot = filename.lastIndexOf(".");
   if (dot < 0) return null; // No extension
-  const ext = filename.slice(dot).toLowerCase();
+  // Match the longest suffix declared by the active core. Some ROM formats use compound
+  // extensions (PICO-8 carts are `.p8.png`); taking only the final suffix turns that into
+  // `.png`, which does not match the manifest and silently drops the game from the library.
+  const extensions: string[] = [];
+  for (let i = filename.indexOf("."); i >= 0; i = filename.indexOf(".", i + 1)) {
+    extensions.push(filename.slice(i).toLowerCase());
+  }
 
   // The top-level directory must be the console shortname (e.g. 'nes/mario.nes' or 'nes/hacks/mario.nes')
   if (parts.length === 0) return null;
@@ -139,10 +145,9 @@ export function parseRomPath(key: string, reg: CoreRegistry = coreRegistry.curre
   // THE REGISTRY FIRST. An active core that declares this folder decides both whether the file
   // counts and what it is; `role` is how a `.wad` becomes a Library ROM without ever becoming
   // something the installer may copy.
-  const hit = classifyForRegistry(reg, topDir, ext);
-  if (hit) {
-    return hit.role === "unknown" ? null : { system: hit.system.folder, name: filename, role: hit.role };
-  }
+  const hits = extensions.map((ext) => classifyForRegistry(reg, topDir, ext));
+  const hit = hits.find((candidate) => candidate && candidate.role !== "unknown");
+  if (hit) return { system: hit.system.folder, name: filename, role: hit.role };
 
   // Registered cores exist and none of them claims this folder: it is not a console. This is
   // the line that makes disabling a source remove its button while the files stay on disk.
@@ -154,6 +159,9 @@ export function parseRomPath(key: string, reg: CoreRegistry = coreRegistry.curre
   if (!governingConsole) return null;
 
   const whitelist = CONSOLE_WHITELISTS[governingConsole];
+  // The legacy table only contains single-suffix formats, so retain its previous final-suffix
+  // behavior when no registry is available.
+  const ext = extensions[extensions.length - 1];
   if (!whitelist.has(ext)) return null;
 
   let system = governingConsole;
@@ -401,6 +409,7 @@ class RomSelectionStore {
           folder: parsed.system,
           shortName: registered?.shortName ?? parsed.system,
           longName: registered?.longName ?? parsed.system,
+          ...(registered ? { extensions: [...registered.installable, ...registered.ingestable] } : {}),
           coreSourceIds: sourceKey ? [sourceKey] : [],
           primaryCoreSourceId: sourceKey,
           ...(coreSource ? { source: coreSource } : {}),

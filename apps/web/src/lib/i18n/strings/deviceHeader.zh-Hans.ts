@@ -1,6 +1,8 @@
 import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderZhHans: DeviceHeaderStrings = {
+  noDeviceDetected: "未检测到设备",
+  noValidAdapterSelected: "未选择有效的适配器",
   changeInstallationMethod: "更改安装方式",
   connectionLost: "连接已断开",
   targetUnresponsive: "目标设备无响应，正在等待其恢复…",
@@ -30,7 +32,6 @@ export const deviceHeaderZhHans: DeviceHeaderStrings = {
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "官方固件",
   unsafeWritingStatus: "正在写入闪存，请勿断开",
-  unsafeSettlingStatus: "正在收尾，请勿断开",
   retroGoOlderSuffix: "（旧版）",
   unsafeAria: "请勿断开设备",
 };

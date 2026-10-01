@@ -19,6 +19,8 @@ import {
   buildFrogfsFromPlan,
   buildCoresLittlefs,
   relocateMappedInFrogfs,
+  mappedSidecarIndex,
+  MAPPED_SIDECAR_INDEX_PATH,
   MappedRelocError,
   type FlashLayout,
   type FlashAssemblyPlan,
@@ -170,24 +172,17 @@ export async function buildFlashInstall(inp: FlashInstallInputs): Promise<FlashI
     dataStart: inp.frogfsState?.dataStart,
   });
   inp.onStep?.("frogfs");
-  const coresSize = plan.coreFiles.reduce((n, f) => n + f.data.length, 0);
 
-  const layout = planFlashLayout({
+  // A first layout supplies FrogFS's base for address calculation. The mapped index is built
+  // only after relocation reveals those addresses, so LittleFS sizing is finalized below.
+  const placementLayout = planFlashLayout({
     extflashSize: inp.extflashSize,
     frogfsLength: frogfs.length,
-    coresSize,
+    coresSize: plan.coreFiles.reduce((n, f) => n + f.data.length, 0),
     blockSize: inp.blockSize,
     reservedOffset: inp.reservedOffset,
     littlefsLength: inp.littlefsLength,
   });
-  if (!layout.fits) {
-    const over = (-layout.freeBytes / (1024 * 1024)).toFixed(1);
-    throw new BudgetError(
-      `Content doesn't fit this extflash: FrogFS ${(frogfs.length / 1048576).toFixed(1)} MB + ` +
-        `LittleFS ${(layout.littlefsLength / 1048576).toFixed(1)} MB exceeds ` +
-        `${(inp.extflashSize / 1048576).toFixed(0)} MB by ${over} MB. Remove some ROMs.`,
-    );
-  }
 
   // RELOCATE MAPPED ARTIFACTS -- after the layout fixes `frogfsOffset`, before anything is
   // written. The address of a file executed in place is `EXTBASE + frogfsOffset + dataOffs`,
@@ -206,11 +201,40 @@ export async function buildFlashInstall(inp: FlashInstallInputs): Promise<FlashI
     if (spec) mappedByDest.set(dest, spec);
   }
   const mappedPlaced: MappedResult[] =
-    mappedByDest.size > 0 ? relocateMappedInFrogfs(frogfs, layout.frogfsOffset, mappedByDest) : [];
+    mappedByDest.size > 0 ? relocateMappedInFrogfs(frogfs, placementLayout.frogfsOffset, mappedByDest) : [];
   if (mappedPlaced.length > 0) inp.onStep?.("mapped");
 
+  // The ABI index lives in LittleFS `/data`; each row hashes the manifest's full opaque
+  // lookupKey, while address/size describe the final XIP bytes in FrogFS. Replace any
+  // migrated/stale index even when this install has no mapped artifacts.
+  const littlefsFiles = [
+    ...plan.coreFiles.filter((file) => file.path !== MAPPED_SIDECAR_INDEX_PATH),
+    { path: MAPPED_SIDECAR_INDEX_PATH, data: mappedSidecarIndex(mappedPlaced) },
+  ];
+  plan.coreFiles = littlefsFiles;
+  plan.stats.coreFiles = littlefsFiles.length;
+  const layout = planFlashLayout({
+    extflashSize: inp.extflashSize,
+    frogfsLength: frogfs.length,
+    coresSize: littlefsFiles.reduce((n, file) => n + file.data.length, 0),
+    blockSize: inp.blockSize,
+    reservedOffset: inp.reservedOffset,
+    littlefsLength: inp.littlefsLength,
+  });
+  if (layout.frogfsOffset !== placementLayout.frogfsOffset) {
+    throw new Error("LittleFS sizing unexpectedly changed the mapped FrogFS address");
+  }
+  if (!layout.fits) {
+    const over = (-layout.freeBytes / (1024 * 1024)).toFixed(1);
+    throw new BudgetError(
+      `Content doesn't fit this extflash: FrogFS ${(frogfs.length / 1048576).toFixed(1)} MB + ` +
+        `LittleFS ${(layout.littlefsLength / 1048576).toFixed(1)} MB exceeds ` +
+        `${(inp.extflashSize / 1048576).toFixed(0)} MB by ${over} MB. Remove some ROMs.`,
+    );
+  }
+
   const littlefs = await buildCoresLittlefs(
-    plan.coreFiles,
+    littlefsFiles,
     {
       blockSize: layout.blockSize,
       blockCount: layout.littlefsBlockCount,

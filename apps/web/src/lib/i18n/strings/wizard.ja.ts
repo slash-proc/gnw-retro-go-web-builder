@@ -30,6 +30,8 @@ export const wizardJa: WizardStrings = {
     bodyBackupOnly:
       "コンピューター上のフォルダーを選択するよう求められます。そこに本体の純正ファームウェアのコピーが保存されます。再ダウンロードはできないため、ファイルは大切に保管してください。本体には何も書き込まれません。純正ファームウェアは次のステップで Retro-Go に置き換えられます。",
     buttonBackupOnly: "バックアップ",
+    resumeBackup: "バックアップを再開",
+    statusIncomplete: "バックアップ未完了",
   },
   step2: {
     title: "Retro-Goをインストール",

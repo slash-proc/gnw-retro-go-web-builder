@@ -206,15 +206,13 @@ await check("the guided page shows no Done chip, and the string is gone", () => 
   assert(!/chipDone/.test(en), "wizard.chipDone still exists in the string table");
 });
 
-await check("the dual-boot backup step is done on bank-1 patch evidence", () => {
+await check("dual boot tracks backup and patch completion separately", () => {
   // A patched Zelda/Mario image in bank 1 is device truth. The local backup flag is still
   // required for Retro-Go-only, which never patches, but must not keep an already-patched
   // dual-boot device looking unfinished after a reload or another session.
-  const m = wiz.match(/let step1Done = \$derived\(([\s\S]*?)\);/);
-  assert(m, "step1Done is gone or reshaped");
-  assert(!/isPatched/.test(m[1]), `step1Done still depends on isPatched (and so on hasAssets): ${m[1].trim()}`);
-  assert(/path === "rgo" \? backupTaken \|\| backupPresent : !!device\.deviceClass\?\.ofw\?\.patched/.test(m[1]),
-    `step1Done must use bank-1 patch evidence for dual boot and the backup flag only for Retro-Go: ${m[1].trim()}`);
+  assert(/let backupStepDone = \$derived\(step1Skipped \|\| backupPresent\)/.test(wiz), "backup completion uses validated local backups");
+  assert(/let patchStepDone = \$derived\(path === "dual" && isPatched\)/.test(wiz), "dual patch completion is separate from backup completion");
+  assert(/b.index === 1 && b.ofw\?\.patched === true/.test(wiz) && /&& hasAssets/.test(wiz), "patch requires bank 1 and external assets");
 });
 
 console.log(`\nversionrefresh: ${passed} passed, ${failed} failed`);

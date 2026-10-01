@@ -153,7 +153,7 @@
   <button
     class="gw-icon-btn status-{statusColor}"
     class:syncing={device.scanning}
-    class:unsafe={deviceSafety.unsafe}
+    class:unsafe={deviceSafety.writeInProgress}
     onclick={toggle}
     title={locale.t.shared.deviceControls.deviceActions}
     aria-haspopup="menu"

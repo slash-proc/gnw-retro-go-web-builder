@@ -101,10 +101,10 @@ check("THE SCAN CLAIMS THE LIP, and claims it before the first read", () => {
   // This is the check that would have caught the silent no-op: an earlier attempt wired the lip
   // into a helper that a revert had already deleted, so the edit applied to nothing and the scan
   // never claimed the lip at all. The claim has to happen at the TOP of the scan, because the
-  // UID and bank reads come first and every unclaimed read is drawn as its own 0-to-100 sweep.
+  // Bank reads come first and every unclaimed read is drawn as its own 0-to-100 sweep.
   const body = store.slice(store.indexOf("private async _doScan"));
   const claim = body.indexOf('lipProgress.operationProgress("scan", 0)');
-  const firstRead = body.indexOf("_readDeviceUid");
+  const firstRead = body.indexOf("const extSize =");
   assert(claim >= 0, "the scan never claims the lip, so every read sweeps it individually");
   assert(firstRead >= 0 && claim < firstRead,
     "the lip is claimed after the first read has already been issued");
@@ -117,15 +117,15 @@ check("THE SCAN CLAIMS THE LIP, and claims it before the first read", () => {
 
 check("every phase of the scan moves the bar, not just the partition walk", () => {
   // "The first scan is not shown" was this: the lip claimed at 0 with nothing moving it until
-  // the walk began, so the UID and bank reads passed with the bar invisible. Each phase reports,
+  // the walk began, so the bank reads passed with the bar invisible. Each phase reports,
   // and the weights sum to 1 or the bar cannot arrive.
   const body = store.slice(store.indexOf("private async _doScan"));
-  for (const name of ["uid", "banks", "partitions", "games"]) {
+  for (const name of ["banks", "partitions", "games"]) {
     assert(new RegExp(`phase\\("${name}"`).test(body), `the ${name} phase never reports`);
   }
-  const m = body.match(/const W = \{ uid: ([\d.]+), banks: ([\d.]+), partitions: ([\d.]+), games: ([\d.]+) \}/);
+  const m = body.match(/const W = \{ banks: ([\d.]+), partitions: ([\d.]+), games: ([\d.]+) \}/);
   assert(m, "the scan weights are gone or reshaped");
-  const sum = m.slice(1, 5).reduce((n, x) => n + Number(x), 0);
+  const sum = m.slice(1, 4).reduce((n, x) => n + Number(x), 0);
   assert(Math.abs(sum - 1) < 1e-9, `the weights sum to ${sum}, so the bar cannot arrive at 1`);
   // And it must arrive even when a phase throws: a bar stuck at 0.84 reads as a hang.
   assert(/phase\("games", 1\);\n\s*this\.scanning = false;/.test(body),

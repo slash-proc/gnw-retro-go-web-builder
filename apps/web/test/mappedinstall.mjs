@@ -311,8 +311,8 @@ await check("derivation matches the component: mappedArtifacts is narrowed by se
   assert(at > 0, "RomManagementTab no longer derives mappedArtifacts; update deriveMapped() here");
   const body = src.slice(at, src.indexOf("});", at));
   for (const [needle, why] of [
-    ["prepareState.mappedArtifactMap()", "the mapped facts no longer come from prepareState"],
-    ["of selectedAssets", "the map is no longer narrowed to what this install writes"],
+    ["artifact.mapped", "the mapped facts no longer come from the source manifest"],
+    ["selectedAssets.get(key)", "the map is no longer narrowed to what this install writes"],
     ["relocBase", "relocBase is no longer carried to the packer"],
   ]) assert(body.includes(needle), `${why} -- deriveMapped() in this suite is now stale`);
   // And the packer is still told about it.

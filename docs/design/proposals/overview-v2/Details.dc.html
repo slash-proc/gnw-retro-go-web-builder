@@ -36,7 +36,7 @@
     Chip, erase size DeviceInfo                          packages/gnw-flasher/src/index.ts:133-140
     Partitions       ExtPartition.offset/.size/.type/.fs engine/fsscan.ts:21-31
     Card, folder     device.targetMedia, sdHandle        device.svelte.ts:45,52
-    Probe, UID       device.svelte.ts:38,65
+    Probe             device.svelte.ts: probeName
     Sources, cache   sources store, sources/blobCache.ts
 
   NOT DRAWN: the /data/INSTALL marker and its CRC. The version it carries is shown as
@@ -194,8 +194,6 @@
           <div style="background: #ffffff; border: 1px solid #d8d8d8; border-radius: 6px; padding: 18px;"><div style="display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 9px 20px; align-items: baseline;">
               <span style="font-size: 13px; color: #5c5c5c;">Probe</span>
               <span style="font-size: 13px;">ST-Link V2</span>
-              <span style="font-size: 13px; color: #5c5c5c;">Device UID</span>
-              <span style="font-size: 13px;"><span style="font-family: ui-monospace, Menlo, monospace;">0x0031002A 3438510C 32323639</span></span>
               <span style="font-size: 13px; color: #5c5c5c;">Read protection</span>
               <span style="font-size: 13px;">Unlocked</span>
               <span style="font-size: 13px; color: #5c5c5c;">Firmware backup</span>

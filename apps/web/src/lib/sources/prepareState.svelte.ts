@@ -490,15 +490,15 @@ class PrepareState {
    * to do about `mapped`. See `docs/MAPPED_ARTIFACTS.md` and `@gnw/fs-builders`' `mappedReloc.ts`.
    * Not reactive: nothing renders it.
    */
-  private mappedArtifacts = new Map<string, { relocBase?: number }>();
+  private mappedArtifacts = new Map<string, { relocBase?: number; lookupKey?: string }>();
 
   /** The relocation facts for one asset key, or `undefined` when it is not a mapped artifact. */
-  mappedArtifactOf(key: string): { relocBase?: number } | undefined {
+  mappedArtifactOf(key: string): { relocBase?: number; lookupKey?: string } | undefined {
     return this.mappedArtifacts.get(key);
   }
 
   /** Every mapped artifact currently held, keyed like `assetSource`. For the flash installer. */
-  mappedArtifactMap(): ReadonlyMap<string, { relocBase?: number }> {
+  mappedArtifactMap(): ReadonlyMap<string, { relocBase?: number; lookupKey?: string }> {
     return this.mappedArtifacts;
   }
 
@@ -960,7 +960,7 @@ class PrepareState {
       let artKey = "homebrew";
       let outKey = "homebrew";
       const artifactNames = new Set<string>();
-      const mappedByName = new Map<string, { relocBase?: number }>();
+      const mappedByName = new Map<string, { relocBase?: number; lookupKey?: string }>();
       if (title) {
         try {
           artKey = assetPrefix(artifactDir(title.target));
@@ -986,7 +986,10 @@ class PrepareState {
         // value, not last week's.
         for (const a of title.target.artifacts) {
           if (a.mapped !== true) continue;
-          mappedByName.set(a.filename, a.relocBase === undefined ? {} : { relocBase: a.relocBase });
+          mappedByName.set(a.filename, {
+            ...(a.relocBase === undefined ? {} : { relocBase: a.relocBase }),
+            ...(a.lookupKey === undefined ? {} : { lookupKey: a.lookupKey }),
+          });
         }
       }
       const mine: string[] = [];
@@ -1072,10 +1075,13 @@ class PrepareState {
   async prepareCoreArtifacts(key: string, target: Target): Promise<boolean> {
     if ((target.artifacts?.length ?? 0) === 0) return false;
     const artKey = assetPrefix(artifactDir(target));
-    const mappedByName = new Map<string, { relocBase?: number }>();
+    const mappedByName = new Map<string, { relocBase?: number; lookupKey?: string }>();
     for (const a of target.artifacts ?? []) {
       if (a.mapped !== true) continue;
-      mappedByName.set(a.filename, a.relocBase === undefined ? {} : { relocBase: a.relocBase });
+      mappedByName.set(a.filename, {
+        ...(a.relocBase === undefined ? {} : { relocBase: a.relocBase }),
+        ...(a.lookupKey === undefined ? {} : { lookupKey: a.lookupKey }),
+      });
     }
     const written: string[] = [];
     let fetched: Map<string, Uint8Array>;
@@ -1158,10 +1164,13 @@ class PrepareState {
       // cannot be fetched is not installable however well its converter runs.
       // `fetchTargetArtifacts` returns bytes only, so the manifest entry -- the only thing that
       // knows an artifact is `mapped` -- is looked up here, where `title.target` is still in hand.
-      const mappedByName = new Map<string, { relocBase?: number }>();
+      const mappedByName = new Map<string, { relocBase?: number; lookupKey?: string }>();
       for (const a of title.target.artifacts ?? []) {
         if (a.mapped !== true) continue;
-        mappedByName.set(a.filename, a.relocBase === undefined ? {} : { relocBase: a.relocBase });
+        mappedByName.set(a.filename, {
+          ...(a.relocBase === undefined ? {} : { relocBase: a.relocBase }),
+          ...(a.lookupKey === undefined ? {} : { lookupKey: a.lookupKey }),
+        });
       }
       for (const [fname, data] of await fetchTargetArtifacts(title.target)) {
         const key = `${artKey}/${fname}`;

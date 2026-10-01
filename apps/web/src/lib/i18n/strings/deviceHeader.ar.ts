@@ -1,6 +1,8 @@
 import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderAr: DeviceHeaderStrings = {
+  noDeviceDetected: "لم يتم اكتشاف أي جهاز",
+  noValidAdapterSelected: "لم يتم اختيار محوّل صالح",
   changeInstallationMethod: "تغيير طريقة التثبيت",
   connectionLost: "انقطع الاتصال",
   targetUnresponsive: "الجهاز لا يستجيب. في انتظار عودته للعمل…",
@@ -31,7 +33,6 @@ export const deviceHeaderAr: DeviceHeaderStrings = {
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "البرنامج الثابت الرسمي",
   unsafeWritingStatus: "جارٍ الكتابة على الفلاش. لا تفصل الجهاز",
-  unsafeSettlingStatus: "جارٍ الإنهاء. لا تفصل الجهاز",
   retroGoOlderSuffix: "(أقدم)",
   unsafeAria: "لا تفصل الجهاز",
 } as const;

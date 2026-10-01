@@ -431,14 +431,14 @@ export class DapjsTransport extends BaseTransport {
           const raw = Array.from(viewBytes, (b) => b.toString(16).padStart(2, "0")).join("");
           this.onDapReadDiagnostic?.(`[dap-scalar-rx] addr=0x${scalarAddress.toString(16)} raw=${raw}`);
         }
-        if (context && context.enabled && viewBytes[0] === 6 && viewBytes.byteLength >= 4) {
+        if (context && viewBytes[0] === 6 && viewBytes.byteLength >= 4) {
           const response = new DataView(view.buffer, view.byteOffset, view.byteLength);
           const words = response.getUint16(1, true);
           const packetAddress = context.addr + context.blockOffset;
           const packetEnd = packetAddress + words * 4;
           const overlapsFirstMismatch = packetAddress < 0x240000a0 && packetEnd > 0x24000080;
           const overlapsBadTail = packetAddress < 0x24020000 && packetEnd > 0x2401f000;
-          if (this.onDapReadDiagnostic && (overlapsFirstMismatch || overlapsBadTail)) {
+          if (context.enabled && this.onDapReadDiagnostic && (overlapsFirstMismatch || overlapsBadTail)) {
             const raw = Array.from(viewBytes, (b) => b.toString(16).padStart(2, "0")).join("");
             this.onDapReadDiagnostic(
               `[dap-rx] addr=0x${packetAddress.toString(16)} words=${words} status=0x${response.getUint8(3).toString(16)} ` +
@@ -526,7 +526,11 @@ export class DapjsTransport extends BaseTransport {
         // requested a larger staged SRAM dump.
         const n = Math.min(1024 - ((addr + off) & 1023), len - off);
         const previous = this.dapDiagnosticRead;
-        this.dapDiagnosticRead = { addr: addr + off, blockOffset: 0, enabled: capture };
+        this.dapDiagnosticRead = {
+          addr: addr + off,
+          blockOffset: 0,
+          enabled: capture,
+        };
         try {
           const words = await this.transferWithRetry(() => this.cortexM.readBlock!(addr + off, n / 4));
           if (words.length !== n / 4) {

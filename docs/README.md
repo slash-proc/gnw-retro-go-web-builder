@@ -51,6 +51,7 @@ subject. `CLAUDE.md` carries the trigger for each.
 |---|---|
 | [SDCARD_CAPACITY.md](./SDCARD_CAPACITY.md) | How much space an SD card of a given nominal size really has, per filesystem, **measured by formatting sparse images** rather than computed. Backs `apps/web/src/lib/data/sdCapacity.json`, which the app reads because no browser API reports a picked directory's volume. Records the cluster sizes too, which matter as much as capacity when a library is thousands of small files. |
 | [MAPPED_ARTIFACTS.md](./MAPPED_ARTIFACTS.md) | The mapped/XIP half of a core's install. |
+| [SOURCE_INSTALL_ACCOUNTING.md](./SOURCE_INSTALL_ACCOUNTING.md) | The GitHub Pages discovery chain for curated core/homebrew sources, converter-produced files, foundational examples, and the exact file-accounting invariant for Flash/SD placement. |
 | [VIRTUAL_CONSOLE.md](./VIRTUAL_CONSOLE.md) | The virtual-console concept and how a core declares one. |
 | [RETRO_GO_EXTFLASH_WRITES.md](./RETRO_GO_EXTFLASH_WRITES.md) | What the firmware itself writes to external flash, and when. |
 | [proposals/](./proposals) | Narrow written proposals (BIOS placement, derived files), separate from the visual `design/proposals/`. |

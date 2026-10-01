@@ -43,7 +43,7 @@ backup exists, whether the part is read-protected.
 
 **Details** is the technical truth for someone diagnosing. Deliberately kept out of Summary:
 bank base addresses, partition offsets, ABI version/size, core-metadata version, layout
-superblock flags, minimum erase size, probe name, device UID and the `/data/INSTALL` record.
+superblock flags, minimum erase size, probe name, and the `/data/INSTALL` record.
 
 Every field on both boards is annotated in the board's own header comment with the file and
 line it comes from. Two are worth calling out:

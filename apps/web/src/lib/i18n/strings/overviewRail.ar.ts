@@ -12,7 +12,6 @@ export const overviewRailAr: OverviewRailStrings = {
   capacity: "السعة",
 
   probe: "المُبرمِج",
-  deviceUid: "معرّف الجهاز",
 
   sources: "المصادر",
   sourcesCount: (listed: number, active: number) => `${listed} مدرج، ${active} نشط`,

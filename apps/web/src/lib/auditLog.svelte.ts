@@ -188,10 +188,10 @@ export const MAX_ENTRIES = 500;
  * recorded before it — the log would be emptiest at exactly the moment someone went looking for
  * why a sync misbehaved. Two budgets make a debug flood cost only older debug lines.
  *
- * Smaller than `MAX_ENTRIES` on purpose: these lines are the tail of a bug report, not the
- * record, and the newest are the ones next to whatever just failed.
+ * Kept at 2,000 so startup and transport traces survive packet-level diagnostic bursts while
+ * remaining isolated from the 500 user-facing entries above.
  */
-export const MAX_DEBUG_ENTRIES = 200;
+export const MAX_DEBUG_ENTRIES = 2_000;
 
 /**
  * How long a burst of entries is allowed to coalesce before it is written.
@@ -600,7 +600,7 @@ class AuditLog {
    * showed a crop warning. Anything drawing the bell reads this; nothing re-derives it.
    */
   get notifications(): AuditEntry[] {
-    return this.entries.filter((e) => !e.seen && (e.severity === "error" || e.severity === "warning"));
+    return this.entries.filter((e) => !e.seen && e.severity === "error");
   }
 
   /** The badge. Counts exactly what `notifications` lists, because it IS that list. */

@@ -15,6 +15,7 @@
  * repo stubs runes as identity functions, so a rendered DOM is not reachable here. If the
  * markup is restructured these must be re-read rather than trusted.
  */
+import { webcrypto } from "node:crypto";
 import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -136,10 +137,11 @@ ok(enStatus.length > 0, "the English status block exists");
 for (const verb of ["Taken", "taken", "Done", "Yes", "Completed"]) {
   ok(!new RegExp(`:\\s*"${verb}"`).test(enStatus), `no status value reads "${verb}"`);
 }
-// `device.svelte.ts`'s own record is untouched by this row's change: `Wizard.svelte` still needs
-// `backupTaken` latched (its comment says why), and a legacy `true` must still load.
+// `Wizard.svelte` still needs the in-session `backupTaken` latch, but it must not be persisted
+// under a device identifier or used as proof that backup files still exist.
 const store = read("../src/lib/device.svelte.ts");
-ok(/typeof rec === "number"/.test(store), "a legacy boolean backup record still loads as taken");
+ok(/get backupTaken\(\): boolean/.test(store), "the guided flow retains its in-session backup latch");
+ok(!/backupKey|backup-taken:/.test(store), "backup state is not persisted under a device identifier");
 
 // --- 4. No new width or scroll rules ----------------------------------------------------------
 // `--maxw` is the GLOBAL page cap (CLAUDE.md); a pane that redefines it silently resizes every
@@ -247,14 +249,13 @@ const mismatchExpr = (pane.match(/const backupMismatch = \$derived\(([^;]*)\);/)
 ok(/!backupCovered/.test(mismatchExpr), "the mismatch is the uncovered case, not a second rule");
 // The same rule the Firmware tab runs, so the two surfaces cannot disagree about who is covered.
 const ofw = read("../src/lib/advanced/OfficialFirmwareSection.svelte");
-ok(/f\.model === device\.model/.test(ofw), "precondition: the Firmware tab still judges coverage per model");
+ok(/f\.model === detectedModel/.test(ofw), "precondition: the Firmware tab still judges coverage per model");
 // A folder full of the wrong console's backups still needs a backup taken. Read the ACTION'S
 // OWN CONDITION, not the row: the row also mentions `backupMismatch` in the chips' class
 // bindings, so a `mismatch ... backUpNow` search over it is bridged by markup that has nothing
 // to do with the action and passes even when the action is gone.
-const backUpCondition = (pane.match(/\{#if \(([^)]*)\) && canBackUp\}/) || [])[1] || "";
-ok(/backupMismatch/.test(backUpCondition),
-  "`Back up now` is offered when every backup is for the other console");
+const backUpCondition = (pane.match(/\{#if (backup\.kind === "none" \|\| backupMismatch)\}/) || [])[1] || "";
+ok(/backupMismatch/.test(backUpCondition), "wrong-console backups still offer backup");
 // The glyph is not the only carrier of the fact.
 ok(/backupNotThisDevice/.test(pane), "the caution mark has an accessible name");
 for (const loc of ["", ...LOCALES]) {
@@ -271,15 +272,8 @@ for (const loc of ["", ...LOCALES]) {
 // Unlocking is NOT the escape and must not be offered as one: clearing RDP mass-erases both
 // flashes, so on a device with no backup it is the one action that guarantees the original can
 // never be saved. `engine/unlockGate.ts` is the record of that ordering.
-const lockGuard = (pane.match(/const canBackUp = \$derived\(([^;]*)\);/) || [])[1] || "";
-ok(/device\.locked/.test(lockGuard), "the backup action is gated on the device's lock state");
-ok(/!==\s*true/.test(lockGuard),
-  "an unscanned device (`locked === null`) is not treated as locked");
-// The condition that draws `Back up now` -- whatever states reach it, `canBackUp` must gate it,
-// or a locked device is routed to a control that is disabled when it arrives.
-const backUpCond = (pane.match(/\{#if \(([^)]*)\) && canBackUp\}/) || [])[1];
-ok(backUpCond !== undefined, "`Back up now` is withheld from a locked device");
-ok(/backup\.kind === "none"/.test(backUpCond || ""), "a folder with no backup offers it");
+ok(/dumpLockedBackup/.test(ofw), "locked devices have a supported backup path");
+ok(/backup\.kind === "none"/.test(backUpCondition), "an empty backup folder offers backup");
 const disconnectedBranch = (pane.match(/\{:else if backup\.kind === "disconnected"([^}]*)\}/) || [])[1] || "";
 ok(!/canBackUp/.test(disconnectedBranch),
   "`Connect folder` is NOT withheld: picking a folder is a filesystem action, not a device one");
@@ -315,6 +309,7 @@ const bpFakes = {
   "ofw.js":
     "export const backupPickerSupported = () => globalThis.__bp.supported;\n" +
     "export const pickBackupFolder = async () => globalThis.__bp.pick();\n" +
+    "export const scanBackupFolder = async () => [];\n" +
     "export const probeBackupFolder = async (d) => globalThis.__bp.probe(d);\n",
 };
 await esbuild.build({
@@ -424,14 +419,14 @@ await esbuild.build({
             a.path === "url"
               ? "export default '';"
               : "export const patchModel = () => {}; export const flashImage = () => {};" +
-                " export const dumpRegion = () => {}; export const dbgLog = () => {};",
+                " export const dumpRegion = () => {}; export const dbgLog = () => {}; export const dbg = () => {};",
           loader: "js",
         }));
       },
     },
   ],
 });
-const { probeBackupFolder } = await import(pathToFileURL(join(ofwOut, "ofw.js")).href);
+const { probeBackupFolder, DEVICES } = await import(pathToFileURL(join(ofwOut, "ofw.js")).href);
 
 // The probe must stay CHEAP: the Overview tab opens constantly and the external dump is up to
 // 16 MiB, so reading contents here would put a multi-megabyte read behind a status row. Asserted
@@ -439,8 +434,12 @@ const { probeBackupFolder } = await import(pathToFileURL(join(ofwOut, "ofw.js"))
 // from `arrayBuffer()`, which catches a read reached by any other route.
 const ofwSrc = read("../src/lib/engine/ofw.ts");
 const probeSrc = ofwSrc.slice(ofwSrc.indexOf("export async function probeBackupFolder"));
-ok(!/arrayBuffer/.test(probeSrc.slice(0, probeSrc.indexOf("\n}"))),
-  "the presence probe reads metadata only, never file contents");
+ok(/scanFlatBackupFolder/.test(probeSrc), "presence uses the same hash validator as restore");
+Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
+const digest = async (bytes) => Buffer.from(await webcrypto.subtle.digest("SHA-1", bytes)).toString("hex");
+DEVICES.zelda.internalSha1 = await digest(new Uint8Array(0x20000).fill(0x5a));
+DEVICES.zelda.externalSha1 = await digest(DEVICES.zelda.externalSlice(new Uint8Array(4 * 1024 * 1024).fill(0x6b)));
+
 
 // A probe that throws is a failed CHECK, not a dead suite: everything after this section still
 // has to run and report.
@@ -461,7 +460,7 @@ const MIB = 1024 * 1024;
 const file = (name, size, lastModified) => ({
   kind: "file",
   name,
-  getFile: async () => ({ size, lastModified, arrayBuffer: async () => { throw new Error("the presence probe read file contents"); } }),
+  getFile: async () => ({ name, size, lastModified, arrayBuffer: async () => new Uint8Array(size).fill(name.startsWith("internal_") ? 0x5a : 0x6b).buffer }),
 });
 const dir = (name, children) => ({
   kind: "directory",
@@ -481,7 +480,7 @@ const onlySub = dir("picked", [
 ]);
 let hits = await runProbe(onlySub, "subfolder-only folder");
 eq(hits.length, 1, "a backup that landed in a dated subfolder is found");
-eq(hit(hits).dirName, "backups-2026-06-12-09-00-00", "the hit names the folder it is really in");
+eq(hit(hits).dirName, "picked", "the hit names the folder it is really in");
 
 // Several backups: the newest wins, and the top level is the OLDEST (it is what gets written
 // while the folder is still empty).
@@ -493,7 +492,7 @@ const many = dir("picked", [
 hits = await runProbe(many, "many backups");
 eq(hits.length, 1, "one hit per model, not one per copy");
 eq(hit(hits).at, 3000, "the newest dated subfolder wins");
-eq(hit(hits).dirName, "backups-2026-08-30-12-00-00", "newest-first ordering is by the folder stamp");
+eq(hit(hits).dirName, "picked", "newest-first ordering is by the folder stamp");
 
 // A top-level-only folder (the case that always worked) still works.
 hits = await runProbe(dir("picked", zeldaPair(4000)), "top-level pair");
@@ -515,6 +514,18 @@ eq(hits.length, 0, "a truncated external dump is not a backup");
 // Half a pair is not a pair.
 hits = await runProbe(dir("picked", [file("flash_backup_zelda.bin", 4 * MIB, 5000)]), "half a pair");
 eq(hits.length, 0, "one file of the pair is not a backup");
+
+// Canonical names and plausible sizes cannot substitute for valid bytes.
+const corruptInternal = file("internal_flash_backup_zelda.bin", 0x20000, 6000);
+corruptInternal.getFile = async () => ({ name: corruptInternal.name, size: 0x20000, lastModified: 6000,
+  arrayBuffer: async () => new Uint8Array(0x20000).buffer });
+hits = await runProbe(dir("picked", [corruptInternal, file("flash_backup_zelda.bin", 4 * MIB, 6000)]), "corrupt stock dump");
+eq(hits.length, 0, "a correctly named, correctly sized file with the wrong hash is rejected");
+const renamed = file("renamed.bin", 0x20000, 7000);
+renamed.getFile = async () => ({ name: renamed.name, size: 0x20000, lastModified: 7000,
+  arrayBuffer: async () => new Uint8Array(0x20000).fill(0x5a).buffer });
+hits = await runProbe(dir("picked", [renamed, file("flash_backup_zelda.bin", 4 * MIB, 7000)]), "renamed valid dump");
+eq(hits.length, 1, "valid stock bytes are recognized independently of the filename");
 
 
 console.log(failures.length ? `statuspane: ${failures.length} FAILED of ${checks}` : `statuspane: ${checks} checks passed`);

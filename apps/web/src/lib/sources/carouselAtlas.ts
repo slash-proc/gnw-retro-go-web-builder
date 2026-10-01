@@ -36,7 +36,11 @@ export function carouselAtlasFiles(
     const path = key.split("\u0000", 1)[0];
     if (!/\.(?:png|jpe?g|webp|bmp)$/i.test(path)) continue;
     const sourceId = fileOrigin.get(key) ?? "unknown-source";
-    const owner = coverOwners.get(`${sourceId}\u0000${path.toLowerCase()}`);
+    // Folder-backed games must match art from the same folder source. A core-shipped game has
+    // no folder source id, though, so its owner is indexed with the empty-source wildcard and
+    // may claim a same-relative-path cover from any library folder.
+    const foldedPath = path.toLowerCase();
+    const owner = coverOwners.get(`${sourceId}\u0000${foldedPath}`) ?? coverOwners.get(`\u0000${foldedPath}`);
     if (!owner) continue;
     const group = groups.get(owner) ?? [];
     group.push({ sourceId, key: owner, path: key, file });

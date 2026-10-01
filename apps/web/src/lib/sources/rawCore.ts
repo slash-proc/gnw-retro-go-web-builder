@@ -1,5 +1,6 @@
+import { superblockCrc32 as crc32 } from "@gnw/gnw-patch";
 import { sha256Hex } from "./client.js";
-import { SourceError, type ResolvedSource, type SystemEntry } from "./types.js";
+import { SourceError, type Artifact, type ResolvedSource, type SystemEntry } from "./types.js";
 import { blobCache } from "./blobCache.js";
 
 const MAGIC = "CORE";
@@ -49,6 +50,7 @@ export interface RawCoreDescriptor {
   headerVersion: number;
   headerLength: number;
   metadata: RawCoreMetadata;
+  mappedSidecar?: { filename: string; bytes: Uint8Array; relocBase: number; crc32: number };
 }
 
 function splitExtensions(value: string): string[] {
@@ -84,6 +86,18 @@ export async function rawCoreSource(
   }));
   const repo = `raw/${hash}`;
   const url = publish(descriptor.bytes);
+  const artifacts: Artifact[] = [{ filename: descriptor.filename, bytes: descriptor.bytes.byteLength, sha256: hash, url }];
+  const urls = [url];
+  const sidecar = descriptor.mappedSidecar;
+  if (sidecar) {
+    const sidecarHash = await sha256Hex(sidecar.bytes);
+    rawPayloads.set(sidecarHash, sidecar.bytes);
+    await blobCache().put(sidecarHash, sidecar.bytes, "artifact");
+    const sidecarUrl = publish(sidecar.bytes);
+    urls.push(sidecarUrl);
+    artifacts.push({ filename: sidecar.filename, bytes: sidecar.bytes.length,
+      sha256: sidecarHash, url: sidecarUrl, mapped: true, relocBase: sidecar.relocBase });
+  }
   let released = false;
   return {
     hash,
@@ -121,14 +135,7 @@ export async function rawCoreSource(
             label: m.coreName,
             kind: "core",
             requiresAbi: { version: m.requiredAbiVersion, minSize: m.requiredAbiMinSize },
-            artifacts: [
-              {
-                filename: descriptor.filename,
-                bytes: descriptor.bytes.byteLength,
-                sha256: hash,
-                url,
-              },
-            ],
+            artifacts,
             systems,
           },
         ],
@@ -137,7 +144,7 @@ export async function rawCoreSource(
     release: () => {
       if (!released) {
         released = true;
-        URL.revokeObjectURL(url);
+        for (const publishedUrl of urls) URL.revokeObjectURL(publishedUrl);
       }
     },
   };
@@ -218,11 +225,37 @@ export function parseRawCore(input: Uint8Array, filename: string): RawCoreDescri
   if (HEADER_PREFIX + headerLength + payloadBytes > input.length) {
     throw invalid("truncated segment payload");
   }
+  // GWMP v1 is optional. Its position and fields come from the container contract,
+  // rather than the core name or a special-case PICO-8 filename.
+  const payload = HEADER_PREFIX + headerLength;
+  const descriptorOffset = payload + 0x40;
+  let mappedSidecar: RawCoreDescriptor["mappedSidecar"];
+  if (segments[0].codeSize >= 0x44 &&
+      new TextDecoder().decode(input.subarray(descriptorOffset, descriptorOffset + 4)) === "GWMP") {
+    if (segments[0].codeSize < 0x68) throw invalid("truncated GWMP descriptor");
+    if (view.getUint16(descriptorOffset + 4, true) !== 1 ||
+        view.getUint16(descriptorOffset + 6, true) !== 40) throw invalid("unsupported GWMP descriptor");
+    const offset = view.getUint32(descriptorOffset + 8, true);
+    const size = view.getUint32(descriptorOffset + 12, true);
+    const relocBase = view.getUint32(descriptorOffset + 16, true);
+    const expectedCrc = view.getUint32(descriptorOffset + 20, true);
+    const nameBytes = input.subarray(descriptorOffset + 24, descriptorOffset + 40);
+    const name = text(nameBytes);
+    if (!nameBytes.includes(0) || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(name) ||
+        name === filename || offset < 0x68 || offset % 4 || !size || size % 4 ||
+        offset + size !== segments[0].codeSize || relocBase + size > 0x100000000) {
+      throw invalid("invalid GWMP sidecar range or filename");
+    }
+    const bytes = input.slice(payload + offset, payload + offset + size);
+    if (crc32(bytes) !== expectedCrc) throw invalid("GWMP cold data CRC mismatch");
+    mappedSidecar = { filename: name, bytes, relocBase, crc32: expectedCrc };
+  }
   return {
     filename,
     bytes: input.slice(),
     headerVersion,
     headerLength,
+    ...(mappedSidecar ? { mappedSidecar } : {}),
     metadata: {
       requiredAbiVersion,
       requiredAbiMinSize,

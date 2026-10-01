@@ -22,10 +22,10 @@
        Storage target            device.svelte.ts:45 targetMedia ("flash" | "sd")
        Card folder               device.svelte.ts:52 sdHandle (FileSystemDirectoryHandle.name)
        Games installed           device.svelte.ts installedGames.length
-       Stock backup              device.svelte.ts:70 per-unit fact, keyed by deviceUid
+       Stock backup              device.svelte.ts:70 verified backup files + in-session guided-flow latch
        Read protection           DeviceInfo.locked (gnw-flasher/src/index.ts:139)
      LEFT OUT of Summary on purpose: bank base addresses, partition offsets, ABI numbers,
-     core-meta version, superblock flags, min erase size, probe name, device UID, the
+     core-meta version, superblock flags, min erase size and probe name, the
      /data/INSTALL marker. All of that is diagnosis, not a decision -- it lives in Details. -->
 <div style="width: 1440px; min-height: 920px; background: #f4f4f4; color: #1b1b1b; font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif; font-size: 16px; line-height: 1.5; display: flex; flex-direction: column;">
 

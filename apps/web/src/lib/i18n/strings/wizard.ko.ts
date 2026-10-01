@@ -30,6 +30,8 @@ export const wizardKo: WizardStrings = {
     bodyBackupOnly:
       "컴퓨터에서 폴더를 선택하라는 안내가 표시되며, 해당 폴더에 기기의 순정 펌웨어 사본이 저장됩니다. 다시 내려받을 수 없으므로 파일을 안전하게 보관하세요. 기기에는 아무것도 기록되지 않습니다. 순정 펌웨어는 다음 단계에서 Retro-Go로 대체됩니다.",
     buttonBackupOnly: "백업",
+    resumeBackup: "백업 재개",
+    statusIncomplete: "백업 미완료",
   },
   step2: {
     title: "Retro-Go 설치",

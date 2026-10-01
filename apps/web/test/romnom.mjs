@@ -20,6 +20,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 
 const here = dirname(fileURLToPath(import.meta.url));
 let passed = 0;
@@ -37,10 +38,19 @@ const at = src.indexOf("function romnomFor(");
 ok(at >= 0, "romnomFor is gone from run.js");
 const body = src.slice(src.indexOf("{", at) + 1, src.indexOf("\n}", at));
 ok(/extensions/.test(body), `the lifted body is not the helper: ${body}`);
+const filenameBundle = await build({
+  entryPoints: [join(SS, "../filename.ts")],
+  bundle: true, write: false, format: "esm", platform: "neutral",
+});
+const filenameTools = await import(
+  "data:text/javascript;base64," + Buffer.from(filenameBundle.outputFiles[0].text).toString("base64")
+);
 const romnomFor = new Function(
-  "systemById",
-  `return function romnomFor(fileName, systemeid) {${body}}`,
-)((id) => systems.find((s) => s.id === id));
+  "systemById", "romExt", "romStem",
+  `return function romnomFor(fileName, systemeid, declaredExtensions = []) {${body}}`,
+)((id) => systems.find((s) => s.id === id),
+  filenameTools.filenameExtension,
+  filenameTools.stripFilenameExtension);
 
 check("a Game & Watch .gw file is sent without its extension", () => {
   // 52 declares only `mgw`. This is the case the owner hit.
@@ -70,6 +80,18 @@ check("a name with dots in it only loses the last segment", () => {
   eq(romnomFor("Mr. Do.gw", 52), "Mr. Do", "only the final extension is removed");
 });
 
+check("a compound extension is matched as declared and removed as a whole title suffix", () => {
+  const extensions = [".p8", ".p8.png"];
+  eq(filenameTools.filenameExtension("celeste2.p8.png", extensions), ".p8.png",
+    "the longest declared suffix wins");
+  eq(filenameTools.stripFilenameExtension("celeste2.p8.png", extensions), "celeste2",
+    "the carousel/search title drops the whole declared suffix");
+  eq(romnomFor("celeste2.p8.png", 234, extensions), "celeste2",
+    "ScreenScraper receives the filename title because it does not declare the compound suffix");
+  eq(filenameTools.stripFilenameExtension("Celeste.p8", extensions), "Celeste",
+    "the single declared PICO-8 extension is also fully removed");
+});
+
 check("a name with no extension is sent as-is", () => {
   eq(romnomFor("Ball", 52), "Ball", "nothing to strip");
 });
@@ -95,7 +117,7 @@ check("the lookup actually calls it", () => {
   // this suite is about -- the filename against the folder's systems -- and it must still go
   // through the helper. The declared rung sends a manifest TITLE as given, which is a different
   // thing and deliberately does not.
-  ok(/await infos\(sid, romnomFor\(rom\.file\.name, sid\)\)/.test(src),
+  ok(/await infos\(sid, (?:forceName \|\| )?romnomFor\(rom\.file\.name, sid, rom\.extensions\)\)/.test(src),
     "the jeuInfos lookup no longer routes the filename through romnomFor, so an extension "
     + "ScreenScraper refuses goes back on the wire");
 });

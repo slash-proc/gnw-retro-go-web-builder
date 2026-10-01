@@ -17,6 +17,9 @@ export type { ProgressFn } from "@gnw/swd-transport";
 /** Memory-mapped mailbox base — gnwmanager gnw.py. */
 export const MAILBOX_ADDR = 0x24025800;
 
+/** `context_counter` in the gnwmanager v0.22.1 ELF (`arm-none-eabi-nm`): DTCM `.data`. */
+const CONTEXT_COUNTER_ADDR = 0x20000054;
+
 /** Load address for the RAM flash util (gnw.py: write_memory(0x240E6800, fw)). */
 export const FW_LOAD_ADDR = 0x240e6800;
 
@@ -314,6 +317,61 @@ export class GnwFlasher {
    * reboot, so startStub() resets ours to 1 to stay in lockstep.
    */
   private contextCounter = 1;
+  /** True only when this instance itself booted the stub and reset its counter. */
+  private contextCounterSynchronized = false;
+
+  /** An attached live stub may have already consumed contexts before this host session. */
+  get hasSynchronizedContextCounter(): boolean {
+    return this.contextCounterSynchronized;
+  }
+
+  /** Adopt the live stub's next expected context id without rebooting it.
+   *
+   * The C main loop owns this counter. A host instance created by `attachFlasher()` has no
+   * history, but the counter is available as a RAM symbol. Only adopt it from a quiescent
+   * mailbox: IDLE, no ready contexts, and no transfers in either direction. Double-sampling
+   * around the symbol read closes the race with a context being posted during inspection.
+   */
+  async synchronizeContextCounter(timeoutMs = 5000): Promise<number> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const statusBefore = (await this.transport.readWord(this.addr(Field.STATUS))) >>> 0;
+      const readyBefore = await Promise.all([
+        this.transport.readWord(this.ctxAddr(0, Ctx.READY)),
+        this.transport.readWord(this.ctxAddr(1, Ctx.READY)),
+      ]);
+      const uploadBefore = (await this.transport.readWord(this.addr(Field.UPLOAD_IN_PROGRESS))) >>> 0;
+      const downloadBefore = (await this.transport.readWord(this.addr(Field.DOWNLOAD_IN_PROGRESS))) >>> 0;
+
+      if (
+        statusBefore === STATUS_IDLE && readyBefore.every((ready) => (ready >>> 0) === 0) &&
+        uploadBefore === 0 && downloadBefore === 0
+      ) {
+        const counter = (await this.transport.readWord(CONTEXT_COUNTER_ADDR)) >>> 0;
+        const statusAfter = (await this.transport.readWord(this.addr(Field.STATUS))) >>> 0;
+        const readyAfter = await Promise.all([
+          this.transport.readWord(this.ctxAddr(0, Ctx.READY)),
+          this.transport.readWord(this.ctxAddr(1, Ctx.READY)),
+        ]);
+        const uploadAfter = (await this.transport.readWord(this.addr(Field.UPLOAD_IN_PROGRESS))) >>> 0;
+        const downloadAfter = (await this.transport.readWord(this.addr(Field.DOWNLOAD_IN_PROGRESS))) >>> 0;
+        const counterAfter = (await this.transport.readWord(CONTEXT_COUNTER_ADDR)) >>> 0;
+        if (
+          statusAfter === STATUS_IDLE && readyAfter.every((ready) => (ready >>> 0) === 0) &&
+          uploadAfter === 0 && downloadAfter === 0 && counter !== 0 && counterAfter === counter
+        ) {
+          this.contextCounter = counter;
+          this.contextCounterSynchronized = true;
+          return counter;
+        }
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error("Cannot synchronize the live flash utility: mailbox did not become quiescent");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
 
   /**
    * Serialises "acquire a context, fill it, post it" against itself.
@@ -390,10 +448,17 @@ export class GnwFlasher {
    * The last chunk may be shorter than 256 KiB; the digest still covers exactly the bytes in
    * range, so a caller comparing against locally computed digests must chunk identically.
    */
-  async readHashes(offset: number, size: number, timeoutMs = 120000): Promise<Uint8Array[]> {
+  async readHashes(
+    offset: number,
+    size: number,
+    timeoutMs = 120000,
+    abortSignal?: AbortSignal,
+    onActivity?: () => void,
+  ): Promise<Uint8Array[]> {
     // The SLOT wait is the short one (see getContext): waiting for a free context means the
     // device is busy, and that is a no-progress question. The hash itself can legitimately take
     // a while on a large region, so the response wait below keeps the long budget.
+    if (abortSignal?.aborted) throw new Error("Operation aborted");
     if (size <= 0) return [];
     const CHUNK = 256 << 10;
     const nChunks = Math.ceil(size / CHUNK);
@@ -408,14 +473,52 @@ export class GnwFlasher {
     // READY -- `gnwmanager_action_hash` sets `response_ready = 1` and returns (gnw.py waits on
     // `wait_for_context_response` for the same reason).
     const deadline = Date.now() + timeoutMs;
+    let nextStatusCheck = 0;
+    let idleHoldingSince: number | null = null;
     for (;;) {
+      if (abortSignal?.aborted) throw new Error("Operation aborted");
       if (((await this.transport.readWord(this.ctxAddr(i, Ctx.RESPONSE_READY))) >>> 0) !== 0) break;
-      if (Date.now() > deadline) throw new Error("[gnw-flasher] timed out waiting for the hash response");
+      onActivity?.();
+      // A missed context pickup leaves RESPONSE_READY at zero forever. Detect the same
+      // counter desync as waitForContextComplete() instead of burning the full 120 s hash
+      // response budget. Check status sparingly to keep the normal hash poll lightweight.
+      if (Date.now() >= nextStatusCheck) {
+        nextStatusCheck = Date.now() + 100;
+        const status = (await this.transport.readWord(this.addr(Field.STATUS))) >>> 0;
+        if (status === STATUS_IDLE) {
+          idleHoldingSince ??= Date.now();
+          if (Date.now() - idleHoldingSince > CONTEXT_PICKUP_GRACE_MS) {
+            const ready = (await this.transport.readWord(this.ctxAddr(i, Ctx.READY))) >>> 0;
+            throw new Error(
+              `[gnw-flasher] hash context ${i} was never picked up: the mailbox is IDLE while ` +
+                `still holding ready=${ready} (host counter ${this.contextCounter}); the device ` +
+                `is waiting for a different context counter. Restarting the flash util ` +
+                `resynchronises both sides.`,
+            );
+          }
+        } else {
+          idleHoldingSince = null;
+        }
+      }
+      if (Date.now() > deadline) {
+        // Preserve the mailbox state before the caller reboots the stub for its retry.
+        // STATUS=IDLE with READY still set means the device never picked up this context
+        // (usually a host/device context-counter desync); STATUS=HASH means it did pick it
+        // up but never published the response. Those are different failures and need
+        // different fixes, so capture both while the evidence is still available.
+        const ready = (await this.transport.readWord(this.ctxAddr(i, Ctx.READY))) >>> 0;
+        const status = (await this.transport.readWord(this.addr(Field.STATUS))) >>> 0;
+        throw new Error(
+          `[gnw-flasher] timed out waiting for the hash response ` +
+            `(ctx${i} ready=${ready}, response_ready=0, status=${statusName(status)})`,
+        );
+      }
       await new Promise((r) => setTimeout(r, 10));
     }
 
     const raw = await this.transport.readMemory(this.ctxBuffer(i), nChunks * 32);
     await this.transport.writeWord(this.ctxAddr(i, Ctx.READY), 0);
+    if (abortSignal?.aborted) throw new Error("Operation aborted");
     const out: Uint8Array[] = [];
     for (let c = 0; c < nChunks; c++) out.push(raw.slice(c * 32, (c + 1) * 32));
     return out;
@@ -505,6 +608,7 @@ export class GnwFlasher {
 
     // Device resets its context_counter to 1 on reboot; match it.
     this.contextCounter = 1;
+    this.contextCounterSynchronized = false;
 
     log("reset-and-halt…");
     await this.transport.reset();
@@ -532,6 +636,7 @@ export class GnwFlasher {
 
     // Set the device clock from the host's local wall-clock (gnwmanager parity).
     await this.transport.writeWord(this.addr(Field.UTC_TIMESTAMP), localAsUtcUnix() >>> 0);
+    this.contextCounterSynchronized = true;
   }
 
   /**
@@ -638,26 +743,68 @@ export class GnwFlasher {
    * Call after startStub(). The flash size/block size are populated by the stub
    * once it has probed the external flash, so reading them proves it is alive.
    */
-  async info(opts: { log?: LogFn; flashSizeTimeoutMs?: number } = {}): Promise<DeviceInfo> {
+  async info(opts: {
+    log?: LogFn;
+    flashSizeTimeoutMs?: number;
+    /** Known RDP state from FLASH_OPTSR_CUR; avoids probing protected bank-1 flash. */
+    locked?: boolean | null;
+    onTiming?: (phase: string, elapsedMs: number, detail?: string) => void;
+  } = {}): Promise<DeviceInfo> {
     const log = opts.log ?? (() => {});
-    const status = (await this.transport.readWord(this.addr(Field.STATUS))) >>> 0;
+    const time = async <T>(phase: string, action: () => Promise<T>, detail?: (value: T) => string): Promise<T> => {
+      const startedAt = performance.now();
+      try {
+        const value = await action();
+        opts.onTiming?.(phase, performance.now() - startedAt, detail?.(value));
+        return value;
+      } catch (error) {
+        opts.onTiming?.(`${phase}-failed`, performance.now() - startedAt, error instanceof Error ? error.message : String(error));
+        throw error;
+      }
+    };
+    const status = (await time("status-read", () => this.transport.readWord(this.addr(Field.STATUS)))) >>> 0;
 
-    // The stub sets comm.status=IDLE (gnwmanager.c:859) BEFORE it writes
-    // flash_size (line 882), with a slow full-screen gui_fill() in between. A
+    // The stub sets comm.status=IDLE before it writes flash_size (see
+    // gnwmanager_main() in gnwmanager.c), with gui_fill() in between. A
     // fast transport can read flash_size in that window and see 0, so poll until
     // the stub has populated it (or give up — a genuinely undetected flash is 0).
-    const externalFlashSizeBytes = await this.externalFlashSize(opts.flashSizeTimeoutMs);
-    if (externalFlashSizeBytes === 0) log("flash_size still 0 after wait — flash may be undetected");
-    const minEraseSizeBytes = (await this.transport.readWord(this.addr(Field.MIN_ERASE_SIZE))) >>> 0;
-    const detectedStockFirmware = await this.detectStockFirmware();
+    let flashSizePoll = "";
+    const externalFlashSizeBytes = await time(
+      "flash-size-read",
+      () => this.externalFlashSize(opts.flashSizeTimeoutMs, (attempts, value, elapsedMs, timedOut) => {
+        flashSizePoll = `polls=${attempts} pollElapsed=${Math.round(elapsedMs)}ms timedOut=${timedOut}`;
+      }),
+      (value) => `bytes=${value} ${flashSizePoll}`,
+    );
+    if (externalFlashSizeBytes === 0) log("flash_size is not published yet — external flash may still be initializing or undetected");
+    const minEraseSizeBytes = (await time("erase-size-read", () => this.transport.readWord(this.addr(Field.MIN_ERASE_SIZE)))) >>> 0;
+    const detectedStockFirmware = await time(
+      "stock-firmware-detect",
+      () => this.detectStockFirmware(opts.onTiming),
+      (value) => `firmware=${value}`,
+    );
 
-    // gnw.py is_locked(): bank-1 internal flash reads only when unlocked.
-    let locked: boolean;
-    try {
-      await this.transport.readWord(INTFLASH_BANK1_ADDR);
-      locked = false;
-    } catch {
+    // Prefer the non-invasive option-byte status. Only use gnw.py's bank-read probe when the
+    // caller omitted RDP status entirely; `locked: null` means the option-register read failed,
+    // and probing protected flash in that case could disturb stock firmware. Report unknown
+    // conservatively as locked so callers keep internal-flash scans disabled.
+    const hasRdpStatus = Object.prototype.hasOwnProperty.call(opts, "locked");
+    let locked = opts.locked ?? null;
+    if (locked === null && !hasRdpStatus) {
+      const lockedStartedAt = performance.now();
+      try {
+        await this.transport.readWord(INTFLASH_BANK1_ADDR);
+        locked = false;
+      } catch {
+        locked = true;
+      } finally {
+        opts.onTiming?.("intflash-lock-check", performance.now() - lockedStartedAt);
+      }
+    } else if (locked === null) {
       locked = true;
+      opts.onTiming?.("rdp-status-unavailable", 0, "internal flash treated as protected");
+    } else {
+      opts.onTiming?.("rdp-status-used", 0, `locked=${locked}`);
     }
 
     return {
@@ -671,13 +818,19 @@ export class GnwFlasher {
   }
 
   /** Identify the stock firmware by hashing the residual ITCM (gnwmanager autodetect). */
-  async detectStockFirmware(): Promise<string> {
+  async detectStockFirmware(onTiming?: (phase: string, elapsedMs: number, detail?: string) => void): Promise<string> {
     for (const m of STOCK_MODELS) {
+      const candidateStartedAt = performance.now();
       try {
+        const readStartedAt = performance.now();
         const itcm = await this.transport.readMemory(m.itcmOffset, m.itcmSize);
-        if ((await sha1Hex(itcm)) === m.itcmSha1) return m.name;
-      } catch {
-        /* region unreadable on this probe/state; try next */
+        onTiming?.(`stock-signature-read-${m.name.toLowerCase()}`, performance.now() - readStartedAt, `bytes=${itcm.byteLength}`);
+        const hashStartedAt = performance.now();
+        const matches = (await sha1Hex(itcm)) === m.itcmSha1;
+        onTiming?.(`stock-signature-hash-${m.name.toLowerCase()}`, performance.now() - hashStartedAt, `matches=${matches}`);
+        if (matches) return m.name;
+      } catch (error) {
+        onTiming?.(`stock-signature-failed-${m.name.toLowerCase()}`, performance.now() - candidateStartedAt, error instanceof Error ? error.message : String(error));
       }
     }
     return "UNKNOWN";
@@ -883,7 +1036,11 @@ export class GnwFlasher {
     // No explicit budget: waitForContextComplete's own 20 s no-progress rule applies, with a
     // warning at 10 s. This passed 120000, which silently defeated that rule at the one call
     // site that matters -- a real stall sat for two minutes before the retry rebooted the stub.
-    await this.waitForContextComplete(i, log, undefined, opts.abortSignal);
+    // Once the context is posted, finish this flash block even if the user requests stop.
+    // Returning early here would let flash() begin cleanup/restoration while the device is
+    // still erasing or programming this block. flash() checks the signal at the next block
+    // boundary instead.
+    await this.waitForContextComplete(i, log);
     // waitForContextComplete only confirms the RAM context's own `ready` flag cleared — the
     // firmware clears that right after the buffer transfer/decompression step, BEFORE it has
     // actually erased, programmed, or hash-verified the flash (gnwmanager.c: release_context()
@@ -1113,9 +1270,17 @@ export class GnwFlasher {
     bank: number,
     offset: number,
     data: Uint8Array,
-    opts: { onProgress?: ProgressFn; log?: LogFn; compress?: CompressFn; verify?: boolean; abortSignal?: AbortSignal } = {},
+    opts: {
+      onProgress?: ProgressFn;
+      onActivity?: () => void;
+      log?: LogFn;
+      compress?: CompressFn;
+      verify?: boolean;
+      abortSignal?: AbortSignal;
+    } = {},
   ): Promise<void> {
     const log = opts.log ?? (() => {});
+    if (opts.abortSignal?.aborted) throw new Error("Operation aborted");
     if (!(bank in BANK_BASE)) throw new Error(`[gnw-flasher] bank must be 0, 1, or 2 (got ${bank})`);
     this.validateOffset(bank, offset);
 
@@ -1125,37 +1290,91 @@ export class GnwFlasher {
       throw new Error(`[gnw-flasher] internal flash data must be ≤ ${CONTEXT_BUFFER_SIZE} bytes`);
     }
 
-    const nChunks = Math.ceil(padded.length / CONTEXT_BUFFER_SIZE);
-    const total = padded.length;
-    log(`flashing ${total} bytes to bank ${bank} @ ${hexAddr(offset)} in ${nChunks} chunk(s)`);
-    let dataDone = 0;
-    for (let c = 0; c < nChunks; c++) {
-      if (opts.abortSignal?.aborted) throw new Error("Operation aborted");
+    const chunks = Array.from({ length: Math.ceil(padded.length / CONTEXT_BUFFER_SIZE) }, (_, c) => {
       const start = c * CONTEXT_BUFFER_SIZE;
-      const chunk = padded.subarray(start, Math.min(start + CONTEXT_BUFFER_SIZE, padded.length));
-      await this.program(bank, offset + start, chunk, {
-        erase: true,
-        log,
-        compress: opts.compress,
-        verify: opts.verify,
-        abortSignal: opts.abortSignal,
-        // Map this chunk's buffer-transfer progress onto overall data bytes.
-        onWriteProgress: (w, t) => opts.onProgress?.(dataDone + Math.round((w / t) * chunk.length), total),
-      });
-      dataDone += chunk.length;
-      opts.onProgress?.(dataDone, total);
-      // Update the device-side progress bar (0..26, gnwmanager parity).
-      await this.transport.writeWord(this.addr(Field.PROGRESS), Math.floor((26 * (c + 1)) / nChunks));
-      
-      // Throttle delay to prevent ST-Link clone USB saturation between heavy chunk operations
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    // Drain BOTH contexts before returning, then clear the device's progress bar. Without the
-    // drain this returned with work still in flight (see waitForAllContextsComplete); without
-    // the reset the on-device bar sits at 100% until something else resets the device, which is
-    // what gnwmanager's trailing `-- start bank1` happens to do for it.
-    await this.waitForAllContextsComplete(20000, log);
+      return { start, data: padded.subarray(start, Math.min(start + CONTEXT_BUFFER_SIZE, padded.length)) };
+    });
+    const total = padded.length;
+    log(`flashing ${total} bytes to bank ${bank} @ ${hexAddr(offset)} in ${chunks.length} chunk(s)`);
+    // Start a fresh device-side progress cycle. Keep the completed value after the final
+    // chunk so the LCD's 500 ms redraw loop has time to show 100%; gnwmanager likewise leaves
+    // its last progress value in the mailbox instead of clearing it as soon as the write ends.
     await this.transport.writeWord(this.addr(Field.PROGRESS), 0);
+
+    // GnWManager hashes bank 0 first and only queues chunks whose contents differ. Its LCD
+    // progress denominator is that changed-chunk count, not the physical chip capacity. This
+    // matters on stock restoration: the temporary payload usually changed only one 256 KiB
+    // region, so treating all 4/16 regions as pending makes the on-device bar look like it
+    // stalls near 25%/95% while the one real write is still running.
+    let chunksToProgram = chunks;
+    if (bank === 0) {
+      const actualHashes = await this.readHashes(
+        offset,
+        padded.length,
+        120000,
+        opts.abortSignal,
+        opts.onActivity,
+      );
+      if (opts.abortSignal?.aborted) throw new Error("Operation aborted");
+      if (actualHashes.length !== chunks.length)
+        throw new Error(`[gnw-flasher] got ${actualHashes.length} external-flash hashes for ${chunks.length} chunks`);
+      const changed: typeof chunks = [];
+      for (let c = 0; c < chunks.length; c++) {
+        const expectedHash = await sha256(chunks[c].data);
+        const actualHash = actualHashes[c];
+        let matches = actualHash.length === expectedHash.length;
+        for (let i = 0; matches && i < expectedHash.length; i++) matches = actualHash[i] === expectedHash[i];
+        if (!matches) changed.push(chunks[c]);
+      }
+      chunksToProgram = changed;
+      log(`${changed.length}/${chunks.length} external-flash chunks need programming`);
+    }
+
+    let dataDone = 0;
+    for (const chunkInfo of chunks) {
+      if (opts.abortSignal?.aborted) throw new Error("Operation aborted");
+      const { start, data } = chunkInfo;
+      const needsProgramming = chunksToProgram.includes(chunkInfo);
+      if (needsProgramming) {
+        const changedIndex = chunksToProgram.indexOf(chunkInfo);
+        // GnWManager updates the external-flash LCD when a changed packet is queued, before
+        // its erase/write completes. Keep that timing so the last slow block doesn't leave the
+        // bar one packet short on a device whose UI redraws only every 500 ms.
+        if (bank === 0) {
+          await this.transport.writeWord(
+            this.addr(Field.PROGRESS),
+            Math.floor((26 * (changedIndex + 1)) / chunksToProgram.length),
+          );
+        }
+        await this.program(bank, offset + start, data, {
+          erase: true,
+          log,
+          compress: opts.compress,
+          verify: opts.verify,
+          abortSignal: opts.abortSignal,
+          // Keep host progress tied to the source-image position even when earlier/later
+          // chunks already match and are skipped on-device.
+          onWriteProgress: (w, t) => opts.onProgress?.(start + Math.round((w / t) * data.length), total),
+        });
+        if (bank !== 0)
+          await this.transport.writeWord(this.addr(Field.PROGRESS), Math.floor((26 * (changedIndex + 1)) / chunksToProgram.length));
+      }
+      dataDone = start + data.length;
+      opts.onProgress?.(dataDone, total);
+
+      // Throttle delay to prevent ST-Link clone USB saturation between heavy chunk operations
+      if (needsProgramming) await new Promise((r) => setTimeout(r, 50));
+    }
+    // Drain BOTH contexts before returning. Without the drain this returned with work still in
+    // flight (see waitForAllContextsComplete). Leave Field.PROGRESS at 26 after completion,
+    // matching gnwmanager and allowing the device GUI's periodic redraw to show 100%.
+    await this.waitForAllContextsComplete(20000, log);
+    if (opts.abortSignal?.aborted) throw new Error("Operation aborted");
+    // An identical image has no changed packets to advance the bar. It is still fully verified
+    // by the device hashes above, so complete the LCD indicator explicitly. Reassert 100% after
+    // the last block is device-verified as well, then leave it visible for the GUI redraw.
+    if (bank === 0)
+      await this.transport.writeWord(this.addr(Field.PROGRESS), 26);
     log("flash complete (device-verified).");
   }
 
@@ -1165,16 +1384,28 @@ export class GnwFlasher {
    * is mapped at 0x90000000. A locked device can't read internal flash here.
    * @param bank 0=ext, 1=bank1, 2=bank2
    */
-  async readFlash(bank: number, offset: number, size: number, onProgress?: ProgressFn): Promise<Uint8Array> {
+  async readFlash(
+    bank: number,
+    offset: number,
+    size: number,
+    onProgress?: ProgressFn,
+    onTiming?: (phase: string, elapsedMs: number) => void,
+  ): Promise<Uint8Array> {
     if (!(bank in BANK_BASE)) throw new Error(`[gnw-flasher] bank must be 0, 1, or 2 (got ${bank})`);
     const base = BANK_BASE[bank];
     const aligned = (size + 3) & ~3; // readMemory needs a 4-byte-aligned length
+    let startedAt = performance.now();
     await this.transport.writeWord(this.addr(Field.DOWNLOAD_IN_PROGRESS), 1);
+    onTiming?.("download-flag-set", performance.now() - startedAt);
     try {
+      startedAt = performance.now();
       const data = await this.transport.readMemory(base + offset, aligned, onProgress);
+      onTiming?.("memory-read", performance.now() - startedAt);
       return aligned === size ? data : data.subarray(0, size);
     } finally {
+      startedAt = performance.now();
       await this.transport.writeWord(this.addr(Field.DOWNLOAD_IN_PROGRESS), 0);
+      onTiming?.("download-flag-clear", performance.now() - startedAt);
     }
   }
 
@@ -1188,12 +1419,18 @@ export class GnwFlasher {
    * External flash size the stub detected (bytes). Polls because the stub writes
    * it shortly after going IDLE (see info()'s note). 0 if undetected.
    */
-  async externalFlashSize(timeoutMs = 2000): Promise<number> {
+  async externalFlashSize(timeoutMs = 2000, onPoll?: (attempts: number, value: number, elapsedMs: number, timedOut: boolean) => void): Promise<number> {
     let v = 0;
+    let attempts = 0;
+    const startedAt = performance.now();
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       v = (await this.transport.readWord(this.addr(Field.FLASH_SIZE))) >>> 0;
-      if (v !== 0 || Date.now() > deadline) return v;
+      attempts++;
+      if (v !== 0 || timeoutMs <= 0 || Date.now() > deadline) {
+        onPoll?.(attempts, v, performance.now() - startedAt, v === 0 && timeoutMs > 0 && Date.now() > deadline);
+        return v;
+      }
       await new Promise((r) => setTimeout(r, 10));
     }
   }

@@ -133,7 +133,7 @@
 <!-- The pane's one DEVICE operation, drawn in the rail's anchored footer bar. Copy and Save are
      deliberately NOT here: they act on the output above, so they sit with it. -->
 <PaneFooter>
-  <Button variant="action" disabled={reading || !device.isConnected} onclick={() => void readLog(true)}>
+  <Button variant="action" disabled={reading || !device.canReadDeviceLog} onclick={() => void readLog(true)}>
     {reading ? ov.log.reading : ov.log.readLog}
   </Button>
 </PaneFooter>

@@ -75,6 +75,7 @@
  */
 
 import type { FileRole } from "./coreRegistry.js";
+import { stripFilenameExtension } from "../filename.js";
 import type { LibraryRom } from "./libraryModel.js";
 
 /** What one scanned file is, before any pairing. The shape `romSelection` already has. */
@@ -156,10 +157,9 @@ export function selectionKeyFor(row: Pick<GameRow, "key"> & { outputKey?: string
   return row.outputKey ?? row.key;
 }
 
-/** `"DOOM.WAD"` -> `"DOOM"`. Leaves a dotless name alone. */
-export function stripExtension(filename: string): string {
-  const dot = filename.lastIndexOf(".");
-  return dot > 0 ? filename.slice(0, dot) : filename;
+/** `"DOOM.WAD"` -> `"DOOM"`; `"celeste.p8.png"` -> `"celeste"`. */
+export function stripExtension(filename: string, declaredExtensions: readonly string[] = []): string {
+  return stripFilenameExtension(filename, declaredExtensions);
 }
 
 /**
@@ -222,13 +222,14 @@ export function buildGameRows(
     const preparedSize = output === undefined && outputName ? preparedSizeFor(e.system, outputName) : undefined;
 
     const hint = hintFor(e.key);
-    const listName = stripExtension(e.name);
+    const extensions = e.rom?.system.extensions ?? [];
+    const listName = stripExtension(e.name, extensions);
     rows.push({
       key: e.key,
       system: e.system,
       listName,
       // The published name wins; without one the two surfaces read the same, which is honest.
-      prettyName: hint?.variantFilename ? stripExtension(hint.variantFilename) : listName,
+      prettyName: hint?.variantFilename ? stripExtension(hint.variantFilename, extensions) : listName,
       originFilename: e.name,
       // Once prepared the row's weight is its OUTPUT — that is the file that will be copied,
       // and the size the install budget has to account for. A prepared-in-store output knows
@@ -249,7 +250,7 @@ export function buildGameRows(
   // card or ready to go there, and hiding it would make it unmanageable.
   for (const e of entries) {
     if (e.role !== "installable" || absorbed.has(e.key)) continue;
-    const listName = stripExtension(e.name);
+    const listName = stripExtension(e.name, e.rom?.system.extensions ?? []);
     rows.push({
       key: e.key,
       system: e.system,

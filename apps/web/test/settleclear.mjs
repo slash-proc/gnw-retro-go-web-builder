@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * "Finishing up. Do not disconnect" goes away as soon as the device says it is there.
+ * Post-write settling remains an internal gate until the device attests that it is responsive.
  *
  *   docker compose exec dev sh -c 'cd /app/apps/web && node test/settleclear.mjs'
  *
@@ -10,13 +10,13 @@
  *
  * The defect was where that attestation could come from. It came from `pollTick` alone, and
  * `pollTick` returns early while `transport.busy()`, so it cannot attest anything until the link
- * goes idle. Anything that grabbed the link straight after a write therefore held the warning up
- * for its whole duration -- and entering Recovery Mode now rescans every time, so the banner sat
+ * goes idle. Anything that grabbed the link straight after a write therefore held the safety gate
+ * for its whole duration -- and entering Recovery Mode now rescans every time, so settling lasted
  * through a full walk of the chip. Every install ends with a rescan too.
  *
  * Two more attestations now exist, both completed device exchanges with no write in flight: the
  * `readInfo` at the end of a stub boot, and the end of a scan. This pins that they are wired,
- * and -- the part that actually matters -- that neither can clear the warning while a hold is
+ * and -- the part that actually matters -- that neither can clear the safety gate while a hold is
  * still outstanding.
  */
 import { readFileSync } from "node:fs";
@@ -45,12 +45,12 @@ function realSafety() {
   return safety;
 }
 
-check("a hold outstanding means the warning stays up", () => {
+check("a hold outstanding keeps the write state active", () => {
   const s = realSafety();
   s.holds = 1;
   s.state = "writing";
   s.markQuiet();
-  eq(s.state, "writing", "markQuiet must not clear a warning a live operation is holding");
+  eq(s.state, "writing", "markQuiet must not clear a state a live operation is holding");
 });
 
 check("settling with no hold clears", () => {
@@ -58,16 +58,16 @@ check("settling with no hold clears", () => {
   s.holds = 0;
   s.state = "settling";
   s.markQuiet();
-  eq(s.state, "safe", "an attested quiet link clears the post-write warning");
+  eq(s.state, "safe", "an attested quiet link clears the post-write safety gate");
 });
 
 check("a nested boot inside an install cannot clear it", () => {
-  // An install holds; `ensureStub` inside it attests. The warning must survive.
+  // An install holds; `ensureStub` inside it attests. The write state must survive.
   const s = realSafety();
   s.holds = 2;
   s.state = "writing";
   s.markQuiet();
-  eq(s.state, "writing", "a nested attestation must not pull the warning down mid-flash");
+  eq(s.state, "writing", "a nested attestation must not clear the write state mid-flash");
 });
 
 // --- the wiring ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ check("a completed stub boot attests", () => {
   ok(at >= 0, "the stub boot no longer drops bank freshness; this check is looking in the wrong place");
   const after = store.slice(at, at + 1200);
   ok(/deviceSafety\.markQuiet\(\)/.test(after),
-    "nothing attests liveness after the boot's readInfo, so the warning waits for an idle link");
+    "nothing attests liveness after the boot's readInfo, so the safety gate waits for an idle link");
 });
 
 check("a completed scan attests", () => {
@@ -85,17 +85,17 @@ check("a completed scan attests", () => {
   ok(at >= 0, "the scan no longer records when it ended; this check is looking in the wrong place");
   const after = store.slice(at, at + 900);
   ok(/deviceSafety\.markQuiet\(\)/.test(after),
-    "nothing attests liveness when a scan finishes, so a post-install rescan holds the warning up");
+    "nothing attests liveness when a scan finishes, so a post-install rescan holds the safety gate");
 });
 
 check("the poll is still an attestation too", () => {
   // The original one, located by the ping it follows rather than by counting call sites -- a
   // count would fail for whichever attestation was removed and blame this one. Removing THIS
-  // leaves the warning depending on a boot or a scan happening at all, and an operation that
+  // leaves settling dependent on a boot or a scan happening at all, and an operation that
   // does neither would never clear it.
   const at = store.indexOf("pingTarget(this.transport)");
   ok(at >= 0, "pollTick no longer pings; this check is looking in the wrong place");
-  ok(/deviceSafety\.markQuiet\(\)/.test(store.slice(at, at + 1400)),
+  ok(/deviceSafety\.markQuiet\(\)/.test(store.slice(at, store.indexOf("private async _teardownConnection", at))),
     "the liveness poll no longer attests; a plain write with no rescan would never clear");
 });
 

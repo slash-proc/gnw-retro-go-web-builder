@@ -11,12 +11,11 @@
  * in, and the owner asked for the ones that did not. The transport already computes
  * `(done, total)` for its own `onProgress`, so observing costs no device traffic.
  *
- * ## The heartbeat is excluded structurally, not by a name check
+ * ## Polling is excluded at the device layer
  *
- * The liveness poll pings with `readWord` only (`engine/flasher.ts`'s `pingTarget` and
- * `isStubAlive`). The observer fires for `readMemory`/`writeMemory` alone. So the poll cannot
- * move the bar, and nothing has to recognise it to keep it out. A filter keyed on some "is this
- * the poll?" flag would rot the moment the poll grew a second call site.
+ * A CPUID heartbeat is a `readWord`, which the observer does not report. But safe runtime
+ * polling also reads ITCM, and those bulk reads do reach the observer. `DeviceStore.pollTick`
+ * holds `setQuiet` for its full duration so passive liveness traffic does not animate the lip.
  *
  * ## The fill is per TRANSFER, and that is a real limit worth stating
  *
@@ -68,9 +67,9 @@ class LipProgressStore {
    * Reads nobody asked for do not light the lip at all.
    *
    * Distinct from an operation, which OWNS the lip and draws its progress. This is for work the
-   * user did not request and cannot act on -- the background FS-stat and core-version reads that
-   * follow every scan, which walk the LittleFS tree and read each core, hundreds of block reads
-   * for numbers that appear quietly in a panel. Drawing those is not informative, it is strobing.
+   * user did not request and cannot act on -- passive device polling, background FS-stat and
+   * core-version reads that follow scans, and similar diagnostic traffic. Drawing those is not
+   * informative; it makes the lip strobe while the app appears idle.
    *
    * Counted rather than boolean: the background block starts several readers, and the first one
    * to finish must not un-quiet the lip while the others are still going.

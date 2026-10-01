@@ -465,6 +465,7 @@
   let scrubBounds: DOMRect | null = null;
   let scrubPendingEvent: PointerEvent | null = null;
   let scrubRaf = 0;
+  let scrubPointerStart: { x: number; y: number } | null = null;
 
   const letterBounds = $derived.by(() => {
     const bounds = ALPHABET.map(() => ({ first: -1, last: -1 }));
@@ -535,6 +536,13 @@
   }
 
   function onScrubberPointerMove(e: PointerEvent) {
+    if (scrubPointerStart && !isScrubbing) {
+      const dx = e.clientX - scrubPointerStart.x;
+      const dy = e.clientY - scrubPointerStart.y;
+      if (Math.hypot(dx, dy) < 4) return;
+      beginScrubbing();
+    }
+    if (!isScrubbing) return;
     scrubPendingEvent = e;
     if (!scrubRaf) scrubRaf = requestAnimationFrame(processScrubberPointerMove);
   }
@@ -586,17 +594,26 @@
     if (velocityRaf) cancelAnimationFrame(velocityRaf);
   });
 
-  function onScrubberPointerDown(e: PointerEvent) {
-    if (e.button !== 0) return; // Only left click
-    scrubBounds = scrubberRef?.getBoundingClientRect() ?? null;
-    if (scrubBounds) scrubberWidth = scrubBounds.width;
+  function beginScrubbing() {
+    if (isScrubbing) return;
     isScrubbing = true;
     lastPreviewTime = 0;
     lastPreviewId = "";
     startScrubProfile();
     onScrubState(true);
+  }
+
+  function onScrubberPointerDown(e: PointerEvent) {
+    if (e.button !== 0) return; // Only left click
+    scrubBounds = scrubberRef?.getBoundingClientRect() ?? null;
+    if (scrubBounds) scrubberWidth = scrubBounds.width;
+    scrubPointerStart = { x: e.clientX, y: e.clientY };
+    const pointerOnHandle = e.target instanceof Element && !!e.target.closest(".scrubber-handle");
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    onScrubberPointerMove(e);
+    if (pointerOnHandle) {
+      beginScrubbing();
+      onScrubberPointerMove(e);
+    }
   }
 
   function onScrubberPointerUp(e: PointerEvent) {
@@ -608,15 +625,24 @@
     isScrubbing = false;
     stopScrubProfile();
     scrubX = null;
+    const shouldSeek = !wasScrubbing && scrubPointerStart !== null;
+    scrubPointerStart = null;
     scrubBounds = null;
-    const handle = e.currentTarget as HTMLElement;
-    if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+    const scrubber = e.currentTarget as HTMLElement;
+    if (scrubber.hasPointerCapture(e.pointerId)) scrubber.releasePointerCapture(e.pointerId);
+    if (shouldSeek && covers.length > 0) {
+      const rect = scrubberRef?.getBoundingClientRect();
+      if (rect?.width) {
+        const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        focusIndex = Math.min(covers.length - 1, Math.floor((x / rect.width) * covers.length));
+      }
+    }
     const selected = covers[focusIndex];
-    if (wasScrubbing && selected) {
+    if ((wasScrubbing || shouldSeek) && selected) {
       preloadFullCoverAt(focusIndex, version, new Set<string>());
       triggerSelect(selected.id);
     }
-    onScrubState(false);
+    if (wasScrubbing) onScrubState(false);
   }
 
   let ready = $derived(vp.w > 0 && vp.h > 0);
@@ -782,6 +808,10 @@
         <div 
           class="alphabet-scrubber" 
           bind:this={scrubberRef}
+          onpointerdown={onScrubberPointerDown}
+          onpointermove={onScrubberPointerMove}
+          onpointerup={onScrubberPointerUp}
+          onpointercancel={onScrubberPointerUp}
         >
           <div class="scrubber-track"></div>
           <div 
@@ -792,10 +822,6 @@
             aria-valuemax="26"
             aria-valuenow="0"
             tabindex="0"
-            onpointerdown={onScrubberPointerDown}
-            onpointermove={onScrubberPointerMove}
-            onpointerup={onScrubberPointerUp}
-            onpointercancel={onScrubberPointerUp}
           >
             {#if isScrubbing || true}
               {@const cFraction = getCurrentLetterFraction()}
@@ -945,6 +971,7 @@
     padding: 20px 0;
     user-select: none;
     touch-action: none;
+    cursor: ew-resize;
   }
   .scrubber-track {
     position: absolute;

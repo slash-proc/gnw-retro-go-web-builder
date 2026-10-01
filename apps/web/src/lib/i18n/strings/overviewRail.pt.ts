@@ -14,7 +14,6 @@ export const overviewRailPt: OverviewRailStrings = {
   // German reads "Programmieradapter": this row names the PROGRAMMER HARDWARE attached to
   // the device, not a software probe.
   probe: "Programador",
-  deviceUid: "UID do dispositivo",
 
   sources: "Fontes",
   sourcesCount: (listed: number, active: number) => `${listed} listadas, ${active} ativas`,

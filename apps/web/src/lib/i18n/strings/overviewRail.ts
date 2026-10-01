@@ -36,7 +36,6 @@ export const overviewRailEn = {
 
   // Adapter rows.
   probe: "Probe",
-  deviceUid: "Device UID",
 
   // This-app rows.
   sources: "Sources",

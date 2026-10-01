@@ -177,11 +177,15 @@
     try {
       const tree = await ensureLfsTree();
       const files = new Map<string, Uint8Array>();
+      // LittleFS gives tree paths as absolute paths ("/cores/gba.xip"), while image
+      // construction below uses paths relative to its root ("cores/gba.xip"). Compare the
+      // same canonical form or the selected entry survives the rebuild and is written back.
+      const deletedPath = node.path.replace(/^\/+/, "");
       async function collect(n: LittlefsTreeNode, prefix: string) {
         for (const c of n.children ?? []) {
           const p = `${prefix}${c.name}`;
           if (c.isDirectory) await collect(c, `${p}/`);
-          else if (p !== node.path) files.set(p, await readLfsFile(p));
+          else if (p !== deletedPath) files.set(p, await readLfsFile(`/${p}`));
         }
       }
       await collect(tree, "");
@@ -203,6 +207,11 @@
       // with LFS_ERR_CORRUPT (-84).
       const onDeviceImage = reverseLfsBlocks(image.finish(), bs, bc);
       await flashImage((force) => device.ensureStub(undefined, force, true, force), 0, part.offset, onDeviceImage, undefined, undefined, { compress: true, verify: false });
+      // This path rewrites LittleFS directly, rather than through writeFilesToDeviceLfs,
+      // which normally keeps the block cache coherent. Drop both cache layers before
+      // remounting or the browser can read the pre-delete directory tree back from RAM.
+      device.lfsBlockCache.clear();
+      device.lfsChunkHashes.clear();
       lfsTree = null;
       device.installedLfsTree = null;
       await loadLittleFs();

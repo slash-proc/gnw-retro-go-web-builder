@@ -9,6 +9,7 @@
 
 import type { FileRole } from "./coreRegistry.js";
 import type { MaybeLazy } from "../lazyBytes.js";
+import { matchFilenameExtension, stripFilenameExtension, stripFinalFilenameExtension } from "../filename.js";
 
 /** The persisted half of a user-selected DirectorySource. */
 export interface DirectorySourceRef {
@@ -64,6 +65,8 @@ export interface LibraryRom {
     folder: string;
     shortName: string;
     longName: string;
+    /** Full filename suffixes declared for this system by its active core. */
+    extensions?: string[];
     coreSourceIds: string[];
     primaryCoreSourceId?: string;
     /** Resolved primary source relationship for consumers that need source metadata. */
@@ -101,7 +104,7 @@ export function createLibraryRom(input: LibraryRomBuildInput): LibraryRom {
     ...(input.source ? { directorySource: input.source } : {}),
     system: input.system,
     role: input.role,
-    cover: libraryCoverForPath(input.path),
+    cover: libraryCoverForPath(input.path, input.system.extensions),
     device: {
       installed: input.installed,
       ...(input.devicePath ? { path: input.devicePath } : {}),
@@ -112,30 +115,60 @@ export function createLibraryRom(input: LibraryRomBuildInput): LibraryRom {
 
 /** Source-relative cover candidates for a ROM. The first tier is beside the ROM; the second
  * preserves the app's existing optional `covers/` mirror layout. */
-export function coverPathsForRom(rom: Pick<LibraryRom, "file">, extension: string): string[] {
-  const ext = extension.startsWith(".") ? extension : `.${extension}`;
+export function coverPathsForRom(rom: Pick<LibraryRom, "file" | "system">, extension: string): string[] {
   const path = rom.file.relativePath;
-  const dot = path.lastIndexOf(".");
-  const stem = dot > path.lastIndexOf("/") ? path.slice(0, dot) : path;
+  const siblingPath = sourceCoverPathForRom(path, extension, rom.system.extensions);
   return [
-    `${stem}${ext}`,
-    `covers/${stem}${ext}`,
-  ];
+    siblingPath,
+    `covers/${siblingPath}`,
+  ].filter((candidate) => candidate.toLowerCase() !== path.toLowerCase());
+}
+
+/** A normalized image path beside the ROM, using the complete suffix declared by its core. */
+export function sourceCoverPathForRom(
+  relativePath: string,
+  extension: string,
+  declaredExtensions: readonly string[] = [],
+): string {
+  const ext = extension.startsWith(".") ? extension : `.${extension}`;
+  const filename = relativePath.slice(relativePath.lastIndexOf("/") + 1);
+  const stem = relativePath.slice(0, relativePath.length - filename.length) + stripFilenameExtension(filename, declaredExtensions);
+  return `${stem}${ext}`;
+}
+
+/** Inline covers share a basename with the ROM. Never return the ROM itself as a sidecar. */
+export function inlineCoverPathsForRom(relativePath: string, declaredExtensions: readonly string[] = []): string[] {
+  const filename = relativePath.slice(relativePath.lastIndexOf("/") + 1);
+  const directory = relativePath.slice(0, relativePath.length - filename.length);
+  const sourceStem = directory + stripFilenameExtension(filename, declaredExtensions);
+  const firmwareStem = directory + stripFinalFilenameExtension(filename);
+  return [`${firmwareStem}.img`, `${sourceStem}.png`, `${sourceStem}.jpg`]
+    .filter((candidate) => candidate.toLowerCase() !== relativePath.toLowerCase());
 }
 
 /** Cover relationship known from ROM metadata alone; existence is resolved by the source index. */
-export function libraryCoverForPath(relativePath: string): LibraryCover {
-  const dot = relativePath.lastIndexOf(".");
-  const stem = dot > relativePath.lastIndexOf("/") ? relativePath.slice(0, dot) : relativePath;
-  const originalPaths = [".png", ".jpg", ".jpeg"].flatMap((extension) => [
-    `${stem}${extension}`,
-    `covers/${stem}${extension}`,
-  ]);
-  const carouselPath = `${stem}.img`;
+export function libraryCoverForPath(relativePath: string, declaredExtensions: readonly string[] = []): LibraryCover {
+  const filename = relativePath.slice(relativePath.lastIndexOf("/") + 1);
+  const png = sourceCoverPathForRom(relativePath, ".png", declaredExtensions);
+  const sourceStem = png.slice(0, -".png".length);
+  const firmwareStem = relativePath.slice(0, relativePath.length - filename.length) + stripFinalFilenameExtension(filename);
+  const originalPaths = [".png", ".jpg", ".jpeg", ".webp", ".bmp"].flatMap((extension) => [
+    `${sourceStem}${extension}`,
+    `covers/${sourceStem}${extension}`,
+  ]).filter((candidate) => candidate.toLowerCase() !== relativePath.toLowerCase());
+  // Some cores declare image-backed ROMs (for example a cart stored as `.p8.png`). They are
+  // valid cover art when no normalized sibling cover exists. Keep this self-image last so an
+  // optional `celeste.png` overrides the embedded image, while never treating arbitrary ROMs
+  // as art just because their final bytes happen to be decodable by the browser.
+  const declaredSuffix = matchFilenameExtension(filename, declaredExtensions);
+  if (declaredSuffix && [".png", ".jpg", ".jpeg", ".webp", ".bmp"].some((imageExt) => declaredSuffix.endsWith(imageExt))) {
+    originalPaths.push(relativePath);
+  }
+  const carouselPath = `${firmwareStem}.img`;
   return {
     originalPaths,
     carouselPath,
-    deviceImgPath: `covers/${stem}.img`,
+    deviceImgPath: `covers/${firmwareStem}.img`,
   };
 }
 

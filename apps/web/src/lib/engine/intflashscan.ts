@@ -81,7 +81,7 @@ function lastNonFF(win: Uint8Array): number {
  *  just names the fork (it supports SD-card use, doesn't mean this particular build IS one; a
  *  Flash-mode build from the same SD-capable fork still says "Retro-Go SD"), so it must be
  *  preserved for display, not silently dropped. Older, pre-SD-fork retro-go omits it entirely. */
-function retroGoInfo(buf: Uint8Array): { present: boolean; version?: string; isSdFork?: boolean } {
+export function retroGoInfo(buf: Uint8Array): { present: boolean; version?: string; isSdFork?: boolean } {
   const s = new TextDecoder("latin1").decode(buf);
   const present = s.includes(RETROGO_SIG);
   const m = s.match(/Retro-Go (SD )?(v\d[\w.+-]*|NOTAG)/);

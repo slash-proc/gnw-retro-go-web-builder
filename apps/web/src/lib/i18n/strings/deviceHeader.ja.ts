@@ -1,6 +1,8 @@
 import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderJa: DeviceHeaderStrings = {
+  noDeviceDetected: "デバイスが検出されません",
+  noValidAdapterSelected: "有効なアダプターが選択されていません",
   changeInstallationMethod: "インストール方法を変更",
   connectionLost: "接続が切断されました",
   targetUnresponsive: "デバイスが応答していません。応答が戻るまで待機中…",
@@ -31,7 +33,6 @@ export const deviceHeaderJa: DeviceHeaderStrings = {
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "純正ファームウェア",
   unsafeWritingStatus: "フラッシュ書き込み中。抜かないでください",
-  unsafeSettlingStatus: "処理を完了中。抜かないでください",
   retroGoOlderSuffix: "（旧版）",
   unsafeAria: "本体を取り外さないでください",
 };

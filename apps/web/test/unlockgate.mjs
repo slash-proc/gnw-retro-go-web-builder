@@ -213,13 +213,13 @@ await check("lock() is still deliberately unimplemented", async () => {
 // Both are backups. Unlocking mass-erases, so unlocking on the way IN would destroy the exact
 // image the flow exists to save. This is the mistake the gate cannot catch for them.
 
-await check("the OFW backup refuses a locked device instead of unlocking it", () => {
+await check("the OFW backup uses locked recovery without unlocking it", () => {
   const src = read("src/lib/advanced/OfficialFirmwareSection.svelte");
   // Comments stripped: the code there explains WHY it does not call ensureUnlocked, and a
   // guard that matched its own rationale would pass on a body that had started calling it.
   const body = strip(src.slice(src.indexOf("async function doBackup"), src.indexOf("async function run")));
   ok(!/ensureUnlocked/.test(body), "doBackup must never unlock: it would erase what it is saving");
-  ok(/device\.locked/.test(body) && /errDeviceLocked/.test(body),
+  ok(/device\.locked/.test(body) && /dumpLockedBackup/.test(body),
     "doBackup must refuse a locked device with the locked error");
 });
 
@@ -265,14 +265,9 @@ await check("Wizard's two write flows each unlock", () => {
 
 await check("Wizard does not repeat its Recovery Mode gate after unlocking resets the stub", () => {
   const src = strip(read("src/lib/views/Advanced.svelte"));
-  const start = src.indexOf("let stubGateRequested = false;");
-  const end = src.indexOf("const HASH_SEGMENT", start);
-  ok(start >= 0 && end > start, "the wizard recovery gate is missing");
-  const gate = src.slice(start, end);
-  ok(/device\.utilLoaded \|\| stubGateRequested/.test(gate),
-    "the Recovery Mode gate must stay latched after the flow temporarily clears utilLoaded");
-  ok(/stubGateRequested = false/.test(gate.slice(0, gate.indexOf("device.ensureStub"))),
-    "the latch must reset after leaving Guided Setup or disconnecting");
+  ok(/if \(recoveryStarting\) return/.test(src), "concurrent Recovery requests are coalesced");
+  ok(/await device\.connectAndStartRecoveryMode\(\)/.test(src), "Recovery uses the explicit connection entry point");
+  ok(!/\$effect\([\s\S]*?device\.ensureStub/.test(src), "no reactive Recovery gate restarts a temporarily cleared stub");
 });
 
 // --- 5. The opt-in is gone -----------------------------------------------------------------------

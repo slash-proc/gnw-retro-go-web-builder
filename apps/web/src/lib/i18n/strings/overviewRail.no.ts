@@ -12,7 +12,6 @@ export const overviewRailNo: OverviewRailStrings = {
   capacity: "Kapasitet",
 
   probe: "Programmeringsadapter",
-  deviceUid: "Enhets-UID",
 
   sources: "Kilder",
   sourcesCount: (listed: number, active: number) => `${listed} oppført, ${active} i bruk`,

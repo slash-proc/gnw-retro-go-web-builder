@@ -30,6 +30,7 @@ in the first place.
 | [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) | build, test, set up a worktree, or touch the firmware-distribution client |
 | [docs/FILESYSTEMS.md](./docs/FILESYSTEMS.md) | touch FrogFS, LittleFS, staging or ROM compression |
 | [docs/PATCHING.md](./docs/PATCHING.md) | touch the firmware patcher or the layout superblock |
+| [docs/SOURCE_INSTALL_ACCOUNTING.md](./docs/SOURCE_INSTALL_ACCOUNTING.md) | investigate or change remote source manifests, converter-produced files, core/homebrew install trees, mapped sidecars, install summaries, or Flash/SD placement |
 
 [docs/README.md](./docs/README.md) indexes everything else: live scoreboards, dated records and
 design material. Dated records are point-in-time findings: **read the code before acting on
@@ -72,34 +73,19 @@ one.**
 - `references/` is gitignored local clones, not submodules. A fresh clone or an agent worktree
   has none, so the reference-oracle tests only run from the main clone.
 
-## Official curated distribution retrieval
+## Remote core/homebrew workflow
 
-When obtaining a curated core or homebrew artifact, use the project's published GitHub Pages
-distribution metadata. Never guess a GitHub release URL, tag asset path, repository name, or
-GitHub API endpoint, and never treat a device copy as the original distribution artifact.
+Follow the published chain: firmware `versions.json` -> firmware manifest -> curated
+`projects.json` -> the project's exact `versionsUrl` -> project `versions.json` -> selected
+release manifest -> verified artifacts and converter -> actual converter outputs. With no
+pinned tag, the app selects `versions[0]`; there is no `latest` file. Never substitute a guessed
+URL, checked-out `gwrg.json`, test fixture, or device copy for the published release data.
 
-The discovery chain is:
-
-1. Start with the Retro-Go SD distribution index hard-coded by the app:
-   `https://slash-proc.github.io/game-and-watch-retro-go-sd/dist/versions.json`.
-2. Select the requested firmware entry (the newest default is `versions[0]`; there is no
-   `latest` file), resolve its `manifest` relative to that index URL, then resolve the
-   manifest's `projects` URL relative to the manifest URL.
-3. For a curated project, use the exact absolute `versionsUrl` published in `projects.json`.
-   For example, if the curated list publishes
-   `https://slash-proc.github.io/ccleste-retro-go-sd/dist/versions.json`, fetch that URL;
-   do not reconstruct it from memory.
-4. In that project's `versions.json`, select the exact requested tag (for example `v0.0.4`,
-   `v0.2.0`, or `v1.1.2`). Resolve its manifest relative to the project's `versions.json`,
-   then resolve every artifact URL relative to that manifest URL.
-5. Download and verify the manifest-declared artifact bytes (including `sha256` and size) via
-   the source client path. If an exact tag is absent, report it unavailable rather than
-   silently substituting another release.
-
-The implementation of this protocol is in `apps/web/src/lib/firmwareDist/client.ts` and
-`curated.ts` for the Retro-Go SD index and curated project list, and
-`apps/web/src/lib/sources/client.ts` for project `versions.json`, manifests, URL resolution,
-and artifact verification (`resolveVersion`/`fetchTargetArtifacts`).
+Before reasoning about a core/homebrew install tree, read
+[SOURCE_INSTALL_ACCOUNTING.md](./docs/SOURCE_INSTALL_ACCOUNTING.md). Account for the complete
+file set before placement: summaries and writers must use the same plan; Flash's FrogFS and
+LittleFS sets must partition that set exactly, while SD applies its own paths. Details and the
+SMW, Zelda 3, OpenLara, Doom, and GBA examples are in that guide.
 
 ## Memory
 

@@ -20,7 +20,8 @@
    *
    * WHAT THE ROWS READ. Every one of them is existing store state; this pane performs no
    * device reads of its own.
-   *   Layout            both banks' shapes, via `bankLayout` (ui/statusLayout.ts). The
+   *   Layout            scanned bank signatures plus safe live stock/runtime hints, via
+   *                     `bankLayout` (ui/statusLayout.ts). The
    *                     board's small Bank 1 / Bank 2 grid is NOT redrawn here: the real
    *                     bank visualisation (BankCard) is the very next section on this page,
    *                     and a second, cruder copy of it two rows above would be noise.
@@ -55,7 +56,10 @@
   const s = $derived(locale.t.overview.status);
 
   const layoutValue = $derived.by(() => {
-    switch (bankLayout(device.banks)) {
+    switch (bankLayout(device.banks, {
+      stockModel: device.itcmOfwModel,
+      retroGoRunning: device.runtimeKind === "retro-go",
+    })) {
       case "dual": return s.layoutDual;
       case "retrogo": return s.layoutRetroGo;
       case "stock": return s.layoutStock;
@@ -73,11 +77,10 @@
         : locale.t.overview.info.lockUnlocked,
   );
 
-  // THE BACKUP ROW READS THE FOLDER, not `device.backupTaken`. That flag records only that this
-  // app once finished a backup for this unit's UID: it says None to someone who has a good
-  // folder from gnwmanager or an earlier install, and keeps claiming one exists after the files
-  // are deleted. Automatic unlock now gates on a backup existing, so the second direction is
-  // not a cosmetic error. `backupPresence.svelte.ts` carries the full reasoning.
+  // THE BACKUP ROW READS THE FOLDER, not `device.backupTaken`. The latter is an in-session
+  // guided-flow latch, not proof of durable backup presence. `backupPresence.svelte.ts` hashes
+  // the files in registered backup folders, including backups made by gnwmanager or earlier
+  // installs, and stops claiming one exists after those files are deleted.
   //
   // A folder we cannot see is `disconnected`, and it is NOT `None`: asserting "no backup" about
   // a folder nobody has looked in is the same lie in a different costume. Both want something

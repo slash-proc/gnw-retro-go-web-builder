@@ -413,8 +413,9 @@ class InstallProgressStore {
     this.reporter.signal = this.controller.signal;
     // Every long-running device operation in the app funnels through run()/confirm(), so this
     // single hold covers flash installs, SD sync, erase, OFW patch/flash, dumps and the
-    // halt-based screenshot without any view needing to know about the warning. Released in
-    // `finally` — the warning then drops to "settling", NOT to "safe".
+    // halt-based screenshot without any view needing to manage write state. Released in
+    // `finally` — the visible warning clears, while the internal safety state moves to
+    // "settling" until the device is attested again.
     deviceSafety.hold();
     try {
       await p.exec(this.reporter);
@@ -586,6 +587,11 @@ class DeviceSafetyStore {
     return this.state !== "safe";
   }
 
+  /** True only while a write is actively in flight. `settling` remains an internal gate. */
+  get writeInProgress(): boolean {
+    return this.state === "writing";
+  }
+
   setNoLinkProbe(fn: () => boolean): void {
     this.noLinkProbe = fn;
   }
@@ -609,7 +615,7 @@ class DeviceSafetyStore {
   }
 
   /** Called by the liveness poll when the target answered while the link was idle. Only
-   *  meaningful for "settling" — it must never pull the warning down out from under a hold. */
+   *  meaningful for "settling" — it must never clear the safety gate out from under a hold. */
   markQuiet(): void {
     if (this.holds === 0 && this.state === "settling") {
       this.state = "safe";

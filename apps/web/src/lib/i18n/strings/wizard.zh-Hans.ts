@@ -30,6 +30,8 @@ export const wizardZhHans: WizardStrings = {
     bodyBackupOnly:
       "接下来会让你在电脑上选择一个文件夹，设备原始固件的副本会保存在那里。请妥善保管这些文件，它们无法再次下载。此步骤不会写入设备：下一步 Retro-Go 才会替换原始固件。",
     buttonBackupOnly: "备份",
+    resumeBackup: "继续备份",
+    statusIncomplete: "备份未完成",
   },
   step2: {
     title: "安装 Retro-Go",

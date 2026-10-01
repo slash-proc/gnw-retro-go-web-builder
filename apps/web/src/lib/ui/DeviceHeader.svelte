@@ -135,32 +135,27 @@
   // amber and throbbing while a write is in flight, so a flash can't look "calm green". Same
   // deviceSafety store as App.svelte's lip (installProgress.svelte.ts) — a pure consumer, it
   // decides nothing about when a write is in flight and adds no second source of truth. A lost
-  // or absent connection still wins, exactly as `statusText` below resolves it: there is no
-  // "don't disconnect" state once the device is already gone.
+  // or absent connection still wins, exactly as `statusText` below resolves it.
   const statusColor = $derived(
     !device.isConnected
       ? "red"
-      : deviceSafety.unsafe
+      : deviceSafety.writeInProgress
         ? "amber"
         : device.utilLoaded
           ? "green"
           : "yellow",
   );
-  // During a write the status line carries the do-not-disconnect wording (HeaderBusy artboard),
-  // which is why the lip could stop being a text banner. Same deviceSafety store as App.svelte's
-  // lip — one source of truth, this is a pure consumer. A lost or absent connection still wins:
-  // "do not disconnect" is meaningless once the device is already gone.
+  // During an active write the status line carries the do-not-disconnect wording. Post-write
+  // settling stays an internal operation gate; it does not claim the device is still writing.
   const statusText = $derived(
-    device.connection === "lost"
-      ? device.isTargetUnresponsive
-        ? locale.t.deviceHeader.targetUnresponsive
-        : device.error ?? locale.t.deviceHeader.connectionLost
-      : !device.isConnected
-        ? locale.t.deviceHeader.noConnection
-        : deviceSafety.state === "writing"
+    !device.isConnected
+      ? device.adapterAvailable
+        ? locale.t.deviceHeader.noDeviceDetected
+        : locale.t.deviceHeader.noValidAdapterSelected
+      : deviceSafety.writeInProgress
           ? locale.t.deviceHeader.unsafeWritingStatus
-        : deviceSafety.state === "settling"
-            ? locale.t.deviceHeader.unsafeSettlingStatus
+        : device.debuggingDisabled && device.runtimeKind === "stock-ofw"
+          ? locale.t.deviceHeader.connectedAs(locale.t.deviceHeader.stock)
         : device.debuggingDisabled
           ? locale.t.deviceHeader.connectedDebuggingDisabled
         : device.utilLoaded
@@ -194,7 +189,9 @@
   );
 
   const retroGoStatus = $derived(
-    device.scanning
+    // Keep the quick runtime probe's answer visible while the full inventory scan refines
+    // geometry. `device.scanning` does not mean these already-known bank versions are unknown.
+    device.scanning && !device.banks.some((bank) => bank.retroGoVersion)
       ? locale.t.deviceHeader.scanning
       : !scanned
         ? locale.t.deviceHeader.dash
@@ -204,18 +201,25 @@
             ? locale.t.deviceHeader.patchMissing
             : locale.t.deviceHeader.notInstalled,
   );
-  const ofw = $derived(device.deviceClass?.ofw ?? null);
+  // Full classification takes precedence. Quick bank vectors identify patched OFW before a
+  // geometry scan, including on devices whose protection makes the full classifier return
+  // `locked`; ITCM then identifies exact stock firmware when bank reads cannot classify it.
+  const ofw = $derived(
+    device.deviceClass?.ofw ??
+      device.banks.find((bank) => bank.ofw)?.ofw ??
+      (device.itcmOfwModel !== "unknown" ? { model: device.itcmOfwModel, patched: false } : null),
+  );
   const ofwText = $derived(
-    device.scanning
+    device.scanning && !ofw
       ? locale.t.deviceHeader.scanning
-      : !scanned
-        ? locale.t.deviceHeader.dash
-        : ofw
+      : ofw
           ? locale.t.deviceHeader.ofwLabel(
               ofw.model === "mario" ? locale.t.deviceHeader.mario : locale.t.deviceHeader.zelda,
               ofw.patched ? locale.t.deviceHeader.patched : locale.t.deviceHeader.stock,
             )
-          : locale.t.deviceHeader.none,
+          : !scanned
+            ? locale.t.deviceHeader.dash
+            : locale.t.deviceHeader.none,
   );
 
   // The do-not-disconnect signal lives in App.svelte's single face-plate lip, which swaps its
@@ -223,7 +227,7 @@
   // 3px row is how the header ended up stacking two of them (audit finding 5.7).
 </script>
 
-<header class="band" class:busy={deviceSafety.unsafe}>
+<header class="band" class:busy={deviceSafety.writeInProgress}>
   <!-- Main.dc.html:22 draws this band with exactly TWO children: the content group hard against
        the 40px left padding, and the right-hand group hard against the right. There is NO empty
        left spacer — one used to live here and, with `justify-content: space-between` and three

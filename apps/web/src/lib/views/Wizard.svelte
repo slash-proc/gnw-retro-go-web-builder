@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { device, modelLabel } from "../device.svelte.js";
   import { backupPresence } from "../backupPresence.svelte.js";
-  import { localFolders, displayName } from "../sources/localFolders.svelte.js";
+  import { localFolders } from "../sources/localFolders.svelte.js";
   import Button from "../ui/Button.svelte";
   import AddSourcesModal from "../ui/AddSourcesModal.svelte";
   import { installProgress, deviceSafety, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
@@ -12,7 +12,8 @@
 
   import {
     pickBackupFolder, dumpBackup, dumpLockedBackup, isLockedBackupBlueScreen, writeBackup, patchAndFlash, detectDevice,
-    scanBackupFolder, defaultBackup, restoreStock, restoreSavedExternal, type FoundBackup, type BackupDir, type OfwModel
+    scanBackupFolder, defaultBackup, restoreStock, restoreSavedExternal, detectModelFromItcm,
+    type FoundBackup, type BackupDir, type OfwModel
   } from "../engine/ofw.js";
   import { evaluateRestore } from "../engine/restoreGuards.js";
   import { buildFlashInstall, flashInstallToDevice, type FlashRegion } from "../engine/flashInstall.js";
@@ -71,7 +72,11 @@
     for (const [key, data] of roms) {
       const spec = all.get(key);
       if (!spec) continue;
-      out.set(key, { ...(spec.relocBase === undefined ? {} : { relocBase: spec.relocBase }), bytes: data.length });
+      out.set(key, {
+        ...(spec.relocBase === undefined ? {} : { relocBase: spec.relocBase }),
+        ...(spec.lookupKey === undefined ? {} : { lookupKey: spec.lookupKey }),
+        bytes: data.length,
+      });
     }
     return out.size > 0 ? out : undefined;
   }
@@ -112,14 +117,16 @@
     device.partitions.some(p => p.type.includes("Assets") || p.type.includes("OFW"))
   );
 
-  // "Patched" requires ACTUAL evidence of a patched OFW in intflash (deviceClass.ofw.patched,
-  // derived from the bank scan) AND its assets present in extflash (hasAssets) — both checks
+  // "Patched" requires evidence of a patched OFW in bank 1 AND its assets present in
+  // extflash (hasAssets) — both checks
   // are required, not just "not locked". The old fallback (`kind !== "locked"`) fired whenever
   // NO OFW was detected anywhere (e.g. intflash fully erased), incorrectly reporting a
   // completely blank device as "patched" and skipping straight to Guided Setup's Install
   // Retro-Go step — which would fail, since that step assumes bank 1 already has a working
   // patched-OFW dual-boot chainloader in place.
-  const isPatched = $derived(!!device.deviceClass?.ofw?.patched && hasAssets);
+  const isPatched = $derived(
+    device.banks.some((b) => b.index === 1 && b.ofw?.patched === true) && hasAssets,
+  );
 
   // The classifier can describe orphaned external-flash files as `retrogo-sd` (for
   // example, a FrogFS/LittleFS partition left behind after an incomplete flash).
@@ -130,7 +137,8 @@
   const isInstalled = $derived(
     !!device.deviceClass &&
       (device.deviceClass.kind === "retrogo-sd" || device.deviceClass.kind === "retrogo-old") &&
-      device.banks.some((b) => b.type === "Retro-Go" && /^v\d/.test(b.retroGoVersion ?? "")),
+      device.banks.some((b) => b.index === (path === "dual" ? 2 : 1) &&
+        b.type === "Retro-Go" && /^v\d/.test(b.retroGoVersion ?? "")),
   );
 
   const isBroken = $derived(
@@ -186,15 +194,31 @@
   const chooserCards = $derived(cardsFor({ extMB, isStock }));
   const chooserFloorNote = $derived(floorNoteFor(extMB));
 
-  // "A backup of THIS unit's stock firmware exists on the user's disk" — a durable fact, so it
-  // lives in the device store (localStorage, keyed by the unit's STM32 UID) rather than the
-  // session `$state` it used to be, which forgot across every reload.
-  const backupTaken = $derived(device.backupTaken);
-  // Backups selected elsewhere in the app are also valid completion evidence for the
-  // Retro-Go-only plan. The shared probe updates this independently of the guided flow.
-  const backupPresent = $derived(backupPresence.state.kind === "present");
+  // The backup step describes what is on disk now, like Overview. A historical "backup taken"
+  // flag must never keep this green after the files have been deleted. Prefer the connected
+  // device's detected model; before model detection, match Overview and accept any complete pair.
+  let backupInventory = $state<FoundBackup[]>([]);
+  let backupModelOverride = $state<OfwModel | null>(null);
+  const backupModel = $derived(backupModelOverride ?? (device.model !== "unknown"
+    ? device.model
+    : device.extSizeMB === 1 ? "mario" : device.extSizeMB === 4 ? "zelda" : "unknown"));
+  const backupForDevice = $derived.by(() => {
+    const matching = backupModel === "unknown"
+      ? backupInventory
+      : backupInventory.filter((backup) => backup.model === backupModel);
+    return matching.find((backup) => backup.internalOk && backup.externalOk) ?? null;
+  });
+  const backupPartial = $derived.by(() => {
+    const matching = backupModel === "unknown"
+      ? backupInventory
+      : backupInventory.filter((backup) => backup.model === backupModel);
+    return !matching.some((backup) => backup.internalOk && backup.externalOk) &&
+      matching.some((backup) => backup.internalPresent || backup.externalPresent);
+  });
+  const backupPresent = $derived(!!backupForDevice);
   $effect(() => {
     untrack(() => void backupPresence.refresh());
+    untrack(() => void refreshBackupInventory());
   });
 
   // Backup and patch are separate dual-boot stages. The backup remains useful on its own if
@@ -205,9 +229,7 @@
   let step1Skipped = $state(false);
   let skipBackupAcknowledged = $state(false);
   let lockedExternalRecovery = $state<{ dir: BackupDir; models: OfwModel[] } | null>(null);
-  let backupStepDone = $derived(
-    step1Skipped || (path === "rgo" ? backupPresent : backupTaken || backupPresent || !!device.deviceClass?.ofw?.patched),
-  );
+  let backupStepDone = $derived(step1Skipped || backupPresent);
   let backupStepActive = $derived(!backupStepDone);
   let patchStepDone = $derived(path === "dual" && isPatched);
   let patchStepActive = $derived(path === "dual" && backupStepDone && !patchStepDone);
@@ -217,43 +239,88 @@
   // skip or hide the backup step. Only the Retro-Go-only path may offer a skip, and it only
   // needs the step at all while unpatched stock is still sitting in bank 1 with no dump taken.
   //
-  // The Retro-Go-only half is LATCHED when the path is chosen, not re-derived live: taking the
-  // backup flips `backupTaken`, and a live derivation would delete the step the user is
-  // standing on and renumber the spine underneath them. A reload re-evaluates it — which is
-  // exactly what persisting `backupTaken` buys.
+  // The Retro-Go-only half is LATCHED when the path is chosen, so a live file rescan cannot
+  // delete the step the user is standing on and renumber the spine underneath them.
   let rgoNeedsBackup = $state(false);
   let rgoNeedsBank2Cleanup = $state(false);
   let bank2CleanupDone = $state(false);
   const showBackupStep = $derived(path === "dual" || (path === "rgo" && rgoNeedsBackup));
   const canSkipBackup = $derived(path === "rgo");
   let skipExpanded = $state(false);
-  let backupSourceChoices = $state<Array<{ id: string; dir: BackupDir; backup: FoundBackup; sourceName: string }>>([]);
+  let backupSourceChoices = $state<Array<{ id: string; dir: BackupDir; backup: FoundBackup }>>([]);
   let backupSourceChoiceId = $state("");
+  let backupInventoryScanId = 0;
+
+  async function refreshBackupInventory(): Promise<void> {
+    const scanId = ++backupInventoryScanId;
+    const snapshots = await backupPresence.scanDirectories();
+    const byModel = new Map<OfwModel, FoundBackup>();
+    for (const { backups } of snapshots) {
+      for (const backup of backups) {
+        const previous = byModel.get(backup.model);
+        if (!previous || (backup.internalOk && backup.externalOk && !(previous.internalOk && previous.externalOk)))
+          byModel.set(backup.model, backup);
+      }
+    }
+    if (scanId === backupInventoryScanId) backupInventory = [...byModel.values()];
+  }
+
+  async function detectBackupVariant(): Promise<void> {
+    // A normal bank-vector scan is cheaper when it can identify the model. On RDP1 stock
+    // devices it may not be able to, while ITCM remains readable: use GnWManager's same
+    // 1,300-byte model hashes as the fallback before deciding which backup files count.
+    if (backupModelOverride || device.model !== "unknown" || !device.transport) return;
+    const transport = device.transport;
+    device.suspendPoll();
+    try {
+      backupModelOverride = await detectModelFromItcm(transport);
+      dbgLog(`[wizard] ITCM hardware detection: ${backupModelOverride ?? "no match"}`);
+    } catch (error) {
+      dbgLog(`[wizard] ITCM hardware detection failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      device.resumePoll();
+    }
+  }
 
   async function refreshBackupSourceChoices(): Promise<void> {
+    await detectBackupVariant();
+    const scanId = ++backupInventoryScanId;
     const snapshots = await backupPresence.scanDirectories();
-    backupSourceChoices = snapshots.flatMap(({ source, backups }) =>
-      source.status === "ready" && source.handle
-        ? backups.filter((backup) => backup.internalOk && backup.externalOk).map((backup) => ({
-            id: `${source.id}:${backup.model}`,
-            dir: source.handle as BackupDir,
-            backup,
-            sourceName: displayName(source),
-          }))
-        : [],
-    );
-    const preferred = backupSourceChoices.find((x) => device.model !== "unknown" && x.backup.model === device.model)
-      ?? backupSourceChoices.find((x) => x.backup.model === "zelda")
-      ?? backupSourceChoices[0];
-    if (!backupSourceChoices.some((x) => x.id === backupSourceChoiceId)) backupSourceChoiceId = preferred?.id ?? "";
+    const byModel = new Map<OfwModel, { id: string; dir: BackupDir; backup: FoundBackup }>();
+    for (const { source, backups } of snapshots) {
+      if (source.status !== "ready" || !source.handle) continue;
+      for (const backup of backups) {
+        if (!backup.internalPresent && !backup.externalPresent) continue;
+        const previous = byModel.get(backup.model);
+        if (!previous || (backup.internalOk && backup.externalOk && !(previous.backup.internalOk && previous.backup.externalOk)))
+          byModel.set(backup.model, { id: `${source.id}:${backup.model}`, dir: source.handle as BackupDir, backup });
+      }
+    }
+    const available = [...byModel.values()];
+    if (scanId === backupInventoryScanId) backupInventory = available.map(({ backup }) => backup);
+    // Guided setup offers one choice per firmware variant. If duplicate copies live in
+    // separate directories, use the first verified source silently rather than exposing
+    // directory-management detail to a user who only needs Mario or Zelda.
+    const seenModels = new Set<OfwModel>();
+    const choices = available.filter(({ backup }) => {
+      if (seenModels.has(backup.model)) return false;
+      seenModels.add(backup.model);
+      return true;
+    });
+    const preferred = choices.find((x) => backupModel !== "unknown" && x.backup.model === backupModel)
+      ?? choices.find((x) => x.backup.model === "zelda")
+      ?? choices[0];
+    if (scanId === backupInventoryScanId) backupSourceChoices = choices;
+    if (scanId === backupInventoryScanId && !choices.some((x) => x.id === backupSourceChoiceId))
+      backupSourceChoiceId = preferred?.id ?? "";
   }
 
   function backupSourcePicker() {
     return backupSourceChoices.length > 1 ? {
       label: locale.t.wizard.spine.selectBackup,
-      options: () => backupSourceChoices.map(({ id, backup, sourceName }) => ({
+      options: () => backupSourceChoices.map(({ id, backup }) => ({
         value: id,
-        label: `${modelLabel(backup.model)} — ${sourceName}`,
+        label: modelLabel(backup.model),
       })),
       selected: () => backupSourceChoiceId,
       onSelect: (value: string) => { backupSourceChoiceId = value; },
@@ -275,13 +342,20 @@
       confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
       phases: backupOnlyPhases,
       choicePicker: backupSourcePicker(),
-      onClose: () => backupPresence.refresh(),
+      onClose: () => { void backupPresence.refresh(); void refreshBackupInventory(); },
       exec: runStep1,
     });
   }
 
   async function openPatchStep() {
     await refreshBackupSourceChoices();
+    // This picker is for the firmware being patched on the connected console. A prior
+    // selection can belong to a different console, so choose the detected hardware variant
+    // each time the patch dialog opens; the user can still deliberately change it afterward.
+    if (backupModel !== "unknown") {
+      const matchingChoice = backupSourceChoices.find((choice) => choice.backup.model === backupModel);
+      if (matchingChoice) backupSourceChoiceId = matchingChoice.id;
+    }
     void installProgress.run({
       title: locale.t.wizard.step1.titlePatch,
       body: isBroken ? locale.t.wizard.step1.bodyBroken : locale.t.wizard.step1.bodyPatch,
@@ -305,7 +379,7 @@
       confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
       phases: backupOnlyPhases,
       choicePicker: backupSourcePicker(),
-      onClose: () => backupPresence.refresh(),
+      onClose: () => { void backupPresence.refresh(); void refreshBackupInventory(); },
       exec: runStep1,
     });
   }
@@ -351,8 +425,16 @@
    * image, so there is nothing to patch without it.
    */
   async function runStep1(report: PhaseReporter, patch = false) {
+    if (report.signal.aborted) throw new Error("Operation aborted");
     report.start("locate-backup");
-    let preferredChoice = backupSourceChoices.find((choice) => choice.id === backupSourceChoiceId);
+    const targetHardwareModel = backupModel !== "unknown" ? backupModel : device.deviceClass?.model ?? device.model;
+    const selectedChoice = backupSourceChoices.find((choice) => choice.id === backupSourceChoiceId);
+    // Backup-only always means the connected console's firmware. A stale variant selection
+    // (for example Zelda left over from another console) may still supply a destination folder,
+    // but it must not make this run reuse or report the wrong device's backup as complete.
+    const preferredChoice = !patch && targetHardwareModel !== "unknown"
+      ? backupSourceChoices.find((choice) => choice.backup.model === targetHardwareModel) ?? selectedChoice
+      : selectedChoice;
     let dir = preferredChoice?.dir ?? null;
     if (!dir) {
       const registered = await backupPresence.directories();
@@ -380,9 +462,11 @@
 
     await localFolders.adoptOfwBackup(dir);
     const found = await scanBackupFolder(dir);
-    const chosen = preferredChoice && preferredChoice.dir === dir
-      ? found.find((backup) => backup.model === preferredChoice!.backup.model) ?? defaultBackup(found, device.model)
-      : defaultBackup(found, device.model);
+    const chosen = !patch && targetHardwareModel !== "unknown"
+      ? found.find((backup) => backup.model === targetHardwareModel) ?? null
+      : preferredChoice && preferredChoice.dir === dir
+        ? found.find((backup) => backup.model === preferredChoice.backup.model) ?? defaultBackup(found, backupModel)
+        : defaultBackup(found, backupModel);
 
     const reuseExisting = !!(chosen && chosen.internalOk && chosen.externalOk);
     // The patch stage may only use an already hash-verified backup. If there is no such pair
@@ -428,7 +512,7 @@
       }
 
       let extSize = device.extFlashBytes;
-      const actualModel = device.deviceClass?.model ?? device.model;
+      const actualModel = targetHardwareModel;
       if (actualModel === "mario") extSize = 1048576;
       else if (actualModel === "zelda") extSize = 4194304;
       report.log("locate-backup", msg((t) => t.wizard.step1.logNoBackupReadingDevice, actualModel, extSize));
@@ -453,23 +537,44 @@
             persistSwdClockHz: (hz) => device.setAdapterFrequency(hz),
             reconnect: () => device.connect(undefined, { reconnect: true, recoveryOnly: true }),
             ensureStub: () => device.ensureStub(undefined, false, true),
-            requestPowerCycle: async () => {
+            expectedModel: backupModelOverride ?? (device.model === "unknown" ? undefined : device.model),
+            requestPowerCycle: async (signal) => {
               // This is the one safe point in the write transaction to use the regular
               // liveness poll: no flash operation is active while the user power-cycles.
               // Let it own reconnect detection instead of polling the old transport in UI.
               device.resumePoll();
               try {
                 await new Promise<void>((resolve, reject) => {
-                  device.lockedBackupPrompt = { resolve, reject };
+                  const cleanup = () => signal?.removeEventListener("abort", abort);
+                  const abort = () => device.cancelLockedBackupPowerCycle();
+                  signal?.addEventListener("abort", abort, { once: true });
+                  device.lockedBackupPrompt = {
+                    resolve: () => { cleanup(); resolve(); },
+                    reject: (error) => { cleanup(); reject(error); },
+                  };
                   device.beginLockedBackupPowerCycleMonitoring();
+                  if (signal?.aborted) abort();
                 });
                 await device.connect(undefined, { reconnect: true, recoveryOnly: true });
               } finally {
                 device.suspendPoll();
               }
             },
-            requestReadFailureChoice: (error, nextSwdClockHz) => new Promise((resolve) => {
-              device.lockedBackupFailurePrompt = { error, nextSwdClockHz, resolve };
+            requestReadFailureChoice: (error, nextSwdClockHz, signal) => new Promise((resolve, reject) => {
+              const abort = () => {
+                device.lockedBackupFailurePrompt = null;
+                reject(new Error("Operation aborted"));
+              };
+              signal?.addEventListener("abort", abort, { once: true });
+              device.lockedBackupFailurePrompt = {
+                error,
+                nextSwdClockHz,
+                resolve: (choice) => {
+                  signal?.removeEventListener("abort", abort);
+                  resolve(choice);
+                },
+              };
+              if (signal?.aborted) abort();
             }),
             resumeFromBlueScreen,
             }, dir, await scanBackupFolder(dir), (stage, done, total, outcome) => {
@@ -489,7 +594,7 @@
             report.subStart("read-device", stage);
             if (done !== undefined && total !== undefined)
               report.progress("read-device", done, total, stage, "bytes");
-            });
+            }, report.signal);
           } catch (e) {
             const partials = await scanBackupFolder(dir).catch(() => []);
             const models = partials.filter((b) => b.externalOk).map((b) => b.model);
@@ -500,7 +605,7 @@
           if (activeLockedBackupStage) report.subFinish("read-device", activeLockedBackupStage);
         } else {
           dumps = await withTimeout(
-            (progressReport) => dumpBackup(flasher!, extSize, progressReport), 30000,
+            (progressReport, signal) => dumpBackup(flasher!, extSize, progressReport, signal), 30000,
             (d, t) => report.progress("read-device", d, t),
           );
         }
@@ -509,7 +614,9 @@
         device.resumePoll();
       }
 
+      if (report.signal.aborted) throw new Error("Operation aborted");
       const det = await detectDevice(dumps.internal, dumps.external);
+      if (report.signal.aborted) throw new Error("Operation aborted");
       if (!det.model || !det.internalOk || !det.externalOk) {
         throw new Error(locale.t.wizard.step1.errDumpedFirmwareMismatch);
       }
@@ -532,6 +639,8 @@
     // the install step that follows will overwrite the stock firmware anyway — so stop here
     // rather than patching a firmware the user has said they don't want to keep.
     if (!patch) return;
+
+    if (report.signal.aborted) throw new Error("Operation aborted");
 
     // Automatic unlock, placed HERE and not at the top of this function. Everything above is
     // the backup half -- Branch B literally dumps the stock firmware off the device -- and
@@ -599,7 +708,7 @@
 
     report.start("rescan");
     report.log("rescan", msg((t) => t.wizard.common.rescanningDeviceGeometry));
-    await device.runScan("guided step");
+    await device.runScan("guided step", { forceGeometry: true });
     report.finish("rescan");
   }
 
@@ -1165,7 +1274,7 @@
     report.finish("flash");
 
     report.start("rescan");
-    await device.runScan("guided step");
+    await device.runScan("guided step", { forceGeometry: true });
     report.finish("rescan");
 
     if (device.targetMedia === "sd") {
@@ -1226,7 +1335,7 @@
     }
     report.finish("erase-bank2");
     report.start("rescan-bank2");
-    await device.runScan("guided bank 2 cleanup");
+    await device.runScan("guided bank 2 cleanup", { forceGeometry: true });
     report.finish("rescan-bank2");
   }
 
@@ -1440,7 +1549,7 @@
 
     report.start("rescan");
     report.log("rescan", msg((t) => t.wizard.common.rescanningDeviceGeometry));
-    await device.runScan("guided step");
+    await device.runScan("guided step", { forceGeometry: true });
     report.finish("rescan");
   }
 
@@ -1517,6 +1626,7 @@
 
   function choose(p: WizardPath) {
     path = p;
+    backupModelOverride = null;
     skipExpanded = false;
     // Latch here (see `rgoNeedsBackup`): the Retro-Go-only backup step is always present and
     // optional. Taking a backup must not remove the step while the user is interacting with it.
@@ -1524,6 +1634,12 @@
     skipBackupAcknowledged = false;
     rgoNeedsBank2Cleanup = p === "rgo" && device.banks.some((b) => b.index === 2 && b.retroGoVersion);
     bank2CleanupDone = false;
+    // The wizard can stay mounted while another tab is active. Rescan on entry to the guided
+    // flow so a file deleted since the previous visit cannot leave a stale green status.
+    void (async () => {
+      await detectBackupVariant();
+      await Promise.all([backupPresence.refresh(), refreshBackupInventory()]);
+    })();
   }
 </script>
 
@@ -1686,6 +1802,9 @@
                     {#if !stepDone && stepOptional}
                       <span class="chip chip-optional">{w.spine.chipOptional}</span>
                     {/if}
+                    {#if id === "backup" && backupPartial && !stepDone}
+                      <span class="chip chip-incomplete">{w.step1.statusIncomplete}</span>
+                    {/if}
                   </div>
 
                   {#if id === "backup"}
@@ -1698,7 +1817,7 @@
                     {:else}
                       <div class="row">
                         <Button variant="action" disabled={!backupStepActive} onclick={path === "dual" ? openBackupStep : openBackupOnly}>
-                          {w.step1.buttonBackupOnly}
+                          {backupPartial ? w.step1.resumeBackup : w.step1.buttonBackupOnly}
                         </Button>
                         <!-- GuidedSkipBackup: once the caution is open the Skip affordance is gone,
                              leaving only "Skip anyway" inside the panel. -->
@@ -2132,6 +2251,9 @@
   }
   .chip-optional {
     color: var(--ink-dim);
+  }
+  .chip-incomplete {
+    color: var(--caution);
   }
   .version-refresh {
     display: inline-flex;

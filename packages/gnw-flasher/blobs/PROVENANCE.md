@@ -29,3 +29,12 @@ cp /tmp/gnwm/gnwmanager/*.bin .
 
 Keep the `references/gnwmanager` submodule tag in sync with the wheel version so
 the ported protocol constants match the vendored stub.
+
+## Live context counter
+
+The host can attach to an already-running stub without resetting it by reading
+`context_counter` from RAM. For the pinned v0.22.1 image, the matching source
+was built and its ELF symbol table reports `context_counter` at `0x20000054`
+(`arm-none-eabi-nm -an`). `@gnw/gnw-flasher` reads that DTCM word only while
+the mailbox is idle and has no outstanding contexts or transfers. Recheck the
+symbol address whenever the vendored gnwmanager version or firmware image changes.

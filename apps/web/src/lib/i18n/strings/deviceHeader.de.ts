@@ -1,6 +1,8 @@
 import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderDe: DeviceHeaderStrings = {
+  noDeviceDetected: "Kein Gerät erkannt",
+  noValidAdapterSelected: "Kein gültiger Adapter ausgewählt",
   changeInstallationMethod: "Installationsmethode ändern",
   connectionLost: "Verbindung unterbrochen",
   targetUnresponsive: "Das Zielgerät reagiert nicht. Es wird darauf gewartet, dass es wieder erreichbar ist …",
@@ -31,7 +33,6 @@ export const deviceHeaderDe: DeviceHeaderStrings = {
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "Offizielle Firmware",
   unsafeWritingStatus: "Schreibe Flash. Nicht trennen",
-  unsafeSettlingStatus: "Wird abgeschlossen. Nicht trennen",
   retroGoOlderSuffix: "(älter)",
   unsafeAria: "Gerät nicht trennen",
 };

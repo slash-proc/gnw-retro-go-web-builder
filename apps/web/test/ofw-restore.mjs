@@ -426,29 +426,29 @@ const wizSrc = readFileSync(join(here, "../src/lib/views/Wizard.svelte"), "utf8"
 const wizCode = wizSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 const bpSrc = readFileSync(join(here, "../src/lib/backupPresence.svelte.ts"), "utf8");
 
-await check("Return to Stock adopts the remembered backup folder", async () => {
+await check("Return to Stock scans registered backup folders", async () => {
   assert(/backupPresence/.test(wizCode), "the wizard consults the shared backup-folder store");
-  assert(/backupPresence\.adopted\(\)/.test(wizCode),
-    "it adopts the remembered folder rather than only offering a picker");
+  assert(/backupPresence\.scanDirectories\(\)/.test(wizCode),
+    "it scans registered folders rather than only offering a picker");
   assert(/pickBackupFolder\(\)/.test(wizCode),
     "the folder picker survives -- adopting a folder is not being stuck with it");
 });
 
 await check("the adopted folder is hash-validated, not probed", async () => {
   assert(/readRestoreDir/.test(wizCode), "adopted and picked folders go through one reader");
-  const reader = (wizCode.match(/async function readRestoreDir\([^)]*\)\s*\{([\s\S]*?)\n  \}/) || [])[1] || "";
+  const reader = (wizCode.match(/async function readRestoreDirectories\([^)]*\)\s*\{([\s\S]*?)\n  \}/) || [])[1] || "";
   assert(reader.length > 0, "precondition: readRestoreDir was found");
-  assert(/scanBackupFolder/.test(reader),
+  assert(/scanDirectories/.test(reader) && /scanBackupFolder/.test(bpSrc),
     "the restore step hash-validates: it is about to write these bytes to a device");
   assert(/defaultBackup/.test(reader), "and picks the pair matching the connected hardware");
 });
 
-await check("adoption is silent and reads the one remembered-folder key", async () => {
+await check("adoption is silent and uses the registered directories", async () => {
   const adopted = (bpSrc.match(/async adopted\(\)[\s\S]*?\n  \}/) || [""])[0];
   assert(adopted.length > 0, "precondition: adopted() was found");
   assert(/handlePermission\(handle, "readwrite", false\)/.test(adopted),
     "adoption never raises a permission prompt");
-  assert(/HANDLE_KEY/.test(adopted), "it reads the one remembered-folder key, not a second one");
+  assert(/this\.directories\(\)/.test(adopted), "it uses the shared registered-directory list");
 });
 
 // --- Report -----------------------------------------------------------------------------

@@ -30,6 +30,8 @@ export const wizardDe: WizardStrings = {
     bodyBackupOnly:
       "Sie werden aufgefordert, einen Ordner auf Ihrem Computer auszuwählen, in dem eine Kopie der Originalfirmware Ihres Geräts gespeichert wird. Bewahren Sie diese Dateien sicher auf – Sie können sie nicht erneut herunterladen. Auf das Gerät wird nichts geschrieben: Retro-Go ersetzt die Originalfirmware im nächsten Schritt.",
     buttonBackupOnly: "Sichern",
+    resumeBackup: "Backup fortsetzen",
+    statusIncomplete: "Backup unvollständig",
   },
   step2: {
     title: "Retro-Go installieren",

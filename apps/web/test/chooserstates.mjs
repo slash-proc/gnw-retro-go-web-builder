@@ -304,16 +304,16 @@ check("the preview column stands beside a card and collapses when there is none"
     "the stage still claims a preview with no card to preview, so the note is drawn against an empty column");
 });
 
-check("THE PLAN THE OLD CHOOSER COULD NOT SHOW: Only Retro-Go is four steps on pristine stock with no backup, three otherwise", () => {
+check("THE PLAN THE OLD CHOOSER COULD NOT SHOW: Only Retro-Go keeps its backup stage with or without a recorded backup", () => {
   // Row 2: pristine stock at 8 MB, so `rgo` is the only card and the preview follows it.
   const needsBackup = previewTitles(draw({ deviceClass: STOCK, extSizeMB: 8, backupTaken: false }));
   eq(needsBackup.length, 4,
     "Only Retro-Go on pristine stock with no recorded backup previewed a plan with no backup step");
   const recorded = previewTitles(draw({ deviceClass: STOCK, extSizeMB: 8, backupTaken: true }));
-  eq(recorded.length, 3,
-    "Only Retro-Go previewed a backup step for a unit whose backup is already recorded");
-  ok(needsBackup[0] !== recorded[0],
-    "the two plans start with the same step, so the backup step is not what differs between them");
+  eq(recorded.length, 4,
+    "Only Retro-Go keeps the backup stage available for a recorded backup");
+  ok(needsBackup[0] === recorded[0],
+    "both plans retain the backup stage");
 });
 
 check("the preview is inert: it carries no controls", () => {

@@ -1,9 +1,15 @@
 // util.js — small shared helpers
+import { filenameExtension, matchFilenameExtension, stripFilenameExtension } from "../filename.js";
 
 export const ext = (name) => {
   const i = name.lastIndexOf(".");
   return i < 0 ? "" : name.slice(i).toLowerCase();
 };
+
+// ROM-aware variants distinguish `.p8.png` data from ordinary PNG cover images.
+export const romExt = (name, declaredExtensions = []) => filenameExtension(name, declaredExtensions);
+export const romStem = (name, declaredExtensions = []) => stripFilenameExtension(name, declaredExtensions);
+export const declaredRomExt = matchFilenameExtension;
 
 export const stem = (name) => {
   const i = name.lastIndexOf(".");

@@ -127,6 +127,8 @@ export interface Artifact {
    * even then: a file can need to be addressable without needing relocation.
    */
   relocBase?: number;
+  /** Exact opaque string the core passes to `lookup_data_in_flash()` on flash-only firmware. */
+  lookupKey?: string;
 }
 
 /** A core's system = one launcher tab. `extensions[]` entries may be groups. */

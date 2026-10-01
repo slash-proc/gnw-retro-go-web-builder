@@ -1,6 +1,8 @@
 import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderKo: DeviceHeaderStrings = {
+  noDeviceDetected: "감지된 기기가 없습니다",
+  noValidAdapterSelected: "유효한 어댑터가 선택되지 않았습니다",
   changeInstallationMethod: "설치 방식 변경",
   connectionLost: "연결 끊김",
   targetUnresponsive: "기기가 응답하지 않습니다. 다시 응답할 때까지 기다리는 중…",
@@ -31,7 +33,6 @@ export const deviceHeaderKo: DeviceHeaderStrings = {
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "공식 펌웨어",
   unsafeWritingStatus: "플래시에 쓰는 중입니다. 분리하지 마세요",
-  unsafeSettlingStatus: "마무리 중입니다. 분리하지 마세요",
   retroGoOlderSuffix: "(구버전)",
   unsafeAria: "기기를 분리하지 마세요",
 } as const;

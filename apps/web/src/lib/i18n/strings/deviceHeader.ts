@@ -2,6 +2,8 @@ import type { Widen } from "../widen.js";
 
 export const deviceHeaderEn = {
   changeInstallationMethod: "Change Installation Method",
+  noDeviceDetected: "No device detected",
+  noValidAdapterSelected: "No valid adapter selected",
   connectionLost: "Connection lost",
   targetUnresponsive: "Target is not responding. Waiting for it to wake up…",
   noConnection: "No connection",
@@ -31,7 +33,6 @@ export const deviceHeaderEn = {
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "Official Firmware",
   unsafeWritingStatus: "Writing flash. Do not disconnect",
-  unsafeSettlingStatus: "Finishing up. Do not disconnect",
   retroGoOlderSuffix: "(older)",
   unsafeAria: "Do not disconnect the device",
 } as const;

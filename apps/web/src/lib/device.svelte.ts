@@ -3,9 +3,9 @@
 import type { GnwFlasher, DeviceInfo } from "@gnw/gnw-flasher";
 import type { LittlefsTreeNode } from "@gnw/fs-builders";
 import { connectProbe, getKnownProbes, serialTransport, chooseProbe, type ProbeHandle, type SerialTransport } from "./engine/transport.js";
-import { bootStub, readInfo, dumpRegion, attachFlasher, isStubAlive, pingTarget } from "./engine/flasher.js";
+import { bootStub, readInfo, dumpRegion, attachFlasher, isStubAlive, pingTarget, readRdpLocked } from "./engine/flasher.js";
 import { scanExtflashPartitions, scanExtflashPartitionsLazy, type ExtPartition } from "./engine/fsscan.js";
-import { scanIntflashBanks, INT_BANK_BASES, type IntflashBank } from "./engine/intflashscan.js";
+import { scanIntflashBanks, retroGoInfo, INT_BANK_BASES, type IntflashBank } from "./engine/intflashscan.js";
 import type { FirmwareAbi } from "./engine/firmwareAbi.js";
 import { classifyDevice, type DeviceClass } from "./engine/classify.js";
 import { captureScreenshot as _captureScreenshot } from "./engine/screenshot.js";
@@ -13,7 +13,7 @@ import { readInstalledFrogfs, type InstalledGame, type InstalledFrogfs } from ".
 import { classifySdScanKey, homebrewScanPrefixes, shadowedLegacyHomebrewKeys } from "./engine/devicePaths.js";
 import { dbg, dbgLog } from "./debug.js";
 import { fallbackLogLayout, loadDeviceLogLayout, readLogFromTransport, retroGoActivityFromLog } from "./engine/devicelog.js";
-import { detectRuntime, type RuntimeKind } from "./engine/runtime.js";
+import { detectRuntime, type RuntimeKind, type RuntimeState } from "./engine/runtime.js";
 import { raceWithFallback } from "./engine/timeout.js";
 import { isDeadHandleError } from "@gnw/swd-transport";
 import { loadSel, saveSel, saveDir, loadDir, deleteDir } from "./persist.js";
@@ -30,6 +30,7 @@ import { installProgress, deviceSafety } from "./installProgress.svelte.js";
 import { lipProgress } from "./lipProgress.svelte.js";
 import type { CoreVersionCheck } from "./engine/coreVersion.js";
 import { ensureUnlocked as runUnlockGate, type UnlockOutcome } from "./engine/unlockGate.js";
+import { probeModelFromItcm } from "./engine/itcmModel.js";
 import { auditLog } from "./auditLog.svelte.js";
 import { msg } from "./logEntry.js";
 
@@ -70,6 +71,8 @@ class DeviceStore {
    *  installer defaults to flash when this isn't true. */
   sdPresent = $state<boolean | null>(null);
   probeName = $state<string | null>(null);
+  /** The selected programmer is available independently of the console's SWD connection. */
+  adapterAvailable = $state(false);
   private selectedAdapter: USBDevice | null = null;
   private adapterPollTimer: ReturnType<typeof setInterval> | null = null;
   private adapterPollBusy = false;
@@ -168,41 +171,16 @@ class DeviceStore {
    *  `#guided` / `#firmware` hash segments. */
   firmwareMode = $state<"wizard" | "advanced">("advanced");
 
-  /** STM32 96-bit unique device ID, hex — read once per connection (see `_readDeviceUid`).
-   *  This is the only per-UNIT identity we have: `model`/`extSizeMB`/`detectedStockFirmware`
-   *  identify a device *class*, so two Marios would share them. null until read. */
-  deviceUid = $state<string | null>(null);
-
-  /** Reactive mirror of the persisted "the user has taken a backup of this unit's stock
-   *  firmware" fact (localStorage, keyed by `deviceUid` — see `markBackupTaken`). */
+  /** In-session latch that the guided flow verified or selected a stock backup. This is not
+   *  persisted or keyed by device identity; backup presence on disk is checked from the files. */
   private _backupTaken = $state(false);
-  /** When that backup was taken, epoch ms, or null when we don't know. The Overview Status
-   *  pane prints a DATE in this row, never a verb, so the fact had to widen from a boolean.
-   *  Older installs stored a bare `true` under the same key; those load as taken-with-no-date
-   *  and the row says so rather than inventing one. */
-  private _backupAt = $state<number | null>(null);
-  /** True if a stock-firmware backup has been recorded for THIS unit (this session or an
-   *  earlier one). False whenever the UID is unknown — never guess in the optimistic
-   *  direction, since a wrong "already backed up" would hide the backup step. */
+  /** True after this session's guided flow has verified or selected a stock backup. */
   get backupTaken(): boolean {
     return this._backupTaken;
   }
-  /** Record that a stock-firmware backup of this unit now exists on the user's disk. Durable
-   *  across reloads, and scoped to the unit by UID so a different Game & Watch does not
-   *  inherit it. Plaintext on purpose: this is a boolean fact about the user's own device,
-   *  not a secret — localCrypt.ts is for values that shouldn't sit around readable. */
-  /** Epoch ms of this unit's stock-firmware backup, or null (never backed up, or backed up
-   *  before this fact carried a date). */
-  get backupAt(): number | null {
-    return this._backupAt;
-  }
+  /** Mark the guided-flow step only; verified backup files are the durable source of truth. */
   markBackupTaken(): void {
     this._backupTaken = true;
-    this._backupAt = Date.now();
-    if (this.deviceUid) saveSel(DeviceStore.backupKey(this.deviceUid), this._backupAt);
-  }
-  private static backupKey(uid: string): string {
-    return `backup-taken:${uid}`;
   }
 
 
@@ -212,15 +190,28 @@ class DeviceStore {
    *  transparently without crashing the active caller. */
   public transport: SerialTransport | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private pollIntervalMs = 0;
   private pinging = false;
   private targetUnresponsive = false;
+  private targetReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private powerCycleReconnectMode = false;
   private powerCycleReconnectPromise: Promise<void> | null = null;
   private targetPingStalled = false;
   private lastTargetAnswerAt = 0;
   private firstRecoveryAnswerAt = 0;
+  private lastItcmRuntimeCheckAt = 0;
+  private lastRecoveryBootAttemptAt = 0;
+  /** Unlocked stock OFW needs only ITCM + VTOR monitoring; suppress intrusive diagnostics. */
+  private stockMonitorMode = $state(false);
   private static readonly TARGET_SILENCE_MS = 15_000;
-  private static readonly TARGET_RECOVERY_MS = 3_000;
+  private static readonly TARGET_RECOVERY_MS = 1_500;
+  private static readonly ACTIVE_POLL_INTERVAL_MS = 300;
+  /** While debug access is disabled, retry only the lightweight target ping frequently so
+   *  standby wake/recovery is reflected promptly. This does not enable address scanning. */
+  private static readonly DEBUG_DISABLED_POLL_INTERVAL_MS = 750;
+  private static readonly STOCK_MONITOR_POLL_INTERVAL_MS = 2_000;
+  private static readonly RECOVERY_POLL_INTERVAL_MS = 750;
+  private static readonly RETRY_POLL_INTERVAL_MS = 2_000;
   private lastRuntimeProbeAt = 0;
   private lastSettlingPollLogAt = 0;
   flasher: GnwFlasher | null = null;
@@ -255,6 +246,10 @@ class DeviceStore {
   partitions = $state<ExtPartition[]>([]);
   banks = $state<IntflashBank[]>([]);
   deviceClass = $state<DeviceClass | null>(null);
+  /** Exact GnWManager ITCM signature match used as a stock model hint when protected
+   *  internal flash cannot be classified. Full bank classification remains authoritative
+   *  whenever it can identify stock or patched OFW. */
+  itcmOfwModel = $state<Model>("unknown");
   /** Games currently installed in the device's FrogFS (read during runScan). */
   installedFrogfs = $state<InstalledFrogfs | null>(null);
   installedGames = $state<InstalledGame[]>([]);
@@ -275,6 +270,8 @@ class DeviceStore {
   coreVersionCheck = $state<CoreVersionCheck | null>(null);
   /** True after the current flash-mode core inventory scan settles, even if LittleFS was corrupt. */
   coreInventoryReady = $state(false);
+  /** True when that scan failed, so an unreadable inventory is not mistaken for an empty one. */
+  coreInventoryFailed = $state(false);
   /** Paths seen on the selected SD card during its last scan (covers included). */
   sdInstalledPaths = $state<Set<string>>(new Set());
   /** Distinguishes a completed scan of an empty card from a card that has not been scanned. */
@@ -314,8 +311,8 @@ class DeviceStore {
   private _useQuickBanks = false;
   /** Skip re-scanning intflash banks in _doScan() if the last scan is still this fresh. */
   private static readonly BANK_RESCAN_SKIP_WINDOW_MS = 90_000;
-  /** Wall-clock time _doScan() last completed (attempted, even if it errored partway) — 0 =
-   *  never this connection. Used ONLY to gate pollTick()'s passive "discovered the util
+  /** Wall-clock time the last device scan succeeded — 0 = never this connection. Used to gate
+   *  startup reuse and pollTick()'s passive "discovered the util
    *  already running" auto-scan trigger, so a device that already scanned recently doesn't
    *  get an unsolicited extra scan every time the poll happens to notice utilLoaded flip.
    *  Deliberate/directed runScan() calls elsewhere (post-install, an explicit Scan button,
@@ -335,8 +332,7 @@ class DeviceStore {
    *  which must stay suppressed. Called from App.svelte's handleNavigate(). */
   allowAutoReconnect(): void {
     this._suppressAutoRetry = false;
-    this._autoProbedRomsOnce = false;
-    this._libraryScanStartup = null;
+    this._manageDeviceStartup = null;
   }
 
   /** The model that should tint the UI (null = unknown/neutral). */
@@ -356,6 +352,11 @@ class DeviceStore {
   }
 
   get retroGoRunning(): boolean { return this.runtimeKind === "retro-go"; }
+  get canCaptureScreenshot(): boolean { return this.isConnected && !this.stockMonitorMode; }
+  get canReadDeviceLog(): boolean {
+    return this.isConnected && this.retroGoRunning && !this.stockMonitorMode &&
+      this.pollSuspendDepth === 0 && this._stubBootDepth === 0 && !deviceSafety.unsafe;
+  }
   noteBankStarted(bank: 1 | 2): void {
     this.utilLoaded = false;
     this.runtimeBank = bank;
@@ -424,8 +425,47 @@ class DeviceStore {
 
   private _connectPromise: Promise<void> | null = null;
 
+  private _manageStartupSeq = 0;
+  private _manageStartupTrace: { id: string; startedAt: number } | null = null;
+  private _manageStartupSawActiveLip = false;
+  private _manageStartupDeviceDone = false;
+  private startupTrace(phase: string, detail = ""): void {
+    const trace = this._manageStartupTrace;
+    if (!trace) return;
+    const elapsed = Math.round(performance.now() - trace.startedAt);
+    dbg(`[startup ${trace.id} +${elapsed}ms] ${phase}${detail ? ` ${detail}` : ""}`);
+  }
+
+  /** Called by the app shell when the shared top progress lip changes. Diagnostic only. */
+  observeManageStartupLip(active: boolean): void {
+    if (!this._manageStartupTrace) return;
+    if (active) {
+      this._manageStartupSawActiveLip = true;
+    } else if (this._manageStartupSawActiveLip && this._manageStartupDeviceDone) {
+      this.startupTrace("UI-lip-idle");
+      this._manageStartupTrace = null;
+      this._manageStartupSawActiveLip = false;
+      this._manageStartupDeviceDone = false;
+    }
+  }
+
+  private markManageStartupDeviceDone(startupId?: string, detail = "", succeeded = true): void {
+    if (!startupId || this._manageStartupTrace?.id !== startupId || this._manageStartupDeviceDone) return;
+    this._manageStartupDeviceDone = true;
+    this.startupTrace(succeeded ? "device-inventory-ready" : "device-scan-failed", detail);
+    this.observeManageStartupLip(lipProgress.active);
+  }
+
+  /** Internal-flash reads are allowed only when RDP is confirmed clear. */
+  private intflashScanIsSafe(): boolean {
+    // Locked flash remains unreadable even with the RAM utility running. Do not infer
+    // protection from an ITCM pattern; the RDP option byte is the authority.
+    if (this.locked !== false) return false;
+    return true;
+  }
+
   /** Attach to a probe; recoveryOnly skips target reads for stock firmware with SWD disabled. */
-  connect(log?: (m: string) => void, opts?: { forcePicker?: boolean; reconnect?: boolean; swdClockHz?: number; recoveryOnly?: boolean }): Promise<void> {
+  connect(log?: (m: string) => void, opts?: { forcePicker?: boolean; reconnect?: boolean; swdClockHz?: number; recoveryOnly?: boolean; backgroundRetry?: boolean }): Promise<void> {
     // Dedupe by the in-flight promise ALONE, not by `connection === "connecting"`. A lost link
     // starts reconnectLoop() while the USB `connect` event independently fires connectSilent();
     // connectSilent's "am I still lost?" guard is checked BEFORE its own await of
@@ -434,7 +474,6 @@ class DeviceStore {
     // forcePicker is excluded: "Change Adapter" must never be answered by an in-flight
     // pickerless attach.
     if (this._connectPromise && !opts?.forcePicker) return this._connectPromise;
-    if (this.targetUnresponsive && this.probe && !opts?.forcePicker && !opts?.reconnect) return this.pollTick();
     // A stub boot owns the USBDevice right now. bootStub()'s SWD target reset makes the probe
     // re-enumerate, which fires the USB `disconnect` event MID-BOOT — and the automatic
     // responses to that (handleLost's reconnectLoop, connectSilent, the USB `connect`
@@ -450,6 +489,12 @@ class DeviceStore {
     if (this._stubBootDepth > 0 && !opts?.forcePicker) {
       this._reconnectAfterBoot = true;
       return Promise.resolve();
+    }
+    // An explicit Connect must recover a stale SWD session. Reusing its liveness poll can
+    // return immediately forever when a target disconnect left the serial queue busy.
+    // Silent background connects already skip live probe handles in connectSilent().
+    if (this.targetUnresponsive && this.probe && !opts?.forcePicker) {
+      opts = { ...opts, reconnect: true };
     }
     // An explicit connect() call re-enables auto-retry (a manual disconnect suppresses it
     // until the user reconnects by hand — this is that reconnect).
@@ -476,6 +521,14 @@ class DeviceStore {
           await this._teardownConnection();
           this.connection = "connecting";
         }
+        if (!selectedDevice && !this.selectedAdapter) {
+          const known = await getKnownProbes();
+          selectedDevice = known.length === 1 ? known[0] : await chooseProbe();
+        }
+        if (selectedDevice) {
+          this.selectedAdapter = selectedDevice;
+          this.probeName = selectedDevice.productName || "CMSIS-DAP";
+        }
         // Attach (no halt/reset/stub boot — that's what hung past attempts). Then a SINGLE
         // safe mailbox RAM read to detect an already-running RAM util, raced against a short
         // timeout so a stalled read can never hang us. If the util's up, reuse it (no re-boot,
@@ -486,14 +539,14 @@ class DeviceStore {
           swdClockHz: opts?.swdClockHz ?? this.adapterFrequencyHz,
         });
         this.selectedAdapter = this.probe.device;
+        this.adapterAvailable = true;
         this.probeName = this.probe.probeName;
         navigator.usb.addEventListener("disconnect", this.onUsbDisconnect);
         this.transport = serialTransport(this.probe.transport);
-        // The probe can remain connected while the console is power-cycled. In that
-        // case the previous bank snapshot is still within the freshness window even
-        // though the target may now be running a different bank/firmware. Force the
-        // lightweight intflash pass on every new attach so runtime/version detection
-        // and the device log are refreshed immediately after reconnect.
+        this.startupTrace("probe-attached", `adapter=${this.probeName ?? "unknown"}`);
+        this.stockMonitorMode = false;
+      // A reattached probe may now see a different image after a power cycle. Force new
+      // first-wave lock/variant reads and refresh runtime/version state on every attach.
         this._banksScannedAt = 0;
         const transport = this.transport;
         if (opts?.recoveryOnly) {
@@ -507,8 +560,23 @@ class DeviceStore {
           this.connection = "attention";
           return;
         }
+        // These two reads are the first-wave probes: variant from ITCM, protection from the
+        // read-only option status register. Neither reads internal flash or halts the core.
+        await this.refreshItcmOfwHint(transport);
+        const rdpLocked = await readRdpLocked(transport);
+        this.locked = rdpLocked;
+        dbg(`[connect] RDP status ${rdpLocked === null ? "unavailable" : rdpLocked ? "locked" : "unlocked"}`);
+
+        // Always check the SRAM mailbox before treating an ITCM signature as stock. A live
+        // Recovery utility may be running over that still-readable stock ITCM image.
+        const utilProbeStartedAt = performance.now();
+        this.startupTrace("recovery-mailbox-probe-start");
+        const mailboxReadStartedAt = performance.now();
         const utilUp = await Promise.race([
-          isStubAlive(transport),
+          isStubAlive(transport).then((alive) => {
+            this.startupTrace("recovery-mailbox-status-read-done", `alive=${alive} elapsed=${Math.round(performance.now() - mailboxReadStartedAt)}ms`);
+            return alive;
+          }),
           new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 800)),
         ]);
         if (utilUp) {
@@ -516,13 +584,46 @@ class DeviceStore {
           this.utilLoaded = true;
           // Tier 0 (RAM-safe): `locked` comes off the info struct. `extSizeMB` needs the stub
           // too (Tier 2), so it's fine to read both here — the stub is confirmed alive.
-          this.info = await readInfo(this.flasher, log);
-          this.locked = this.info.locked;
+          this.info = await readInfo(this.flasher, log, {
+            locked: rdpLocked,
+            // Recovery Mode marks IDLE before the utility finishes drawing its splash and
+            // publishes flash_size. Do one read here; the intflash probe gives that setup
+            // work time to finish, then we refresh the value once before scanning extflash.
+            flashSizeTimeoutMs: 0,
+            onTiming: (phase, elapsedMs, detail) => this.startupTrace(
+              `recovery-info-${phase}`,
+              `elapsed=${Math.round(elapsedMs)}ms${detail ? ` ${detail}` : ""}`,
+            ),
+          });
+          if (rdpLocked === null) this.locked = this.info.locked;
           this.extSizeMB = this.info.externalFlashSizeMiB;
         } else {
           this.flasher = null;
           this.utilLoaded = false;
         }
+        this.startupTrace("recovery-mailbox-probe-done", `recovery=${utilUp} elapsed=${Math.round(performance.now() - utilProbeStartedAt)}ms`);
+
+        if (rdpLocked === true && !utilUp) {
+          // Locked flash cannot be scanned. The mailbox check proved no utility was alive, so
+          // start one immediately without showing a second confirmation prompt.
+          await this.ensureStub(undefined, false, true);
+          this.enterRecoveryMode();
+          this.startPoll(DeviceStore.RECOVERY_POLL_INTERVAL_MS);
+          void this.runScan("locked Recovery Mode", { auto: true, startupId: this._manageStartupTrace?.id }).catch((e) =>
+            dbg(`[scan] locked Recovery Mode background scan failed: ${e instanceof Error ? e.message : String(e)}`),
+          );
+          return;
+        }
+
+        if (utilUp) {
+          this.enterRecoveryMode();
+          this.startPoll(DeviceStore.RECOVERY_POLL_INTERVAL_MS);
+          void this.runScan("Recovery Mode", { auto: true, startupId: this._manageStartupTrace?.id }).catch((e) =>
+            dbg(`[scan] Recovery Mode background scan failed: ${e instanceof Error ? e.message : String(e)}`),
+          );
+          return;
+        }
+
         this.everConnected = true;
         this.connection = "connected";
         this.debuggingDisabled = false;
@@ -530,11 +631,43 @@ class DeviceStore {
         // probe may still be queued after its timeout; pingTarget would then wait behind it
         // and falsely time out. The regular poll checks only when the transport is idle.
         this.lastTargetAnswerAt = Date.now();
-        // A full geometry scan is intentionally expensive. Read only the live VTOR
-        // and the small version field at VTOR+0x400 first, so a running Retro-Go
-        // becomes identifiable immediately after a power cycle and the device-log
-        // pane can select its layout without waiting for geometry.
-        await this.quickRuntimeProbe(transport);
+        // Second wave begins with non-halting VTOR only. Unlocked stock stays on this
+        // lightweight path; Retro-Go/unknown can proceed to vector, bank and PC diagnostics.
+        this.startupTrace("quick-runtime-probe-start", "phase=vtor");
+        await this.quickRuntimeProbe(transport, { allowIntflash: false });
+        this.startupTrace("quick-runtime-probe-done", `runtime=${this.runtimeKind}`);
+        const vtorBank = this.runtimeBank;
+        // ITCM's positive stock signature plus VTOR anywhere in bank 1 is stronger evidence
+        // than the generic bootloader subrange classification. Keep stock polling on the
+        // low-risk ITCM+VTOR path instead of falling through to disabled-debug retry polling.
+        if (this.itcmOfwModel !== "unknown" && vtorBank === 1) {
+          this.runtimeKind = "stock-ofw";
+        }
+        if (this.runtimeKind === "stock-ofw") {
+          this.enterStockMonitor(
+            this.itcmOfwModel === "unknown" ? this.model : this.itcmOfwModel,
+            rdpLocked,
+          );
+          return;
+        }
+        const intflashSafe = rdpLocked === false;
+        if (intflashSafe && this.runtimeKind !== "stock-ofw") {
+          await this.quickRuntimeProbe(transport, { allowIntflash: true });
+        }
+        const infoAfterFastRead = this.info;
+        if (this.flasher && infoAfterFastRead?.externalFlashSizeBytes === 0) {
+          const sizeStartedAt = performance.now();
+          const flashSize = await this.flasher.externalFlashSize(0, (attempts, value, elapsedMs, timedOut) => {
+            this.startupTrace("flash-size-refresh-after-runtime-probe", `attempts=${attempts} bytes=${value} timedOut=${timedOut} elapsed=${Math.round(elapsedMs)}ms`);
+          });
+          this.info = {
+            ...infoAfterFastRead,
+            externalFlashSizeBytes: flashSize,
+            externalFlashSizeMiB: flashSize / (1 << 20),
+          };
+          this.extSizeMB = this.info.externalFlashSizeMiB;
+          this.startupTrace("flash-size-refresh-done", `bytes=${flashSize} elapsed=${Math.round(performance.now() - sizeStartedAt)}ms`);
+        }
         const targetResponding = await raceWithFallback(pingTarget(transport), 300, false);
         if (!targetResponding) {
           // The adapter is attached and can still reset/load the RAM utility, even when
@@ -544,6 +677,11 @@ class DeviceStore {
           this.debuggingDisabled = !this.utilLoaded;
           this.targetUnresponsive = false;
           this.error = null;
+          // Keep checking at a low rate. A failed initial ping can mean standby or a
+          // temporarily unavailable debug port; it is not proof that the adapter is gone.
+          this.startPoll(this.debuggingDisabled
+            ? DeviceStore.DEBUG_DISABLED_POLL_INTERVAL_MS
+            : DeviceStore.RETRY_POLL_INTERVAL_MS);
           return;
         }
         this.lastTargetAnswerAt = Date.now();
@@ -555,7 +693,7 @@ class DeviceStore {
         // overwrite the operation's mailbox context. A rejected background scan is already
         // recorded by _doScan in the audit log; consume the rejection here so it cannot escape
         // as a separate unhandled browser error.
-        void this.runScan("connect", { auto: !utilUp || deviceSafety.state === "writing" }).catch((e) =>
+        void this.runScan("connect", { auto: true, startupId: this._manageStartupTrace?.id }).catch((e) =>
           dbg(`[scan] connect background scan failed: ${e instanceof Error ? e.message : String(e)}`),
         );
       } catch (e) {
@@ -571,7 +709,18 @@ class DeviceStore {
           // transaction then reports "Transfer count mismatch"; that is an expected
           // unavailable-device state, not failed work and must not raise an error notification.
           const unavailable = /Transfer count mismatch/i.test(this.error);
-          auditLog.add(unavailable ? "warning" : "error", "device", msg((t) => t.shared.auditLog.connectFailed, this.error));
+          const expectedLockedBackupPowerCycle = unavailable &&
+            this.lockedBackupPrompt !== null && this.powerCycleReconnectMode;
+          if (expectedLockedBackupPowerCycle || (unavailable && opts?.backgroundRetry)) {
+            // The adapter stays connected while the user removes console power. Reattach
+            // attempts during this prompt are expected to fail until the blue screen returns;
+            // recording each retry as a warning currently raises a notification per attempt.
+            dbg(opts?.backgroundRetry
+              ? "[connect] target unavailable during automatic reconnect"
+              : "[connect] expected target disconnect during locked-backup power-cycle");
+          } else {
+            auditLog.add(unavailable ? "warning" : "error", "device", msg((t) => t.shared.auditLog.connectFailed, this.error));
+          }
         }
         // Plain teardown — NOT the public disconnect(): a failed connect attempt (bad probe,
         // WebUSB error) is not a "manual disconnect" and must not suppress auto-retry for a
@@ -579,8 +728,15 @@ class DeviceStore {
         const pickerCancelledWithLiveHandle = isPickerDismissal(e) && opts?.forcePicker && this.probe;
         if (pickerCancelledWithLiveHandle) this.connection = previousConnection;
         else {
+          const adapterResponded = this.probe !== null || /Transfer count mismatch|Transfer response (?:FAULT|WAIT|NO_ACK)/i.test(this.error);
           await this._teardownConnection();
-          this.connection = wasLost ? "lost" : "disconnected";
+          const known = await getKnownProbes();
+          this.adapterAvailable = adapterResponded && this.selectedAdapter !== null && known.includes(this.selectedAdapter);
+          this.targetUnresponsive = this.adapterAvailable;
+          this.connection = this.adapterAvailable || wasLost ? "lost" : "disconnected";
+          // Startup can fail before a live transport exists. The selected programmer still
+          // needs target retries when the console is plugged in later.
+          if (!isPickerDismissal(e) && this.selectedAdapter) this.scheduleTargetReconnect();
         }
         throw e;
       } finally {
@@ -595,6 +751,9 @@ class DeviceStore {
     const selected = await chooseProbe();
     this.selectedAdapter = selected;
     this.probeName = selected.productName || "CMSIS-DAP";
+    this.adapterAvailable = true;
+    this._suppressAutoRetry = false;
+    if (!this.isConnected) this.scheduleTargetReconnect();
   }
 
   /** Look for the selected, authorized adapter without opening a chooser. */
@@ -615,17 +774,42 @@ class DeviceStore {
     }, 1000);
   }
 
-  private async quickRuntimeProbe(transport: typeof this.transport): Promise<void> {
+  private async quickRuntimeProbe(
+    transport: typeof this.transport,
+    options: { allowIntflash?: boolean } = {},
+  ): Promise<void> {
     if (!transport) return;
     const t0 = Date.now();
+    const startupT0 = performance.now();
+    this.startupTrace("runtime-probe-start", `intflash=${options.allowIntflash ? "allowed" : "deferred"}`);
     dbg(`[quickscan] start`);
     try {
+      if (!options.allowIntflash) {
+        const runtime = await detectRuntime(transport, this.banks, { pcFallback: false });
+        let kind = runtime.kind;
+        let bank = runtime.bank;
+        if (runtime.vtor !== null &&
+            runtime.vtor >= 0x08000000 && runtime.vtor < 0x08100000 &&
+            this.itcmOfwModel !== "unknown") {
+          kind = "stock-ofw";
+          bank = 1;
+        }
+        if (kind !== "unknown") {
+          this.runtimeKind = kind;
+          this.runtimeBank = bank;
+        }
+        dbg(`[quickscan] VTOR=0x${runtime.vtor?.toString(16) ?? "unreadable"}; runtime=${kind} ${Date.now() - t0}ms`);
+        this.startupTrace("runtime-probe-done", `elapsed=${Math.round(performance.now() - startupT0)}ms intflash=deferred runtime=${kind}`);
+        return;
+      }
       const quickBanks: IntflashBank[] = [];
+      const vectorPcs: number[] = [];
       for (let i = 0; i < 2; i++) {
         const base = INT_BANK_BASES[i];
         const head = await transport.readMemory(base, 8);
         const sp = new DataView(head.buffer, head.byteOffset, head.byteLength).getUint32(0, true);
         const pc = new DataView(head.buffer, head.byteOffset, head.byteLength).getUint32(4, true);
+        vectorPcs.push(pc);
         const model = sp === 0x20011330 ? "mario" : sp === 0x2001b620 ? "zelda" : null;
         dbg(`[quickscan] bank${i + 1} vector sp=${sp.toString(16)} pc=${pc.toString(16)} model=${model ?? "unknown"} ${Date.now() - t0}ms`);
         const erased = sp === 0xffffffff && pc === 0xffffffff;
@@ -649,68 +833,175 @@ class DeviceStore {
           ofw: model ? { model, patched } : undefined,
         });
       }
-      let vtor: number | null = null;
-      try { vtor = (await transport.readWord(0xe000ed08)) >>> 0; } catch { /* PC fallback below */ }
-      const bankIndex = vtor !== null
-        ? INT_BANK_BASES.findIndex((base) => vtor! >= base && vtor! < base + 0x100000) + 1
-        : 0;
+      if (!quickBanks.some((bank) => bank.ofw)) await this.refreshItcmOfwHint(transport);
+      // VTOR was already checked in the low-cost first pass. Reset vectors refine which
+      // unlocked flash bank contains an image before the full geometry scan.
       this.banks = quickBanks;
-      this._quickScanReady = quickBanks.some((bank) => !!bank.ofw);
+      this._quickScanReady = quickBanks.every((bank) =>
+        bank.dataSize === 0 || !!bank.ofw || bank.type === "Retro-Go",
+      );
       // Publish the bank/header classification immediately; the later full scan may add
       // geometry and partitions, but the status header should not wait for those.
       this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
       if (this.deviceClass.ofw) this.model = this.deviceClass.ofw.model;
-      if (!bankIndex) {
+      {
+        // Use the reset vectors to choose a likely Retro-Go bank for the compact version read.
+        const vectorBankIndex = vectorPcs.findIndex((pc, i) =>
+          pc >= INT_BANK_BASES[i] && pc < INT_BANK_BASES[i] + 0x100000 &&
+          !quickBanks[i].ofw,
+        ) + 1;
+        if (vectorBankIndex) {
+          const bank = quickBanks[vectorBankIndex - 1];
+          const versionProbe = await this.readRetroGoVersionWindow(
+            transport,
+            INT_BANK_BASES[vectorBankIndex - 1] + 0x30000,
+          );
+          let retroGo = versionProbe.info;
+          dbg(`[quickscan] bank${vectorBankIndex} version window read ${versionProbe.bytesRead} B ${Date.now() - t0}ms`);
+          if (!retroGo.present) {
+            dbg(`[quickscan] vector bank=${vectorBankIndex} Retro-Go tag not found in the 32 KiB fast probe`);
+          }
+          if (retroGo.present) {
+            quickBanks[vectorBankIndex - 1] = {
+              ...bank,
+              retroGoVersion: retroGo.version,
+              retroGoIsSdFork: retroGo.isSdFork,
+              type: "Retro-Go",
+            };
+            // `quickBanks` is the pre-proxy local array. Publish a fresh snapshot after
+            // refining its classification so Svelte state and the subsequent device scan
+            // both observe the Retro-Go marker and version.
+            this.banks = [...quickBanks];
+            this._quickScanReady = quickBanks.every((item) =>
+              item.dataSize === 0 || !!item.ofw || item.type === "Retro-Go",
+            );
+            this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
+            if (this.deviceClass.ofw) this.model = this.deviceClass.ofw.model;
+            dbg(`[quickscan] vector bank=${vectorBankIndex} Retro-Go version=${retroGo.version ?? "unversioned"} ${Date.now() - t0}ms`);
+          } else {
+            dbg(`[quickscan] vector bank=${vectorBankIndex} Retro-Go marker not found in 32 KiB window`);
+          }
+        }
+        const runtimeStartedAt = performance.now();
         const runtime = await detectRuntime(transport, quickBanks);
-        dbg(`[quickscan] runtime vtor=${runtime.vtor?.toString(16) ?? "unreadable"} pc=${runtime.pc?.toString(16) ?? "unreadable"} kind=${runtime.kind}`);
+        this.startupTrace("runtime-address-classification-done", `elapsed=${Math.round(performance.now() - runtimeStartedAt)}ms`);
+        dbg(`[quickscan] runtime VTOR=0x${runtime.vtor?.toString(16) ?? "unreadable"} pc=${runtime.pc?.toString(16) ?? "unreadable"} kind=${runtime.kind}`);
         if (runtime.kind !== "unknown") {
           this.runtimeKind = runtime.kind;
           this.runtimeBank = runtime.bank;
         }
-        dbg(`[quickscan] no flash VTOR (${Date.now() - t0}ms)`);
+        dbg(`[quickscan] VTOR/PC runtime probe complete (${Date.now() - t0}ms)`);
         return;
       }
-      // GIT_TAG is a compiler-placed literal, not a fixed field. Current release
-      // link layouts place it in the 0x30000 region, so inspect one small window
-      // there for the fast path; the authoritative full scan remains responsible
-      // for unusual/foreign layouts.
-      let match: RegExpMatchArray | null = null;
-      const raw = await transport.readMemory(INT_BANK_BASES[bankIndex - 1] + 0x30000, 0x8000);
-      const text = new TextDecoder("latin1").decode(raw);
-      match = text.match(/Retro-Go (?:SD )?(v\d[\w.+-]*)/);
-      dbg(`[quickscan] VTOR=${vtor!.toString(16)} version search ${Date.now() - t0}ms`);
-      if (!match || this.connection !== "connected") {
-        const active = this.banks.find((b) => b.index === bankIndex);
-        const runtime = active?.ofw ? { kind: "stock-ofw" as const, bank: bankIndex as 1 | 2 } : await detectRuntime(transport, quickBanks);
-        dbg(`[quickscan] runtime bank=${bankIndex} kind=${runtime.kind}`);
-        if (runtime.kind !== "unknown") {
-          this.runtimeKind = runtime.kind;
-          this.runtimeBank = runtime.bank;
-        }
-        this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
-        dbg(`[quickscan] no Retro-Go version (${Date.now() - t0}ms)`);
-        return;
-      }
-      const bank = this.banks.find((b) => b.index === bankIndex);
-      if (bank) {
-        bank.retroGoVersion = match[1];
-        bank.type = "Retro-Go";
-      } else return;
-      this.runtimeKind = "retro-go";
-      this.runtimeBank = bankIndex;
-      this._quickScanReady = true;
-      this.deviceClass = classifyDevice(this.info, this.banks, this.partitions);
-      dbg(`[quickscan] complete bank=${bankIndex} version=${match[1]} ${Date.now() - t0}ms`);
     } catch {
+      // A protected stock device can reject the bank-vector read before the fast probe has
+      // anything to classify. GnWManager's ITCM signature is independently readable here.
+      await this.refreshItcmOfwHint(transport);
       // This is a best-effort hint; the full scan remains authoritative.
       dbg(`[quickscan] failed ${Date.now() - t0}ms`);
+      this.startupTrace("runtime-probe-failed", `elapsed=${Math.round(performance.now() - startupT0)}ms`);
     }
+  }
+
+  /** Read the complete 32 KiB GIT_TAG window in one bulk transport request. */
+  private async readRetroGoVersionWindow(
+    transport: NonNullable<typeof this.transport>,
+    address: number,
+  ): Promise<{ info: ReturnType<typeof retroGoInfo>; bytesRead: number }> {
+    const bytesRead = 32 << 10;
+    const readStartedAt = performance.now();
+    const data = await transport.readMemory(address, bytesRead, undefined, true, bytesRead);
+    this.startupTrace("intflash-version-window-read", `address=0x${address.toString(16)} bytes=${bytesRead} elapsed=${Math.round(performance.now() - readStartedAt)}ms`);
+    const parseStartedAt = performance.now();
+    const info = retroGoInfo(data);
+    this.startupTrace("intflash-version-window-parse", `bytes=${data.byteLength} elapsed=${Math.round(performance.now() - parseStartedAt)}ms present=${info.present} version=${info.version ?? "unknown"}`);
+    return { info, bytesRead };
+  }
+
+  private async refreshItcmOfwHint(
+    transport: NonNullable<typeof this.transport>,
+  ): Promise<{ model: "mario" | "zelda" | null; readable: boolean; cleared: boolean }> {
+    const previousModel = this.itcmOfwModel;
+    try {
+      const result = await probeModelFromItcm(transport);
+      this.itcmOfwModel = result.model ?? "unknown";
+      if (result.model) {
+        this.model = result.model;
+        dbg(`[quickscan] GnWManager ITCM signature identifies ${result.model} stock firmware`);
+      } else if (previousModel !== "unknown" && !this.deviceClass?.ofw && this.model === previousModel) {
+        this.model = "unknown";
+      }
+      return result;
+    } catch (error) {
+      dbg(`[quickscan] ITCM signature probe unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      return { model: null, readable: false, cleared: false };
+    }
+  }
+
+  /** First-wave liveness evidence: a recognizable/active ITCM image or a VTOR in MCU
+   *  executable memory. A successful read of zero/erased bus data by itself is not enough. */
+  private hasPassiveTargetEvidence(
+    itcm: { model: "mario" | "zelda" | null; readable: boolean; cleared: boolean },
+    vtor: number | null,
+  ): boolean {
+    if (itcm.model || (itcm.readable && !itcm.cleared)) return true;
+    if (vtor === null || vtor === 0 || vtor === 0xffffffff) return false;
+    return (vtor >= 0x08000000 && vtor < 0x08200000) ||
+      (vtor >= 0x20000000 && vtor < 0x30000000);
+  }
+
+  /** Keep passive bulk reads bounded too: a disconnected target may leave a read pending
+   *  behind the adapter. The still-busy transport is observed by the normal silence timer. */
+  private async probePassiveTarget(
+    transport: NonNullable<typeof this.transport>,
+  ): Promise<{ itcm: { model: "mario" | "zelda" | null; readable: boolean; cleared: boolean }; runtime: RuntimeState } | null> {
+    return raceWithFallback((async () => ({
+      itcm: await this.refreshItcmOfwHint(transport),
+      runtime: await detectRuntime(transport, this.banks, { pcFallback: false }),
+    }))(), 800, null);
+  }
+
+  private enterStockMonitor(model: Model, rdpLocked: boolean | null): void {
+    this.stockMonitorMode = true;
+    this.runtimeKind = "stock-ofw";
+    this.runtimeBank = 1;
+    if (model !== "unknown") this.model = model;
+    this.retroGoActivity = null;
+    this.flasher = null;
+    this.utilLoaded = false;
+    this.locked = rdpLocked;
+    this.debuggingDisabled = rdpLocked !== false;
+    this.targetUnresponsive = false;
+    this.error = null;
+    this.everConnected = true;
+    this.connection = rdpLocked === false ? "connected" : "attention";
+    this.lastTargetAnswerAt = Date.now();
+    this.lastItcmRuntimeCheckAt = Date.now();
+    dbg(`[connect] stock${model === "unknown" ? "" : ` (${model})`}; RDP=${rdpLocked === false ? "unlocked" : "unknown"}; monitoring ITCM + VTOR`);
+    this.startPoll(DeviceStore.STOCK_MONITOR_POLL_INTERVAL_MS);
+  }
+
+  private enterRecoveryMode(): void {
+    this.stockMonitorMode = false;
+    this.runtimeKind = "recovery";
+    this.runtimeBank = null;
+    this.utilLoaded = true;
+    this.debuggingDisabled = false;
+    this.targetUnresponsive = false;
+    this.error = null;
+    this.everConnected = true;
+    this.connection = "connected";
+    this.lastTargetAnswerAt = Date.now();
+    dbg("[connect] Recovery utility active; synchronizing with its existing mailbox");
   }
 
   /** Refresh only the live-bank/version hint; callers entering device management use this
    * before the slower full geometry scan is explicitly requested. */
   async refreshRuntimeHint(): Promise<void> {
-    if (this.transport) await this.quickRuntimeProbe(this.transport);
+    if (this.transport) {
+      const safe = this.intflashScanIsSafe();
+      await this.quickRuntimeProbe(this.transport, { allowIntflash: safe });
+    }
   }
 
   /** Silently attach to a probe ONLY if exactly one trusted adapter is already authorized.
@@ -731,6 +1022,10 @@ class DeviceStore {
       // session (a second `DEVICE:` line, a second probe handle).
       if (this.probe || this.connection !== "disconnected" && this.connection !== "lost") return;
       if (this._suppressAutoRetry) return;
+      this.selectedAdapter = this.selectedAdapter && known.includes(this.selectedAdapter)
+        ? this.selectedAdapter : known[0];
+      this.probeName = this.selectedAdapter.productName || "CMSIS-DAP";
+      this.adapterAvailable = true;
       await this.connect();
     } catch {
       // auto-connect failure is non-fatal
@@ -826,6 +1121,7 @@ class DeviceStore {
     // resets the context counter), otherwise the next flash hangs forever in getContext.
     let reboot = forceReboot;
     if (this.flasher && !forceReboot) {
+      const cachedFlasher = this.flasher;
       await new Promise(r => setTimeout(r, 100)); // USB settle delay
       // Identity first, and it is not redundant with the two liveness probes below. A cached
       // flasher captured its transport by value at boot time (`bootTransport`); a teardown +
@@ -842,18 +1138,31 @@ class DeviceStore {
       // background scan racing the install) closed and reopened the handle. `USBDevice.opened`
       // is the browser's own answer and costs nothing.
       const sameHandle =
-        this.flasher.transport === this.transport && this.probe.device.opened !== false;
+        cachedFlasher.transport === this.transport && this.probe.device.opened !== false;
       if (!sameHandle) {
         dbg("[ensureStub] cached flasher holds a superseded transport -> re-booting a fresh stub");
       }
-      if (sameHandle && (await this.stubAlive()) && (await this.contextsFree())) {
-        dbg("[ensureStub] reusing cached flasher (alive + context free)");
-        return this.flasher;
+      const alive = sameHandle && await this.stubAlive();
+      if (alive && !cachedFlasher.hasSynchronizedContextCounter) {
+        try {
+          const counter = await cachedFlasher.synchronizeContextCounter();
+          dbg(`[ensureStub] synchronized attached flasher context counter=${counter}; keeping live stub`);
+        } catch (error) {
+          dbg(`[ensureStub] could not synchronize live flasher context counter: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
-      dbg("[ensureStub] cached stub unusable (dead or wedged contexts) → re-booting a fresh stub");
+      if (alive && cachedFlasher.hasSynchronizedContextCounter && (await this.contextsFree())) {
+        dbg("[ensureStub] reusing cached flasher (alive + context synchronized + free)");
+        return cachedFlasher;
+      }
+      if (alive && !cachedFlasher.hasSynchronizedContextCounter) {
+        dbg("[ensureStub] attached flasher could not be synchronized; rebooting for recovery");
+      } else {
+        dbg("[ensureStub] cached stub unusable (dead or wedged contexts) → re-booting a fresh stub");
+      }
+      reboot = true;
       this.flasher = null;
       this.utilLoaded = false;
-      reboot = true;
     }
     if (reboot && !allowReboot) {
       throw new Error("Recovery stub is unavailable; restart Recovery Mode before flashing.");
@@ -929,7 +1238,8 @@ class DeviceStore {
     this.utilLoaded = true;
     // Fresh-boot path (Tier 0/2): the stub is now definitely alive, so both `locked`
     // (Tier 0) and `extSizeMB` (Tier 2) can be read off the same info struct.
-    this.info = await readInfo(this.flasher, dbgLog("stub", log));
+    this.locked = await readRdpLocked(this.transport);
+    this.info = await readInfo(this.flasher, dbgLog("stub", log), { locked: this.locked });
     this.locked = this.info.locked;
     this.extSizeMB = this.info.externalFlashSizeMiB;
     this.connection = "connected";
@@ -941,14 +1251,14 @@ class DeviceStore {
     this._banksScannedAt = 0;
     // THE DEVICE HAS ATTESTED. `readInfo` above is a completed exchange with no write in
     // flight -- the same class of evidence the liveness poll's ping provides, which is the only
-    // other thing that clears the header's post-write warning.
+    // other thing that clears the internal post-write settling gate.
     //
-    // Without this the warning outlives the operation by however long the NEXT thing on the
+    // Without this the settling gate outlives the operation by however long the NEXT thing on the
     // link takes, because `pollTick` returns early while `transport.busy()` and so cannot
     // attest anything until the link is idle. Booting into Recovery Mode now rescans every
-    // time, so "Finishing up. Do not disconnect" sat there for the whole walk of the chip.
-    // A no-op when a hold is still outstanding (`markQuiet` checks), so a boot nested inside
-    // an install cannot pull the warning down mid-flash.
+    // time, so settling lasted for the whole walk of the chip. A no-op when a hold is still
+    // outstanding (`markQuiet` checks), so a boot nested inside an install cannot clear the
+    // internal gate mid-flash.
     deviceSafety.markQuiet();
     dbg("[ensureStub] stub booted + info read");
     return this.flasher;
@@ -1236,7 +1546,13 @@ class DeviceStore {
    *  goes to the device log so a slow rescan can be attributed to its trigger rather than
    *  guessed at. Every call site passes one.
    */
-  async runScan(reason = "unknown", opts: { auto?: boolean; forceGeometry?: boolean; fullGeometry?: boolean } = {}): Promise<void> {
+  async runScan(reason = "unknown", opts: {
+    auto?: boolean;
+    forceGeometry?: boolean;
+    forcePartitions?: boolean;
+    fullGeometry?: boolean;
+    startupId?: string;
+  } = {}): Promise<void> {
     // AN AUTOMATIC SCAN WAITS FOR THE WRITE TO FINISH. Two logical operations on one link is
     // the bug the owner hit: an install parked at 0% with a scan frozen part-way through the
     // extflash walk. A USB re-enumeration -- which a mid-flash stub reboot causes by design --
@@ -1251,7 +1567,14 @@ class DeviceStore {
     // the flag alone would deadlock the post-install rescan against the install that asked for
     // it. The distinction is who asked, which is why `auto` is passed rather than inferred.
     if (opts.auto && !(await this._awaitLinkIdle(reason))) return;
-    if (opts.forceGeometry) this._extflashGeometryScanned = false;
+    // A post-write refresh must run after any scan that began before the write.
+    if ((opts.forceGeometry || opts.forcePartitions) && this._scanPromise) await this._scanPromise;
+    if (opts.forcePartitions) this._extflashGeometryScanned = false;
+    if (opts.forceGeometry) {
+      this._extflashGeometryScanned = false;
+      this._banksScannedAt = 0;
+      this._useQuickBanks = false;
+    }
     if (this._scanPromise) {
       dbg(`[scan] ${reason}: joined the scan already running`);
       return this._scanPromise;
@@ -1264,13 +1587,18 @@ class DeviceStore {
       dbg(`[scan] #${seq} ${reason}: starting ${sinceLast} ms after scan #${seq - 1} ended`);
     }
     const t0 = Date.now();
-    this._useQuickBanks = !!opts.auto;
+    let scanSucceeded = false;
+    if (opts.startupId) this.startupTrace("device-scan-start", `reason=${reason} scan=${seq}`);
+    this._useQuickBanks = !!opts.auto && !opts.forceGeometry;
     this._scanPromise = (async () => {
       let mismatchRecoveryAttempts = 0;
       let adapterResetAttempted = false;
       for (let attempt = 1; ; attempt++) {
         try {
-          return await this._doScan(opts);
+          return await this._doScan({
+            fullGeometry: opts.fullGeometry,
+            startupId: opts.startupId,
+          });
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           if (/Transfer count mismatch/i.test(message) && this.utilLoaded) {
@@ -1313,9 +1641,11 @@ class DeviceStore {
     try {
       await this._scanPromise;
       this.lastTargetAnswerAt = Date.now();
+      scanSucceeded = this.scanError === null;
     } finally {
       this._scanPromise = null;
       this._lastScanEndedAt = Date.now();
+      if (scanSucceeded) this._lastFullScanAt = this._lastScanEndedAt;
       // A scan is a long series of completed device reads, so finishing one attests liveness
       // exactly as `readInfo` does -- and it is the thing most likely to be holding the link
       // immediately after a write (every install ends by rescanning). Same no-op-under-a-hold
@@ -1328,6 +1658,10 @@ class DeviceStore {
           // The one fact that separates "the walk is slow" from "the walk was fighting a flash".
           (this._scanSawWrite ? ", OVERLAPPED A DEVICE WRITE" : ""),
       );
+      if (opts.startupId) {
+        this.startupTrace("device-scan-settled", `reason=${reason} scan=${seq} elapsed=${Date.now() - t0}ms`);
+        this.markManageStartupDeviceDone(opts.startupId, `reason=${reason} scan=${seq}`, scanSucceeded);
+      }
     }
   }
 
@@ -1340,6 +1674,45 @@ class DeviceStore {
     await this.ensureStub();
     await this.refreshRuntimeHint();
     await this.runScan(reason, { auto: !stubWasRunning });
+  }
+
+  /**
+   * Refresh the FrogFS inventory from a known physical extflash offset.
+   *
+   * An install already knows the exact address it just wrote. Re-running partition discovery
+   * only to find that new FrogFS wastes time and can reuse pre-write geometry that had no
+   * FrogFS entry. Read the compact FrogFS head/hash table/file headers directly at the absolute
+   * offset, then publish the same inventory fields as a normal scan.
+   */
+  async refreshInstalledFrogfsAt(offset: number): Promise<void> {
+    const flasher = this.flasher;
+    if (!flasher) throw new Error("Flash utility is not connected.");
+    const res = await readInstalledFrogfs(
+      (addr, len) => dumpRegion(flasher, 0, addr, len),
+      offset,
+    );
+    if (res.binSize <= 0 || offset + res.binSize > this.extFlashBytes) {
+      throw new Error(`FrogFS table at 0x${offset.toString(16)} has an invalid size (${res.binSize}).`);
+    }
+
+    this.installedFrogfs = res;
+    this.installedGames = res.games;
+    if (Object.hasOwn(this.fsStats, offset)) {
+      const stats = { ...this.fsStats };
+      delete stats[offset];
+      this.fsStats = stats;
+    }
+    this.partitions = [
+      ...this.partitions.filter((p) => p.fs !== "frogfs"),
+      {
+        offset,
+        size: res.binSize,
+        type: "FrogFS",
+        fs: "frogfs",
+        meta: { binSize: res.binSize },
+      },
+    ].sort((a, b) => a.offset - b.offset);
+    dbg(`[scan] direct FrogFS table read @0x${offset.toString(16)}: ${res.files.length} files, ${res.games.length} games`);
   }
   /**
    * Hold an automatic scan until nothing is writing to the device.
@@ -1370,7 +1743,7 @@ class DeviceStore {
   private _scanBytes = 0;
   /** Did a device WRITE overlap this scan? See the sampling note in `_doScan`'s `counted`. */
   private _scanSawWrite = false;
-  private async _doScan(opts: { fullGeometry?: boolean } = {}): Promise<void> {
+  private async _doScan(opts: { fullGeometry?: boolean; startupId?: string } = {}): Promise<void> {
     if (!this.transport) return;
     const flasher = this.flasher;
     const transport = this.transport;
@@ -1378,12 +1751,12 @@ class DeviceStore {
     if (this.targetMedia !== "sd") {
       this.coreVersionCheck = null;
       this.coreInventoryReady = false;
+      this.coreInventoryFailed = false;
     }
     this.scanning = true;
     this.scanProgress = 0;
-    // CLAIM THE LIP for the whole scan, here, not at the first progress callback: the UID and
-    // bank reads come first, and until something claims it every one of them is drawn as its
-    // own 0-to-100 sweep. That is what a scan of ~1400 reads looked like.
+    // CLAIM THE LIP for the whole scan, here, not at the first progress callback: until
+    // something claims it every read is drawn as its own 0-to-100 sweep.
     lipProgress.operationProgress("scan", 0);
     this._scanReads = 0;
     this._scanBytes = 0;
@@ -1406,8 +1779,8 @@ class DeviceStore {
     // Extflash layout is first so the progress bar reflects the highest-priority device data
     // while the independent library scan runs. The weights approximate elapsed work, not bytes:
     // the stride walk dominates because it is the only phase whose cost scales with chip size.
-    const W = { uid: 0.04, partitions: 0.64, banks: 0.16, games: 0.16 } as const;
-    const before = { uid: 0, partitions: W.uid, banks: W.uid + W.partitions, games: W.uid + W.partitions + W.banks };
+    const W = { partitions: 0.68, banks: 0.16, games: 0.16 } as const;
+    const before = { partitions: 0, banks: W.partitions, games: W.partitions + W.banks };
     /** "Everything before this phase, plus this much of it." Monotonic: the bar never goes back. */
     const phase = (name: keyof typeof W, fraction: number): void => {
       const next = before[name] + W[name] * Math.max(0, Math.min(1, fraction));
@@ -1416,8 +1789,6 @@ class DeviceStore {
     };
     this.scanError = null;
     try {
-      await this._readDeviceUid(transport);
-      phase("uid", 1);
       // Prioritize extflash layout: the intflash bank classifier can take tens of seconds
       // when it has to read unknown banks in full. Delaying this stride walk behind that work
       // made the user wait until after library validation to see device scanning begin. These
@@ -1429,18 +1800,32 @@ class DeviceStore {
         this.lfsChunkHashes.clear();
         this.installedLfsTree = null;
         if (opts.fullGeometry || !this._extflashGeometryScanned || this._extflashGeometrySize !== extSize) {
-          const readExtflash = counted((off, len) => dumpRegion(flasher, 0, off, len));
+          const geometryStartedAt = performance.now();
+          if (opts.startupId) this.startupTrace(opts.fullGeometry ? "external-flash-full-scan-start" : "external-flash-targeted-scan-start", `size=${extSize}`);
+      const readExtflash = counted(async (off, len) => {
+        const readStartedAt = performance.now();
+        const data = await dumpRegion(flasher, 0, off, len, undefined, (phaseName, elapsedMs) => {
+          if (opts.startupId) {
+            this.startupTrace(`external-flash-${phaseName}`, `offset=0x${off.toString(16)} bytes=${len} elapsed=${Math.round(elapsedMs)}ms`);
+          }
+        });
+        if (opts.startupId) {
+          this.startupTrace("external-flash-probe-read", `offset=0x${off.toString(16)} bytes=${len} elapsed=${Math.round(performance.now() - readStartedAt)}ms`);
+        }
+        return data;
+      });
           const report = (done: number, total: number) => phase("partitions", total ? done / total : 0);
           this.partitions = opts.fullGeometry
             ? await scanExtflashPartitions(readExtflash, extSize, report)
-            : await scanExtflashPartitionsLazy(readExtflash, extSize, report);
-          if (!opts.fullGeometry && this.targetMedia !== "sd" && !this.partitions.some((p) => p.fs === "littlefs")) {
-            dbg("[scan] lazy geometry did not find LittleFS; falling back to full geometry scan");
-            this.partitions = await scanExtflashPartitions(readExtflash, extSize, report);
-          }
+            : await scanExtflashPartitionsLazy(readExtflash, extSize, report, {
+                blockSize: this.info?.minEraseSizeBytes,
+              });
           this._extflashGeometryScanned = true;
           this._extflashGeometrySize = extSize;
-          dbg(`[scan] ${opts.fullGeometry ? "full" : "lazy"} extflash geometry complete (${this.partitions.length} partition(s), ${extSize} B)`);
+          const frogfsFound = this.partitions.some((p) => p.fs === "frogfs");
+          const littlefsFound = this.partitions.some((p) => p.fs === "littlefs");
+          dbg(`[scan] ${opts.fullGeometry ? "full" : "targeted"} extflash scan complete (${this.partitions.length} partition(s), ${extSize} B; FrogFS=${frogfsFound ? "found" : "missing"}, LittleFS=${littlefsFound ? "found" : "missing"}; ${Math.round(performance.now() - geometryStartedAt)} ms)`);
+          if (opts.startupId) this.startupTrace(opts.fullGeometry ? "external-flash-full-scan-done" : "external-flash-targeted-scan-done", `elapsed=${Math.round(performance.now() - geometryStartedAt)}ms reads=${this._scanReads} FrogFS=${frogfsFound ? "found" : "missing"} LittleFS=${littlefsFound ? "found" : "missing"}`);
         } else {
           phase("partitions", 1);
           dbg(`[scan] reusing extflash geometry (${this.partitions.length} partition(s)); refreshing filesystem contents`);
@@ -1453,13 +1838,16 @@ class DeviceStore {
       }
       // Tier 1 (safe, intflash-only) — skip re-scanning the banks if we scanned them very
       // recently in this same connection (see `_banksScannedAt`'s doc comment above).
-      const banksFresh =
+      const intflashSafe = this.intflashScanIsSafe();
+      const banksFresh = intflashSafe && (
         (this._useQuickBanks && this._quickScanReady && this.banks.length > 0) ||
         this.banks.length > 0 &&
         this._banksScannedAt > 0 &&
-        Date.now() - this._banksScannedAt < DeviceStore.BANK_RESCAN_SKIP_WINDOW_MS;
-      dbg(`[quickscan] bank phase: ${banksFresh ? "using quick bank snapshot" : "running full bank geometry"}`);
-      if (!banksFresh) {
+        Date.now() - this._banksScannedAt < DeviceStore.BANK_RESCAN_SKIP_WINDOW_MS);
+      dbg(`[quickscan] bank phase: ${!intflashSafe ? "deferred (RDP locked or unknown)" : banksFresh ? "using quick bank snapshot" : "running full bank geometry"}`);
+      if (!banksFresh && intflashSafe) {
+        const bankScanStartedAt = performance.now();
+        if (opts.startupId) this.startupTrace("intflash-bank-scan-start");
         // The bank scan has no progress of its own and is not quick: an unrecognised bank is
         // DOWNLOADED IN FULL to search it for Retro-Go strings (intflashscan.ts's
         // `read(base, len)`), so two banks can be half a megabyte over SWD. Reported at 4% with
@@ -1485,11 +1873,15 @@ class DeviceStore {
           }),
         );
         this._banksScannedAt = Date.now();
+        if (opts.startupId) this.startupTrace("intflash-bank-scan-done", `elapsed=${Math.round(performance.now() - bankScanStartedAt)}ms`);
       }
       dbg(`[scan] bank classification: ${this.banks.map((bank) => `${bank.index}=${bank.type}`).join(", ")}`);
       this._quickScanReady = false;
       this._useQuickBanks = false;
-      const runtime = await detectRuntime(transport, this.banks);
+      const runtime = this.runtimeKind === "recovery" || this.locked !== false
+        ? { kind: this.runtimeKind === "recovery" ? "recovery" as const : "unknown" as const, vtor: null, pc: null, bank: null }
+        : await detectRuntime(transport, this.banks, { pcFallback: intflashSafe });
+      if (opts.startupId) this.startupTrace("runtime-classification-done", `kind=${runtime.kind} bank=${runtime.bank ?? "unknown"}`);
       if (runtime.kind !== "unknown") {
         this.runtimeKind = runtime.kind;
         this.runtimeBank = runtime.bank;
@@ -1518,10 +1910,25 @@ class DeviceStore {
           // pulls the FrogFS metadata region. Move the bar into the phase before it starts, so
           // the last stretch is not a freeze at whatever the walk ended on.
           phase("games", 0.1);
+          const frogfsStartedAt = performance.now();
+          if (opts.startupId) this.startupTrace("FrogFS-table-read-start", `offset=0x${frogfs.offset.toString(16)}`);
           try {
-            const res = await readInstalledFrogfs((off, len) => dumpRegion(flasher!, 0, off, len), frogfs.offset);
+            const readFrogfsMetadata = async (off: number, len: number): Promise<Uint8Array> => {
+              const readStartedAt = performance.now();
+              const data = await dumpRegion(flasher!, 0, off, len, undefined, (phaseName, elapsedMs) => {
+                if (opts.startupId) {
+                  this.startupTrace(`FrogFS-${phaseName}`, `offset=0x${off.toString(16)} bytes=${len} elapsed=${Math.round(elapsedMs)}ms`);
+                }
+              });
+              if (opts.startupId) {
+                this.startupTrace("FrogFS-metadata-read", `offset=0x${off.toString(16)} bytes=${len} elapsed=${Math.round(performance.now() - readStartedAt)}ms`);
+              }
+              return data;
+            };
+            const res = await readInstalledFrogfs(readFrogfsMetadata, frogfs.offset);
             this.installedFrogfs = res;
             this.installedGames = res.games;
+          if (opts.startupId) this.startupTrace("FrogFS-table-read-done", `elapsed=${Math.round(performance.now() - frogfsStartedAt)}ms files=${res.files.length} games=${res.games.length}`);
           } catch (e) {
             // NOT SILENT ANY MORE. A failed parse leaves `installedFrogfs` null, and null is
             // not "no games" -- it is "we do not know", which the Library's install projection
@@ -1531,8 +1938,9 @@ class DeviceStore {
             this.installedFrogfs = null;
             this.installedGames = [];
           }
-        } else {
-          this.installedGames = [];
+      } else {
+        if (opts.startupId) this.startupTrace("FrogFS-table-read-skipped", "partition=missing");
+        this.installedGames = [];
         }
       }
     } catch (e) {
@@ -1551,7 +1959,6 @@ class DeviceStore {
       // Arrive. A scan that stops at 0.84 because its last phase threw looks like a hang.
       phase("games", 1);
       this.scanning = false;
-      this._lastFullScanAt = Date.now();
       // Hand the lip back, whether the scan finished or threw. The background FS-stat reads
       // that follow are not part of what the user asked for, and they go back to sweeping
       // per transfer like any other read.
@@ -1578,27 +1985,35 @@ class DeviceStore {
       return gen === this._gen && !writing();
     };
     void (async () => {
+      const backgroundStartedAt = performance.now();
+      if (opts.startupId) this.startupTrace("background-filesystem-checks-waiting-for-link-idle");
       if (!(await linkIdle())) {
         dbg("[scan] FS stats skipped: the link was busy or superseded");
+        if (opts.startupId) this.startupTrace("background-filesystem-checks-skipped", "link=busy-or-superseded");
         return;
       }
-      this._startFsStatReads(gen);
+      if (opts.startupId) this.startupTrace("background-filesystem-checks-start", `wait=${Math.round(performance.now() - backgroundStartedAt)}ms`);
+      this._startFsStatReads(gen, opts.startupId);
     })();
   }
 
   /** The background FS-stat + core-version reads, once the link is idle. See `runScan`. */
-  private _startFsStatReads(gen: number): void {
+  private _startFsStatReads(gen: number, startupId?: string): void {
     // The lip stays dark for these. They are hundreds of block reads for numbers that appear
     // quietly in a panel -- the user did not ask for them and cannot act on them, so drawing
     // each read as its own sweep is strobing rather than feedback. Released when the last
     // reader settles, however it settles.
     lipProgress.setQuiet(true);
     let outstanding = 0;
+    const startedAt = performance.now();
     const started = <T>(pr: Promise<T>): Promise<T> => {
       outstanding++;
       return pr.finally(() => {
         outstanding--;
-        if (outstanding === 0) lipProgress.setQuiet(false);
+        if (outstanding === 0) {
+          lipProgress.setQuiet(false);
+          if (startupId) this.startupTrace("background-filesystem-checks-done", `elapsed=${Math.round(performance.now() - startedAt)}ms`);
+        }
       });
     };
     for (const p of this.partitions) {
@@ -1635,10 +2050,14 @@ class DeviceStore {
               if (gen === this._gen) {
                 this.coreVersionCheck = res;
                 this.coreInventoryReady = true;
+                this.coreInventoryFailed = false;
               }
             })
             .catch((e) => {
-              if (gen === this._gen) this.coreInventoryReady = true;
+              if (gen === this._gen) {
+                this.coreInventoryReady = true;
+                this.coreInventoryFailed = true;
+              }
               dbg(`[scan] Core version check failed: ${e}`);
             });
           void started(
@@ -1648,7 +2067,10 @@ class DeviceStore {
       }
     }
     // Nothing to wait for: release immediately rather than leaving the lip silenced forever.
-    if (outstanding === 0) lipProgress.setQuiet(false);
+    if (outstanding === 0) {
+      lipProgress.setQuiet(false);
+      if (startupId) this.startupTrace("background-filesystem-checks-done", "no-background-reads");
+    }
   }
 
   async scanSdCardGames(): Promise<void> {
@@ -1727,6 +2149,9 @@ class DeviceStore {
    *  transport, so it queues safely with the poll/ops). For the Overview page. */
   async readLog(manual = true): Promise<{ text: string; idx: number }> {
     if (!this.transport) throw new Error("Not connected.");
+    if (!this.canReadDeviceLog) throw new Error("Device log reads are unavailable while the device is busy.");
+    const transport = this.transport;
+    if (this.stockMonitorMode) throw new Error("Device log reads are unavailable while monitoring stock firmware.");
     const installed = this.banks.find((b) => b.retroGoVersion);
     dbg(`[devicelog] installed=${installed?.retroGoVersion ?? "none"} bank=${installed?.index ?? "none"}`);
     let layout = null;
@@ -1742,7 +2167,11 @@ class DeviceStore {
       if (!layout) layout = fallbackLogLayout(installed.retroGoVersion);
     }
     dbg("[devicelog] selected layout", layout ?? "none; probing known layouts");
-    const result = await readLogFromTransport(this.transport, layout, !manual);
+    // Fetching the ELF can outlive the idle period in which this request started.
+    if (!this.canReadDeviceLog || this.transport !== transport) {
+      throw new Error("Device log read superseded by a device operation.");
+    }
+    const result = await readLogFromTransport(transport, layout, !manual);
     if (this.runtimeKind === "retro-go") this.updateRetroGoActivity(result.text);
     return result;
   }
@@ -1752,6 +2181,7 @@ class DeviceStore {
    *  cannot race against the in-flight halt/read/resume sequence. */
   async captureScreenshot(onProgress?: (done: number, total: number) => void): Promise<ImageData> {
     if (!this.transport) throw new Error("Not connected to a device.");
+    if (this.stockMonitorMode) throw new Error("Screenshot capture is unavailable while monitoring stock firmware.");
     // Counted suspend, not raw stopPoll/startPoll: if a screenshot is ever taken while a
     // flash holds its own suspend, the raw pair's finally would restart the poll mid-flash.
     this.suspendPoll();
@@ -1790,19 +2220,24 @@ class DeviceStore {
   // on USB, so there's no disconnect event — only a failed read reveals it). Loss DURING an
   // op is caught by that op's own transport calls throwing; this poll covers idle moments.
   // The serialized transport lets it share the link with in-flight ops safely.
-  private startPoll(): void {
+  private startPoll(intervalMs = this.debuggingDisabled
+    ? DeviceStore.RETRY_POLL_INTERVAL_MS
+    : DeviceStore.ACTIVE_POLL_INTERVAL_MS): void {
     // Never start underneath an active suspendPoll() — otherwise any internal starter
     // (connect, a nested op's finally) would punch the poll back on mid-flash. The
     // outermost resumePoll() is what legitimately restarts it.
     if (this.pollSuspendDepth > 0) return;
-    if (this.pollTimer) return;
-    this.pollTimer = setInterval(() => void this.pollTick(), 300);
+    if (this.pollTimer && this.pollIntervalMs === intervalMs) return;
+    this.stopPoll();
+    this.pollIntervalMs = intervalMs;
+    this.pollTimer = setInterval(() => void this.pollTick(), intervalMs);
   }
   private stopPoll(): void {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    this.pollIntervalMs = 0;
   }
   private markTargetUnresponsive(): void {
     if (this.targetUnresponsive || this.connection !== "connected" && this.connection !== "attention" && this.connection !== "connecting") return;
@@ -1811,8 +2246,58 @@ class DeviceStore {
     this.error = "Target is not responding. Waiting for it to wake up…";
     deviceSafety.linkGone();
     dbg(`[poll] target stopped answering; keeping the adapter session open`);
+    this.scheduleTargetReconnect();
+  }
+
+  /** Reopen an absent target's SWD session independently of its possibly stalled queue. */
+  private scheduleTargetReconnect(): void {
+    if (this.targetReconnectTimer || this._suppressAutoRetry) return;
+    this.targetReconnectTimer = setTimeout(() => {
+      this.targetReconnectTimer = null;
+      void this.retryTargetConnection();
+    }, DeviceStore.RETRY_POLL_INTERVAL_MS);
+  }
+
+  private async retryTargetConnection(): Promise<void> {
+    if (this._suppressAutoRetry || (this.isConnected && !this.targetUnresponsive)) return;
+    if (this._connectPromise || this._stubBootDepth > 0 || this.scanning ||
+        this.pollSuspendDepth > 0 || this.pinging ||
+        (this.transport?.busy() && !this.targetPingStalled)) {
+      this.scheduleTargetReconnect();
+      return;
+    }
+    lipProgress.setQuiet(true);
+    try {
+      // The selected adapter may itself have disappeared. Never open a picker from polling.
+      const known = await getKnownProbes();
+      if (this._suppressAutoRetry || (this.isConnected && !this.targetUnresponsive)) return;
+      if (this._connectPromise || this._stubBootDepth > 0 || this.scanning ||
+          this.pollSuspendDepth > 0 || this.pinging) return;
+      const adapter = this.selectedAdapter ?? this.probe?.device;
+      if (!adapter || !known.includes(adapter)) {
+        this.adapterAvailable = false;
+        this.targetUnresponsive = false;
+        this.connection = "lost";
+        return;
+      }
+      this.selectedAdapter = adapter;
+      this.adapterAvailable = true;
+      await this.connect(undefined, { reconnect: true, backgroundRetry: true });
+    } catch (error) {
+      if (!this._suppressAutoRetry) {
+        this.targetUnresponsive = this.adapterAvailable;
+        this.connection = "lost";
+        dbg(`[poll] target reconnect unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      lipProgress.setQuiet(false);
+      if (!this._suppressAutoRetry && (!this.isConnected || this.targetUnresponsive)) {
+        this.scheduleTargetReconnect();
+      }
+    }
   }
   private async pollTick(): Promise<void> {
+    if (this.pollSuspendDepth > 0 || this._stubBootDepth > 0 || deviceSafety.writeInProgress) return;
     if (this.pinging || !this.transport) return;
     if (this.connection !== "connected" && this.connection !== "attention" && !this.targetUnresponsive) return;
     if (this.scanning) return;
@@ -1827,7 +2312,143 @@ class DeviceStore {
       return; // an op holds the link — it'll surface a loss itself
     }
     this.pinging = true;
+    // Liveness and stock-monitor reads are background traffic, not progress the user asked
+    // to watch. Explicit scan/install operation progress still owns the lip independently.
+    lipProgress.setQuiet(true);
     try {
+      if (this.stockMonitorMode) {
+        if (Date.now() - this.lastItcmRuntimeCheckAt >= DeviceStore.STOCK_MONITOR_POLL_INTERVAL_MS) {
+          this.lastItcmRuntimeCheckAt = Date.now();
+          const passive = await this.probePassiveTarget(this.transport);
+          if (!passive) {
+            this.targetPingStalled = this.transport.busy();
+            if (Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) this.markTargetUnresponsive();
+            return;
+          }
+          this.targetPingStalled = false;
+          const { itcm, runtime } = passive;
+          if (this.hasPassiveTargetEvidence(itcm, runtime.vtor)) {
+            this.lastTargetAnswerAt = Date.now();
+            if (this.targetUnresponsive) {
+              this.targetUnresponsive = false;
+              this.connection = this.locked === false ? "connected" : "attention";
+              this.error = null;
+            }
+          } else if (Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) {
+            this.markTargetUnresponsive();
+            return;
+          }
+          if (runtime.vtor !== null) {
+            this.runtimeBank = runtime.bank;
+            // A bank-1 VTOR and a positive stock ITCM signature identify stock OFW even if
+            // detectRuntime labels the VTOR as the generic bootloader subrange.
+            if (runtime.vtor >= 0x08000000 && runtime.vtor < 0x08100000 && itcm.model) {
+              this.runtimeKind = "stock-ofw";
+            } else if (runtime.kind !== "unknown") this.runtimeKind = runtime.kind;
+          }
+          if (this.runtimeKind === "retro-go" && this.locked === false) {
+            this.stockMonitorMode = false;
+            this.debuggingDisabled = false;
+            this.connection = "connected";
+            this.startPoll(DeviceStore.ACTIVE_POLL_INTERVAL_MS);
+            dbg("[poll] VTOR shows Retro-Go; expanding runtime diagnostics");
+            await this.quickRuntimeProbe(this.transport, { allowIntflash: true });
+            void this.runScan("stock-to-Retro-Go transition", { auto: true }).catch((e) =>
+              dbg(`[scan] stock-to-Retro-Go background scan failed: ${e instanceof Error ? e.message : String(e)}`),
+            );
+          } else if (this.runtimeKind === "stock-ofw" && itcm.model) {
+            this.model = itcm.model;
+          }
+        }
+        return;
+      }
+
+      // Check the Recovery mailbox first so a live locked-device utility is adopted and
+      // represented as Recovery before stock signatures or runtime vectors are considered.
+      if (this.utilLoaded || this.runtimeKind === "recovery") {
+        const alive = await raceWithFallback(isStubAlive(this.transport), 300, false);
+        if (alive) {
+          this.targetPingStalled = false;
+          this.utilLoaded = true;
+          this.runtimeKind = "recovery";
+          this.runtimeBank = null;
+          this.connection = "connected";
+          this.targetUnresponsive = false;
+          this.error = null;
+          this.lastTargetAnswerAt = Date.now();
+          this.startPoll(DeviceStore.RECOVERY_POLL_INTERVAL_MS);
+          return;
+        }
+        this.utilLoaded = false;
+        this.flasher = null;
+        if (this.transport.busy()) {
+          this.targetPingStalled = true;
+          this.startPoll(DeviceStore.RETRY_POLL_INTERVAL_MS);
+          return;
+        }
+        // A vanished mailbox can mean either that Recovery ended or that the console was
+        // unplugged. Check only the passive ITCM + VTOR wave before trying to boot anything.
+        // This keeps a missing target from being mistaken for locked stock and repeatedly
+        // driving the adapter into Recovery Mode.
+        const passive = await this.probePassiveTarget(this.transport);
+        if (!passive) {
+          this.targetPingStalled = this.transport.busy();
+          this.startPoll(DeviceStore.RETRY_POLL_INTERVAL_MS);
+          return;
+        }
+        this.targetPingStalled = false;
+        const { itcm, runtime } = passive;
+        const targetReachable = this.hasPassiveTargetEvidence(itcm, runtime.vtor);
+        if (targetReachable) {
+          this.lastTargetAnswerAt = Date.now();
+          this.targetUnresponsive = false;
+          this.error = null;
+        } else if (Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) {
+          this.markTargetUnresponsive();
+          return;
+        } else {
+          // Stay in a quiet retry state during the silence window. In particular, do not
+          // reset or boot a utility while the target may simply be absent.
+          this.runtimeKind = this.locked ? "stock-ofw" : "unknown";
+          this.runtimeBank = this.locked ? 1 : null;
+          this.debuggingDisabled = !!this.locked;
+          this.connection = this.locked ? "attention" : "connected";
+          this.startPoll(DeviceStore.RETRY_POLL_INTERVAL_MS);
+          return;
+        }
+        if (itcm.model && runtime.vtor !== null &&
+            runtime.vtor >= 0x08000000 && runtime.vtor < 0x08100000) {
+          this.runtimeKind = "stock-ofw";
+          this.runtimeBank = 1;
+        } else if (runtime.kind !== "unknown") {
+          this.runtimeKind = runtime.kind;
+          this.runtimeBank = runtime.bank;
+        }
+        this.runtimeKind = this.locked ? "stock-ofw" : "unknown";
+        this.runtimeBank = this.locked ? 1 : null;
+        this.debuggingDisabled = !!this.locked;
+        this.connection = this.locked ? "attention" : "connected";
+        if (this.locked) {
+          if (Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) {
+            this.markTargetUnresponsive();
+            return;
+          }
+          if (Date.now() - this.lastRecoveryBootAttemptAt >= 5_000) {
+            this.lastRecoveryBootAttemptAt = Date.now();
+            try {
+              await this.ensureStub(undefined, false, true);
+              this.enterRecoveryMode();
+              this.startPoll(DeviceStore.RECOVERY_POLL_INTERVAL_MS);
+            } catch (error) {
+              dbg(`[poll] could not restart locked Recovery utility: ${error instanceof Error ? error.message : String(error)}`);
+              this.startPoll(DeviceStore.RETRY_POLL_INTERVAL_MS);
+            }
+          }
+        }
+        dbg("[poll] Recovery mailbox no longer responds; utility state cleared");
+        return;
+      }
+
       // Time-box the ping: a yanked device usually leaves the read HANGING (the adapter keeps
       // retrying — the blinking), so "no response in 300 ms while idle" == lost. Safe to
       // time-box because we only ping when the link is idle (never queued behind a long op).
@@ -1840,20 +2461,60 @@ class DeviceStore {
       if (!ok) {
         this.firstRecoveryAnswerAt = 0;
         this.targetPingStalled = this.transport.busy();
+        // Missed pings are retried, but less often than the normal responsive-target poll.
+        this.startPoll(this.debuggingDisabled || !this.utilLoaded
+          ? DeviceStore.DEBUG_DISABLED_POLL_INTERVAL_MS
+          : DeviceStore.RETRY_POLL_INTERVAL_MS);
         if (this.powerCycleReconnectMode && this.lockedBackupPrompt) {
           this.targetUnresponsive = true;
           this.connection = "lost";
           return;
         }
         if (!this.utilLoaded) {
+          // A disabled CPUID read does not distinguish stock OFW from a sleeping target.
+          // Keep the passive first-wave probes running so stock can be recognized after a
+          // Recovery-to-stock transition. ITCM and VTOR reads do not halt or touch flash.
+          // A timed-out ping may still own the serialized link, so wait for a later tick then.
+          if (!this.transport.busy()) {
+            const passive = await this.probePassiveTarget(this.transport);
+            if (!passive) {
+              this.targetPingStalled = this.transport.busy();
+              if (Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) {
+                this.markTargetUnresponsive();
+                return;
+              }
+              this.debuggingDisabled = true;
+              this.targetUnresponsive = false;
+              this.connection = "attention";
+              this.error = null;
+              return;
+            }
+            this.targetPingStalled = false;
+            const { itcm, runtime } = passive;
+            const vtorInBank1 = runtime.vtor !== null &&
+              runtime.vtor >= 0x08000000 && runtime.vtor < 0x08100000;
+            if (this.hasPassiveTargetEvidence(itcm, runtime.vtor)) {
+              this.lastTargetAnswerAt = Date.now();
+            }
+            if (itcm.model && vtorInBank1) {
+              this.runtimeKind = "stock-ofw";
+              this.runtimeBank = 1;
+              this.enterStockMonitor(itcm.model, this.locked);
+              return;
+            }
+            if (!this.hasPassiveTargetEvidence(itcm, runtime.vtor) &&
+                Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) {
+              this.markTargetUnresponsive();
+              return;
+            }
+          }
           // Without the RAM utility, a non-answering target can be stock firmware refusing
           // debug transactions. Preserve the live adapter session for an explicit recovery boot.
           this.debuggingDisabled = true;
           this.targetUnresponsive = false;
           this.connection = "attention";
           this.error = null;
-          this.stopPoll();
-          dbg("[poll] target debug access disabled; keeping the adapter session open for recovery");
+          dbg("[poll] target debug access unavailable; retrying safely at a reduced rate");
           return;
         }
         if (Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) this.markTargetUnresponsive();
@@ -1862,6 +2523,26 @@ class DeviceStore {
 
       this.targetPingStalled = false;
       this.lastTargetAnswerAt = Date.now();
+      const wasDebuggingDisabled = this.debuggingDisabled;
+      if (wasDebuggingDisabled) {
+        if (!this.firstRecoveryAnswerAt) this.firstRecoveryAnswerAt = Date.now();
+        if (Date.now() - this.firstRecoveryAnswerAt < DeviceStore.TARGET_RECOVERY_MS) return;
+        this.debuggingDisabled = false;
+        this.targetUnresponsive = false;
+        this.connection = "connected";
+        this.error = null;
+        this._banksScannedAt = 0;
+        this.firstRecoveryAnswerAt = 0;
+        this.startPoll(DeviceStore.ACTIVE_POLL_INTERVAL_MS);
+        deviceSafety.markQuiet();
+        dbg("[poll] target answered again; refreshing runtime through the safe scan gates");
+        const intflashSafe = this.intflashScanIsSafe();
+        await this.quickRuntimeProbe(this.transport, { allowIntflash: intflashSafe });
+        void this.runScan("target resumed", { auto: true }).catch((e) =>
+          dbg(`[scan] target resumed background scan failed: ${e instanceof Error ? e.message : String(e)}`),
+        );
+        return;
+      }
       if (this.targetUnresponsive) {
         if (!this.firstRecoveryAnswerAt) this.firstRecoveryAnswerAt = Date.now();
         if (Date.now() - this.firstRecoveryAnswerAt < DeviceStore.TARGET_RECOVERY_MS) return;
@@ -1869,6 +2550,7 @@ class DeviceStore {
         this.firstRecoveryAnswerAt = 0;
         this.connection = "connected";
         this.error = null;
+        this.startPoll(DeviceStore.ACTIVE_POLL_INTERVAL_MS);
         if (this.powerCycleReconnectMode && this.lockedBackupPrompt) {
           this.powerCycleReconnectMode = false;
           this.debuggingDisabled = false;
@@ -1880,37 +2562,71 @@ class DeviceStore {
         this._banksScannedAt = 0;
         deviceSafety.markQuiet();
         dbg(`[poll] target answered again; refreshing its runtime`);
-        await this.quickRuntimeProbe(this.transport);
+        const intflashSafe = this.intflashScanIsSafe();
+        await this.quickRuntimeProbe(this.transport, { allowIntflash: intflashSafe });
         void this.runScan("target resumed", { auto: true }).catch((e) =>
           dbg(`[scan] target resumed background scan failed: ${e instanceof Error ? e.message : String(e)}`),
         );
         return;
       }
+      this.startPoll(DeviceStore.ACTIVE_POLL_INTERVAL_MS);
       
       // Target answered while the link was idle, with no operation holding it. This is the
       // app's only device-attested "the write path is quiet and the device is alive" moment,
-      // so it is what clears the header's post-write "still unsafe" warning. Note it can only
+      // so it is what clears the internal post-write settling gate. Note it can only
       // ever fire once the poll is running again — suspendPoll() keeps it silent for the whole
       // duration of a flash, which is precisely the behaviour we want.
       deviceSafety.markQuiet();
 
-      // Check what is running to update UI state:
-      // After the target leaves the RAM utility, its mailbox read may never complete.
-      // Keep the poll cycle bounded so runtime VTOR detection can immediately take over.
+      // Check what is running to update UI state. Recovery was handled by its mailbox-only
+      // branch above; this path is for unlocked firmware and uses non-halting VTOR polling.
       const utilAlive = await raceWithFallback(isStubAlive(this.transport), 300, false);
       if (utilAlive) {
         this.runtimeKind = "recovery";
         this.runtimeBank = null;
-      } else if (this.banks.length > 0 && Date.now() - this.lastRuntimeProbeAt >= 2000) {
-        // VTOR is a single live memory read, so this passive probe does not halt the target.
-        // The full PC fallback is reserved for deliberate scans; polling must stay tiny.
+      } else if (Date.now() - this.lastRuntimeProbeAt >= 2000) {
+        // Polling uses VTOR only. PC sampling (which halts) is reserved for unlocked startup
+        // diagnostics where VTOR did not identify a known execution region.
         this.lastRuntimeProbeAt = Date.now();
         const runtime = await detectRuntime(this.transport, this.banks, { pcFallback: false });
         if (runtime.kind !== "unknown") {
           this.runtimeKind = runtime.kind;
           this.runtimeBank = runtime.bank;
           if (runtime.kind !== "retro-go") this.retroGoActivity = null;
-          else this.updateRetroGoActivity((await readLogFromTransport(this.transport, undefined, true)).text);
+          else if (this.banks.some((bank) => bank.index === runtime.bank && bank.retroGoVersion)) {
+            this.updateRetroGoActivity((await readLogFromTransport(this.transport, undefined, true)).text);
+          }
+
+          // A runtime discovered through a deliberate PC sample can populate inventory once.
+          if (runtime.kind === "retro-go" && this.banks.length === 0) {
+            const intflashSafe = this.intflashScanIsSafe();
+            await this.quickRuntimeProbe(this.transport, { allowIntflash: intflashSafe });
+            if (intflashSafe) {
+              void this.runScan("runtime detected", { auto: true }).catch((e) =>
+                dbg(`[scan] runtime detected background scan failed: ${e instanceof Error ? e.message : String(e)}`),
+              );
+            }
+          }
+        }
+
+        // A game can clear ITCM after the initial stock-OFW classification. Recheck the
+        // signature at a modest cadence while the runtime remains unknown or stock. A
+        // successful cleared read rules stock firmware out;
+        // then the existing intflash scan path can safely rediscover the active image.
+        if ((runtime.kind === "unknown" || runtime.kind === "stock-ofw") &&
+            Date.now() - this.lastItcmRuntimeCheckAt >= 5_000) {
+          this.lastItcmRuntimeCheckAt = Date.now();
+          const itcm = await this.refreshItcmOfwHint(this.transport);
+          if (itcm.cleared) {
+            this.runtimeKind = "unknown";
+            this.runtimeBank = null;
+            this.retroGoActivity = null;
+            dbg("[poll] ITCM cleared after stock/unknown runtime; safely rescanning internal flash");
+            await this.quickRuntimeProbe(this.transport, { allowIntflash: true });
+            void this.runScan("ITCM cleared", { auto: true }).catch((e) =>
+              dbg(`[scan] ITCM-cleared background scan failed: ${e instanceof Error ? e.message : String(e)}`),
+            );
+          }
         }
       }
       if (this.utilLoaded !== utilAlive) {
@@ -1935,9 +2651,10 @@ class DeviceStore {
         }
         this.utilLoaded = utilAlive;
       }
-      // Runtime classification comes from the live VTOR probe above, never from the persistent
-      // log buffer: old log text proves only that Retro-Go ran at SOME point.
+      // Runtime classification comes from ITCM or deliberate PC probes, never from the
+      // persistent log buffer: old log text proves only that Retro-Go ran at SOME point.
     } finally {
+      lipProgress.setQuiet(false);
       this.pinging = false;
     }
   }
@@ -1949,40 +2666,15 @@ class DeviceStore {
 
   /** Reset the displayable device facts to "unknown / not scanned". Used on a fresh connect
    *  and on a manual disconnect — NOT on a lost link (those freeze the last-known info). */
-  /**
-   * Read the STM32H7's 96-bit unique device ID (RM0455 §60.1, UID base 0x1FF1E800) once per
-   * connection. ONE 12-byte read of always-readable system memory — safe while the target is
-   * running (same class of read as the liveness poll's CPUID word), and explicitly not a
-   * per-item read loop, so it doesn't feed the ST-Link-clone saturation problem.
-   *
-   * Best-effort: a failure just leaves `deviceUid` null, which degrades every UID-scoped fact
-   * (currently only `backupTaken`) to "unknown", never to a wrong device's value.
-   */
-  private async _readDeviceUid(transport: SerialTransport): Promise<void> {
-    if (this.deviceUid) return;
-    try {
-      const raw = await transport.readMemory(0x1ff1e800, 12);
-      const uid = Array.from(raw, (b) => b.toString(16).padStart(2, "0")).join("");
-      if (/^0*$/.test(uid) || /^f*$/.test(uid)) return; // all-zero/all-ones → bad read, not an ID
-      this.deviceUid = uid;
-      // Legacy value is `true`; current value is an epoch-ms number. Both mean "taken".
-      const rec = loadSel<boolean | number>(DeviceStore.backupKey(uid), false);
-      this._backupTaken = rec !== false;
-      this._backupAt = typeof rec === "number" ? rec : null;
-    } catch {
-      /* non-fatal */
-    }
-  }
-
   private clearInfo(): void {
-    this.deviceUid = null;
     this._backupTaken = false;
-    this._backupAt = null;
     this.info = null;
     this.model = "unknown";
     this.locked = null;
     this.extSizeMB = null;
     this.deviceClass = null;
+    this.itcmOfwModel = "unknown";
+    this.stockMonitorMode = false;
     this.partitions = [];
     this._extflashGeometryScanned = false;
     this._extflashGeometrySize = 0;
@@ -1990,12 +2682,16 @@ class DeviceStore {
     this.runtimeKind = "unknown";
     this.runtimeBank = null;
     this.installedGames = [];
+    this.coreVersionCheck = null;
+    this.coreInventoryReady = false;
+    this.coreInventoryFailed = false;
     this.installedLfsTree = null;
     this.lfsBlockCache.clear();
     this.lfsChunkHashes.clear();
     this.scanProgress = 0;
     this.scanError = null;
     this._banksScannedAt = 0;
+    this._lastFullScanAt = 0;
   }
 
   /** Drop the live handles/listeners without touching any user-visible device facts
@@ -2127,6 +2823,7 @@ class DeviceStore {
     }
     await this._teardownConnection();
     this.connection = "lost";
+    this.adapterAvailable = false;
     deviceSafety.linkGone();
     lipProgress.reset();
     this.error = "Connection lost — the adapter was unplugged. Reconnecting…";
@@ -2151,6 +2848,8 @@ class DeviceStore {
    *  flight) until the user explicitly reconnects (which re-enables it — see connect()). */
   async disconnect(): Promise<void> {
     this._suppressAutoRetry = true;
+    if (this.targetReconnectTimer) clearTimeout(this.targetReconnectTimer);
+    this.targetReconnectTimer = null;
     if (this.stubPrompt) {
       this.stubPrompt.reject(new Error("Disconnected."));
       this.stubPrompt = null;
@@ -2166,6 +2865,7 @@ class DeviceStore {
     }
     await this._teardownConnection();
     this.probeName = null;
+    this.adapterAvailable = false;
     this.runtimeKind = "unknown";
     this.runtimeBank = null;
     this.retroGoActivity = null;
@@ -2173,6 +2873,16 @@ class DeviceStore {
     this.connection = "disconnected";
     deviceSafety.linkGone();
     lipProgress.reset();
+  }
+
+  /** Retire background work before Vite replaces this hardware-owning module. */
+  stopForDevelopmentReload(): void {
+    this._suppressAutoRetry = true;
+    this.suspendPoll();
+    if (this.adapterPollTimer) clearInterval(this.adapterPollTimer);
+    this.adapterPollTimer = null;
+    if (this.targetReconnectTimer) clearTimeout(this.targetReconnectTimer);
+    this.targetReconnectTimer = null;
   }
 
   setAdapterFrequency(hz: number): void {
@@ -2213,51 +2923,88 @@ class DeviceStore {
     await this.reconnectLoop("connecting");
   }
 
-  /** Only ever attempts the silent auto-probe (and the connect-triggered scan that comes with
-   *  it) ONCE per page load, even though `autoProbeRoms()` is called on every mount of the ROMs
-   *  tab. Without this, revisiting the tab while genuinely disconnected/lost (connectSilent's
-   *  own no-op guard only covers the "still connected" case) would keep silently reconnecting
-   *  and rescanning on every visit — the user should be able to rely on "beyond the first time,
-   *  nothing auto-rescans" and reach for the header's manual reconnect/rescan themselves. */
-  private _autoProbedRomsOnce = false;
-  private _libraryScanStartup: { media: "sd" | "flash"; promise: Promise<void> } | null = null;
+  private _manageDeviceStartup: { media: "sd" | "flash"; startedAt: number; promise: Promise<void> } | null = null;
 
-  /** Context-aware auto-probe (connection policy table): SD+ROMs never auto-connects (SD
-   *  doesn't need a device at all); Flash+ROMs silently attempts the known/trusted adapter in
-   *  the background, no modal — but only the first time this page session (see
-   *  `_autoProbedRomsOnce`). Safe to call repeatedly/idempotently (e.g. on every mount of the
-   *  ROMs tab). */
-  autoProbeRoms(): Promise<void> {
-    if (this.targetMedia === "sd") return Promise.resolve();
-    if (this._autoProbedRomsOnce) return Promise.resolve();
-    this._autoProbedRomsOnce = true;
-    return this.connectSilent();
-  }
-
-  /** Launch device inventory before either Library effect begins its local-folder scan. The
-   *  barrier lasts only until device work has started, never until that scan completes. */
-  startLibraryDeviceScan(): Promise<void> {
+  /** Both landing destinations use this one device-inventory startup path. The Library adds a
+   *  short barrier before its local-folder sync; Overview does not. Device reads, scan reuse,
+   *  and connection policy are shared. */
+  private startManageDeviceInventory(source: "library" | "overview"): Promise<void> {
     const media = this.targetMedia;
-    if (this._libraryScanStartup?.media === media) return this._libraryScanStartup.promise;
-    this.libraryScanStartupPending = true;
+    const priorStartup = this._manageDeviceStartup;
+    const startupAge = priorStartup ? Date.now() - priorStartup.startedAt : Infinity;
+    if (priorStartup?.media === media && (this.scanning || !!this._scanPromise || startupAge < 5_000)) {
+      this.startupTrace("device-scan-request-reused", `source=${source} media=${media}`);
+      if (source === "library") {
+        this.libraryScanStartupPending = true;
+        return priorStartup.promise.finally(() => {
+          this.libraryScanStartupPending = false;
+          this.startupTrace("device-startup request settled", "source=library libraryBarrierReleased=true");
+        });
+      }
+      return priorStartup.promise;
+    }
+    const trace = {
+      id: `${source}-${++this._manageStartupSeq}`,
+      startedAt: performance.now(),
+    };
+    this._manageStartupTrace = trace;
+    this._manageStartupSawActiveLip = false;
+    this._manageStartupDeviceDone = false;
+    this.observeManageStartupLip(lipProgress.active);
+    this.startupTrace(`Manage-${source === "library" ? "Library" : "Overview"} device startup begin`, `media=${media}`);
+    if (source === "library") this.libraryScanStartupPending = true;
     const promise = (async () => {
-      if (media === "sd") {
+      if (media === "sd" && source === "library") {
+        this.startupTrace("waiting-for-SD-handle");
         await this.whenSdRestored();
+        this.startupTrace("SD-handle-ready; no-device-scan");
+        this.markManageStartupDeviceDone(trace.id, "media=sd");
         return;
       }
 
-      await this.autoProbeRoms();
-      if (this.flasher && !this._scanPromise) {
-        void this.runScan("library selection", { auto: true }).catch((e) =>
-          dbg(`[scan] library selection failed: ${e instanceof Error ? e.message : String(e)}`),
+      this.startupTrace("silent-connect begin", `connection=${this.connection} utilLoaded=${this.utilLoaded}`);
+      await this.connectSilent();
+      this.startupTrace("silent-connect settled", `connection=${this.connection} utilLoaded=${this.utilLoaded}`);
+      if (this.flasher && this._scanPromise) {
+        this.startupTrace(`${source}-selection scan joined-existing`);
+        void this._scanPromise.then(
+          () => this.markManageStartupDeviceDone(trace.id, "reason=joined-existing-scan"),
+          (e) => {
+            this.startupTrace("device-scan-failed", `reason=joined-existing-scan error=${e instanceof Error ? e.message : String(e)}`);
+            this.markManageStartupDeviceDone(trace.id, "reason=joined-existing-scan failed", false);
+          },
+        );
+      } else if (this.flasher && this._lastFullScanAt > 0 && Date.now() - this._lastFullScanAt < DeviceStore.AUTO_SCAN_FRESHNESS_WINDOW_MS) {
+        this.startupTrace(`${source}-selection scan reused-fresh-inventory`, `age=${Date.now() - this._lastFullScanAt}ms`);
+        this.markManageStartupDeviceDone(trace.id, "reason=reused-fresh-inventory");
+      } else if (this.flasher) {
+        this.startupTrace(`${source}-selection scan requested`);
+        void this.runScan(`${source} selection`, { auto: true, startupId: trace.id }).catch((e) =>
+          dbg(`[scan] ${source} selection failed: ${e instanceof Error ? e.message : String(e)}`),
         );
         await Promise.resolve();
+      } else {
+        this.startupTrace("device scan unavailable; RAM flasher not ready");
+        if (!this._scanPromise) this.markManageStartupDeviceDone(trace.id, "device-scan=unavailable");
       }
     })().finally(() => {
-      if (this._libraryScanStartup?.promise === promise) this.libraryScanStartupPending = false;
+      if (this._manageDeviceStartup?.promise === promise) {
+        this.libraryScanStartupPending = false;
+        this.startupTrace("device-startup request settled", `source=${source} libraryBarrierReleased=${source === "library"}`);
+      }
     });
-    this._libraryScanStartup = { media, promise };
+    this._manageDeviceStartup = { media, startedAt: Date.now(), promise };
     return promise;
+  }
+
+  /** Manage Library's device scan starts before its independent local-folder scan. */
+  startLibraryDeviceScan(): Promise<void> {
+    return this.startManageDeviceInventory("library");
+  }
+
+  /** Overview uses the same device scan as Manage Library, without the Library sync barrier. */
+  startOverviewDeviceScan(): Promise<void> {
+    return this.startManageDeviceInventory("overview");
   }
 
   /** When set, ConnectGateModal is asking the user to connect before proceeding (e.g. "Install
@@ -2337,8 +3084,19 @@ deviceSafety.setNoLinkProbe(() => !device.isConnected);
 // Auto-reconnect when a USB device (re-)connects and we have a lost or idle link.
 // Handles the common case: device resets mid-flash → ST-Link USB briefly drops →
 // probe re-enumerates → connectSilent() reattaches if it's the only trusted probe.
+const onUsbConnect = () => void device.connectSilent();
 if (typeof navigator !== "undefined" && navigator.usb) {
-  navigator.usb.addEventListener("connect", () => void device.connectSilent());
+  navigator.usb.addEventListener("connect", onUsbConnect);
+}
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    device.stopForDevelopmentReload();
+    navigator.usb?.removeEventListener("connect", onUsbConnect);
+  });
+  // A hardware session cannot be safely transferred between two store instances with
+  // independent transport queues. Recreate the page when this module changes.
+  import.meta.hot.accept(() => window.location.reload());
 }
 
 export const modelLabel = (m: Model): string =>

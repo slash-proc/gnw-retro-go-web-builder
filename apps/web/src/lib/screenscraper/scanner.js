@@ -1,7 +1,7 @@
 // scanner.js — turn a picked folder (FileList) into a ROM work list.
 import { NON_ROM, IMAGE_EXT } from "./config.js";
 import { isKnownSystemFolder, systemIdsFor } from "./systemMap.js";
-import { ext, stem } from "./util.js";
+import { declaredRomExt, ext, stem } from "./util.js";
 
 // Detect the system from the folder path. We scan the folders from the
 // outermost to the innermost and return the FIRST one that matches a known
@@ -24,7 +24,8 @@ export function buildPlan(files, { skipExisting = true, forceSys = null } = {}) 
   for (const f of files) {
     const parts = f.webkitRelativePath.split("/");
     if (hidden(parts)) continue;
-    if (IMAGE_EXT.has(ext(f.name))) {
+    const declaredRomExtension = declaredRomExt(f.name, f.gnwExtensions ?? []);
+    if (IMAGE_EXT.has(ext(f.name)) && !declaredRomExtension) {
       haveImage.add(parts.slice(0, -1).join("/") + "/" + stem(f.name).toLowerCase());
     }
   }
@@ -35,7 +36,9 @@ export function buildPlan(files, { skipExisting = true, forceSys = null } = {}) 
     // Ignore hidden files/folders: any path segment starting with "." (e.g.
     // .DS_Store, ._AppleDouble forks, anything inside .git/.Trash…).
     if (hidden(parts)) continue;
-    if (NON_ROM.has(ext(f.name))) continue;
+    // The core's full declared suffix wins over generic media suffixes. This lets a core own a
+    // compound ROM extension ending in `.png` without making ordinary PNG artwork a ROM.
+    if (NON_ROM.has(ext(f.name)) && !declaredRomExt(f.name, f.gnwExtensions ?? [])) continue;
     const dir = parts.slice(0, -1).join("/");
     if (skipExisting && haveImage.has(dir + "/" + stem(f.name).toLowerCase())) continue;
 
@@ -49,7 +52,7 @@ export function buildPlan(files, { skipExisting = true, forceSys = null } = {}) 
     const derivedIds = systemIdsFor(sysShort);
     const systemeids = forceSys ? [forceSys] : derivedIds;
     const systemeid = systemeids[0] ?? null; // primary, for cache/badge/display
-    roms.push({ file: f, parts, sysShort, systemeid, systemeids, derivedIds });
+    roms.push({ file: f, parts, sysShort, systemeid, systemeids, derivedIds, extensions: f.gnwExtensions ?? [] });
   }
 
   // Process ROMs in alphabetical order within each directory (natural numeric

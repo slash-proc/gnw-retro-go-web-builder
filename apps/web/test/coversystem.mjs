@@ -17,6 +17,7 @@
  * fixture, because the published Doom manifest does NOT carry the field yet -- which is itself
  * a case under test.
  */
+
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -172,6 +173,10 @@ await check("the panel actually consults it", () => {
 // @234 is; `zelda3` @4 is not found and "The Legend of Zelda - A Link to the Past" @4 is. The
 // owner's rule for the pair: "they're optional so if they're added, it's intentional."
 
+const filenameBundle = await build({ entryPoints: [join(here, "../src/lib/filename.ts")], bundle: true, write: false, format: "esm", platform: "neutral" });
+const filenameTools = await import("data:text/javascript;base64," + Buffer.from(filenameBundle.outputFiles[0].text).toString("base64"));
+const romStem = filenameTools.stripFilenameExtension;
+const romExt = filenameTools.filenameExtension;
 const runSrc = readFileSync(join(here, "../src/lib/screenscraper/run.js"), "utf8");
 
 /** The real `romnom` decision, lifted from run.js rather than restated. */
@@ -205,8 +210,8 @@ function liftLadder() {
   ok(endMarker > bodyStart, "cannot find the end of lookupGame");
   const body = runSrc.slice(bodyStart, runSrc.lastIndexOf("}", endMarker) + 1);
   ok(/rung: "unscoped"/.test(body), `the lifted body is not the ladder: ${body.slice(0, 120)}`);
-  return new Function("romnomFor", `return ${sig}${body}`)(
-    (fileName) => fileName.replace(/\.[^/.]+$/, "") + "|romnomFor",
+  return new Function("romnomFor", "romStem", `return ${sig}${body}`)(
+    (fileName) => fileName.replace(/\.[^/.]+$/, "") + "|romnomFor", romStem,
   );
 }
 const lookupGame = liftLadder();
@@ -351,9 +356,9 @@ await check("a title with a dot survives, which routing through romnomFor would 
   const at = runSrc.indexOf("function romnomFor(");
   ok(at >= 0, "romnomFor is gone from run.js");
   const body = runSrc.slice(runSrc.indexOf("{", at) + 1, runSrc.indexOf("\n}", at));
-  const real = new Function("systemById", `return function (fileName, systemeid) {${body}}`)(
+  const real = new Function("systemById", "romExt", "romStem", `return function (fileName, systemeid, declaredExtensions = []) {${body}}`)(
     (id) => JSON.parse(readFileSync(join(here, "../src/lib/screenscraper/systems.json"), "utf8"))
-      .find((s) => s.id === Number(id)),
+      .find((s) => s.id === Number(id)), romExt, romStem,
   );
   eq(real("Dr. Mario", 3), "Dr", "romnomFor truncates a dotted title, which is why titles skip it");
 });

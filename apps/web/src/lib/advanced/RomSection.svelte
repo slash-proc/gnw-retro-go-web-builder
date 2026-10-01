@@ -527,7 +527,11 @@
     for (const [key, data] of roms) {
       const m = all.get(key);
       if (!m) continue;
-      out.set(key, { ...(m.relocBase === undefined ? {} : { relocBase: m.relocBase }), bytes: data.length });
+      out.set(key, {
+        ...(m.relocBase === undefined ? {} : { relocBase: m.relocBase }),
+        ...(m.lookupKey === undefined ? {} : { lookupKey: m.lookupKey }),
+        bytes: data.length,
+      });
     }
     return out.size > 0 ? out : undefined;
   }

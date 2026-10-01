@@ -33,6 +33,8 @@ export const wizardPl: WizardStrings = {
     bodyBackupOnly:
       "Zostaniesz poproszony o wybranie folderu na komputerze, w którym zostanie zapisana kopia oryginalnego firmware'u urządzenia. Zachowaj te pliki, ponieważ nie da się ich pobrać ponownie. Na urządzeniu nic nie jest zapisywane: Retro-Go zastąpi oryginalny firmware w następnym kroku.",
     buttonBackupOnly: "Wykonaj kopię",
+    resumeBackup: "Wznów tworzenie kopii",
+    statusIncomplete: "Niepełna kopia zapasowa",
   },
   step2: {
     title: "Zainstaluj Retro-Go",

@@ -25,10 +25,11 @@
   import { cacheDerivedCover, library } from "../library.svelte.js";
   import { systemIdsFor, isKnownSystemFolder } from "../screenscraper/config.js";
   import { coverSystemFor } from "../sources/coverSystem.js";
-  import type { LibraryRom } from "../sources/libraryModel.js";
+  import { inlineCoverPathsForRom, sourceCoverPathForRom, type LibraryRom } from "../sources/libraryModel.js";
+  import { stripFilenameExtension, stripFinalFilenameExtension } from "../filename.js";
   import { basePath } from "../sources/libraryScan.js";
   import { coreRegistry } from "../sources/coreRegistry.svelte.js";
-  import { saveFileToDirOrDownload, nativeFolderPickerSupported, romBytes, type RomDirHandle } from "../romScan.js";
+  import { saveFileToDirOrDownload, nativeFolderPickerSupported, dirSupportsWriteBack, romBytes, type RomDirHandle } from "../romScan.js";
   import { isLazy } from "../lazyBytes.js";
   import { obfuscate, deobfuscate } from "../localCrypt.js";
   import { download } from "../util.js";
@@ -422,6 +423,7 @@
     let filename = "";
     let webkitPath = "";
     let sysId: number | null = null;
+    let romExtensions: string[] = [];
     /** The manifest's `originalName`, used AS GIVEN when stated. Null means "use the filename". */
     let lookupName: string | null = null;
 
@@ -470,6 +472,12 @@
       // `Game Boy Advance/Game.gba`. LibraryRom is the source-of-truth for reading the actual
       // source file; the canonical key remains useful for device/system matching below.
       const sourceRomPath = rom ? rom.file.relativePath : basePath(gameKey);
+      romExtensions = rom?.system.extensions ?? (rom?.system.folder
+        ? [
+            ...(coreRegistry.current.byFolder.get(rom.system.folder.toLowerCase())?.installable ?? []),
+            ...(coreRegistry.current.byFolder.get(rom.system.folder.toLowerCase())?.ingestable ?? []),
+          ]
+        : []);
       const romEntry = rom
         ? (library.fileForRom(rom) ?? library.fileForPath(gameKey))
         : library.fileForPath(gameKey);
@@ -526,6 +534,7 @@
 
     const file = new File([buffer as any], filename);
     Object.defineProperty(file, 'webkitRelativePath', { value: webkitPath });
+    Object.defineProperty(file, 'gnwExtensions', { value: romExtensions });
 
     try {
       await runCovers({
@@ -627,68 +636,85 @@
     // `Game Boy Advance/Game.gba`.
     const rowPath = rom ? rom.file.relativePath : basePath(gameKey);
     const hb = homebrew.find(rowPath);
+    const romExtensions = rom?.system.extensions ?? (rom?.system.folder
+      ? [
+          ...(coreRegistry.current.byFolder.get(rom.system.folder.toLowerCase())?.installable ?? []),
+          ...(coreRegistry.current.byFolder.get(rom.system.folder.toLowerCase())?.ingestable ?? []),
+        ]
+      : []);
     let coverPath = "";
     let baseName = "";
+    let deviceBaseName = "";
     const parts = rowPath.split("/");
 
     if (hb) {
       baseName = hb.displayName;
+      deviceBaseName = hb.displayName;
       coverPath = `covers/homebrew/${baseName}.img`;
     } else {
       const filename = parts[parts.length - 1];
-      baseName = filename.replace(/\.[^/.]+$/, "");
-      coverPath = "covers/" + parts.slice(0, -1).join("/") + "/" + baseName + ".img";
+      baseName = stripFilenameExtension(filename, romExtensions);
+      deviceBaseName = stripFinalFilenameExtension(filename);
+      coverPath = "covers/" + parts.slice(0, -1).join("/") + "/" + deviceBaseName + ".img";
     }
+
+    // Original PNGs are source sidecars: always beside the ROM, with the full core-declared
+    // extension stripped. Device `.img` covers remain under `covers/` as required by firmware.
+    const sourcePngPath = sourceCoverPathForRom(rowPath, ".png", romExtensions);
 
     const sourceId = rom?.directorySource?.id;
     const storedImgPath = library.setFileForSource(coverPath, arr, sourceId);
     library.markDirty(storedImgPath);
 
-    const pngPath = coverPath.replace(/\.img$/, ".png");
     const originalBytes = new Uint8Array(await previewCoverBlob.arrayBuffer());
-    const storedOriginalPath = library.setFileForSource(pngPath, originalBytes, sourceId);
+    const storedOriginalPath = library.setFileForSource(sourcePngPath, originalBytes, sourceId);
     library.markDirty(storedOriginalPath);
 
     // If an inline cover exists in memory, remove it so the UI doesn't prioritize the old stale inline cover over the new covers/ one!
     let prefix = parts.slice(0, -1).join("/");
     if (hb) prefix = "homebrew";
 
-    const inlineImg = prefix ? `${prefix}/${baseName}.img` : `${baseName}.img`;
-    const inlinePng = prefix ? `${prefix}/${baseName}.png` : `${baseName}.png`;
-    const inlineJpg = prefix ? `${prefix}/${baseName}.jpg` : `${baseName}.jpg`;
-    if (library.scan?.userRoms.has(inlineImg)) library.scan.userRoms.delete(inlineImg);
-    if (library.scan?.userRoms.has(inlinePng)) library.scan.userRoms.delete(inlinePng);
-    if (library.scan?.userRoms.has(inlineJpg)) library.scan.userRoms.delete(inlineJpg);
+    const inlinePaths = hb
+      ? [".img", ".png", ".jpg"].map((ext) => `${prefix}/${baseName}${ext}`)
+      : inlineCoverPathsForRom(rowPath, rom?.system.extensions ?? romExtensions);
+    for (const path of inlinePaths) {
+      // A ROM whose format itself ends in .png (such as a PICO-8 cart) is not an inline cover.
+      if (path.toLowerCase() === rowPath.toLowerCase()) continue;
+      // The just-applied source PNG is deliberately the normalized sibling sidecar.
+      if (basePath(path).toLowerCase() === basePath(storedOriginalPath).toLowerCase()) continue;
+      if (library.scan?.userRoms.has(path)) library.scan.userRoms.delete(path);
+    }
 
-    // Save ORIGINAL cover to disk (not the converted .img — conversion is session-only)
+    // Save ORIGINAL cover to disk (not the converted .img — conversion is session-only).
+    // Record the actual destination in the Activity log; previously successful saves were
+    // silent and failures went only to the dev-only debug sink, leaving no way to tell whether
+    // Apply wrote a file or changed only the current Library session.
+    const relativePath = sourcePngPath;
     if (ssSaveLocal && nativeFolderPickerSupported() && library.scan?.dir) {
       try {
-        let relativePath = baseName + ".png";
-        let isRomsFolder = library.scan.dir.name.toLowerCase() === "roms";
-
-        // If not the 'roms' folder directly, stick it in 'covers/'
-        if (!isRomsFolder) {
-          relativePath = "covers/" + relativePath;
-        }
-
-        if (hb) {
-          relativePath = (isRomsFolder ? "homebrew/" : "covers/homebrew/") + baseName + ".png";
-        } else {
-          // e.g. parts = ["nes", "smb.nes"]
-          // We want "nes/smb.png" or "covers/nes/smb.png"
-          const pathPrefix = parts.slice(0, -1).join("/");
-          if (pathPrefix) {
-            relativePath = (isRomsFolder ? "" : "covers/") + pathPrefix + "/" + baseName + ".png";
-          }
-        }
-
-        await saveFileToDirOrDownload(library.writeDirFor(rowPath) ?? library.scan.dir, relativePath, previewCoverBlob);
+        const targetDir = library.writeDirFor(rowPath) ?? library.scan.dir;
+        const writesToDirectory = dirSupportsWriteBack(targetDir);
+        await saveFileToDirOrDownload(targetDir, relativePath, previewCoverBlob);
+        auditLog.add(
+          "info",
+          "sources",
+          literal(writesToDirectory
+            ? `Saved cover PNG to ${targetDir?.name ?? "selected folder"}/${relativePath}`
+            : `Downloaded cover PNG as ${relativePath.split("/").pop() ?? "cover.png"}`),
+          "cover save",
+        );
       } catch (e) {
-        // The owner reported covers that "work for the session and then disappear". A
-        // write-back that failed said so only in devtools, which a deployed build has no
-        // way to show him.
-        dbg(`[covers] writing the applied cover to disk failed: ${e instanceof Error ? e.message : String(e)}`);
+        const detail = e instanceof Error ? e.message : String(e);
+        dbg(`[covers] writing the applied cover to disk failed: ${detail}`);
+        auditLog.add("error", "sources", literal(`Could not save cover PNG to ${relativePath}: ${detail}`), "cover save");
       }
+    } else {
+      auditLog.add(
+        "info",
+        "sources",
+        literal(`Applied cover for ${baseName}; no PNG was saved to disk because Save to ROMs folder is off or unavailable`),
+        "cover save",
+      );
     }
 
     if (onCoverChange) await onCoverChange(true, { key: gameKey, sourceId, path: storedOriginalPath, bytes: originalBytes });
@@ -790,6 +816,7 @@
       dir: RomDirHandle | null;
       romPath: string;
       sourceId?: string;
+      extensions: string[];
     }>();
     const keysToImport = [...importSelected].filter((key) => {
       const selectedGame = importGameByKey.get(key);
@@ -806,6 +833,13 @@
       const filename = parts.pop();
       if (!filename) continue;
       const file = new File([buffer as BlobPart], filename);
+      const romExtensions = selectedGame?.rom?.system.extensions ?? (selectedGame?.rom?.system.folder
+        ? [
+            ...(coreRegistry.current.byFolder.get(selectedGame.rom.system.folder.toLowerCase())?.installable ?? []),
+            ...(coreRegistry.current.byFolder.get(selectedGame.rom.system.folder.toLowerCase())?.ingestable ?? []),
+          ]
+        : []);
+      Object.defineProperty(file, 'gnwExtensions', { value: romExtensions });
 
       // Same rule as generatePreview(): a homebrew with no `originalSystem` has no art
       // library to search, so it is SKIPPED rather than scraped blind by name. The directory
@@ -847,6 +881,7 @@
         dir: sourceRom ? library.writeDirForRom(sourceRom) : library.writeDirFor(key),
         romPath: sourceRom?.file.relativePath ?? basePath(key),
         sourceId: sourceRom?.directorySource?.id,
+        extensions: romExtensions,
       });
       // The scraper now owns this File copy for the batch. Release the decoded source cache so
       // a large mass import does not retain two copies of every selected ROM.
@@ -915,7 +950,8 @@
             // a source may call its folder "Game Boy Color" while the device calls it "gbc".
             const rowPath = coverSource?.romPath ?? basePath(originalKey);
             const hb = homebrew.find(rowPath);
-            const outFilename = outputPath.split("/").pop() || "cover.png";
+            const scrapedFilename = outputPath.split("/").pop() || "cover.png";
+            const outFilename = `${stripFilenameExtension(scrapedFilename, coverSource?.extensions)}.png`;
 
             if (hb) {
               relPath = `homebrew/${outFilename}`;
@@ -930,8 +966,14 @@
             if (relPath.startsWith("covers/")) relPath = relPath.slice("covers/".length);
           }
 
-          const baseName = relPath.replace(/\.[^/.]+$/, "");
-          const imgPath = `covers/${baseName}.img`;
+          const romFilename = coverSource?.romPath?.split("/").pop();
+          const deviceBasePath = romFilename && coverSource?.romPath
+            ? `${coverSource.romPath.slice(0, -romFilename.length)}${stripFinalFilenameExtension(romFilename)}`
+            : stripFinalFilenameExtension(relPath);
+          const homebrewTitle = coverSource ? homebrew.find(coverSource.romPath) : undefined;
+          const imgPath = homebrewTitle
+            ? `covers/homebrew/${homebrewTitle.displayName}.img`
+            : `covers/${deviceBasePath}.img`;
 
           // Convert to .img JPEG on ingest
           try {
@@ -1001,18 +1043,29 @@
     const hb = homebrew.find(rowPath);
     let coverPathBase = "";
     let inlinePathBase = "";
+    let sourceCoverPathBase = "";
+    let inlineSourcePathBase = "";
 
     if (hb) {
       coverPathBase = `covers/homebrew/${hb.displayName}`;
       inlinePathBase = `homebrew/${hb.displayName}`;
+      sourceCoverPathBase = coverPathBase;
+      inlineSourcePathBase = inlinePathBase;
     } else {
       const parts = rowPath.split("/");
       if (parts.length < 2) return false;
       const filename = parts[parts.length - 1];
-      const baseName = filename.replace(/\.[^/.]+$/, "");
+      const extensions = rom?.system.extensions ?? [
+        ...(coreRegistry.current.byFolder.get(rom?.system.folder.toLowerCase() ?? "")?.installable ?? []),
+        ...(coreRegistry.current.byFolder.get(rom?.system.folder.toLowerCase() ?? "")?.ingestable ?? []),
+      ];
+      const baseName = stripFilenameExtension(filename, extensions);
+      const deviceBaseName = stripFinalFilenameExtension(filename);
       const prefix = parts.slice(0, -1).join("/");
-      coverPathBase = "covers/" + prefix + "/" + baseName;
-      inlinePathBase = prefix + "/" + baseName;
+      coverPathBase = "covers/" + prefix + "/" + deviceBaseName;
+      inlinePathBase = prefix + "/" + deviceBaseName;
+      sourceCoverPathBase = "covers/" + prefix + "/" + baseName;
+      inlineSourcePathBase = prefix + "/" + baseName;
     }
 
     // Prefer the source-relative relationship carried by LibraryRom. The legacy reconstruction
@@ -1020,13 +1073,18 @@
     const metadataPaths = rom && rom.cover
       ? [...rom.cover.originalPaths, rom.cover.carouselPath, rom.cover.deviceImgPath]
       : [];
-    // Check both standard covers/ path and inline sibling path.
+    // Device `.img` paths use firmware's final-extension rule. Original PNG/JPEG paths use the
+    // core-declared full suffix and live beside the ROM (with covers/ retained as a read fallback).
     // We also do a quick case-insensitive scan if exact matches fail, since directory scanning
     // preserves on-disk case while scraper outputs lowercase.
     const toCheck = [];
-    for (const ext of [".img", ".png", ".jpg", ".jpeg"]) {
+    for (const ext of [".img"]) {
       toCheck.push(`${coverPathBase}${ext}`);
       toCheck.push(`${inlinePathBase}${ext}`);
+    }
+    for (const ext of [".png", ".jpg", ".jpeg"]) {
+      toCheck.push(`${sourceCoverPathBase}${ext}`);
+      toCheck.push(`${inlineSourcePathBase}${ext}`);
     }
     toCheck.unshift(...metadataPaths);
 

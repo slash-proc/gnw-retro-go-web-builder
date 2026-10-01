@@ -12,7 +12,6 @@ export const overviewRailZhHans: OverviewRailStrings = {
   capacity: "容量",
 
   probe: "调试器",
-  deviceUid: "设备 UID",
 
   sources: "源",
   sourcesCount: (listed: number, active: number) => `已列出 ${listed} 个，启用 ${active} 个`,

@@ -522,14 +522,10 @@ await check("every install map merges the SELECTED assets, never the whole store
   const raw = readFileSync(join(here, "../src/lib/views/RomManagementTab.svelte"), "utf8");
   const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-  // `for (const [k, v] of SOURCE) TARGET.set(k, v)` -- the merge shape, however it is spelled.
-  const merges = [...code.matchAll(/for\s*\(const\s*\[k,\s*v\]\s*of\s*(\w+)(?:\.entries\(\))?\)\s*(\w+)\.set\(k,\s*v\)/g)];
-  ok(merges.length >= 3, `expected the preview and both installs, found ${merges.length}`);
-
-  const fromStore = merges.filter((m) => m[1] === "extractedAssets");
-  eq(fromStore.length, 0,
-    `an install map is still merging the whole asset store: ${fromStore.map((m) => `${m[1]} -> ${m[2]}`).join(", ")}`);
-  ok(merges.some((m) => m[1] === "selectedAssets"), "and the filtered map is the one being merged");
+  const plans = [...code.matchAll(/buildLogicalInstallPlan\(\{[\s\S]*?\}\)/g)];
+  ok(plans.length >= 3, "preview and installs must use logical install plans");
+  ok(plans.every((m) => /preparedFiles: selectedAssets/.test(m[0])), "plans merge selected prepared assets");
+  ok(!plans.some((m) => /preparedFiles: extractedAssets/.test(m[0])), "plans must not merge the whole store");
 });
 
 // --- A core is not a homebrew title ------------------------------------------------------------

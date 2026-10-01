@@ -253,6 +253,10 @@ export function planFlashImage(inputs: FlashImageInputs): FlashAssemblyPlan {
     // this is the one case that overrides the split below. See `mappedKeys`.
     if (inputs.mappedKeys?.has(rel)) {
       mappedDests.push({ key: rel, dest });
+      // A mapped artifact can replace a default bundle core at the same path. Remove that
+      // LittleFS copy as it moves into FrogFS; otherwise the sidecar is staged in both places.
+      coreTree.delete(dest);
+      pendingLfsKeys.delete(dest);
       tree.set(dest, data);
       continue;
     }

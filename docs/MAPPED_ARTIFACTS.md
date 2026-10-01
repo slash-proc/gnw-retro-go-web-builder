@@ -23,8 +23,10 @@
 >    none. `apps/web/test/gba-e2e.mjs` pins 263 relocated words as the invariant.
 
 
-Plan, not implementation. Target case: the GBA core, whose cold half `gba.xip` is
-executed in place out of memory-mapped QSPI while `gba.bin` runs from RAM.
+Implemented for Flash installs. Target case: the GBA core, whose cold half `gba.xip` is
+executed in place out of memory-mapped QSPI while `gba.bin` runs from RAM. The source client
+preserves `mapped`/`relocBase`, `prepareState` carries that metadata with the artifact bytes,
+`planFlashImage` routes mapped files to FrogFS, and `flashInstall` relocates them after packing.
 
 Scope: **flash-only**. Per `spec/05-host.md`, an installer writing to an SD card has
 nothing extra to do; the core caches the file into QSPI itself at load time and patches
@@ -62,50 +64,47 @@ reimplementing the format.
 
 ### Ruled: mapped wins over the role directory
 
-Today `gba.xip` would land in **LittleFS**, which is wrong. Its manifest role is `cores`,
-and both split points route `paths.cores` into the LittleFS tree
-(`flashImage.ts:149` defines `CORES`, `:161` splits `userRoms`). `userDest`
-(`flashImage.ts:100`) passes a `cores/`-rooted key through unchanged.
-
-So `mapped` **overrides the role-directory routing**: a mapped artifact goes to the FrogFS
-tree whatever its role says. The owner ruled on this directly: "mapped: true = flash =
-frogfs and it's unambiguous". It is not a judgement call at the placement site and needs no
-per-core special case. It is also the only part of the unsettled flash-only content split
-this plan depends on. The wider question
-of which core and homebrew files belong in which partition is recorded as open in
-`docs/ARCHITECTURE.md`, `STATUS.md` and `docs/FILESYSTEMS.md`, and is not settled here.
+The manifest role for `gba.xip` is `cores`, which normally maps to LittleFS. `mapped: true`
+overrides that role for Flash: the planner removes any LittleFS copy and puts the artifact in
+FrogFS. The owner's rule is explicit: "mapped: true = flash = frogfs and it's unambiguous".
+This is metadata-driven; no GBA filename special case belongs in the planner. The surrounding
+split is also explicit: regular core files, writable state, languages, and cheats use LittleFS;
+read-only content and mapped artifacts use FrogFS as appropriate to their roles.
 
 ## 2. Carrying `mapped` and `relocBase` to the packer
 
-They are artifact fields, and the packer takes byte maps. The chain today:
+They are artifact fields, and the packer takes byte maps. The current chain:
 
-1. `apps/web/src/lib/sources/types.ts:111` defines `Artifact` as `{ filename, bytes, sha256, url }`.
-   `mapped` and `relocBase` are added here and parsed in `client.ts`.
-2. `installArtifacts.ts:116`: `fetchTargetArtifacts` returns `filename -> bytes`. Every
-   other artifact field is dropped at this point.
-3. `prepareState.svelte.ts:974`: the key becomes
+1. `apps/web/src/lib/sources/types.ts` defines `Artifact`, including optional `mapped` and
+   `relocBase`; `client.ts` parses and validates those fields. A mapped artifact may also
+   declare `lookupKey`, the exact opaque string its core passes to the flash-only
+   `lookup_data_in_flash()` ABI.
+2. Artifact fetching returns `filename -> bytes`; `prepareState` preserves the mapped metadata
+   beside those bytes rather than widening the byte-map value type.
+3. `prepareState.svelte.ts`: the key becomes
    `${assetPrefix(artifactDir(target))}/${filename}`, e.g. `cores/gba.xip`.
-4. `flashImage` receives `userRoms: Map<string, Uint8Array>`.
+4. `flashImage` receives `userRoms: Map<string, Uint8Array>` and the selected mapped metadata.
 
-**Use the side-channel that already exists.** `prepareState.svelte.ts:982` keeps
-`assetSource: Map<key, "artifact" | ...>` beside `assets`, keyed by the same string. A
-second map of the same shape carries the relocation facts:
+`prepareState.svelte.ts` keeps `assetSource` and `mappedArtifacts` beside `assets`, keyed by
+the same prepared path. The install planner also re-derives routing facts from the live
+manifest, so restoring cached bytes cannot lose the declaration. The map carries:
 
 ```
-mappedArtifacts: Map<key, { relocBase?: number }>
+mappedArtifacts: Map<key, { relocBase?: number; lookupKey?: string }>
 ```
 
-The presence of the key means `mapped`; `relocBase` is optional within it, matching the
-spec (a file may need to be addressable without needing relocation). `flashImage` takes
-it as a new optional input beside `userRoms`, and the post-pass reads it.
+The presence of the map entry means `mapped`; `relocBase` is optional within it, matching the
+spec (a file may need to be addressable without needing relocation). `lookupKey` opts the
+artifact into the flash-only lookup index; without it, the artifact is still placed and
+relocated but gets no index row. `mappedKeys` routes the bytes before packing; `flashInstall`
+maps metadata to packed destinations and invokes the relocation post-pass after layout.
 
-This keeps `Map<string, Uint8Array>` intact rather than widening the packer's value type,
-and follows a pattern already in the file.
+This keeps `Map<string, Uint8Array>` intact while carrying placement metadata separately.
 
 ## 3. Compression and contiguity
 
-Both guarantees already hold, but **incidentally**, and the plan should make them explicit
-rather than rely on that.
+FrogFS stores files uncompressed, and the relocation post-pass checks the packed entry's file
+type, alignment, and size before patching it.
 
 **FrogFS container compression is impossible here.** `packages/fs-builders/src/frogfs.ts:4`
 records why: retro-go-sd compiles only `decomp_raw.c`, so its images store every file
@@ -137,7 +136,7 @@ overlookable step in the port.
 
 ## 4. Relocation
 
-Port `pico8_ro_build_patch.py` exactly. For each 32-bit little-endian word at a 4-byte
+`mappedReloc.ts` ports `pico8_ro_build_patch.py`. For each 32-bit little-endian word at a 4-byte
 stride over `(size // 4) * 4` bytes:
 
 ```
@@ -209,18 +208,43 @@ words than the original placement has hit something it should not have. That cou
 already produced (the pico-8 routine returns it) and would need carrying alongside the
 install rather than recomputing.
 
-## 6. Not in scope
+## 6. Flash-only firmware lookup index
 
-- **SD installs.** Nothing to do, per `spec/05-host.md`.
-- **The wider flash-only content split.** Which core and homebrew files belong in which
-  partition is unsettled and recorded as open in three docs. This plan needs one narrow
-  rule from it (a mapped artifact goes to FrogFS regardless of role) and settles nothing
-  else.
+The flash-only firmware ABI reads `/data/mappedsidecars.bin` from LittleFS. Each record is
+one fixed-size `gw_flash_file_metadata_t` struct from `Core/Inc/gw_flash_alloc.h`: three
+little-endian `uint32_t` fields (`file_crc32`, `flash_address`, `file_size`), a `valid` byte,
+and three reserved zero bytes. The file is a headerless array of these 16-byte records, with at
+most `GW_FLASH_CACHE_MAX_FILES` (256). A mapped artifact's `lookupKey` is the exact opaque
+string passed by the core. The parser hashes every byte with
+`crc32_le(0, key, strlen(key))`; it does not inspect or split the key. The record's
+`file_crc32` is that full-key hash, not the mapped blob's CRC. For example, the observed PICO-8
+key is `cold:pico8:b13aeac5:107512`; `b13aeac5` is separately the raw cold-data CRC before
+relocation and helps the core construct the key.
+
+`mappedReloc.ts` captures the raw blob CRC before rewriting pointers, and separately computes
+the full-key CRC used by the index when the manifest supplies `lookupKey`. That exact key
+cannot be inferred from the raw CRC and size without a per-core convention. A mapped artifact
+without `lookupKey` is simply omitted from the lookup index. The serialized first field is
+the little-endian key CRC; the other record fields are the final XIP address, byte size, valid
+flag (`1`), and three zero reserved bytes. No post-relocation blob CRC belongs in the index.
+
+The full Flash builder writes the generated index into LittleFS alongside the install's other
+`/data` files. Library Sync regenerates it from the same mapped placement result used for the
+FrogFS image and updates LittleFS when its bytes change. An empty index replaces a stale one
+when an install no longer contains mapped sidecars. SD installs keep their existing runtime
+cache path and do not use this file.
+
+## 7. Not in scope
+
+- **SD installs.** The host does not relocate the artifact. It still copies all manifest-
+  declared core files to their SD paths; the firmware handles its SD cache when loading them.
+- **Other content accounting.** See [SOURCE_INSTALL_ACCOUNTING.md](./SOURCE_INSTALL_ACCOUNTING.md)
+  for how the complete selected file set is formed before Flash/SD placement.
 - **Detecting `MOVW`/`MOVT` blobs.** Owner's ruling.
-- **Choosing the refusal copy.** Section 7 names the states that need words; the words are
+- **Choosing the refusal copy.** Section 8 names the states that need words; the words are
   the owner's.
 
-## 7. Refusal points
+## 8. Refusal points
 
 The spec's "refuse rather than guess" needs somewhere to say so. Three states, no copy
 proposed:

@@ -50,25 +50,38 @@
     LEGACY_HOMEBREW_DIR,
   } from "../sdHomebrewMigration.js";
   import { fetchVersions, fetchManifest } from "../firmwareDist/client.js";
-  import { resolveInstallPaths, parseFrogfs, type InstallPaths } from "@gnw/fs-builders";
+  import {
+    resolveInstallPaths,
+    parseFrogfs,
+    mappedSidecarIndex,
+    MAPPED_SIDECAR_INDEX_PATH,
+    type InstallPaths,
+  } from "@gnw/fs-builders";
   import { sha256Hex } from "../sources/client.js";
   import { sdStorage } from "../sdStorage.svelte.js";
-  import { HOMEBREW_KEY_PREFIX } from "../sources/placement.js";
+  import { artifactDir, assetPrefix, HOMEBREW_KEY_PREFIX } from "../sources/placement.js";
   import { favorites, toDevicePath, isFavoritable, FAVORITES_DEVICE_PATH } from "../favorites.svelte.js";
   import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import type { StagedFile } from "@gnw/fs-builders";
   import { device } from "../device.svelte.js";
   import { locale } from "../i18n/locale.svelte.js";
-  import { romSelection, type Game, classifyContentPath, coverOwnerOf, type ContentCategory, pressAddsBytes } from "../romSelection.svelte.js";
+  import { romSelection, type Game, classifyContentPath, type ContentCategory, pressAddsBytes } from "../romSelection.svelte.js";
   import { buildFrogfsImage, flashFrogfsRegion } from "../engine/flashInstall.js";
   import { buildCoresLittlefs } from "@gnw/fs-builders";
   import { flashImage } from "../engine/flasher.js";
   import type { MappedSpec } from "@gnw/fs-builders";
   import { readGameData, type InstalledGame } from "../engine/frogfsDevice.js";
-  import { homebrew, type HomebrewTitle } from "../sources/homebrewTitles.svelte.js";
+import { homebrew, type HomebrewTitle } from "../sources/homebrewTitles.svelte.js";
 import { coreRegistry } from "../sources/coreRegistry.svelte.js";
 import { coverPathsForRom, type LibraryRom } from "../sources/libraryModel.js";
+import { stripFilenameExtension } from "../filename.js";
+import {
+  coverTargetForGame,
+  coverTargetForHomebrew,
+  type CoverTarget,
+} from "../sources/coverPlan.js";
+import { buildLogicalInstallPlan } from "../sources/logicalInstallPlan.js";
   import { carouselAtlasCacheSignature, carouselAtlasContentFingerprint, carouselAtlasFiles, patchCarouselAtlasCover, type CarouselAtlas } from "../sources/carouselAtlas.js";
   import { measureLibraryPhase, measureLibraryPhaseAsync } from "../libraryPerformance.js";
   import { prepareCarouselAtlases, setCarouselAtlasInteraction } from "../sources/carouselAtlasWorker.js";
@@ -941,7 +954,9 @@ import { navigate } from "../nav.js";
   // list exists to close.
   let builtPendingLfs = $state<StagedFile[]>([]);
   let builtMappedDestPaths = $state<string[]>([]);
+  let builtMappedSidecarIndex = $state<Uint8Array | null>(null);
   let flashChangedCoverPaths = $state<Set<string>>(new Set());
+  let missingSelectedCoverPaths = $state<Set<string>>(new Set());
   let newFrogfsLen = $state<number | null>(null);
   let building = $state(false);
   let buildErr = $state<string | null>(null);
@@ -1084,6 +1099,30 @@ import { navigate } from "../nav.js";
     return files.map((f) => f.path).filter((p) => p.startsWith("cores/")).sort();
   }
 
+  /** LittleFS core paths, in the same root-relative form as FrogFS paths. */
+  function deviceLittlefsCoreFiles(): string[] {
+    const out = new Set<string>();
+    function collectInstalledCores(node: any): void {
+      for (const child of node.children ?? []) {
+        if (child.isDirectory) collectInstalledCores(child);
+        else if (typeof child.path === "string" && child.path.replace(/^\/+/, "").startsWith("cores/")) {
+          out.add(child.path.replace(/^\/+/, ""));
+        }
+      }
+    }
+    if (device.installedLfsTree) {
+      // The tree is the current namespace inventory; do not union it with a stale version
+      // result from before a direct LittleFS rewrite such as File Browser delete.
+      collectInstalledCores(device.installedLfsTree);
+    } else {
+      for (const path of Object.keys(device.coreVersionCheck?.cores ?? {})) {
+        const normalized = path.replace(/^\/+/, "");
+        if (normalized.startsWith("cores/")) out.add(normalized);
+      }
+    }
+    return [...out].sort();
+  }
+
   /**
    * The targets owning those files, minus the ones already prepared.
    *
@@ -1110,20 +1149,41 @@ import { navigate } from "../nav.js";
    * who really did deselect a core's last ROM still sees it removed. The two rules compose
    * rather than fight: fetch decides what CAN be kept, the gate decides what IS.
    */
+  /** Bytes alone are insufficient for a mapped artifact: the relocation metadata is required
+   *  to route its `.xip` sidecar into FrogFS and place it at the address the core expects. */
+  function coreArtifactsReady(target: Target): boolean {
+    const artifacts = target.artifacts ?? [];
+    return artifacts.length > 0 && artifacts.every((artifact) => {
+      const key = `cores/${artifact.filename}`;
+      return (
+        prepareState.assets.has(key) &&
+        (artifact.mapped !== true || prepareState.mappedArtifactOf(key) !== undefined)
+      );
+    });
+  }
+
   function deviceCoreFetches(): { key: string; target: Target }[] {
-    const names = new Set(deviceCoreFiles().map((p) => p.slice("cores/".length)));
+    // A mapped artifact can be stranded in LittleFS from an older/broken sync even though it
+    // belongs in FrogFS. Include both inventories so Library Sync notices that misplaced file
+    // and can fetch/rebuild the whole owning target.
+    const names = new Set(
+      [...deviceCoreFiles(), ...deviceLittlefsCoreFiles()].map((p) => p.slice("cores/".length)),
+    );
     if (names.size === 0) return [];
     const out: { key: string; target: Target }[] = [];
     const seen = new Set<string>();
     for (const row of sources.rows) {
       if (!row.active || !row.manifest) continue;
       for (const target of row.manifest.targets) {
-        if (!(target.artifacts ?? []).some((a) => names.has(a.filename))) continue;
+        if (!(target.artifacts ?? []).some((a) => {
+          const name = a.filename.replace(/^\/+/, "").replace(/^cores\//, "");
+          return names.has(name);
+        })) continue;
         const key = `${row.repo}#${target.id}`;
         if (seen.has(key)) continue;
         seen.add(key);
         // Already held: costs no request, exactly as the shipped-game list skips its own.
-        if ((target.artifacts ?? []).every((a) => prepareState.assets.has(`cores/${a.filename}`))) continue;
+        if (coreArtifactsReady(target)) continue;
         out.push({ key, target });
       }
     }
@@ -1137,12 +1197,17 @@ import { navigate } from "../nav.js";
    * makes: a projection that is wrong by one core is better than a Library that shows no
    * number at all, and the audit log says which.
    */
-  async function prepareDeviceCores(): Promise<void> {
+  async function prepareDeviceCores(required = false): Promise<boolean> {
+    let fetchedAny = false;
     for (const { key, target } of deviceCoreFetches()) {
       try {
-        await prepareState.prepareCoreArtifacts(key, target);
+        fetchedAny = (await prepareState.prepareCoreArtifacts(key, target)) || fetchedAny;
       } catch (e) {
         dbg("[summary] device core artifacts unavailable:", key, errText(e));
+        if (required) throw new Error(`Cannot preserve installed core sidecars for ${key}: ${errText(e)}`);
+      }
+      if (required && !coreArtifactsReady(target)) {
+        throw new Error(`Cannot preserve installed core sidecars for ${key}: artifact data or mapped metadata is missing`);
       }
     }
     // Raw CORE sources are not part of the Retro-Go bundle. They are ordinary active sources
@@ -1151,14 +1216,15 @@ import { navigate } from "../nav.js";
       if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
       for (const target of row.manifest.targets) {
         const key = `${row.repo}#${target.id}`;
-        if ((target.artifacts ?? []).every((a) => prepareState.assets.has(`cores/${a.filename}`))) continue;
+        if (coreArtifactsReady(target)) continue;
         try {
-          await prepareState.prepareCoreArtifacts(key, target);
+          fetchedAny = (await prepareState.prepareCoreArtifacts(key, target)) || fetchedAny;
         } catch (e) {
           dbg("[summary] raw core unavailable:", key, errText(e));
         }
       }
     }
+    return fetchedAny;
   }
 
   const selectedAssets = $derived.by(() =>
@@ -1178,11 +1244,9 @@ import { navigate } from "../nav.js";
 
   /**
    * The relocation facts for the MAPPED artifacts inside `selectedAssets`, keyed the same way,
-   * ready for `buildFrogfsImage`.
-   *
-   * `prepareState` recorded them when it fetched the artifacts (`mappedArtifactMap()`); this
-   * narrows them to what this install actually writes and adds the declared byte count, which
-   * `relocateMappedInFrogfs` asserts the packed entry against before it patches a single word.
+   * ready for `buildFrogfsImage`. Read these facts from the live source manifest, then narrow
+   * them to selected assets and add the byte count that `relocateMappedInFrogfs` asserts before
+   * patching a single word.
    *
    * `relocBase` and not `placedAt`: these bytes come from the artifact cache exactly as the
    * publisher linked them, so the address they must be rebased FROM is the sentinel the
@@ -1191,15 +1255,44 @@ import { navigate } from "../nav.js";
    * which are already patched to their old address; nothing in this flow produces those.
    */
   const mappedArtifacts = $derived.by(() => {
-    const all = prepareState.mappedArtifactMap();
-    if (all.size === 0) return undefined;
     const out = new Map<string, MappedSpec>();
-    for (const [key, data] of selectedAssets) {
-      const m = all.get(key);
-      if (!m) continue;
-      out.set(key, { ...(m.relocBase === undefined ? {} : { relocBase: m.relocBase }), bytes: data.length });
+    // The live source manifest is the authority for whether an artifact is mapped. The
+    // prepareState side map is only a cache of that fact and can be absent after restoring or
+    // reusing already-cached bytes; treating that cache as authoritative routes gba.xip into
+    // LittleFS. Derive routing facts from the same manifest that owns the artifact.
+    for (const row of sources.rows) {
+      if (!row.active || !row.manifest) continue;
+      for (const target of row.manifest.targets) {
+        const prefix = assetPrefix(artifactDir(target));
+        for (const artifact of target.artifacts ?? []) {
+          if (artifact.mapped !== true) continue;
+          const key = `${prefix}/${artifact.filename}`;
+          const data = selectedAssets.get(key);
+          if (!data) continue;
+          out.set(key, {
+            ...(artifact.relocBase === undefined ? {} : { relocBase: artifact.relocBase }),
+            ...(artifact.lookupKey === undefined ? {} : { lookupKey: artifact.lookupKey }),
+            bytes: data.length,
+          });
+        }
+      }
     }
     return out.size > 0 ? out : undefined;
+  });
+  const mappedArtifactVersions = $derived.by(() => {
+    const out: string[] = [];
+    for (const row of sources.rows) {
+      if (!row.active || !row.manifest) continue;
+      for (const target of row.manifest.targets) {
+        const prefix = assetPrefix(artifactDir(target));
+        for (const artifact of target.artifacts ?? []) {
+          if (artifact.mapped !== true) continue;
+          const key = `${prefix}/${artifact.filename}`;
+          if (selectedAssets.has(key)) out.push(`${key}:${artifact.sha256}`);
+        }
+      }
+    }
+    return out;
   });
 
   // Put back what a previous visit converted. Lazy and fire-and-forget on purpose: converted
@@ -1423,8 +1516,10 @@ import { navigate } from "../nav.js";
     for (const row of romSelection.rows) {
       const rom = row.rom;
       if (!rom?.cover) continue;
-      const sourceId = rom.directorySource?.id ?? "unknown-source";
-      for (const path of rom.cover.originalPaths) owners.set(`${sourceId}\u0000${path.toLowerCase()}`, rom.id);
+      const sourceId = rom.directorySource?.id;
+      for (const path of rom.cover.originalPaths) {
+        owners.set(`${sourceId ?? ""}\u0000${path.toLowerCase()}`, rom.id);
+      }
     }
     const files = library.scan?.userRoms;
     if (files) {
@@ -1460,7 +1555,9 @@ import { navigate } from "../nav.js";
   async function patchImportedAtlasCover(cover: { sourceId?: string; path: string; bytes: Uint8Array }): Promise<boolean> {
     const sourceId = cover.sourceId ?? "unknown-source";
     const atlas = atlasDataBySource.get(sourceId);
-    const owner = atlasOwnerBySourcePath.get(`${sourceId}\u0000${cover.path.split("\u0000", 1)[0].toLowerCase()}`);
+    const foldedPath = cover.path.split("\u0000", 1)[0].toLowerCase();
+    const owner = atlasOwnerBySourcePath.get(`${sourceId}\u0000${foldedPath}`)
+      ?? atlasOwnerBySourcePath.get(`\u0000${foldedPath}`);
     if (!atlas || !owner) return false;
     const pageUrls = atlasPageUrlsBySource.get(sourceId);
     const pageImages = atlasPageImagesBySource.get(sourceId);
@@ -1574,9 +1671,11 @@ import { navigate } from "../nav.js";
       for (const row of rows) {
         const rom = row.rom;
         if (!rom?.cover) continue;
-        const sourceId = rom.directorySource?.id ?? "unknown-source";
+        const sourceId = rom.directorySource?.id;
         displayNames.set(rom.id, row.prettyName ?? row.listName);
-        for (const path of rom.cover.originalPaths) owners.set(`${sourceId}\u0000${path.toLowerCase()}`, rom.id);
+        for (const path of rom.cover.originalPaths) {
+          owners.set(`${sourceId ?? ""}\u0000${path.toLowerCase()}`, rom.id);
+        }
       }
       for (const title of homebrew.titles) {
         if (title.isCore) continue;
@@ -1841,6 +1940,14 @@ import { navigate } from "../nav.js";
       registeredSystem?.shortName,
       registeredSystem?.longName,
     ].filter((value): value is string => !!value))];
+    if (!hb) {
+      const declaredExtensions = structuredRom?.system.extensions ?? [
+        ...(registeredSystem?.installable ?? []),
+        ...(registeredSystem?.ingestable ?? []),
+      ];
+      const filename = gameKey.slice(gameKey.lastIndexOf("/") + 1);
+      base = stripFilenameExtension(filename, declaredExtensions);
+    }
 
     // Carousel rendering uses original art for detail and the decoded browser atlas for fast
     // motion. Device `.img` assets are installation-only and are never a browser image source.
@@ -1860,7 +1967,7 @@ import { navigate } from "../nav.js";
         `${alias}/${base}${ext}`,
         `covers/${alias}/${base}${ext}`,
         ]),
-      ];
+      ].filter((path) => path.toLowerCase() !== structuredRom?.file.relativePath.toLowerCase());
       const selectedEntry = selectedCover ? library.fileForPath(selectedCover.path, selectedCover.sourceId) : null;
       let matchPath = (selectedEntry ? selectedCover!.path : null) ?? (overrideFile ? override!.path : null) ?? modelCover?.path ?? paths.find((candidate) => library.fileForPath(candidate, structuredRom?.directorySource?.id)) ?? null;
       // Directory scans preserve the spelling found on disk, while ROM keys and scraper output
@@ -2051,10 +2158,18 @@ import { navigate } from "../nav.js";
     ceilingOffset,
     ...romSelection.selectedKeys,
     ...romSelection.selectedHomebrewKeys,
+    ...selectedCoverPlan().flatMap((target) => [
+      target.devicePath,
+      target.sourcePath,
+      target.sourceId ?? "",
+      ...installedCoverSizes(target),
+    ]),
     carouselAtlasInputSignature,
     ...library.dirtyFiles,
     ...extractedAssets.keys(),
-    ...(mappedArtifacts ? [...mappedArtifacts].map(([key, spec]) => `mapped:${key}:${spec.relocBase ?? ""}:${spec.bytes}`) : []),
+    ...(mappedArtifacts ? [...mappedArtifacts].map(([key, spec]) =>
+      `mapped:${key}:${spec.relocBase ?? ""}:${spec.bytes}:${spec.lookupKey ?? ""}`) : []),
+    ...mappedArtifactVersions,
     ...deviceCoreFiles(),
     ...Object.entries(configuredCheats).map(([k, v]) => `${k}:${v.join(",")}`),
     ...Object.entries(configuredCheatFiles).map(([k, v]) => `${k}:${v.length}`)
@@ -2097,16 +2212,18 @@ import { navigate } from "../nav.js";
     return cheats.map((c) => c.trim()).join("\n") + "\n";
   }
 
-  /** Flash mode: stage the complete configured set; the installer diffs it against LittleFS. */
-  function injectCheats(map: Map<string, Uint8Array>) {
+  /** The configured cheat files, before either medium applies its write policy. */
+  function configuredCheatEntries(): Map<string, Uint8Array> {
+    const out = new Map<string, Uint8Array>();
     for (const [key, cheats] of Object.entries(configuredCheats)) {
       if (cheats.length === 0) continue;
-      map.set(cheatFilePath(key), new TextEncoder().encode(cheatFileContent(cheats)));
+      out.set(cheatFilePath(key), new TextEncoder().encode(cheatFileContent(cheats)));
     }
     for (const [key, data] of Object.entries(configuredCheatFiles)) {
       if (data.length === 0) continue;
-      map.set(cheatFilePath(key), data);
+      out.set(cheatFilePath(key), data);
     }
+    return out;
   }
 
   function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -2180,7 +2297,7 @@ import { navigate } from "../nav.js";
    *
    * Diagnostics only -- never throws, and never changes what is installed.
    */
-  function reportNetChange(plan: FlashAssemblyPlan, combined: Map<string, Uint8Array>): void {
+  function reportNetChange(plan: FlashAssemblyPlan, combined: Map<string, Uint8Array>, coverTargets: readonly CoverTarget[]): void {
     try {
       const installed = device.installedFrogfs;
       const diff = diffFrogfs(
@@ -2196,6 +2313,10 @@ import { navigate } from "../nav.js";
       const afterCovers = new Map(plan.frogfsFiles
         .filter((file) => classifyContentPath(file.path).category === "cover" && file.path.endsWith(".img"))
         .map((file) => [file.path, file.data.length]));
+      const missingCovers = new Set(coverTargets
+        .map((target) => target.devicePath)
+        .filter((path) => !afterCovers.has(path)));
+      missingSelectedCoverPaths = missingCovers;
       const changedCovers = new Set<string>();
       for (const [path, size] of afterCovers) {
         if (!beforeCovers.has(path) || beforeCovers.get(path) !== size) changedCovers.add(path);
@@ -2207,15 +2328,10 @@ import { navigate } from "../nav.js";
           changedCovers.add(basePath(path));
         }
       }
-      for (const [owner, selected] of selectedOriginalCovers) {
-        if (!dirtyCoverSources.has(basePath(selected.path))) continue;
-        const game = romSelection.games.find((candidate) => candidate.rom.id === owner);
-        const devicePath = game
-          ? flashCoverPathForGame(game)
-          : romSelection.selectedHomebrewKeys.has(owner)
-            ? flashCoverPathForHomebrew(owner)
-            : null;
-        if (devicePath && afterCovers.has(devicePath)) changedCovers.add(devicePath);
+      for (const target of coverTargets) {
+        if (![target.sourcePath, ...(target.sourceCandidates ?? []).map((candidate) => candidate.path)]
+          .some((path) => dirtyCoverSources.has(basePath(path)))) continue;
+        if (afterCovers.has(target.devicePath)) changedCovers.add(target.devicePath);
       }
       flashChangedCoverPaths = changedCovers;
 
@@ -2250,6 +2366,10 @@ import { navigate } from "../nav.js";
             onlyAfter: diff.onlyAfter,
             onlyBefore: diff.onlyBefore,
             resized: diff.resized,
+            covers: {
+              expected: coverTargets.map((target) => target.devicePath),
+              missing: [...missingCovers],
+            },
             inputs: {
               installAllCores,
               combinedRoms: combined.size,
@@ -2311,10 +2431,22 @@ import { navigate } from "../nav.js";
       await prepareDeviceCores();
       // The selection's bytes, read here and nowhere earlier: the plan above is metadata only.
       const combinedRoms = await materialize(biosState.filterInstall(romSelection.selectedFolderRoms()));
-      await prepareFlashCovers(combinedRoms);
-      for (const [k, v] of selectedAssets.entries()) combinedRoms.set(k, v);
-      injectCheats(combinedRoms);
-      const { frogfs, plan: previewPlan } = await buildFrogfsImage(bundle, installBank, combinedRoms, {
+      const preCoverPlan = buildLogicalInstallPlan({
+        libraryFiles: combinedRoms,
+        preparedFiles: selectedAssets,
+      });
+      const coverTargets = selectedCoverPlan(preCoverPlan.files);
+      const flasher = device.utilLoaded ? device.flasher : null;
+      const readCover = flasher ? installedCoverReader((off, len) => dumpRegion(flasher, 0, off, len)) : undefined;
+      await prepareSelectedCovers(combinedRoms, coverTargets, readCover);
+      const logicalPlan = buildLogicalInstallPlan({
+        libraryFiles: combinedRoms,
+        preparedFiles: selectedAssets,
+        generatedFiles: configuredCheatEntries(),
+      });
+      const candidateFiles = new Map(logicalPlan.files);
+      if (logicalPlan.overrides.length) dbg("[install-plan] path overrides:", logicalPlan.overrides);
+      const { frogfs, plan: previewPlan, mappedPlaced } = await buildFrogfsImage(bundle, installBank, candidateFiles, {
         installAllCores,
         selectedHomebrew: romSelection.selectedHomebrewKeys,
         homebrewTitles: homebrew.titles,
@@ -2325,14 +2457,16 @@ import { navigate } from "../nav.js";
       builtFrogfs = frogfs;
       builtPendingLfs = previewPlan.pendingLfsFiles;
       builtMappedDestPaths = previewPlan.mappedDests.map((m) => m.dest);
+      builtMappedSidecarIndex = mappedSidecarIndex(mappedPlaced);
       newFrogfsLen = frogfs.length;
       builtFor = sig;
-      reportNetChange(previewPlan, combinedRoms);
+      reportNetChange(previewPlan, candidateFiles, coverTargets);
     } catch (e) {
       if (token !== buildToken) return;
       builtFrogfs = null;
       builtPendingLfs = [];
       builtMappedDestPaths = [];
+      builtMappedSidecarIndex = null;
       newFrogfsLen = null;
       buildErr = e instanceof Error ? e.message : String(e);
     } finally {
@@ -2749,29 +2883,57 @@ import { navigate } from "../nav.js";
   // still needs to run so the required cores can be fetched and installed. Only treat
   // the inventory as empty once the asynchronous core scan has completed; an unknown
   // inventory must not make the button appear dirty during startup.
+  const installedLittlefsCorePaths = $derived.by(() => {
+    return new Set(deviceLittlefsCoreFiles());
+  });
+
+  const installedMappedCorePaths = $derived(new Set(deviceCoreFiles()));
+
   const requiredCoreTargetKeys = $derived.by(() => {
     const out = new Set<string>();
     for (const system of coreRegistry.current.systems) {
       if (selectedSystems.has(system.folder.toLowerCase())) out.add(system.targetKey);
     }
-    return out;
-  });
 
-  const installedLittlefsCorePaths = $derived.by(() => {
-    const out = new Set<string>(
-      Object.keys(device.coreVersionCheck?.cores ?? {}).map((path) => path.replace(/^\//, "")),
-    );
-    function collectInstalledCores(node: any): void {
-      for (const child of node.children ?? []) {
-        if (child.isDirectory) collectInstalledCores(child);
-        else if (child.path.startsWith("/cores/")) out.add(child.path.slice(1));
+    // The scan log can report "LittleFS partition not found" while recovery mode or a stub
+    // restart is changing the live geometry. In that case we do not know which mapped cores
+    // are installed, so conservatively make their owning targets repairable instead of
+    // treating the failed inventory as an empty, clean device.
+    if (!device.coreInventoryReady || device.coreInventoryFailed) {
+      for (const row of sources.rows) {
+        if (!row.active || !row.manifest) continue;
+        for (const target of row.manifest.targets) {
+          if ((target.artifacts ?? []).some((artifact) => artifact.mapped === true)) {
+            out.add(`${row.repo}#${target.id}`);
+          }
+        }
       }
     }
-    if (device.installedLfsTree) collectInstalledCores(device.installedLfsTree);
+
+    // A core can be incomplete or misplaced across the two filesystems. Any artifact present
+    // in either inventory identifies its owning target; require every artifact in the
+    // filesystem declared by its manifest, even when no ROM for that core is selected.
+    for (const row of sources.rows) {
+      if (!row.active || !row.manifest) continue;
+      for (const target of row.manifest.targets) {
+        const artifacts = target.artifacts ?? [];
+        const hasAnyInstalledHalf = artifacts.some((artifact) => {
+          const name = artifact.filename.replace(/^\/+/, "");
+          const path = name.startsWith("cores/") ? name : `cores/${name}`;
+          return installedLittlefsCorePaths.has(path) || installedMappedCorePaths.has(path);
+        });
+        const completeInDeclaredFilesystems = artifacts.length > 0 && artifacts.every((artifact) => {
+          const name = artifact.filename.replace(/^\/+/, "");
+          const path = name.startsWith("cores/") ? name : `cores/${name}`;
+          return artifact.mapped === true
+            ? installedMappedCorePaths.has(path)
+            : installedLittlefsCorePaths.has(path);
+        });
+        if (hasAnyInstalledHalf && !completeInDeclaredFilesystems) out.add(`${row.repo}#${target.id}`);
+      }
+    }
     return out;
   });
-
-  const installedMappedCorePaths = $derived(new Set(deviceCoreFiles()));
 
   const missingCoreTargetCount = $derived.by(() => {
     // Wait for the background LittleFS inventory. A failed mount (including LFS_ERR_CORRUPT)
@@ -2806,7 +2968,10 @@ import { navigate } from "../nav.js";
 
   const selectedFlashDirtyPaths = $derived.by(() => {
     const included = new Set([...romSelection.selectedFolderRoms().keys()].map(basePath));
-    for (const path of selectedFlashCoverSourcePaths()) included.add(basePath(path));
+    for (const target of selectedCoverPlan()) {
+      included.add(basePath(target.sourcePath));
+      for (const candidate of target.sourceCandidates ?? []) included.add(basePath(candidate.path));
+    }
     return new Set([...library.dirtyFiles].filter((path) => included.has(basePath(path))));
   });
 
@@ -2832,13 +2997,13 @@ import { navigate } from "../nav.js";
   const sdSyncHasChanges = $derived.by(() => {
     const freshTarget = device.installedGames.length === 0;
     const sel = romSelection.selectedKeys.size + romSelection.selectedHomebrewKeys.size;
+    const selectedCoverPaths = availableSelectedCoverPaths();
     if (freshTarget) return sel > 0 || cheatsHaveChanges;
     return (
       romSelection.additions.length + hbAdditions > 0 ||
       romSelection.removals.length + hbRemovals > 0 ||
       (device.targetMedia === "sd" && library.scan !== null && [...library.scan.userRoms.keys()].some((path) => {
-        const cls = classifyContentPath(path);
-        return cls.category === "cover" && cls.isDeviceCover && coverBelongsToInstalledOrSelected(path) && !device.sdInstalledPaths.has(path);
+        return selectedCoverPaths.has(path) && !device.sdInstalledPaths.has(path);
       })) ||
       syncCores ||
       library.dirtyFiles.size > 0 ||
@@ -3101,17 +3266,12 @@ import { navigate } from "../nav.js";
     // not a static total of every cover file on disk, which never changes and tells you
     // nothing about what a sync/install would actually do.
     const changedCoverPaths = new Set<string>();
+    const selectedCoverPaths = availableSelectedCoverPaths();
     if (device.targetMedia === "sd") {
-      for (const path of library.dirtyFiles) {
-        const cls = classifyContentPath(path);
-        if (cls.category === "cover" && cls.isDeviceCover) changedCoverPaths.add(path);
-      }
+      for (const path of dirtySelectedCoverPaths()) changedCoverPaths.add(path);
     }
     if (device.targetMedia === "sd" && library.scan) {
-      for (const path of library.scan.userRoms.keys()) {
-        const cls = classifyContentPath(path);
-        if (cls.category === "cover" && cls.isDeviceCover && coverBelongsToInstalledOrSelected(path) && !device.sdInstalledPaths.has(path)) changedCoverPaths.add(path);
-      }
+      for (const path of selectedCoverPaths) if (!device.sdInstalledPaths.has(path)) changedCoverPaths.add(path);
     }
     if (device.targetMedia !== "sd") {
       for (const path of flashChangedCoverPaths) changedCoverPaths.add(path);
@@ -3133,8 +3293,13 @@ import { navigate } from "../nav.js";
     // ROMs/Homebrew's always-visible pattern instead of popping in/out of the list).
     const coverArtRow: ChangeItem = {
       label: locale.t.roms.summary.coverArtLabel,
-      status: coversChanged > 0 ? `+${coversChanged}` : locale.t.roms.summary.noCoverChanges,
-      kind: coversChanged > 0 ? "info" : "muted",
+      status: missingSelectedCoverPaths.size > 0
+        ? locale.t.roms.gameDetailsPanel.importModal.coverNotFound(
+          [...missingSelectedCoverPaths][0].replace(/^covers\//, "").replace(/\.img$/i, ""),
+        ) + (missingSelectedCoverPaths.size > 1 ? ` (+${missingSelectedCoverPaths.size - 1})` : "")
+        : coversChanged > 0 ? `+${coversChanged}` : locale.t.roms.summary.noCoverChanges,
+      kind: missingSelectedCoverPaths.size > 0 ? "warn" : coversChanged > 0 ? "info" : "muted",
+      ...(coversChanged > 0 ? { delta: changeDelta(coversChanged, 0) } : {}),
     };
 
     // Cores are not an opt-in any more: both media install cores, so the row is always
@@ -3450,55 +3615,140 @@ import { navigate } from "../nav.js";
     homebrew: "added-or-dirty",
   };
 
-  function coverBelongsToInstalledOrSelected(path: string): boolean {
-    const owner = coverOwnerOf(path);
-    const owners = new Set<string>();
-    for (const key of romSelection.selectedKeys) owners.add(coverOwnerOf(basePath(key)));
-    for (const game of device.installedGames) {
-      const stem = game.name.replace(/\.[^/.]+$/, "");
-      owners.add(`${game.system}/${stem}`.toLowerCase());
-    }
-    for (const key of romSelection.selectedHomebrewKeys) {
-      const hb = homebrew.find(key);
-      if (hb) owners.add(`homebrew/${hb.displayName}`.toLowerCase());
-    }
-    for (const game of deviceHomebrew) owners.add(`homebrew/${game.name.replace(/\.[^/.]+$/, "")}`.toLowerCase());
-    return owners.has(owner);
-  }
-
-  function flashCoverPathForGame(game: Game): string | null {
-    const row = romSelection.rows.find((candidate) => candidate.key === game.key);
-    const outputPath = basePath(row?.outputKey ?? game.key);
-    const slash = outputPath.lastIndexOf("/");
-    if (slash < 1) return null;
-    const stem = outputPath.slice(slash + 1).replace(/\.[^/.]+$/, "");
-    return `covers/${outputPath.slice(0, slash)}/${stem}.img`;
-  }
-
-  function flashCoverPathForHomebrew(key: string): string | null {
-    const title = homebrew.find(key);
-    return title ? `covers/homebrew/${title.displayName}.img` : null;
-  }
-
-  function selectedFlashCoverSourcePaths(): Set<string> {
-    const paths = new Set<string>();
-    for (const game of romSelection.games) {
-      if (!romSelection.selectedKeys.has(game.key)) continue;
-      const selected = selectedOriginalCovers.get(game.rom.id);
-      if (selected?.path) paths.add(selected.path);
-      else if (game.rom.cover?.deviceImgPath) paths.add(game.rom.cover.deviceImgPath);
+  /** The shared cover plan is the source of truth for both media writers and their summaries. */
+  function selectedCoverPlan(candidateFiles: ReadonlyMap<string, Uint8Array> | undefined = undefined): CoverTarget[] {
+    const targets: CoverTarget[] = [];
+    const outputIdentityForRow = (row: (typeof romSelection.rows)[number]) => basePath(row.outputKey ?? (row.outputName
+      ? `${basePath(row.key).slice(0, basePath(row.key).lastIndexOf("/") + 1)}${row.outputName}`
+      : row.key));
+    const selectedRows = romSelection.rows.filter((row) => romSelection.selectedKeys.has(row.key));
+    // The finalized file tree defines the ROM outputs that can receive covers. Selection rows
+    // supply owner/source provenance and converter aliases, but cannot invent destinations.
+    const outputPaths = candidateFiles
+      ? [...candidateFiles.keys()].filter((path) =>
+        classifyContentPath(path).category === "game" && romSelection.rows.some((row) => outputIdentityForRow(row).toLowerCase() === path.toLowerCase()),
+      )
+      : [...new Set(selectedRows.map(outputIdentityForRow))];
+    for (const outputPath of outputPaths) {
+      const matchingRows = romSelection.rows.filter((row) => outputIdentityForRow(row).toLowerCase() === outputPath.toLowerCase());
+      const selectedRow = matchingRows.find((row) => romSelection.selectedKeys.has(row.key));
+      const game = selectedRow
+        ? romSelection.games.find((candidate) => candidate.key === selectedRow.key)
+        : undefined;
+      const selected = game ? selectedOriginalCovers.get(game.rom.id) : undefined;
+      const fallbackSource = matchingRows.find((row) => row.rom?.cover)?.rom?.cover?.deviceImgPath ?? "";
+      const target = coverTargetForGame({
+        key: outputPath,
+        outputKey: outputPath,
+        owner: game?.rom.id ?? outputPath,
+        sourcePath: selected?.path ?? fallbackSource,
+        ...(selected?.sourceId ? { sourceId: selected.sourceId } : {}),
+      });
+      if (!target) continue;
+      // Converter input art and an existing output sidecar are alternate sources for the same
+      // final ROM name. Keep both so renaming a WAD to its published WHD preserves its art.
+      const aliases = matchingRows.flatMap((row) => {
+        if (!row.rom?.cover) return [];
+        const candidateCover = selectedOriginalCovers.get(row.rom.id);
+        return [
+          ...(candidateCover?.path ? [{ path: candidateCover.path, ...(candidateCover.sourceId ? { sourceId: candidateCover.sourceId } : {}) }] : []),
+          { path: row.rom.cover.deviceImgPath, ...(row.rom.directorySource?.id ? { sourceId: row.rom.directorySource.id } : {}) },
+        ].filter((cover) => cover.path && cover.path !== target.sourcePath);
+      });
+      const seenCoverSources = new Set<string>();
+      target.sourceCandidates = [
+        ...(target.sourcePath ? [{ path: target.sourcePath, ...(target.sourceId ? { sourceId: target.sourceId } : {}) }] : []),
+        ...aliases,
+      ].filter((candidate) => {
+        const key = `${candidate.sourceId ?? ""}\u0000${basePath(candidate.path).toLowerCase()}`;
+        if (seenCoverSources.has(key)) return false;
+        seenCoverSources.add(key);
+        return true;
+      });
+      targets.push(target);
     }
     for (const key of romSelection.selectedHomebrewKeys) {
       const title = homebrew.find(key);
       if (!title) continue;
+      const binaryPaths = title.deviceFiles
+        .filter((path) => path.toLowerCase().endsWith(".bin"))
+        .map((path) => `homebrew/${path}`);
+      if (candidateFiles && !binaryPaths.some((path) => candidateFiles.has(path))) continue;
       const selected = selectedOriginalCovers.get(title.key);
-      if (selected?.path) paths.add(selected.path);
-      else paths.add(`covers/homebrew/${title.displayName}.img`);
+      targets.push(coverTargetForHomebrew(
+        title.key,
+        title.displayName,
+        selected?.path ?? `covers/homebrew/${title.displayName}.img`,
+        selected?.sourceId,
+      ));
     }
-    return paths;
+    return targets;
   }
 
-  async function prepareFlashCovers(userRoms: Map<string, Uint8Array>): Promise<Set<string>> {
+  /** Include the current device-side source/target cover in the preview cache key. */
+  function installedCoverSizes(target: CoverTarget): string[] {
+    const files = device.installedFrogfs?.files;
+    if (!files) return [];
+    const paths = new Set([target.sourcePath, ...(target.sourceCandidates ?? []).map((candidate) => candidate.path), target.devicePath].filter(Boolean).map(basePath));
+    return files
+      .filter((file) => paths.has(basePath(file.path)))
+      .map((file) => `${file.path}:${file.dataSize}`)
+      .sort();
+  }
+
+  function installedCoverReader(
+    read: (off: number, len: number) => Promise<Uint8Array>,
+  ): (path: string) => Promise<Uint8Array | undefined> {
+    return async (path) => {
+      const file = device.installedFrogfs?.files.find((candidate) => basePath(candidate.path).toLowerCase() === path.toLowerCase());
+      if (!file || classifyContentPath(file.path).category !== "cover" || !file.path.toLowerCase().endsWith(".img")) {
+        return undefined;
+      }
+      return read(frogfsOffset + file.dataOffs, file.dataSize);
+    };
+  }
+
+  /** Selected sidecars which have real source bytes to write, for the SD summary/diff. */
+  function availableSelectedCoverPaths(): Set<string> {
+    const scan = library.scan;
+    if (!scan) return new Set();
+    const available = new Set([...scan.userRoms.keys()].map((path) => basePath(path).toLowerCase()));
+    return new Set(selectedCoverPlan()
+      .filter((target) =>
+        [target.sourcePath, ...(target.sourceCandidates ?? []).map((candidate) => candidate.path), target.devicePath]
+          .some((path) => path !== "" && available.has(basePath(path).toLowerCase())),
+      )
+      .map((target) => target.devicePath));
+  }
+
+  /** Translate dirty source images to the generated device-side .img paths. */
+  function dirtySelectedCoverPaths(
+    targets: readonly CoverTarget[] = selectedCoverPlan(),
+    preparedSources: ReadonlySet<string> | undefined = undefined,
+  ): Set<string> {
+    const dirtySources = new Set([...library.dirtyFiles].map(basePath));
+    const available = preparedSources
+      ? new Set(targets.filter((target) =>
+        [target.sourcePath, ...(target.sourceCandidates ?? []).map((candidate) => candidate.path), target.devicePath]
+          .some((path) => preparedSources.has(path)),
+      ).map((target) => target.devicePath))
+      : availableSelectedCoverPaths();
+    const out = new Set<string>();
+    for (const target of targets) {
+      if (!available.has(target.devicePath)) continue;
+      if ([target.sourcePath, ...(target.sourceCandidates ?? []).map((candidate) => candidate.path), target.devicePath]
+        .some((path) => dirtySources.has(basePath(path)))) {
+        out.add(target.devicePath);
+      }
+    }
+    return out;
+  }
+
+  async function prepareSelectedCovers(
+    userRoms: Map<string, Uint8Array>,
+    targets: readonly CoverTarget[],
+    readInstalledCover: ((path: string) => Promise<Uint8Array | undefined>) | undefined = undefined,
+  ): Promise<Set<string>> {
     const scan = library.scan;
     const includedSourcePaths = new Set<string>();
     if (!scan) return includedSourcePaths;
@@ -3507,59 +3757,81 @@ import { navigate } from "../nav.js";
     const coverInputs = new Map<string, LibraryFile>();
     const coverOrigins = new Map<string, string>();
     const expectedDevicePaths = new Set<string>();
+    const retainedDeviceCovers = new Map<string, Uint8Array>();
+    const localCover = (path: string) => {
+      const exact = scan.userRoms.get(path);
+      if (exact) return { path, file: exact };
+      const folded = path.toLowerCase();
+      for (const [candidate, file] of scan.userRoms) {
+        if (basePath(candidate).toLowerCase() === folded) return { path: candidate, file };
+      }
+      return undefined;
+    };
     const addCover = (devicePath: string, sourcePath: string | undefined = undefined, sourceId: string | undefined = undefined) => {
       if (sourcePath) {
-        const source = scan.userRoms.get(sourcePath);
+        const found = localCover(sourcePath);
+        const source = found?.file;
         const cleanSourcePath = basePath(sourcePath);
         const extension = cleanSourcePath.slice(cleanSourcePath.lastIndexOf(".")).toLowerCase();
         if (source && extension === ".img") {
           expectedDevicePaths.add(devicePath);
           coverInputs.set(devicePath, source);
-          includedSourcePaths.add(sourcePath);
+          includedSourcePaths.add(found!.path);
           return;
         }
         if (source && imageExtensions.has(extension)) {
           expectedDevicePaths.add(devicePath);
           const inputPath = devicePath.replace(/\.img$/i, extension);
           coverInputs.set(inputPath, source);
-          includedSourcePaths.add(sourcePath);
-          const origin = sourceId ?? library.fileOrigin.get(sourcePath);
+          includedSourcePaths.add(found!.path);
+          const origin = sourceId ?? library.fileOrigin.get(found!.path);
           if (origin) coverOrigins.set(inputPath, origin);
           return;
         }
       }
-      const existing = scan.userRoms.get(devicePath);
+      const existing = localCover(devicePath);
       if (existing) {
         expectedDevicePaths.add(devicePath);
-        coverInputs.set(devicePath, existing);
-        includedSourcePaths.add(devicePath);
+        coverInputs.set(devicePath, existing.file);
+        includedSourcePaths.add(existing.path);
       }
     };
 
-    for (const game of romSelection.games) {
-      if (!romSelection.selectedKeys.has(game.key)) continue;
-      const devicePath = flashCoverPathForGame(game);
-      if (!devicePath) continue;
-      const selected = selectedOriginalCovers.get(game.rom.id);
-      addCover(devicePath, selected?.path ?? game.rom.cover?.deviceImgPath, selected?.sourceId);
-    }
-    for (const key of romSelection.selectedHomebrewKeys) {
-      const title = homebrew.find(key);
-      if (!title) continue;
-      const devicePath = flashCoverPathForHomebrew(key);
-      if (!devicePath) continue;
-      const selected = selectedOriginalCovers.get(title.key);
-      addCover(devicePath, selected?.path ?? devicePath, selected?.sourceId);
+    for (const target of targets) {
+      const candidates = target.sourceCandidates?.length
+        ? target.sourceCandidates
+        : [{ path: target.sourcePath, ...(target.sourceId ? { sourceId: target.sourceId } : {}) }];
+      for (const candidate of candidates) {
+        addCover(target.devicePath, candidate.path, candidate.sourceId);
+        if (expectedDevicePaths.has(target.devicePath)) break;
+      }
+      if (expectedDevicePaths.has(target.devicePath)) continue;
+      if (!readInstalledCover) continue;
+      // Core-provided ROMs and converted outputs can have no local cover source. Carry forward
+      // an installed FrogFS .img under any source identity that resolves to this final output.
+      for (const candidate of [...candidates.map((source) => source.path), target.devicePath]) {
+        if (!candidate || !basePath(candidate).toLowerCase().endsWith(".img")) continue;
+        const bytes = await readInstalledCover(basePath(candidate));
+        if (!bytes) continue;
+        retainedDeviceCovers.set(target.devicePath, bytes);
+        expectedDevicePaths.add(target.devicePath);
+        includedSourcePaths.add(candidate);
+        break;
+      }
     }
 
     for (const path of [...userRoms.keys()]) {
       const classified = classifyContentPath(path);
       if (classified.category === "cover") userRoms.delete(path);
     }
-    if (coverInputs.size === 0) return includedSourcePaths;
+    if (coverInputs.size === 0) {
+      for (const [path, bytes] of retainedDeviceCovers) userRoms.set(path, bytes);
+      if (retainedDeviceCovers.size > 0) dbg("[install] device covers prepared:", expectedDevicePaths.size);
+      return includedSourcePaths;
+    }
 
     await convertCoversInMap(coverInputs, coverOrigins);
-    const missing = [...expectedDevicePaths].filter((path) => !coverInputs.has(path));
+    const missing = [...expectedDevicePaths].filter((path) => !coverInputs.has(path) && !retainedDeviceCovers.has(path));
     if (missing.length > 0) {
       throw new Error(locale.t.roms.coverPrepareFailed(missing.length, missing.slice(0, 3).join(", ")));
     }
@@ -3567,6 +3839,10 @@ import { navigate } from "../nav.js";
       const data = coverInputs.get(path);
       if (data instanceof Uint8Array) userRoms.set(path, data);
       else if (data) userRoms.set(path, await romBytes(data));
+      else {
+        const retained = retainedDeviceCovers.get(path);
+        if (retained) userRoms.set(path, retained);
+      }
     }
     dbg("[install] device covers prepared:", expectedDevicePaths.size);
     return includedSourcePaths;
@@ -3581,6 +3857,7 @@ import { navigate } from "../nav.js";
   function changedSdUserRoms(
     userRoms: Map<string, Uint8Array>,
     existingSdPaths: Set<string> = new Set(),
+    forcedPaths: ReadonlySet<string> = new Set(),
   ): Map<string, Uint8Array> {
     // No games recorded on the SD card at all yet (e.g. a freshly formatted/picked folder) —
     // treat this as a first-time prep and write everything selected, bios included.
@@ -3611,6 +3888,7 @@ import { navigate } from "../nav.js";
         SD_SYNC_POLICY[cls.category] === "always" ||
         addedKeys.has(path) ||
         library.dirtyFiles.has(path) ||
+        forcedPaths.has(path) ||
         isNewHomebrewCover || (cls.category === "cover" && !existingSdPaths.has(path));
       if (included) out.set(path, data);
     }
@@ -3649,39 +3927,27 @@ import { navigate } from "../nav.js";
     // walk now so ZIP central-directory reads overlap cover conversion and selected-ROM
     // materialization below. Await it immediately before applying the diff; no write can begin
     // until the inventory is complete, so this changes latency without changing semantics.
-    const existingSdPathsPromise = (async (): Promise<Set<string>> => {
-      if (!device.sdHandle) return new Set();
+    const existingSdInventoryPromise = (async (): Promise<{ paths: Set<string>; root: any | null }> => {
+      if (!device.sdHandle) return { paths: new Set(), root: null };
       if (device.sdInstalledPathsReady && !device.scanning) {
         // scanSdCardGames() already built this exact inventory for the current handle. Reuse it;
         // an explicit ready flag is required because an empty set is a valid fresh-card result.
-        return device.sdInstalledPaths;
+        const root = await getValidRoot(device.sdHandle);
+        return { paths: device.sdInstalledPaths, root };
       }
       const root = await getValidRoot(device.sdHandle);
-      return root ? new Set((await scanRomDirectory(root)).userRoms.keys()) : new Set();
+      return {
+        paths: root ? new Set((await scanRomDirectory(root)).userRoms.keys()) : new Set(),
+        root,
+      };
     })();
     const selectedFolder = biosState.filterInstall(romSelection.selectedFolderRoms());
-    // Keep covers sourced from the library scan even if the install-name planner omitted them
-    // because its game key was represented by a device-preserved variant. Covers follow the
-    // selected title, so re-add only matching cover sidecars before applying the SD diff.
-    if (library.scan) {
-      // Device-format sidecars are derived only when an SD sync needs them. Originals stay
-      // source-relative and lazy; conversion reuses the persistent OPFS cover cache.
-      await convertCoversInMap(
-        library.scan.userRoms,
-        library.fileOrigin,
-        (path) => coverBelongsToInstalledOrSelected(path),
-      );
-      for (const [path, data] of library.scan.userRoms) {
-        if (classifyContentPath(path).category !== "cover") continue;
-        if (coverBelongsToInstalledOrSelected(path)) selectedFolder.set(path, data);
-      }
-    }
-    const [materializedFolder, existingSdPaths] = await Promise.all([
+    const [materializedFolder, existingSdInventory] = await Promise.all([
       materialize(selectedFolder),
-      existingSdPathsPromise,
+      existingSdInventoryPromise,
     ]);
-    const userRoms = changedSdUserRoms(materializedFolder, existingSdPaths);
-    // Prepare active raw CORE artifacts even when the published bundle is being synced.
+    // Prepare active raw CORE artifacts before deriving the candidate output set. Cover
+    // expectations must see the same selected binaries the write plan will see.
     for (const row of sources.rows) {
       if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
       for (const target of row.manifest.targets) {
@@ -3689,8 +3955,44 @@ import { navigate } from "../nav.js";
         if (prepareState.preparedBytesFor(key) === undefined) await prepareState.prepareCoreArtifacts(key, target);
       }
     }
-    // Prepared assets are not a sync diff. Add only missing core/homebrew artifacts; shipped
-    // games and already-present converted payloads must flow through changedSdUserRoms above.
+    // Both media paths resolve covers from the same selected game's installable identity. Doom's
+    // shipped `Doom - Shareware.whd` and a WAD converter output with that declared output name
+    // share one sidecar destination; the consumed WAD name is only a possible art source.
+    const preCoverPlan = buildLogicalInstallPlan({
+      libraryFiles: materializedFolder,
+      preparedFiles: selectedAssets,
+      generatedFiles: changedCheatEntries().changed,
+    });
+    const coverTargets = selectedCoverPlan(preCoverPlan.files);
+    const syncedCoverSourcePaths = await prepareSelectedCovers(
+      materializedFolder,
+      coverTargets,
+      existingSdInventory.root
+        ? async (path) => (await readCardBytes(existingSdInventory.root, path)) ?? undefined
+        : undefined,
+    );
+    const dirtyCoverPaths = dirtySelectedCoverPaths(coverTargets, syncedCoverSourcePaths);
+    // Complete the same medium-independent candidate set as the Flash preview/install before
+    // applying SD's incremental write policy. The candidate planner owns selection, converter
+    // output names, sidecars and overlays; this stage only asks which planned paths need writes.
+    const { changed: changedCheatFiles, toRemove: cheatsToRemove } = changedCheatEntries();
+    const logicalPlan = buildLogicalInstallPlan({
+      libraryFiles: materializedFolder,
+      preparedFiles: selectedAssets,
+      generatedFiles: changedCheatFiles,
+    });
+    missingSelectedCoverPaths = new Set(coverTargets
+      .map((target) => target.devicePath)
+      .filter((path) => !logicalPlan.files.has(path)));
+    dbg("[summary] cover plan:", JSON.stringify({
+      expected: coverTargets.map((target) => target.devicePath),
+      missing: [...missingSelectedCoverPaths],
+    }));
+    if (logicalPlan.overrides.length) dbg("[install-plan] path overrides:", logicalPlan.overrides);
+    const userRoms = changedSdUserRoms(new Map(logicalPlan.files), existingSdInventory.paths, dirtyCoverPaths);
+    // Prepared assets are already part of the shared logical plan. This target projection adds
+    // only missing core/homebrew artifacts; shipped games and converted games were filtered by
+    // changedSdUserRoms above using their final install paths.
     // The scan records core paths with their `cores/` prefix. Keep that exact shape here;
     // comparing a basename to the path map made every core look absent and caused every SD
     // sync to rewrite the whole selected core set. A core is eligible when it is missing, or
@@ -3701,12 +4003,10 @@ import { navigate } from "../nav.js";
     for (const [k, v] of selectedAssets) {
       if (k.startsWith("cores/")) {
         if (!installedCorePaths.has(k) || mismatchedCorePaths.has(k)) userRoms.set(k, v);
-      } else if (k.startsWith("homebrews/") && !installedHomebrewFiles.has(k.slice("homebrews/".length))) {
+      } else if (k.startsWith("homebrew/") && !installedHomebrewFiles.has(k.slice("homebrew/".length))) {
         userRoms.set(k, v);
       }
     }
-    const { changed: changedCheatFiles, toRemove: cheatsToRemove } = changedCheatEntries();
-    for (const [k, v] of changedCheatFiles) userRoms.set(k, v);
     const coreFilesNeedWrite = freshTarget || preparedMissingCores || [...userRoms.keys()].some((k) => k.startsWith("cores/"));
 
     const changedGames = new Map<string, Uint8Array>(); // roms/ + bios/ + homebrew/
@@ -3728,6 +4028,24 @@ import { navigate } from "../nav.js";
       // The SD card (like the device) only ever wants the converted .img.
       if (cls.category === "cover" && !cls.isDeviceCover) continue;
       SD_WRITE_BUCKET[cls.category].set(path, data);
+    }
+    // A dirty source PNG/JPEG is converted to its planned device .img path above. Clear only
+    // source edits whose corresponding final path is actually in this sync's write set; other
+    // pending edits must remain dirty for a later selection/sync.
+    const dirtyFilesToClear = new Set<string>();
+    for (const path of library.dirtyFiles) {
+      const key = basePath(path);
+      if (changedGames.has(key) || changedCovers.has(key) || changedCheats.has(key)) dirtyFilesToClear.add(path);
+    }
+    const dirtySourcePaths = new Set([...library.dirtyFiles].map(basePath));
+    for (const target of coverTargets) {
+      if (!changedCovers.has(target.devicePath)) continue;
+      const dirtyCandidates = [target.sourcePath, ...(target.sourceCandidates ?? []).map((candidate) => candidate.path)]
+        .filter((path) => path && dirtySourcePaths.has(basePath(path)) && syncedCoverSourcePaths.has(path));
+      if (dirtyCandidates.length === 0 && !syncedCoverSourcePaths.has(target.devicePath)) continue;
+      for (const path of library.dirtyFiles) {
+        if (dirtyCandidates.some((candidate) => basePath(path) === basePath(candidate))) dirtyFilesToClear.add(path);
+      }
     }
     // Raw CORE packages are outside the published bundle; ensure they are included on SD too.
 
@@ -3982,7 +4300,7 @@ import { navigate } from "../nav.js";
     }
 
     report.start("done");
-    library.clearDirty(); // synced — next sync starts clean unless something changes again
+    library.clearDirty(dirtyFilesToClear); // only source edits represented in the successful write set were synced
     report.finish("done");
   }
 
@@ -4007,24 +4325,21 @@ import { navigate } from "../nav.js";
     // cores. tgb-dual is exactly that: a core with no converter, absent from `titles`, so the
     // fetch loop matched nothing and a GBC ROM installed with no core at all. Doom was the only
     // core in that list because it happens to convert a WAD.
-    const needed = new Set<string>();
-    for (const sys of selectedSystems) {
-      for (const s of coreRegistry.current.systems) {
-        if (s.folder.toLowerCase() === sys) needed.add(s.targetKey);
-      }
-    }
+    // Includes both cores needed by the selected ROMs and split cores already present in
+    // LittleFS whose mapped sidecar is missing from FrogFS.
+    const needed = new Set(requiredCoreTargetKeys);
     let fetched = false;
     const already: string[] = [];
     const got: string[] = [];
     const unresolved: string[] = [];
     for (const key of needed) {
-      if (prepareState.preparedBytesFor(key) !== undefined) { already.push(key); continue; }
       const hash = key.lastIndexOf("#");
       const repo = hash < 0 ? key : key.slice(0, hash);
       const targetId = hash < 0 ? "" : key.slice(hash + 1);
       const row = sources.rows.find((r) => r.repo === repo && r.active && r.manifest);
       const target = row?.manifest?.targets.find((t) => t.id === targetId);
       if (!target) { unresolved.push(key); continue; }
+      if (coreArtifactsReady(target)) { already.push(key); continue; }
       try {
         if (await prepareState.prepareCoreArtifacts(key, target)) {
           got.push(key);
@@ -4051,7 +4366,7 @@ import { navigate } from "../nav.js";
       if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
       for (const target of row.manifest.targets) {
         const key = `${row.repo}#${target.id}`;
-        if (prepareState.preparedBytesFor(key) !== undefined) continue;
+        if (coreArtifactsReady(target)) continue;
         try {
           if (await prepareState.prepareCoreArtifacts(key, target)) {
             got.push(key);
@@ -4097,7 +4412,9 @@ import { navigate } from "../nav.js";
     // the user merely opens Sync Library. Refresh here so the OFW reserve and LittleFS ceiling
     // are current immediately before the budget decision and image build.
     report.log("budget", msg((t) => t.roms.install.logRescanning));
-    await device.runScan("before ROM install");
+    // Re-probe the compact partition signatures before choosing the destination. Firmware
+    // replacement can move FrogFS from behind stock assets to zero in the same session.
+    await device.runScan("before ROM install", { forcePartitions: true });
     await loadCheatsBaseline();
     const { changed: changedCheatFiles, toRemove: cheatsToRemove } = changedCheatEntries();
     // Raw byte counts, not formatted sizes: these are the numbers you compare against a
@@ -4113,12 +4430,7 @@ import { navigate } from "../nav.js";
     report.start("build");
     const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
     const userRoms = await materialize(biosState.filterInstall(romSelection.selectedFolderRoms()));
-    const syncedCoverSourcePaths = await prepareFlashCovers(userRoms);
-    const includedPaths = new Set([
-      ...[...userRoms.keys()].map(basePath),
-      ...[...syncedCoverSourcePaths].map(basePath),
-    ]);
-    const syncedDirtyPaths = [...library.dirtyFiles].filter((path) => includedPaths.has(basePath(path)));
+    const readCover = installedCoverReader((off, len) => dumpRegion(flasher, 0, off, len));
     // Raw CORE packages are outside the published bundle; merge cached raw artifacts explicitly.
     for (const row of sources.rows) {
       if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
@@ -4143,9 +4455,16 @@ import { navigate } from "../nav.js";
     // a fetch adds them -- so reusing the preview shipped the ROM with no core even though the
     // fetch had just succeeded. That was the second report of this same symptom.
     const fetchedCores = await ensureCoresPrepared(report);
-    // ensureCoresPrepared may have fetched raw CORE artifacts just above; merge them after that
-    // preparation pass as well as the pre-cache merge, otherwise a newly fetched core misses
-    // this install's image.
+    // Library Sync must preserve the complete core set already installed in FrogFS, including
+    // mapped sidecars such as cores/gba.xip. The preview prepares these before sizing, but the
+    // write path cannot depend on that preview having run (or still matching this selection).
+    // Fetch the device's installed core artifacts again at the point of use; mapped metadata is
+    // recorded by prepareCoreArtifacts alongside the bytes and reaches mappedArtifacts below.
+    // If an installed mapped artifact cannot be recovered with its placement metadata, stop
+    // before flashing. Writing a rebuilt image without it would silently remove the sidecar.
+    const fetchedInstalledCores = await prepareDeviceCores(true);
+    // Core preparation may fetch raw artifacts too; merge them after both preparation passes,
+    // otherwise a newly fetched core misses this install's image.
     for (const row of sources.rows) {
       if (!row.active || (row.origin !== "raw" && !row.repo.startsWith("raw/")) || !row.manifest) continue;
       for (const target of row.manifest.targets) for (const artifact of target.artifacts ?? []) {
@@ -4153,11 +4472,12 @@ import { navigate } from "../nav.js";
         if (data) userRoms.set(`cores/${artifact.filename}`, data);
       }
     }
-    if (fetchedCores) {
+    if (fetchedCores || fetchedInstalledCores) {
       dbg("[install] cores fetched during install -> rebuilding, the preview predates them");
       builtFrogfs = null;
       builtPendingLfs = [];
       builtMappedDestPaths = [];
+      builtMappedSidecarIndex = null;
     }
 
     report.subStart("build", "retain");
@@ -4241,11 +4561,26 @@ import { navigate } from "../nav.js";
     report.log("build", msg((t) => t.roms.install.logRetainedGames, retained.length, deviceHomebrew.length, retainBytes), "retain");
     report.subFinish("build", "retain");
 
+    // Resolve cover expectations only after selected, prepared, and retained game outputs are
+    // all in the same candidate tree. That keeps the summary and packed image on one inventory.
+    const preCoverPlan = buildLogicalInstallPlan({
+      libraryFiles: userRoms,
+      preparedFiles: selectedAssets,
+    });
+    const coverTargets = selectedCoverPlan(preCoverPlan.files);
+    const syncedCoverSourcePaths = await prepareSelectedCovers(userRoms, coverTargets, readCover);
+    const includedPaths = new Set([
+      ...[...userRoms.keys()].map(basePath),
+      ...[...syncedCoverSourcePaths].map(basePath),
+    ]);
+    const syncedDirtyPaths = [...library.dirtyFiles].filter((path) => includedPaths.has(basePath(path)));
+
     report.subStart("build", "pack");
     // Reuse the cached preview only when nothing had to be re-read from the device and it's current.
     const preserved = retained.length > 0 || deviceHomebrew.length > 0;
     let frogfs = !preserved && !fetchedCores && builtFrogfs && builtFor === selSig ? builtFrogfs : null;
     let pendingLfs: StagedFile[] = frogfs ? [...builtPendingLfs] : [];
+    let sidecarIndex = frogfs ? builtMappedSidecarIndex : null;
     // Keep the mapped destination paths beside the cached preview. The mapping metadata is
     // keyed by source asset key, while pendingLfs paths are resolved device paths; comparing
     // those two namespaces was the regression that duplicated `cores/gba.xip` into LittleFS.
@@ -4256,12 +4591,18 @@ import { navigate } from "../nav.js";
       if (versions.length === 0) throw new Error(locale.t.roms.install.errNoFirmwareVersions);
       const bundle = await fetchBundle(versions[0].tag);
       rememberInstallPaths(bundle.manifest?.dist?.paths);
-      for (const [k, v] of selectedAssets.entries()) userRoms.set(k, v);
+      const logicalPlan = buildLogicalInstallPlan({
+        libraryFiles: userRoms,
+        preparedFiles: selectedAssets,
+        generatedFiles: configuredCheatEntries(),
+      });
+      if (logicalPlan.overrides.length) dbg("[install-plan] path overrides:", logicalPlan.overrides);
+      userRoms.clear();
+      for (const [path, bytes] of logicalPlan.files) userRoms.set(path, bytes);
       for (const path of [...new Set([...toRead.map((r) => r.path), ...deviceHomebrew.map((g) => `${g.system}/${g.name}`)])]) {
         const bytes = userRoms.get(path);
         if (bytes) dbg("[frogfs-debug] pre-pack", path, bytes.length, await sha256Hex(bytes));
       }
-      injectCheats(userRoms);
       const built = await buildFrogfsImage(bundle, installBank, userRoms, {
         installAllCores,
         selectedHomebrew: romSelection.selectedHomebrewKeys,
@@ -4270,6 +4611,7 @@ import { navigate } from "../nav.js";
         frogfsOffset
       }, previousFrogfsState);
       frogfs = built.frogfs;
+      sidecarIndex = mappedSidecarIndex(built.mappedPlaced);
       const packedFiles = parseFrogfs(frogfs).files;
       for (const path of [...new Set([...toRead.map((r) => r.path), ...deviceHomebrew.map((g) => `${g.system}/${g.name}`)])]) {
         const entry = packedFiles.find((f) => f.path === path);
@@ -4281,7 +4623,7 @@ import { navigate } from "../nav.js";
       report.progress("build", 0, frogfs.length, "pack", "bytes");
       report.progress("build", frogfs.length, frogfs.length, "pack", "bytes");
       // dbg(), not report.log(): an audit-log line is user-visible copy, and nothing in the
-      // string tables says this yet. See docs/MAPPED_ARTIFACTS.md §7.
+      // string tables says this yet. See docs/MAPPED_ARTIFACTS.md §8.
       for (const m of built.mappedPlaced) {
         dbg("[install] mapped placed:", m.path, hex(m.address), "patched:", m.patched ?? 0);
       }
@@ -4293,6 +4635,8 @@ import { navigate } from "../nav.js";
       // everything bound for LittleFS; `pendingLfsFiles` is the subset a ROM install writes.
       const packed = JSON.stringify({
         coreKeysInSelection: [...selectedAssets.keys()].filter((k) => k.startsWith("cores/")),
+        mappedArtifacts: mappedArtifacts ? [...mappedArtifacts.keys()] : [],
+        mappedPlaced: built.mappedPlaced.map((m) => m.path),
         coreFiles: built.plan.coreFiles.map((f) => f.path),
         pendingLfs: pendingLfs.map((f) => f.path),
       });
@@ -4384,8 +4728,8 @@ import { navigate } from "../nav.js";
     } finally {
       device.resumePoll();
     }
-    // Rebuild LittleFS only when its core or cheat payload changes. Preserve saves/settings and
-    // unrelated files while adding, updating, or removing the selected cheat files.
+    // Rebuild LittleFS only when its core, cheat, or mapped-sidecar index changes. Preserve
+    // saves/settings and unrelated files while adding, updating, or removing managed files.
     report.subFinish("flash", "frogfs");
     // Mapped artifacts (for example gba.xip) are relocated into FrogFS and must never be
     // duplicated in LittleFS. pendingLfs contains the packer's ordinary core list, so apply the
@@ -4393,7 +4737,11 @@ import { navigate } from "../nav.js";
     // `pendingLfs` is already the packer's ordinary LittleFS subset. Filter by the packer's
     // resolved destination list as a defensive guard for cached/legacy plans; mapped metadata
     // itself is keyed by source asset identity and can never match these paths.
-    const lfsFiles: StagedFile[] = pendingLfs.filter((f) => !mappedDestPaths.has(f.path));
+    if (!sidecarIndex) throw new Error("Mapped sidecar index was not built with the FrogFS image");
+    const lfsFiles: StagedFile[] = [
+      ...pendingLfs.filter((f) => !mappedDestPaths.has(f.path)),
+      { path: MAPPED_SIDECAR_INDEX_PATH, data: sidecarIndex },
+    ];
     const existingLfsPaths = new Set<string>();
     try {
       const tree = await ensureLfsTree();
@@ -4425,11 +4773,13 @@ import { navigate } from "../nav.js";
     // and is already covered by the FrogFS image write above.
     const littleFsCheatWriteNeeded = changedCheatFiles.size > 0 || cheatsToRemove.length > 0 ||
       pendingLfs.some((f) => f.path.startsWith("cheats/") && !existingLfsPaths.has(f.path));
+    const littleFsMappedIndexWriteNeeded = !existingLfsPaths.has(MAPPED_SIDECAR_INDEX_PATH) ||
+      !bytesEqual(await readLfsFile(MAPPED_SIDECAR_INDEX_PATH), sidecarIndex);
     const littleFsMappedCleanupNeeded = [...mappedDestPaths].some((path) => existingLfsPaths.has(path));
     const littleFsCoreWriteNeeded = littleFsMappedCleanupNeeded ||
       desiredCoreFiles.some((f) => !existingCorePaths.has(f.path)) ||
       (device.coreVersionCheck?.mismatches.length ?? 0) > 0;
-    if (littleFsCoreWriteNeeded || littleFsCheatWriteNeeded) {
+    if (littleFsCoreWriteNeeded || littleFsCheatWriteNeeded || littleFsMappedIndexWriteNeeded) {
       report.subStart("flash", "cores");
       const lfsImage = await buildCoresLittlefs(lfsFiles, { blockSize: lfsBlockSize, blockCount: lfsBlockCount, moduleOpts: {} }, ["cores", "data", "cheats"]);
       report.progress("flash", 0, lfsImage.length, "cores", "bytes");
@@ -4448,16 +4798,12 @@ import { navigate } from "../nav.js";
 
     report.start("rescan");
     report.log("rescan", msg((t) => t.roms.install.logRescanning));
-    // FrogFS changed → rescan device geometry + installed games, then re-read cheats/ so the
-    // next diff has a fresh baseline (installedFrogfs must be repopulated first).
-    // AWAITED, not fire-and-forget: this rescan reads the device over SWD, so the header's
-    // do-not-disconnect hold (raised by installProgress.confirm(), released in its `finally`
-    // once THIS exec resolves) must still be up while it runs. A `void`ed scan here let exec
-    // return — and the hold drop to "settling" — with the scan still talking to the device,
-    // and the liveness poll (already resumed above) could then markQuiet() mid-scan and clear
-    // the warning outright. If the scan throws, it propagates to confirm()'s catch: the phase
-    // flips to "error" and the hold is released there, so a failed rescan can't strand it.
-    await device.runScan("after ROM install");
+    // The installer already knows the absolute FrogFS address it just wrote. Read its compact
+    // on-device table directly instead of rediscovering extflash geometry; this also handles a
+    // first install, where cached geometry had no FrogFS partition to visit. The read is awaited
+    // under the install hold so the UI inventory and BIOS status are current before the modal
+    // closes.
+    await device.refreshInstalledFrogfsAt(frogfsOffset);
     flashChangedCoverPaths = new Set();
     library.clearDirty(syncedDirtyPaths);
     await loadCheatsBaseline();

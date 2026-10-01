@@ -1,6 +1,8 @@
 import type { DeviceHeaderStrings } from "./deviceHeader.js";
 
 export const deviceHeaderUk: DeviceHeaderStrings = {
+  noDeviceDetected: "Пристрій не виявлено",
+  noValidAdapterSelected: "Не вибрано дійсний адаптер",
   targetUnresponsive: "Пристрій перестав відповідати. Очікування на відновлення зв’язку…",
   changeInstallationMethod: "Змінити спосіб встановлення",
   connectionLost: "З’єднання втрачено",
@@ -34,7 +36,6 @@ export const deviceHeaderUk: DeviceHeaderStrings = {
   logoRgoAlt: "Retro-Go",
   logoOfwAlt: "Офіційна прошивка",
   unsafeWritingStatus: "Запис у флеш-пам’ять. Не від’єднуйте",
-  unsafeSettlingStatus: "Завершення. Не від’єднуйте",
   retroGoOlderSuffix: "(старіша)",
   unsafeAria: "Не від’єднуйте пристрій",
 } as const;

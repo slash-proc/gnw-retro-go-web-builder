@@ -152,7 +152,7 @@
         <h4 class="seclabel">{locale.t.overview.screenshot.sectionLabel}</h4>
         <button
           class="text-action"
-          disabled={isCapturingScreenshot || !device.isConnected}
+          disabled={isCapturingScreenshot || !device.canCaptureScreenshot}
           onclick={triggerScreenshot}
         >
           {isCapturingScreenshot

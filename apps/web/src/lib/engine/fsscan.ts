@@ -42,6 +42,10 @@ const ZELDA_STOCK_SIG = [0x3c, 0x13, 0x96, 0xc5, 0x79, 0x38, 0x71, 0xd6];
 const ZELDA_PATCHED_SIG = [0x22, 0x21, 0x23, 0x22, 0x22, 0x22, 0x22, 0x22];
 const MARIO_STOCK_SIG = [0xfe, 0x6e, 0xf8, 0x01, 0x30, 0x77, 0x2d, 0x3a];
 const MARIO_PATCHED_SIG = [0x78, 0xd8, 0xa9, 0x10, 0x8d, 0x00, 0x20, 0xa2];
+// The current patched Mario image begins with its 256x192 GIF asset, rather than the
+// opcode prefix used by older GnWManager builds. Keep this narrowly specific to that
+// exact GIF version and dimensions so an arbitrary file signature is not enough.
+const MARIO_PATCHED_GIF_HEADER = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x00, 0x01, 0xc0, 0x00];
 
 const u16 = (b: Uint8Array, i: number) => b[i] | (b[i + 1] << 8);
 const u32 = (b: Uint8Array, i: number) =>
@@ -49,6 +53,8 @@ const u32 = (b: Uint8Array, i: number) =>
 const eq = (b: Uint8Array, i: number, sig: number[]) => sig.every((v, k) => b[i + k] === v);
 const ascii = (b: Uint8Array, i: number, s: string) =>
   [...s].every((c, k) => b[i + k] === c.charCodeAt(0));
+const isMarioPatchedAssets = (b: Uint8Array) =>
+  eq(b, 0, MARIO_PATCHED_SIG) || eq(b, 0, MARIO_PATCHED_GIF_HEADER);
 
 /** is_lfs_superblock: "littlefs"@+8, disk version major 2, sane block_size/count. */
 function isLfsSuperblock(b: Uint8Array): boolean {
@@ -173,7 +179,7 @@ export async function scanExtflashPartitions(
         add({ offset: addr - 0x20000, size: 4 << 20, type: "Zelda Assets" });
       } else if (eq(sec, 0, MARIO_STOCK_SIG) && addr + (1 << 20) <= flashSize) {
         add({ offset: addr, size: 1 << 20, type: "Mario OFW" });
-      } else if (eq(sec, 0, MARIO_PATCHED_SIG) && addr + (1 << 20) <= flashSize) {
+      } else if (isMarioPatchedAssets(sec) && addr + (1 << 20) <= flashSize) {
         add({ offset: addr, size: 1 << 20, type: "Mario Assets" });
       }
     }
@@ -181,12 +187,15 @@ export async function scanExtflashPartitions(
   return parts;
 }
 
-/** Coarse-first geometry scan: 1 MiB probes, then 128 KiB probes for at most 2 MiB
- * after the first unrecognized probe. Recognition uses the same signatures as the full scan. */
+/** Coarse-first geometry scan: probe every 1 MiB boundary across the chip, with one
+ * 128 KiB fine search around the first unrecognized region. Recognition uses the same
+ * signatures as the full scan. Continuing the coarse pass matters when partitions are
+ * separated by large unused gaps (e.g. FrogFS near 1 MiB and LittleFS at 56 MiB). */
 export async function scanExtflashPartitionsLazy(
   read: ExtReadFn,
   flashSize: number,
   onProgress?: (done: number, total: number) => void,
+  startup?: { blockSize?: number; maxSearchBytes?: number },
 ): Promise<ExtPartition[]> {
   const parts: ExtPartition[] = [];
   const seen = new Set<number>();
@@ -224,7 +233,7 @@ export async function scanExtflashPartitionsLazy(
     } else if (eq(sec, 0, MARIO_STOCK_SIG) && addr + (1 << 20) <= flashSize) {
       add({ offset: addr, size: 1 << 20, type: "Mario OFW" });
       recognized = true;
-    } else if (eq(sec, 0, MARIO_PATCHED_SIG) && addr + (1 << 20) <= flashSize) {
+    } else if (isMarioPatchedAssets(sec) && addr + (1 << 20) <= flashSize) {
       add({ offset: addr, size: 1 << 20, type: "Mario Assets" });
       recognized = true;
     }
@@ -239,20 +248,32 @@ export async function scanExtflashPartitionsLazy(
     return recognized;
   };
 
-  for (let coarse = 0; coarse < flashSize;) {
+  const startupOnly = startup !== undefined;
+  const startupStep = 128 << 10;
+  const searchEnd = startupOnly ? Math.min(flashSize, startup.maxSearchBytes ?? (16 << 20)) : flashSize;
+  let fineSearched = false;
+  for (let coarse = 0; coarse < searchEnd;) {
     if (seen.has(coarse)) {
-      coarse += 1 << 20;
+      coarse += startupOnly ? startupStep : 1 << 20;
       continue;
     }
     const covering = parts.find((p) => coarse > p.offset && coarse < p.offset + p.size);
     if (covering) {
-      coarse = Math.ceil((covering.offset + covering.size) / (1 << 20)) * (1 << 20);
+      const stride = startupOnly ? startupStep : 1 << 20;
+      coarse = Math.ceil((covering.offset + covering.size) / stride) * stride;
       continue;
     }
     const found = await probe(coarse);
     if (found) {
+      if (parts.some((p) => p.fs === "frogfs")) break;
       const zelda = parts.find((p) => p.offset === coarse && (p.type === "Zelda OFW" || p.type === "Zelda Assets"));
       const discovered = parts.find((p) => p.offset === coarse);
+      if (startupOnly) {
+        coarse += discovered
+          ? Math.max(startupStep, Math.ceil((discovered.offset + discovered.size - coarse) / startupStep) * startupStep)
+          : startupStep;
+        continue;
+      }
       coarse = zelda
         ? coarse + (4 << 20)
         : discovered
@@ -260,18 +281,42 @@ export async function scanExtflashPartitionsLazy(
           : coarse + (1 << 20);
       continue;
     }
-    let foundNearby = false;
-    for (let fine = coarse + (1 << 20) / 8; fine < Math.min(flashSize, coarse + (2 << 20)); fine += (1 << 20) / 8) {
-      if (await probe(fine)) foundNearby = true;
+    if (startupOnly) {
+      coarse += startupStep;
+      onProgress?.(Math.ceil(coarse / startupStep), Math.ceil(searchEnd / startupStep));
+      continue;
     }
-    if (!foundNearby) break;
+    if (!fineSearched) {
+      fineSearched = true;
+      for (let fine = coarse + (1 << 20) / 8; fine < Math.min(flashSize, coarse + (1 << 20)); fine += (1 << 20) / 8) {
+        await probe(fine);
+      }
+    }
     coarse += 1 << 20;
   }
-  for (let anchor = flashSize - 4096; anchor >= Math.max(0, flashSize - 16384); anchor -= 4096) {
-    const block = await read(anchor, 32);
-    if (isLfsSuperblock(block)) {
-      addLfsPartition(add, anchor, block, flashSize);
-      break;
+  if (startupOnly) {
+    // LittleFS grows down from chip end. Its block-0 superblock is at
+    // `flashSize - blockSize`; check that expected address directly, then a few
+    // supported block sizes for older/custom images. Never search the chip for it.
+    const preferred = startup.blockSize;
+    const candidates = [...new Set([preferred, 4096, 8192, 2048, 1024, 512, 256, 128])]
+      .filter((size): size is number => size !== undefined && Number.isInteger(size) && size >= 128 && size <= 8192);
+    for (const blockSize of candidates) {
+      const anchor = flashSize - blockSize;
+      if (anchor < 0) continue;
+      const block = await read(anchor, 32);
+      if (isLfsSuperblock(block)) {
+        addLfsPartition(add, anchor, block, flashSize);
+        break;
+      }
+    }
+  } else {
+    for (let anchor = flashSize - 4096; anchor >= Math.max(0, flashSize - 16384); anchor -= 4096) {
+      const block = await read(anchor, 32);
+      if (isLfsSuperblock(block)) {
+        addLfsPartition(add, anchor, block, flashSize);
+        break;
+      }
     }
   }
   return parts;

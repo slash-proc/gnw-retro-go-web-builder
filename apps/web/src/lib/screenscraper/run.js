@@ -1,5 +1,5 @@
 // run.js — cover scraping orchestration (no DOM dependencies).
-import { stem, canvasToBlob, downloadBlob, formatBytes, ext } from "./util.js";
+import { stem, canvasToBlob, downloadBlob, formatBytes, ext, romExt, romStem } from "./util.js";
 import { SOFTNAME, SINGLE_MEDIA, devCreds, IMAGE_EXT } from "./config.js";
 import { systemById } from "./systems.js";
 import { allSystems } from "./systemMap.js";
@@ -39,12 +39,12 @@ function readCreds(ssid, sspassword) {
  * A system with no declared extensions at all (11 of the 250) gets the stem too: we cannot know
  * what it accepts, and the stem is the form that works more often.
  */
-function romnomFor(fileName, systemeid) {
-  const dot = fileName.lastIndexOf(".");
-  if (dot <= 0) return fileName;
-  const ext = fileName.slice(dot + 1).toLowerCase();
+function romnomFor(fileName, systemeid, declaredExtensions = []) {
+  const extension = romExt(fileName, declaredExtensions);
+  if (!extension || fileName.length === extension.length) return fileName;
+  const ext = extension.slice(1).toLowerCase();
   const declared = systemById(systemeid)?.extensions ?? [];
-  return declared.includes(ext) ? fileName : fileName.slice(0, dot);
+  return declared.includes(ext) ? fileName : romStem(fileName, declaredExtensions);
 }
 
 async function fetchMediaBlob(client, url, useCache) {
@@ -240,7 +240,7 @@ async function lookupGame(client, rom, { h, forceSys, forceName, shouldCancel })
     const ids = forceSys ? [forceSys] : derived;
     for (const sid of ids) {
       if (shouldCancel() || httpError) break;
-      const jeu = await infos(sid, forceName || romnomFor(rom.file.name, sid));
+      const jeu = await infos(sid, forceName || romnomFor(rom.file.name, sid, rom.extensions));
       if (jeu) return { jeu, rung: "declared", httpError: null };
     }
   }
@@ -250,12 +250,12 @@ async function lookupGame(client, rom, { h, forceSys, forceName, shouldCancel })
     if (shouldCancel() || httpError) break;
     // Already asked exactly this on rung 1; do not spend the request twice.
     if (forceSys === sid && !forceName) continue;
-    const jeu = await infos(sid, romnomFor(rom.file.name, sid));
+    const jeu = await infos(sid, romnomFor(rom.file.name, sid, rom.extensions));
     if (jeu) return { jeu, rung: "derived", httpError: null };
   }
   if (httpError) return { jeu: null, rung: null, httpError };
 
-  const term = forceName || rom.file.name.replace(/\.[^/.]+$/, "");
+  const term = forceName || romStem(rom.file.name, rom.extensions);
 
   // 3. SCOPED SEARCH. The declared system if there is one, else each folder candidate.
   for (const sid of forceSys ? [forceSys] : derived) {
@@ -297,7 +297,7 @@ async function buildCoverFromJeu(client, jeu, { source, mixFile, useCache, fileN
 // previewBlob = original cover (for the gallery), zipBlob = what goes to disk.
 // We re-fetch the full game record by id (jeuRecherche results are lightweight
 // and often lack the medias needed to compose the cover).
-export async function assignCover({ gameId, jeu, source, mixFile, useCache, convert, ssid, sspassword, parts, fileName }) {
+export async function assignCover({ gameId, jeu, source, mixFile, useCache, convert, ssid, sspassword, parts, fileName, extensions = [] }) {
   const client = new ScreenScraperClient({
     creds: readCreds(ssid, sspassword),
     limiter: new RateLimiter(20),
@@ -314,7 +314,7 @@ export async function assignCover({ gameId, jeu, source, mixFile, useCache, conv
   }
   const built = await buildCoverFromJeu(client, full, { source, mixFile, useCache, fileName });
   if (!built) return null;
-  const baseName = fileName.replace(/\.[^/.]+$/, "");
+  const baseName = romStem(fileName, extensions);
   let zipBlob = built.blob;
   let outputPath;
   if (convert === "gw") {
@@ -533,7 +533,7 @@ export async function runCovers(opts, cb) {
         if (realSysId) rom.systemeid = realSysId;
 
         const base = rom.parts.slice(1, -1);
-        const baseName = rom.file.name.replace(/\.[^/.]+$/, "");
+        const baseName = romStem(rom.file.name, rom.extensions);
 
         if (isMix) {
           const gameRegions = gameRegionsFor(rom.file.name, jeu);
