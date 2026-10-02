@@ -92,6 +92,20 @@ export async function getKnownProbes(): Promise<USBDevice[]> {
   }
 }
 
+/** Only requestDevice cancellation is silent; USB attachment can also throw NotFoundError. */
+export class ProbePickerDismissed extends Error {}
+
+async function requestProbe(filters: USBDeviceFilter[]): Promise<USBDevice> {
+  try {
+    return await navigator.usb.requestDevice({ filters });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotFoundError") {
+      throw new ProbePickerDismissed(error.message);
+    }
+    throw error;
+  }
+}
+
 async function withTimeoutAndRetry<T>(
   action: () => Promise<T>,
   timeoutMs: number,
@@ -130,10 +144,10 @@ export async function connectProbe(opts: { forcePicker?: boolean; swdClockHz?: n
   if (opts.device) {
     dev = opts.device;
   } else if (opts.forcePicker) {
-    dev = await navigator.usb.requestDevice({ filters });
+    dev = await requestProbe(filters);
   } else {
     const known = (await navigator.usb.getDevices()).filter((d) => matchesFilters(d, filters));
-    dev = known.length === 1 ? known[0] : await navigator.usb.requestDevice({ filters });
+    dev = known.length === 1 ? known[0] : await requestProbe(filters);
   }
 
   const resetDevice = async () => {
@@ -143,23 +157,28 @@ export async function connectProbe(opts: { forcePicker?: boolean; swdClockHz?: n
   };
 
   if (dev.vendorId === ST_LINK_VENDOR_ID) {
-    const logger = new libstlink.Logger(1, null);
-    let stlink!: InstanceType<typeof WebStlink>;
-
-    await withTimeoutAndRetry(
-      async () => {
-        stlink = new WebStlink(logger);
-        await stlink.attach(dev, logger);
-      },
-      1000,
-      2,
-      1000,
-      resetDevice
-    );
-
+    const logger = new libstlink.Logger(0, null);
+    const stlink = new WebStlink(logger);
+    const started = performance.now();
+    dbg(`[adapter] ST-Link attach begin vid=0x${dev.vendorId.toString(16)} pid=0x${dev.productId.toString(16)} opened=${dev.opened}`);
+    let phase = "attach";
+    try {
+      // WebUSB has no cancellation for attach's pending transfers. Racing a one-second
+      // timer and then resetting/retrying leaves the original attach touching the same
+      // device. Let attach settle; the store owns subsequent reconnect attempts.
+      await stlink.attach(dev, logger);
+      const ll = stlink._stlink;
+      dbg(`[adapter] ST-Link attached version=${ll.ver_str} voltage=${ll.target_voltage} elapsed=${Math.round(performance.now() - started)}ms`);
+      phase = "SWD clock";
+      await ll.set_swd_freq(opts.swdClockHz ?? DEFAULT_SWD_CLOCK_HZ);
+    } catch (error) {
+      dbg(`[adapter] ST-Link ${phase} failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+      // attach cleans up its own failures; clock selection happens after that cleanup
+      // boundary, so close an attached handle before the store tries again.
+      if (phase === "SWD clock") await stlink.detach().catch(() => {});
+      throw error;
+    }
     const ll = stlink._stlink;
-    // attach() inits at the 1.8 MHz default — override to our shared SWD clock.
-    await ll.set_swd_freq(opts.swdClockHz ?? DEFAULT_SWD_CLOCK_HZ);
     return {
       transport: new WebStlinkTransport(ll),
       probeName: `ST-Link/${ll.ver_str}`,
@@ -196,5 +215,5 @@ export async function chooseProbe(): Promise<USBDevice> {
     throw new Error("WebUSB unavailable — use Chrome, Edge, or Opera.");
   }
   const filters = [...libstlink.usb.filters, { vendorId: RASPBERRY_PI_VENDOR_ID }];
-  return navigator.usb.requestDevice({ filters });
+  return requestProbe(filters);
 }

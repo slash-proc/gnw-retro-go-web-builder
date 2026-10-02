@@ -60,6 +60,7 @@ symlinkSync(join(here, "../../../node_modules"), join(out, "node_modules"));
 // replaced wholesale; the harness drives them through globalThis.__fake.
 const STUBS = {
   "./engine/transport.js": `
+    export class ProbePickerDismissed extends Error {}
     export const connectProbe = (opts) => globalThis.__fake.connectProbe(opts);
     export const getKnownProbes = () => globalThis.__fake.getKnownProbes();
     export const chooseProbe = async () => globalThis.__fake.chooseProbe?.();

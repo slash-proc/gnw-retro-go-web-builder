@@ -2,7 +2,7 @@
 // layer; read everywhere. Drives the structural model accent.
 import type { GnwFlasher, DeviceInfo } from "@gnw/gnw-flasher";
 import type { LittlefsTreeNode } from "@gnw/fs-builders";
-import { connectProbe, getKnownProbes, serialTransport, chooseProbe, type ProbeHandle, type SerialTransport } from "./engine/transport.js";
+import { ProbePickerDismissed, connectProbe, getKnownProbes, serialTransport, chooseProbe, type ProbeHandle, type SerialTransport } from "./engine/transport.js";
 import { bootStub, readInfo, dumpRegion, attachFlasher, isStubAlive, pingTarget, readRdpLocked } from "./engine/flasher.js";
 import { scanExtflashPartitions, scanExtflashPartitionsLazy, type ExtPartition } from "./engine/fsscan.js";
 import { scanIntflashBanks, retroGoInfo, INT_BANK_BASES, type IntflashBank } from "./engine/intflashscan.js";
@@ -43,16 +43,9 @@ export type Firmware = "stock-ofw" | "retro-go" | "unknown";
  *  surfacing real errors (see ui/DeviceControls.svelte's Recovery Mode item). */
 export class StubLoadCancelled extends Error {}
 
-/**
- * THE USER CLOSED THE BROWSER'S DEVICE CHOOSER. `navigator.usb.requestDevice()` rejects with a
- * `NotFoundError` DOMException both when no device matches AND when the person simply dismisses
- * the picker, and the two are indistinguishable from here. Treating it as a failure would ring
- * the bell every time someone opened Change Adapter and thought better of it, which is the way
- * an error channel gets trained out of the reader. The bell is errors only, so a cancel must
- * not reach it.
- */
+/** Cancellation is tagged at the picker boundary, never inferred from an attachment error. */
 function isPickerDismissal(e: unknown): boolean {
-  return e instanceof DOMException && e.name === "NotFoundError";
+  return e instanceof ProbePickerDismissed;
 }
 
 /** Thrown by `ensureUnlocked()` when the user declined the one prompt that survives — the
@@ -728,10 +721,11 @@ class DeviceStore {
         const pickerCancelledWithLiveHandle = isPickerDismissal(e) && opts?.forcePicker && this.probe;
         if (pickerCancelledWithLiveHandle) this.connection = previousConnection;
         else {
-          const adapterResponded = this.probe !== null || /Transfer count mismatch|Transfer response (?:FAULT|WAIT|NO_ACK)/i.test(this.error);
+          const invalidAdapter = /unsupported|not supported|not recent firmware/i.test(this.error);
           await this._teardownConnection();
           const known = await getKnownProbes();
-          this.adapterAvailable = adapterResponded && this.selectedAdapter !== null && known.includes(this.selectedAdapter);
+          // A failed target attachment does not invalidate an enumerated, selected programmer.
+          this.adapterAvailable = !invalidAdapter && this.selectedAdapter !== null && known.includes(this.selectedAdapter);
           this.targetUnresponsive = this.adapterAvailable;
           this.connection = this.adapterAvailable || wasLost ? "lost" : "disconnected";
           // Startup can fail before a live transport exists. The selected programmer still

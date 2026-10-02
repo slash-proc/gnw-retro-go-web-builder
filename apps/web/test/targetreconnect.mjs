@@ -3,9 +3,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { execFileSync } from "node:child_process";
 import ts from "typescript";
 
-const source = readFileSync(new URL("../src/lib/device.svelte.ts", import.meta.url), "utf8");
+const source = process.env.STLINK_BASELINE === "1"
+  ? execFileSync("git", ["-c", "safe.directory=/app", "show", "main:apps/web/src/lib/device.svelte.ts"], {cwd:"/app",encoding:"utf8"})
+  : readFileSync(new URL("../src/lib/device.svelte.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("device.svelte.ts", source, ts.ScriptTarget.Latest, true);
 const store = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === "DeviceStore");
 assert.ok(store, "DeviceStore must be available to test its actual connection methods");
@@ -209,4 +212,15 @@ function fixture({ recovery = false, booting = false, attachGate, attachFailures
   assert.equal(device.adapterAvailable, false);
   assert.equal(statusFor(device), "No valid adapter selected", "An unusable programmer must remain distinct from an absent console");
 }
-console.log("target reconnect: 10 scenarios passed");
+{
+  const { device, scheduledRetries } = fixture({ startup: true, attachFailures: 1,
+    attachError: "Device unavailable." });
+  await device.connectSilent();
+  assert.equal(device.adapterAvailable, true, "An enumerated programmer remains selected after USB attachment fails");
+  assert.equal(statusFor(device), "No device detected");
+  assert.equal(scheduledRetries.length, 1);
+  scheduledRetries[0].fn();
+  await new Promise(setImmediate);
+  assert.equal(device.connection, "connected", "Transient attachment failure must retry without opening a chooser");
+}
+console.log("target reconnect: 11 scenarios passed");
