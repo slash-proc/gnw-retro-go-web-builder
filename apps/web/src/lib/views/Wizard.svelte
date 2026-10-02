@@ -117,15 +117,11 @@
     device.partitions.some(p => p.type.includes("Assets") || p.type.includes("OFW"))
   );
 
-  // "Patched" requires evidence of a patched OFW in bank 1 AND its assets present in
-  // extflash (hasAssets) — both checks
-  // are required, not just "not locked". The old fallback (`kind !== "locked"`) fired whenever
-  // NO OFW was detected anywhere (e.g. intflash fully erased), incorrectly reporting a
-  // completely blank device as "patched" and skipping straight to Guided Setup's Install
-  // Retro-Go step — which would fail, since that step assumes bank 1 already has a working
-  // patched-OFW dual-boot chainloader in place.
+  // Completion comes from the patched OFW image in bank 1. External assets are checked
+  // separately: live runtime scans can identify the patch before partition inventory is
+  // available. An unlocked or blank bank alone remains insufficient evidence.
   const isPatched = $derived(
-    device.banks.some((b) => b.index === 1 && b.ofw?.patched === true) && hasAssets,
+    device.banks.some((b) => b.index === 1 && b.ofw?.patched === true),
   );
 
   // The classifier can describe orphaned external-flash files as `retrogo-sd` (for

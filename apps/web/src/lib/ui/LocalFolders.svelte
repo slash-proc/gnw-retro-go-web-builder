@@ -124,6 +124,7 @@
       role="button"
       tabindex="0"
       onclick={() => (selectedId = selectedId === f.id ? null : f.id)}
+      ondblclick={() => void configure(f)}
       onkeydown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -160,6 +161,7 @@
         <button
           class="configure"
           type="button"
+          ondblclick={(e) => e.stopPropagation()}
           onclick={(e) => {
             e.stopPropagation();
             void configure(f);

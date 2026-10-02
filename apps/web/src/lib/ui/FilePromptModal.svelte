@@ -180,6 +180,7 @@
           id: ++seq,
           inputId: f.inputId,
           filename: f.filename,
+          variantId: f.variantId,
           size: f.bytes.length,
           bytes: f.bytes,
           state: "ok" as const,
@@ -205,9 +206,7 @@
   function descriptionFor(spec: ConverterInput): string | undefined {
     return pickText(spec.description, locale.current);
   }
-  /** A variant's own localised name — manifest text, so the "German zelda3_de.sfc" chip the
-   *  artboard shows needs no string of ours. Absent for most inputs; the chip then shows the
-   *  filename alone. */
+  /** Prefer the matched variant's localised display name; otherwise show its filename. */
   function variantName(spec: ConverterInput, id: string | undefined): string | undefined {
     if (!id) return undefined;
     const v = spec.variants.find((x) => x.id === id);
@@ -587,8 +586,9 @@
                       >
                         {#if variantName(spec, slot.variantId)}
                           <span class="vname">{variantName(spec, slot.variantId)}</span>
+                        {:else}
+                          <span class="fname">{slot.filename}</span>
                         {/if}
-                        <span class="fname">{slot.filename}</span>
                       </button>
                     </li>
                   {/each}

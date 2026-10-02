@@ -1002,6 +1002,10 @@
               role="button"
               tabindex="0"
               onclick={() => select(row.repo)}
+              ondblclick={() => {
+                sources.selected = row.repo;
+                detailsOpen = true;
+              }}
               onkeydown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
@@ -1015,6 +1019,7 @@
                 checked={bulkSelected.has(row.repo)}
                 aria-label={row.card?.title ?? row.repo}
                 onclick={(e) => e.stopPropagation()}
+                ondblclick={(e) => e.stopPropagation()}
                 onchange={() => toggleBulk(row.repo)}
               />
               <div class="main">
@@ -1227,11 +1232,10 @@
   .pagecol {
     display: flex;
     flex-direction: column;
-    /* Artboard: `padding: 32px 40px 40px; gap: 32px; max-width: 720px`. `.page-body` no
-       longer applies here (the pane is full-bleed), so the cap and sides live on this
-       wrapper — which keeps the footer bar below a full-width sibling. */
+    /* Keep source lists comfortably wide while keeping the footer full-width. */
     padding: 32px var(--page-pad-x) 40px;
-    max-width: 720px;
+    width: 100%;
+    max-width: 1040px;
     box-sizing: border-box;
     min-width: 0;
     /* The 28px header-to-body gap the artboards draw; it used to live on `.sources`, where it
@@ -1337,6 +1341,12 @@
     flex: 1 1 auto;
     min-height: 104px;
     overflow-y: auto;
+  }
+  .panebody,
+  .listregion,
+  .dbody {
+    padding-inline-end: 16px;
+    box-sizing: border-box;
   }
   h2 {
     margin: 0;

@@ -212,7 +212,9 @@ await check("dual boot tracks backup and patch completion separately", () => {
   // dual-boot device looking unfinished after a reload or another session.
   assert(/let backupStepDone = \$derived\(step1Skipped \|\| backupPresent\)/.test(wiz), "backup completion uses validated local backups");
   assert(/let patchStepDone = \$derived\(path === "dual" && isPatched\)/.test(wiz), "dual patch completion is separate from backup completion");
-  assert(/b.index === 1 && b.ofw\?\.patched === true/.test(wiz) && /&& hasAssets/.test(wiz), "patch requires bank 1 and external assets");
+  const patchedPredicate = wiz.match(/const isPatched = \$derived\(([\s\S]*?)\n  \);/)?.[1] ?? "";
+  assert(/b.index === 1 && b.ofw\?\.patched === true/.test(patchedPredicate), "patch requires a patched official image in bank 1");
+  assert(!/hasAssets/.test(patchedPredicate), "missing external partition inventory does not undo patch completion");
 });
 
 console.log(`\nversionrefresh: ${passed} passed, ${failed} failed`);
