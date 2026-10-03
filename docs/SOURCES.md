@@ -142,6 +142,18 @@ scan. Neither path opens a ZIP declared as a system's ROM container.
   present or absent (`slotsLeft`), not a pluralised label. `chooseFiles` is deleted in every
   locale. Two i18n keys differing only in plurality are a smell.
 
+## Carousel cover residency
+
+Original cover art uses a bounded 120-neighbor window plus the center card. At rest it
+preloads 60 covers on either side, nearest first. During fast motion it immediately
+revokes the outer 50 trailing covers, retains 10 behind and 110 ahead, and queues new
+reads only toward travel. Below 30 cards/second that bias shrinks back toward 60/60;
+when motion stops, reads resume on both sides. Reversing direction replaces the queued
+work. File reads and image decodes outside the window are canceled or discarded on
+completion, and leaving the Library clears its original-cover URLs. An open details
+modal may pin its own cover. Persisted browser atlas previews remain available across
+the full library and are separate from this original-art window.
+
 ## Hash-selected ROM conversion and native ZIPs
 
 A core input can declare `unmatched: "passthrough"` (gwrg-dist-spec). Published

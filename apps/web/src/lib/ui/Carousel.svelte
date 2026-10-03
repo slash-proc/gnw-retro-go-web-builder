@@ -3,9 +3,10 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import { Spring } from "svelte/motion";
   import { locale } from "../i18n/locale.svelte.js";
+  import { carouselCoverWindow } from "../carouselCoverWindow.js";
   import { measureLibraryPhase } from "../libraryPerformance.js";
 
   type CarouselDebugSnapshot = {
@@ -23,6 +24,7 @@
     queueDepth: number;
     activeDecodes: number;
     decodedUrls: number;
+    window: { behind: number; ahead: number; retained: number; read: number };
     elapsedMs: number;
   };
 
@@ -52,6 +54,7 @@
     onPreview = () => {},
     onScrubState = () => {},
     onMotionState = () => {},
+    onCoverWindow = () => {},
     getUrl = () => "", 
     getCachedUrl = () => "",
     getLodUrl = () => "",
@@ -65,6 +68,7 @@
     onPreview?: (id: string) => void;
     onScrubState?: (active: boolean) => void;
     onMotionState?: (active: boolean) => void;
+    onCoverWindow?: (retain: string[], read: string[]) => void;
     getUrl?: (id: string, version?: number) => string;
     getCachedUrl?: (id: string, version?: number) => string;
     getLodUrl?: (id: string, version?: number) => string;
@@ -99,6 +103,7 @@
   const pendingDecodes = new Map<string, Promise<void>>();
   const pendingImages = new Map<string, HTMLImageElement>();
   const pendingLodUrls = new Set<string>();
+  const fullPreloadUrls = new Set<string>();
   const preloadQueue: Array<{ url: string; lowResolution: boolean }> = [];
   const queuedPreloads = new Set<string>();
   const PRELOAD_CONCURRENCY = 4;
@@ -127,6 +132,7 @@
     queueDepth: preloadQueue.length,
     activeDecodes: activePreloads,
     decodedUrls: decodedUrls.size,
+    window: { behind: fullCoverWindow.behind, ahead: fullCoverWindow.ahead, retained: fullCoverWindow.retain.length, read: fullCoverWindow.read.length },
     elapsedMs: Math.round(performance.now() - debugStarted),
   });
   function resetCarouselDebug(): void {
@@ -153,6 +159,7 @@
       image.src = next.url;
       const pending = image.decode()
         .then(() => {
+          if (image.src !== next.url) return;
           decodedUrls.add(next.url);
           if (decodedUrls.size > 256) decodedUrls.delete(decodedUrls.values().next().value!);
           debugDecodeDone++;
@@ -169,6 +176,7 @@
     }
   }
   function preloadUrl(url: string, lowResolution = false): void {
+    if (!lowResolution) fullPreloadUrls.add(url);
     if (decodedUrls.has(url) || pendingDecodes.has(url) || queuedPreloads.has(url)) return;
     queuedPreloads.add(url);
     debugPreloadRequested++;
@@ -178,6 +186,11 @@
   }
 
   function cancelPreloadsExcept(keep: Set<string>): void {
+    for (const url of fullPreloadUrls) {
+      if (keep.has(url)) continue;
+      decodedUrls.delete(url);
+      fullPreloadUrls.delete(url);
+    }
     for (let i = preloadQueue.length - 1; i >= 0; i--) {
       const queued = preloadQueue[i];
       if (queued.lowResolution || keep.has(queued.url)) continue;
@@ -203,6 +216,8 @@
     if (preloadRefreshTimer) clearTimeout(preloadRefreshTimer);
     for (const image of pendingImages.values()) image.src = "";
     pendingImages.clear();
+    for (const url of fullPreloadUrls) decodedUrls.delete(url);
+    fullPreloadUrls.clear();
     pendingDecodes.clear();
     pendingLodUrls.clear();
     preloadQueue.length = 0;
@@ -227,12 +242,21 @@
   // only the cards around the focus.
   // Keep a broad low-resolution window and a cache-sized high-resolution neighborhood.
   const PRELOAD_RADIUS = 120;
-  const FULL_RES_PRELOAD_RADIUS = 60;
   const FULL_RES_MAX_SPEED = 200;
   const FULL_RES_FADE_BAND = 100;
   const PRELOAD_REFRESH_INTERVAL_MS = 50;
   let tilesPerSecond = $state(0);
   let motionDirection = $state(1);
+  const fullCoverWindow = $derived(carouselCoverWindow(covers.length, visualCenter, tilesPerSecond, motionDirection));
+  $effect(() => {
+    const window = fullCoverWindow;
+    const list = covers;
+    const currentVersion = version;
+    untrack(() => {
+      onCoverWindow(window.retain.map(i => list[i].id), window.read.map(i => list[i].id));
+      cancelPreloadsExcept(new Set(window.retain.map(i => list[i].url || getCachedUrl(list[i].id, currentVersion)).filter(Boolean)));
+    });
+  });
   let lastFocusIndex = 0;
   let lastVelocityCovers = covers;
   let velocityRaf = 0;
@@ -297,11 +321,6 @@
 
   function preloadFullCoverAt(index: number, currentVersion: number, urlsToKeep: Set<string>): boolean {
     if (index < 0 || index >= covers.length) return false;
-    // Atlas cells are the carousel's full-library preview surface. Preloading original art for
-    // the entire 120-cover window defeats the atlas and can retain hundreds of decoded images.
-    // Full-resolution art is needed only at the current visual center; uncovered cards still
-    // use the normal bounded fallback path.
-    if (getAtlasCell(covers[index]?.id, currentVersion) && index !== visualCenter) return false;
     const fullUrl = covers[index]?.url || getUrl(covers[index]?.id, currentVersion);
     if (!fullUrl) return true;
     urlsToKeep.add(fullUrl);
@@ -327,21 +346,16 @@
           missingLod = preloadCoverAt(center + distance, currentVersion, urlsToKeep) || missingLod;
         }
       }
-      if (!isScrubbing && center !== focusIndex) {
-        preloadFullCoverAt(focusIndex, currentVersion, urlsToKeep);
+      // The parent has already evicted trailing URLs and canceled obsolete file reads.
+      // Preserve every resident image in the window, even when it is not queued this tick.
+      for (const index of fullCoverWindow.retain) {
+        const url = covers[index]?.url || getCachedUrl(covers[index]?.id, currentVersion);
+        if (url) urlsToKeep.add(url);
       }
-      const speed = tilesPerSecond;
-      const stride = Math.max(1, Math.ceil(speed / 60));
-      const budget = speed < 30 ? FULL_RES_PRELOAD_RADIUS * 2 + 1 : speed < 120 ? 12 : speed < 300 ? 6 : 2;
-      const direction = motionDirection || 1;
-      const leadingIndex = speed >= 300 ? center + direction * Math.round(speed * PRELOAD_REFRESH_INTERVAL_MS / 1000) : center;
-      let requested = 0;
-      for (let distance = 0; distance <= FULL_RES_PRELOAD_RADIUS && requested < budget; distance += stride) {
-        const forward = leadingIndex + direction * distance;
-        if (preloadFullCoverAt(forward, currentVersion, urlsToKeep)) requested++;
-        if (distance > 0 && requested < budget) {
-          if (preloadFullCoverAt(leadingIndex - direction * distance, currentVersion, urlsToKeep)) requested++;
-        }
+      // Requests are ordered nearest first. While moving only the leading side is queued;
+      // stopping restores alternating requests for the full 60/60 neighborhood.
+      for (const index of fullCoverWindow.read) {
+        preloadFullCoverAt(index, currentVersion, urlsToKeep);
       }
       if (missingLod && lodRetryCount < 60) {
         lodRetryCount++;

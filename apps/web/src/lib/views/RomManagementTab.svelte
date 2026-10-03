@@ -34,6 +34,7 @@
       };
     }
   }
+  import { CAROUSEL_COVER_CACHE_LIMIT, carouselCoverReadAllowed, pruneCarouselCoverUrls } from "../carouselCoverWindow.js";
   import { isLazy } from "../lazyBytes.js";
   import { convertCoversInMap, library } from "../library.svelte.js";
   import { nativeFolderPickerSupported, pickFolder, saveFileToDirOrDownload, deleteFileFromDir, pruneEmptyParents, readTextFromDir, scanRomDirectory, getValidRoot, dirSupportsWriteBack, romBytes, romBytesIfLoaded, materialize, type LibraryFile } from "../romScan.js";
@@ -1359,10 +1360,45 @@ import { navigate } from "../nav.js";
   const coverPathKey = (sourceId: string | undefined, path: string) => `${sourceId ?? ""}\u0002${path}`;
   const loggedCoverConflicts = new Set<string>();
   let coverLodUrls = new Map<string, string>();
-  // Browser atlas pages provide the scrub surface. Full-resolution fallback images are for the
-  // selected cover and a small neighborhood only; retaining 128 decoded originals can exceed
-  // the whole renderer memory budget on large libraries.
-  const COVER_FULL_CACHE_LIMIT = 24;
+  // Original art keeps the complete 120-neighbor window. The carousel explicitly evicts
+  // trailing covers and shifts reads forward during motion; the atlas remains the fallback.
+  const COVER_FULL_CACHE_LIMIT = CAROUSEL_COVER_CACHE_LIMIT;
+  let fullCoverRetainKeys = new Set<string>();
+  let fullCoverReadKeys = new Set<string>();
+  let coverReadsDisposed = false;
+  function detailCoverKey(): string {
+    return optionsOpen ? basePath(selectedCarouselId) : "";
+  }
+  function coverReadAllowed(key: string): boolean {
+    return !coverReadsDisposed && carouselCoverReadAllowed(key, fullCoverReadKeys, detailCoverKey());
+  }
+  function pruneOriginalCovers(): number {
+    const keep = new Set(fullCoverRetainKeys);
+    const detail = detailCoverKey();
+    if (detail) keep.add(detail);
+    const evicted = pruneCarouselCoverUrls(coverUrls, keep, url => URL.revokeObjectURL(url));
+    for (const key of coverUrlPaths.keys()) if (!coverUrls.has(key)) coverUrlPaths.delete(key);
+    return evicted;
+  }
+  $effect(() => {
+    optionsOpen;
+    selectedCarouselId;
+    untrack(() => { if (pruneOriginalCovers()) scheduleCoverVersion(); });
+  });
+  function updateCoverWindow(retain: string[], read: string[]): void {
+    fullCoverRetainKeys = new Set(retain.map(basePath));
+    fullCoverReadKeys = new Set(read.map(basePath));
+    const evicted = pruneOriginalCovers();
+    for (let i = coverReadQueue.length - 1; i >= 0; i--) {
+      const job = coverReadQueue[i];
+      if (coverReadAllowed(job.gameKey)) continue;
+      coverReadQueue.splice(i, 1);
+      coverLoads.delete(job.loadKey);
+    }
+    const priority = new Map(read.map((key, index) => [basePath(key), index]));
+    coverReadQueue.sort((a, b) => (priority.get(a.gameKey) ?? -1) - (priority.get(b.gameKey) ?? -1));
+    if (evicted) scheduleCoverVersion();
+  }
   // Carousel `.img` covers are the permanent fast-scrub representation. They are intentionally
   // not evicted: for the expected few-thousand-title library this is a small, predictable
   // memory cost, and evicting them makes a reverse scrub visibly fall back to a blank tile while
@@ -1412,6 +1448,7 @@ import { navigate } from "../nav.js";
         signatureLength: carouselAtlasInputSignature.length,
       },
       scan: library.scanDiagnostics,
+      originals: { cached: coverUrls.size, retained: fullCoverRetainKeys.size, readable: fullCoverReadKeys.size },
     };
   }
   function resetCoverDebug(): void {
@@ -1424,7 +1461,7 @@ import { navigate } from "../nav.js";
   }
   let coverVersionRaf = 0;
   function scheduleCoverVersion(): void {
-    if (coverVersionRaf) return;
+    if (coverReadsDisposed || coverVersionRaf) return;
     coverVersionRaf = requestAnimationFrame(() => {
       coverVersionRaf = 0;
       measureLibraryPhase("carousel cover version publish", null, () => { coverVersion++; });
@@ -1432,17 +1469,16 @@ import { navigate } from "../nav.js";
   }
   function pumpCoverReads(): void {
     while (activeCoverReads < COVER_READ_CONCURRENCY && coverReadQueue.length > 0) {
-      // New requests correspond to the user's current scrub neighborhood. Process them first;
-      // an old FIFO queue made the carousel wait behind covers that had already left the
-      // viewport.
-      const job = coverReadQueue.pop()!;
+      // The window cancels obsolete work and orders the remainder nearest first.
+      const job = coverReadQueue.shift()!;
+      if (!coverReadAllowed(job.gameKey)) { coverLoads.delete(job.loadKey); continue; }
       activeCoverReads++;
       coverReadsStarted++;
       void measureLibraryPhaseAsync("carousel cover bytes read", null, () => romBytes(job.entry)).then((bytes) => {
         coverReadsDone++;
         coverReadBytes += bytes.byteLength;
         const selected = job.owner ? selectedOriginalCovers.get(job.owner) : undefined;
-        if (!job.cache.has(job.gameKey) && (!selected || coverPathKey(selected.sourceId, selected.path) === coverPathKey(job.sourceId, job.path))) {
+        if (coverReadAllowed(job.gameKey) && !job.cache.has(job.gameKey) && (!selected || coverPathKey(selected.sourceId, selected.path) === coverPathKey(job.sourceId, job.path))) {
           cacheCoverUrl(job.cache, job.gameKey, URL.createObjectURL(new Blob([bytes as BlobPart])), job.cacheLimit);
           coverUrlPaths.set(job.gameKey, coverPathKey(job.sourceId, job.path));
         }
@@ -1474,6 +1510,16 @@ import { navigate } from "../nav.js";
     for (const url of cache.values()) URL.revokeObjectURL(url);
     cache.clear();
   }
+  onDestroy(() => {
+    coverReadsDisposed = true;
+    fullCoverRetainKeys.clear();
+    fullCoverReadKeys.clear();
+    coverReadQueue.length = 0;
+    coverLoads.clear();
+    clearCoverUrls(coverUrls);
+    coverUrlPaths.clear();
+    if (coverVersionRaf) cancelAnimationFrame(coverVersionRaf);
+  });
   let coverVersion = $state(0);
   let coverAtlasRevision = $state(coverSession.atlasRevision);
   let coverAtlasPausedForImport = $state(false);
@@ -1965,6 +2011,7 @@ import { navigate } from "../nav.js";
       cache.set(gameKey, cachedUrl);
       return cachedUrl;
     }
+    if (!coverReadAllowed(gameKey)) return "";
     const structuredRom = visibleGameByKey.get(key)?.rom as LibraryRom | undefined;
     let system = "";
     let base = "";
@@ -5238,6 +5285,7 @@ import { navigate } from "../nav.js";
                   library.setScanInteraction("carousel-motion", active);
                   setCarouselAtlasInteraction("carousel-motion", active);
                 }}
+                onCoverWindow={updateCoverWindow}
                 getUrl={(key) => getCoverUrl(key, coverVersion)}
                 getCachedUrl={(key) => {
                   const gameKey = basePath(key);
