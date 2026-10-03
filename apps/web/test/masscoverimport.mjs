@@ -19,8 +19,8 @@ assert.match(panel, /async function openImportModal\(\)[\s\S]*?if \(massCoverImp
   "opening import while a run is active must reveal that run without preparing a second selection");
 assert.match(panel, /shouldCancel:\s*\(\) => massCoverImport\.cancelRequested/,
   "Stop must be connected to the scraper cancellation hook");
-assert.match(overlay, /#if massCoverImport\.active && !massCoverImport\.minimized[\s\S]*?onDismiss=\{null\}[\s\S]*?importModal\.minimize[\s\S]*?importModal\.stop/,
-  "the app-level running modal has Minimize and Stop controls and cannot be dismissed with X/backdrop");
+assert.match(overlay, /#if massCoverImport\.active && !massCoverImport\.minimized[\s\S]*?zIndex="var\(--z-modal-prompt\)" onDismiss=\{null\}[\s\S]*?importModal\.minimize[\s\S]*?importModal\.stop/,
+  "the app-level running modal stays above other modals and has Minimize/Stop controls without backdrop dismissal");
 assert.match(overlay, /massCoverImport\.previewBlob[\s\S]*?createObjectURL[\s\S]*?massCoverImport\.previewMessage/,
   "the running modal preview lives with the shared job state and survives panel remounts");
 assert.match(romManagement, /patchImportedAtlasCover\(cover: \{ key\?: string[\s\S]*?romSelection\.rows\.find\(\(row\) => row\.key === gameKey\)[\s\S]*?patchCarouselAtlasCover\(atlas, owner, cover\.bytes\)/,

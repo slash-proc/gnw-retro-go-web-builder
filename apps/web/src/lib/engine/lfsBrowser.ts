@@ -20,6 +20,8 @@ const LFS_TREE_PROGRESS_ESTIMATED_BLOCKS = 20;
 
 export async function ensureLfsTree(onProgress?: (done: number, total: number) => void): Promise<LittlefsTreeNode> {
   if (device.installedLfsTree) return device.installedLfsTree;
+  const trace = typeof location !== "undefined" && new URLSearchParams(location.search).has("libraryTrace");
+  const traceStarted = performance.now();
 
   const p = device.partitions.find((p) => p.fs === "littlefs");
   if (!p || !device.flasher) {
@@ -58,6 +60,7 @@ export async function ensureLfsTree(onProgress?: (done: number, total: number) =
   }
   sortTree(tree);
   device.installedLfsTree = tree;
+  if (trace) console.info("[library trace] littlefs tree done", JSON.stringify({ blocksFetched, blockSize, bytesRead: blocksFetched * blockSize, cacheBlocks: device.lfsBlockCache.size, durationMs: Math.round(performance.now() - traceStarted) }));
   return tree;
 }
 

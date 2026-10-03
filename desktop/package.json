@@ -6,6 +6,7 @@
   "description": "Electron shell for GNW Web Builder",
   "main": "src/main.js",
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "stage": "node scripts/stage-web.mjs",
     "pack": "electron-builder --publish never"
   },

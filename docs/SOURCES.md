@@ -51,11 +51,17 @@ manifest and converter outputs.
 ## Sources, cores and the Library
 
 Native library directory enumeration, file metadata reads, and ZIP central-directory indexing
-run in `libraryDirectory.worker.ts`. The UI receives file snapshots and handles, then applies
+run in `libraryDirectory.worker.ts`. The UI receives path/size/mtime snapshots, then applies
 the existing `romScan.ts` classification and lazy-file rules in yielding batches. Regular ROM
 payloads are not read by this scan. The worker waits for acknowledgement of each progress
 update, and both it and atlas conversion pause while the library list scrolls or the carousel
 is being manipulated or its spring is still moving.
+
+After hydrating a saved library index, browser startup enumerates directory names to validate
+presence, reusing size/mtime for known physical files and cached ZIP verdicts. New paths receive
+metadata reads and normal classification; missing paths are removed. Refresh Library performs
+the full metadata check, including files replaced in place. Electron uses its native metadata
+scan. Neither path opens a ZIP declared as a system's ROM container.
 
 - **A source declares what a console is; the scan says which ones have files.** `sources/coreRegistry.ts`
   builds the registry from **active** sources' declared systems (folder, names, extensions,
@@ -160,7 +166,10 @@ BIOS discovery also follows the origin of a folder explicitly marked `Used for: 
 The library scan already walks those folders recursively; its per-file origin lets BIOS
 matching see nested files without treating unrelated nested files from ordinary ROM folders
 as BIOS. BIOS discovery independently walks the handles for BIOS-marked sources, indexes ZIP
-central directories, and inflates only manifest-declared BIOS members. The regular game scan
+central directories, and inflates only manifest-declared BIOS members. Native browser handles
+are enumerated in a temporary worker, terminated on completion or navigation; the UI receives
+only matching member metadata and lazy File snapshots. Electron and input-directory adapters
+keep their existing access path. The regular game scan
 keeps its normal archive rules, so multi-file ZIPs in a BIOS source can still provide firmware
 without being accepted as wrapped games. Neo Geo game ZIPs from ordinary ROM sources remain
 opaque and are never searched for BIOS files.

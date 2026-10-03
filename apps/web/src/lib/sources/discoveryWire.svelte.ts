@@ -21,17 +21,20 @@
  * NOTHING IS CONVERTED. Discovery fills the slot; the user still presses prepare.
  */
 import { library } from "../library.svelte.js";
+import { coreRegistry } from "./coreRegistry.svelte.js";
+import { isLibrarySource } from "./coreRegistry.js";
 import { localFolders } from "./localFolders.svelte.js";
 import { basePath } from "./libraryScan.js";
 import { sha1Hex } from "./inputGate.js";
 import { prepareState } from "./prepareState.svelte.js";
 import {
   declaredExtensions,
-  discoverInputs,
+  discoverInputsEach,
   folderCandidates,
   foldersToSearch,
   libraryCandidates,
   type CandidateFile,
+  type DiscoveredOffer,
 } from "./inputDiscovery.js";
 import type { ConverterInput } from "./converterTypes.js";
 import type { VariantHint } from "./gameRows.js";
@@ -40,11 +43,9 @@ import type { VariantHint } from "./gameRows.js";
  * What discovery matched, per library key — the half of its answer the Library needs and
  * `prepareState` has no use for.
  *
- * `prepareState.discovered` stores `OfferedFile[]` (`{inputId, filename, bytes}`), which is
- * everything RUNNING the converter needs and nothing the LIBRARY does: pairing a `.wad` with
- * the `.whd` it will become requires the matched variant's declared filename, and that was
- * being discarded. Recording it here costs nothing extra — `discoverInputs` already computed
- * it under its own hash budget.
+ * `prepareState.discovered` stores file readers and metadata, not ROM bytes. The library needs
+ * the matched variant's declared filename to pair a `.wad` with the `.whd` it will become; the
+ * converter reopens bytes only if the user runs it.
  *
  * Keyed by the candidate's library key so `sources/gameRows.ts` can ask about a scanned file
  * directly. Written in full per source on every pass, like `setDiscovered`.
@@ -63,6 +64,19 @@ class VariantHints {
 
   /** Replace every hint contributed by `repo`; other sources' entries are left alone. */
   set(repo: string, hints: ReadonlyMap<string, RecognitionHint>): void {
+    let unchanged = true;
+    let owned = 0;
+    for (const [key, existing] of this.byKey) {
+      if (existing.repo !== repo) continue;
+      owned++;
+      const hint = hints.get(key);
+      if (!hint || hint.sha1 !== existing.sha1 || hint.matched !== existing.matched
+        || hint.variantFilename !== existing.variantFilename) {
+        unchanged = false;
+        break;
+      }
+    }
+    if (unchanged && owned === hints.size) return;
     const next = new Map(this.byKey);
     for (const [k, v] of [...next]) if (v.repo === repo) next.delete(k);
     for (const [k, v] of hints) next.set(k, { ...v, repo });
@@ -88,11 +102,19 @@ export async function discoverForSource(
   targetKeys: readonly string[],
 ): Promise<void> {
   if (!repo || inputs.length === 0) return;
+  const trace = new URLSearchParams(location.search).has("libraryTrace");
+  const traceStarted = performance.now();
+  const candidates: CandidateFile[] = [];
+  let payloadReads = 0;
+  let payloadBytes = 0;
+  let streamedHashes = 0;
+  let streamedHashBytes = 0;
   try {
     const searchable = foldersToSearch(localFolders.folders, targetKeys);
     const allowed = new Set(searchable.map((f) => f.id));
     const scan = library.scan;
-    const candidates: CandidateFile[] = scan
+    const exts = declaredExtensions(inputs);
+    candidates.push(...(scan
       ? libraryCandidates(
         scan.userRoms,
         library.fileOrigin,
@@ -100,30 +122,49 @@ export async function discoverForSource(
         basePath,
         (key, folderId) => library.sha1ForPath(basePath(key), folderId),
         (key, folderId, sha1) => library.rememberSha1ForPath(basePath(key), folderId, sha1),
+        exts,
       )
-      : [];
-    // A folder that contributed nothing to the merged scan is one nothing else walks (one
-    // dedicated to a homebrew target). Walking a folder the scan covered would read it twice.
-    const covered = new Set(library.fileOrigin.values());
-    const exts = declaredExtensions(inputs);
+      : []));
+    // Library sources are owned by the shared scan even before its cached snapshot hydrates.
+    // Inferring coverage from fileOrigin starts redundant directory walks in that startup
+    // window. Those walks can finish after hydration and hash large archives without the
+    // library's lazy readers or remembered digests. The consuming effects run again when the
+    // shared snapshot arrives; only dedicated converter folders need an independent walk.
     for (const f of searchable) {
-      if (covered.has(f.id)) continue;
+      if (isLibrarySource(coreRegistry.current, f.usedBy)) continue;
       candidates.push(...(await folderCandidates(f.handle, f.id, exts)));
     }
-    const results = await discoverInputs(inputs, candidates, { hash: sha1Hex });
-    // `found[]` is one-per-`files[]`, same order, and carries the matched variant. The Library
-    // pairs a `.wad` with the `.whd` it becomes on that variant's declared filename, so record
-    // it rather than dropping it on the floor as this did before.
-    const hints = new Map<string, RecognitionHint>();
-    for (const input of inputs.filter((entry) => entry.unmatched === "passthrough")) {
+    if (trace) {
       for (const candidate of candidates) {
-        if (input.extensions.some((extension) => candidate.path.toLowerCase().endsWith(extension.toLowerCase()))) {
-          hints.set(candidate.path, { sha1: candidate.sha1, matched: input.variants.some((variant) => candidate.sha1?.toLowerCase() === variant.sha1.toLowerCase()
-            && (variant.bytes === undefined || variant.bytes === candidate.size)) });
+        const read = candidate.read;
+        candidate.read = async () => {
+          const bytes = await read();
+          payloadReads++;
+          payloadBytes += bytes.byteLength;
+          return bytes;
+        };
+        if (candidate.hashSha1) {
+          const hashSha1 = candidate.hashSha1;
+          candidate.hashSha1 = async () => {
+            streamedHashes++;
+            streamedHashBytes += candidate.size;
+            return hashSha1();
+          };
         }
       }
+      console.info("[library trace] discovery start", JSON.stringify({ repo, inputs: inputs.length, candidates: candidates.length, hashableCandidates: candidates.filter((candidate) => !!candidate.hashSha1).length, durationMs: Math.round(performance.now() - traceStarted) }));
     }
-    for (const r of results) {
+    const hints = new Map<string, RecognitionHint>();
+    await discoverInputsEach(inputs, candidates, { hash: sha1Hex }, async (r) => {
+      const input = inputs.find((entry) => entry.id === r.inputId);
+      if (input?.unmatched === "passthrough") {
+        for (const candidate of candidates) {
+          if (input.extensions.some((extension) => candidate.path.toLowerCase().endsWith(extension.toLowerCase()))) {
+            hints.set(candidate.path, { sha1: candidate.sha1, matched: input.variants.some((variant) => candidate.sha1?.toLowerCase() === variant.sha1.toLowerCase()
+              && (variant.bytes === undefined || variant.bytes === candidate.size)) });
+          }
+        }
+      }
       // `found[]` also names the matched VARIANT, not just its declared output filename, and a
       // discovered row leads with that variant's label exactly as a picked one does. Same
       // one-per-file ordering, so the index is the pairing.
@@ -138,21 +179,38 @@ export async function discoverForSource(
         seen.add(key);
         keep.push(i);
       });
-      const files = keep.map((i) => {
-        const f = r.files[i];
-        const id = r.found[i]?.variantId;
-        return id === undefined ? f : { ...f, variantId: id };
+      const files: DiscoveredOffer[] = keep.flatMap((i) => {
+        const found = r.found[i];
+        const candidate = candidates.find((c) => c.folderId === found.folderId && c.path === found.path);
+        if (!candidate) return [];
+        return [{
+          inputId: r.inputId,
+          filename: baseName(found.path),
+          ...(found.sha1 === undefined ? {} : { sha1: found.sha1 }),
+          ...(found.variantId === undefined ? {} : { variantId: found.variantId }),
+          readBytes: () => candidate.read(),
+          release: () => candidate.release?.(),
+        }];
       });
       prepareState.setDiscovered(repo, r.inputId, files, r.unrecognised);
       for (const i of keep) {
         const f = r.found[i];
         hints.set(f.path, { sha1: f.sha1, matched: f.variantId !== undefined, ...(f.variantFilename ? { variantFilename: f.variantFilename } : {}) });
       }
-    }
+    }, true);
     variantHints.set(repo, hints);
+    if (trace) console.info("[library trace] discovery done", JSON.stringify({ repo, inputs: inputs.length, candidates: candidates.length, payloadReads, payloadMiB: +(payloadBytes / 1048576).toFixed(1), streamedHashes, streamedHashMiB: +(streamedHashBytes / 1048576).toFixed(1), durationMs: Math.round(performance.now() - traceStarted) }));
   } catch {
     /* discovery is an optimisation over the picker; it never becomes an error the user sees */
+  } finally {
+    // Hashing is a scan-time probe. Keep only source references in app state; matched bytes
+    // are reopened when the user actually runs the converter.
+    for (const candidate of candidates) candidate.release?.();
   }
+}
+
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
 }
 
 /**

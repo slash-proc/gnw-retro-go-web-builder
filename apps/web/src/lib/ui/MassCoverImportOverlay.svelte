@@ -22,7 +22,7 @@
 </script>
 
 {#if massCoverImport.active && !massCoverImport.minimized}
-  <ModalShell onDismiss={null} maxWidth="48rem">
+  <ModalShell zIndex="var(--z-modal-prompt)" onDismiss={null} maxWidth="48rem">
     <div class="head">
       <h3>{locale.t.roms.gameDetailsPanel.importModal.title}</h3>
       <div class="actions">

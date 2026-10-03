@@ -24,10 +24,19 @@ import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { deflateRawSync, crc32 } from "node:zlib";
+import { deflateRawSync } from "node:zlib";
 import { gnwResolveFor } from "./gnwResolve.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
+// Bitwise IEEE CRC-32 reference keeps fixtures portable to the project's Node 20 image.
+const crc32 = (bytes) => {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+};
 let failures = 0;
 let checks = 0;
 const fail = (label, detail) => {
@@ -351,6 +360,31 @@ ok(Buffer.from(await romBytes(res.userRoms.get("gb/Alleyway (USA).gb"))).equals(
   );
   ok(Buffer.from(await romBytes(snapshot.userRoms.get("gb/Alleyway (USA).gb"))).equals(alleyway),
     "worker metadata snapshots reopen loose ROMs by path when bytes are requested");
+}
+
+{
+  eq(crc32(new TextEncoder().encode("123456789")), 0xcbf43926, "fixture CRC reference matches the standard check vector");
+  const noRead = { kind: "directory", name: "root", entries() { throw new Error("snapshot walked source directory"); },
+    getFileHandle() { throw new Error("snapshot read ROM payload"); } };
+  const old = new LazyRom(9, async () => { throw new Error("unchanged file read"); }, "nested/sfix.sfix", 20);
+  const previous = new Map([["bios/nested/sfix.sfix", old]]);
+  const revalidate = (size, lastModified) => scanRomFileSnapshot(noRead,
+    [{ path: "nested/sfix.sfix", size, lastModified }], null, new Map(), () => Promise.resolve(), undefined, previous);
+  ok((await revalidate(9, 20)).userRoms.get("nested/sfix.sfix") === old,
+    "snapshot reuses the unchanged reader by physical path despite placed BIOS keys");
+  ok((await revalidate(10, 20)).userRoms.get("nested/sfix.sfix") !== old,
+    "snapshot does not reuse a file with a changed size");
+  ok((await revalidate(9, 21)).userRoms.get("nested/sfix.sfix") !== old,
+    "snapshot does not reuse a replaced file with a changed mtime");
+  const entry = { name: "actual.gb", size: 3, compressedSize: 3, method: 0, encrypted: false, isDirectory: false, offset: 0 };
+  const archived = new LazyRom(3, async () => { throw new Error("archive payload read"); }, "gb/archive.zip", 20, entry);
+  const archiveCache = new Map([["gb/archive.zip", { size: 90, lastModified: 20, verdict: { ok: true, name: "actual.gb", entry } }]]);
+  const archiveScan = () => scanRomFileSnapshot(noRead,
+    [{ path: "gb/archive.zip", size: 90, lastModified: 20 }], null, archiveCache, () => Promise.resolve(), undefined,
+    new Map([["gb/actual.gb", archived]]));
+  ok((await archiveScan()).userRoms.get("gb/actual.gb") === archived, "snapshot reuses unchanged ZIP member readers");
+  archiveCache.get("gb/archive.zip").verdict.entry = { ...entry, offset: 1 };
+  ok((await archiveScan()).userRoms.get("gb/actual.gb") !== archived, "changed ZIP member provenance creates a fresh reader");
 }
 
 // THE MEASUREMENT THE DESIGN EXISTS FOR. The archives total far more than the scan read.

@@ -4,10 +4,8 @@
   // Firmware Setup Guided/Advanced). Modeled on FolderGateModal.svelte's promise-gate/
   // checklist pattern.
   //
-  // Two independent actions, not tiered: "Choose Adapter" (item row) always opens the OS
-  // picker to grant/switch an adapter. "Connect" (bottom) always attempts a silent connect
-  // reusing whatever adapter is already known — no picker. Whichever succeeds first
-  // auto-resolves the gate (see the $effect below); there's no separate "Continue" step.
+  // Adapter configuration stays reachable from inside this gate: the status menu behind the
+  // backdrop cannot be clicked. Its dialog includes the adapter picker and remote GPIO settings.
   // Recovery Mode is deliberately NOT offered here — it's gated behind the specific
   // feature/deep-scan action that needs it (each such action calls device.ensureStub()
   // itself, which surfaces its own confirmation via StubLoadModal).
@@ -26,18 +24,6 @@
     if (prompt && device.isConnected) device.resolveConnectGate();
   });
 
-  async function chooseAdapter() {
-    connecting = true;
-    err = null;
-    try {
-      await device.connect(undefined, { forcePicker: true });
-    } catch (e) {
-      err = e instanceof Error ? e.message : locale.t.shared.connectGateModal.connectionFailed;
-    } finally {
-      connecting = false;
-    }
-  }
-
   async function connect() {
     connecting = true;
     err = null;
@@ -48,6 +34,12 @@
     } finally {
       connecting = false;
     }
+  }
+
+  function configureAdapter() {
+    // DeviceControls owns the configuration form. This prompt opens it without requiring the
+    // status menu behind this full-screen gate to be reachable.
+    void device.requestAdapterConfiguration().catch(() => {});
   }
 </script>
 
@@ -75,8 +67,8 @@
             {/if}
           </div>
           {#if !device.isConnected}
-            <button class="pick" disabled={connecting} onclick={chooseAdapter}>
-              {connecting ? locale.t.shared.common.connecting : locale.t.shared.connectGateModal.chooseAdapter}
+            <button class="pick" disabled={connecting} onclick={configureAdapter}>
+              {locale.t.shared.deviceControls.changeAdapter}
             </button>
           {/if}
         </div>

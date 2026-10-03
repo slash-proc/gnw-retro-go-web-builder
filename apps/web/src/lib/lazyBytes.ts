@@ -18,6 +18,8 @@ export interface LazyBytes {
   /** UNCOMPRESSED length, known without reading the payload. */
   readonly length: number;
   bytes(): Promise<Uint8Array>;
+  /** Optional bounded-memory hash path for large direct files. */
+  hashSha1?(): Promise<string>;
   /** Release an optional decoded cache when a caller has finished a one-shot transform. */
   release?(): void;
 }

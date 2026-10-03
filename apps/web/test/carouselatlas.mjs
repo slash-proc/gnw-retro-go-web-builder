@@ -16,7 +16,7 @@ await esbuild.build({
   target: "es2022",
   logLevel: "silent",
 });
-const { carouselAtlasFiles, carouselAtlasCacheSignature } = await import(pathToFileURL(join(out, "carouselAtlas.mjs")).href);
+const { carouselAtlasFiles, carouselAtlasCacheSignature, carouselAtlasSignature, carouselAtlasContentFingerprint } = await import(pathToFileURL(join(out, "carouselAtlas.mjs")).href);
 
 const sourceId = "covers-source";
 const owner = "celeste-title";
@@ -42,4 +42,26 @@ const overridden = carouselAtlasFiles(files, origins, owners, names, new Map([[o
 if (overridden[0].path !== lower) throw new Error("an explicit cover update must take precedence");
 const signature = (path) => carouselAtlasCacheSignature(sourceId, [{ key: owner, path, size: 1 }]);
 if (signature(lower) === signature(upper)) throw new Error("a changed winner must invalidate the atlas cache");
-console.log("carousel atlas cover selection: 5 checks passed");
+// Oracle for the persisted format: the previous BigInt algorithm. Include unsigned
+// carries, nonzero byte offsets, and Unicode metadata so existing caches stay valid.
+function referenceFingerprint(bytes) {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of bytes) hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
+  return hash.toString(16).padStart(16, "0");
+}
+for (const bytes of [new Uint8Array(), new TextEncoder().encode("cover/日本語.png"),
+  Uint8Array.from({ length: 65539 }, (_, i) => (i * 73 + 255) & 255).subarray(3)]) {
+  if (carouselAtlasContentFingerprint(bytes) !== referenceFingerprint(bytes)) {
+    throw new Error("atlas fingerprint must match the persisted FNV-1a oracle");
+  }
+}
+const metadata = [
+  { key: "日本語", path: "covers/a.png", size: 123, lastModified: 456 },
+  { key: "abc", path: "covers/b.png", size: 321, contentFingerprint: "f00" },
+];
+const ordered = [...metadata].sort((a, b) => a.key.localeCompare(b.key));
+const text = `${sourceId}\n${ordered.map(e => `${e.key}\0${e.path ?? ""}\0${e.size}\0${e.lastModified ?? 0}${e.contentFingerprint === undefined ? "" : `\0${e.contentFingerprint}`}`).join("\n")}`;
+if (carouselAtlasSignature(sourceId, metadata) !== referenceFingerprint(new TextEncoder().encode(text))) {
+  throw new Error("atlas metadata signature must preserve existing cache identity");
+}
+console.log("carousel atlas cover selection and cache fingerprints: 9 checks passed");

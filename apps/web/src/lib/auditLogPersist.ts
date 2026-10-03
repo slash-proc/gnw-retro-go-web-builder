@@ -33,6 +33,7 @@
 import { en, type Strings } from "./i18n/en.js";
 import { literal, renderEntry, type LogEntry, type LogParam } from "./logEntry.js";
 import { scoped } from "./storageScope.js";
+import { measureLibraryPhase } from "./libraryPerformance.js";
 
 /** One serialized message. `x` is the English rendering and is always present; `k`/`p` are the
  *  key path and its params, present only when the accessor's path was recoverable. */
@@ -222,6 +223,10 @@ export function serialize(
   entries: readonly PersistableEntry[],
   starts: ReadonlyMap<number, string> = new Map(),
 ): string {
+  return measureLibraryPhase("audit-log-serialization", entries.length, () => serializeEntries(entries, starts));
+}
+
+function serializeEntries(entries: readonly PersistableEntry[], starts: ReadonlyMap<number, string>): string {
   const stored: StoredEntry[] = entries.map((e) => ({
     t: e.time,
     v: e.severity,

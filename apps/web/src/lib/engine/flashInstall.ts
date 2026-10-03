@@ -299,8 +299,8 @@ export async function buildFrogfsImage(
   frogfsState?: { order: string[]; dataStart: number },
 ): Promise<FrogfsImage> {
   // RAW (uncompressed) ROMs for execute-in-place — no per-ROM .lzma sidecars (no on-device
-  // decompress → no heap OOM). lzmaRaw is unused in raw mode but the planner still wants it.
-  const lzmaRaw = await loadLiblzma();
+  // decompress → no heap OOM). Do not initialize a WASM compressor for a raw-only preview.
+  const lzmaRaw = (): never => { throw new Error("Raw FrogFS build requested compression"); };
   // `bank` is required, not defaulted: homebrew/core binaries in this tree call back into
   // firmware at bank-specific absolute addresses, so guessing here would reintroduce the
   // 0x0810cdcd hardfault.

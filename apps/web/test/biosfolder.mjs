@@ -22,6 +22,7 @@ import { mkdtempSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 
 let passed = 0;
 const failures = [];
@@ -76,6 +77,10 @@ const reg = await build("coreRegistry.ts", "coreRegistry.js");
 const scan = await build("libraryScan.ts", "libraryScan.js");
 const bios = await build("bios.ts", "bios.js");
 const biosArchives = await build("biosArchives.ts", "biosArchives.js");
+const workerCode = (await esbuild.build({
+  entryPoints: [join(here, "../src/lib/sources/biosArchives.worker.ts")],
+  bundle: true, format: "iife", platform: "browser", target: "es2022", write: false,
+})).outputFiles[0].text;
 
 // --- The owner's fixture ------------------------------------------------------------------
 
@@ -288,6 +293,86 @@ await check("BIOS source ZIP indexing is independent of the library scan", async
   eq(resolved.map((status) => status.present), [true, true, true],
     "members found by the independent scan fill all three Neo Geo requirements");
   eq(payloadReads, 1, "matching members share one lazy archive payload read");
+});
+
+await check("native BIOS directories are enumerated in a worker with lazy, byte-exact results", async () => {
+  const archive = storedZip([["nested/sfix.sfix", new Uint8Array([4, 5, 6])]]);
+  const backing = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength);
+  let payloadReads = 0;
+  const file = {
+    size: archive.length,
+    slice(from) { return { arrayBuffer: async () => backing.slice(from) }; },
+    async arrayBuffer() { payloadReads++; return backing; },
+  };
+  const workerDir = { kind: "directory", name: "bios", async *entries() {
+    yield ["neogeo.zip", { kind: "file", name: "neogeo.zip", getFile: async () => file }];
+  } };
+  class NativeDirectory {
+    kind = "directory";
+    name = "bios";
+    entries() { throw new Error("native BIOS iterator ran on the UI thread"); }
+  }
+  let terminated = 0;
+  class BiosWorker {
+    constructor() {
+      const self = { postMessage: (data) => queueMicrotask(() => this.onmessage({ data })) };
+      runInNewContext(workerCode, { self, Uint8Array, DataView, TextDecoder, TextEncoder });
+      this.workerScope = self;
+    }
+    postMessage(data) {
+      this.workerScope.onmessage({ data: { ...data, folders: data.folders.map((f) => ({ ...f, handle: workerDir })) } });
+    }
+    terminate() { terminated++; }
+  }
+  const prior = { Worker: globalThis.Worker, FileSystemDirectoryHandle: globalThis.FileSystemDirectoryHandle, window: globalThis.window };
+  Object.assign(globalThis, { Worker: BiosWorker, FileSystemDirectoryHandle: NativeDirectory, window: new EventTarget() });
+  try {
+    const candidates = await biosArchives.scanBiosSourceArchives([
+      { id: "native-bios", handle: new NativeDirectory(), status: "ready" },
+    ], ["sfix.sfix"]);
+    eq(candidates.map((c) => c.path), ["neogeo.zip!/nested/sfix.sfix"], "worker returns the matching member path");
+    eq(payloadReads, 0, "the worker indexes metadata without loading the full archive");
+    eq([...await candidates[0].bytes.bytes()], [4, 5, 6], "worker metadata extracts the exact independently supplied bytes");
+    eq(payloadReads, 1, "lazy payload is read once");
+    eq(terminated, 1, "the completed enumeration worker is terminated");
+  } finally { Object.assign(globalThis, prior); }
+});
+
+await check("navigation terminates a pending BIOS worker and rejects the abandoned scan", async () => {
+  class NativeDirectory {}
+  let terminated = 0;
+  class WaitingWorker { postMessage() {} terminate() { terminated++; } }
+  const prior = { Worker: globalThis.Worker, FileSystemDirectoryHandle: globalThis.FileSystemDirectoryHandle, window: globalThis.window };
+  Object.assign(globalThis, { Worker: WaitingWorker, FileSystemDirectoryHandle: NativeDirectory, window: new EventTarget() });
+  try {
+    const pending = biosArchives.scanBiosSourceArchives([
+      { id: "native-bios", handle: new NativeDirectory(), status: "ready" },
+    ], ["sfix.sfix"]);
+    window.dispatchEvent(new Event("pagehide"));
+    let error;
+    try { await pending; } catch (caught) { error = caught; }
+    ok(error?.message.includes("interrupted by navigation"), "navigation must settle the abandoned scan");
+    eq(terminated, 1, "navigation terminates the pending worker");
+  } finally { Object.assign(globalThis, prior); }
+});
+
+await check("explicit library refresh reindexes BIOS ZIPs even when ROM readers stay identical", async () => {
+  const source = readFileSync(join(here, "../src/lib/sources/biosState.svelte.ts"), "utf8");
+  const method = source.slice(source.indexOf("  private localBiosArchiveCandidates("), source.indexOf("\n  /**", source.indexOf("  private localBiosArchiveCandidates(")));
+  const javascript = (await esbuild.transform(method.replace("  private localBiosArchiveCandidates", "function localBiosArchiveCandidates"), { loader: "ts" })).code;
+  let reads = 0;
+  const library = { scan: {}, archiveRefreshRevision: 0 };
+  const scope = { library, localFolders: { folders: [{ id: "bios", handle: {}, status: "ready", usedBy: ["bios"] }] },
+    isBiosUsedBy: (key) => key === "bios", scanBiosSourceArchives: async () => { reads++; return []; } };
+  runInNewContext(javascript + "\nthis.refreshCandidates = localBiosArchiveCandidates;", scope);
+  const state = {};
+  const needs = [{ filenames: ["sfix.sfix"] }];
+  await scope.refreshCandidates.call(state, needs);
+  await scope.refreshCandidates.call(state, needs);
+  eq(reads, 1, "unchanged BIOS state shares its cached scan");
+  library.archiveRefreshRevision++;
+  await scope.refreshCandidates.call(state, needs);
+  eq(reads, 2, "full metadata refresh invalidates BIOS-only archive state");
 });
 
 // --- THE ACTUAL BUG: marked for BIOS *and* a console ---------------------------------------

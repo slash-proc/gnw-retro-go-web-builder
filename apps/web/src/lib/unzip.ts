@@ -143,10 +143,10 @@ export async function zipExtractOne(buf: Uint8Array, entry: ZipEntry): Promise<U
   throw new Error(`unsupported zip compression method ${entry.method} for ${entry.name}`);
 }
 
-export async function unzip(buf: Uint8Array): Promise<Map<string, Uint8Array>> {
+export async function unzip(buf: Uint8Array, paths?: ReadonlySet<string>): Promise<Map<string, Uint8Array>> {
   const out = new Map<string, Uint8Array>();
   for (const entry of zipList(buf)) {
-    if (entry.isDirectory) continue;
+    if (entry.isDirectory || (paths && !paths.has(entry.name))) continue;
     out.set(entry.name, await zipExtractOne(buf, entry));
   }
   return out;

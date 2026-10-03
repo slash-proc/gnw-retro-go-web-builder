@@ -58,12 +58,11 @@ if (typeof pkg.main === "string") {
 }
 
 // --- 2. the web build path is the one Vite writes --------------------------------------------
-// `apps/web/vite.config.ts` sets no `build.outDir`, so Vite's default `dist` beside the config
-// is the output -- the same path `deploy-pages.yml` uploads. If someone adds an outDir, the
-// staging script's hardcoded source is wrong and this must say so.
+// `apps/web/vite.config.ts` defaults to `dist` beside the config (the same path
+// `deploy-pages.yml` uploads), while allowing isolated desktop builds to override it.
 need(
-  !/\boutDir\s*:/.test(viteConfig),
-  "apps/web/vite.config.ts now sets build.outDir -- desktop/scripts/stage-web.mjs still copies from apps/web/dist",
+  /outDir:\s*process\.env\.WEB_OUT_DIR\s*\?\?\s*"dist"/.test(viteConfig),
+  "apps/web/vite.config.ts must default build.outDir to dist and allow WEB_OUT_DIR for isolated builds",
 );
 need(
   /path\.join\(REPO,\s*"apps",\s*"web",\s*"dist"\)/.test(stage),

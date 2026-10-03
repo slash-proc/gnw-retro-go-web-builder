@@ -297,6 +297,11 @@
 
   function preloadFullCoverAt(index: number, currentVersion: number, urlsToKeep: Set<string>): boolean {
     if (index < 0 || index >= covers.length) return false;
+    // Atlas cells are the carousel's full-library preview surface. Preloading original art for
+    // the entire 120-cover window defeats the atlas and can retain hundreds of decoded images.
+    // Full-resolution art is needed only at the current visual center; uncovered cards still
+    // use the normal bounded fallback path.
+    if (getAtlasCell(covers[index]?.id, currentVersion) && index !== visualCenter) return false;
     const fullUrl = covers[index]?.url || getUrl(covers[index]?.id, currentVersion);
     if (!fullUrl) return true;
     urlsToKeep.add(fullUrl);
@@ -676,7 +681,11 @@
   let stageStartX = 0;
   let stageDidDrag = false;
   let stageAccum = 0;
-  const motionActive = $derived(isScrubbing || stageDownX !== null || Math.abs(smoothIndex.current - focusIndex) > 0.01);
+  // `focusIndex` can jump to a saved selection hundreds of entries away when the carousel
+  // mounts. That programmatic spring is not active user input and must not hold a library scan
+  // behind `waitForUiIdle()` (a paused/background tab may never deliver its final spring frame).
+  // Pause only while the user is physically scrubbing or dragging the carousel.
+  const motionActive = $derived(isScrubbing || stageDownX !== null);
   $effect(() => { onMotionState(motionActive); });
   onDestroy(() => onMotionState(false));
 
@@ -885,6 +894,9 @@
     height: 100%;
     perspective: 1000px;
     overflow: hidden;
+    /* Pointer drags scrub the carousel; they should never select the cover art. */
+    user-select: none;
+    -webkit-user-select: none;
   }
   .coverflow-track {
     position: absolute;

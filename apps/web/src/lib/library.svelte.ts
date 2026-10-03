@@ -14,6 +14,7 @@ import {
   type ZipScanCacheEntry,
   LazyRom,
   readRomFile,
+  sha1File,
 } from "./romScan.js";
 import { scanLibraryDirectory, setLibraryDirectoryPaused } from "./libraryDirectoryWorker.js";
 import { saveDir, loadDir, deleteDir, handlePermission, loadSel, saveSel, loadLibraryIndex, saveLibraryIndex } from "./persist.js";
@@ -53,6 +54,11 @@ const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
 const LIBRARY_METADATA_KEY = "library-metadata-index.v1";
 type PersistedZipScanCache = Record<string, Record<string, ZipScanCacheEntry>>;
 type PersistedLibraryMetadata = Record<string, Record<string, LibraryFileMeta>>;
+
+function jsHeapMiB(): string {
+  const used = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory?.usedJSHeapSize;
+  return used === undefined ? "unavailable" : (used / 1048576).toFixed(1);
+}
 
 interface CachedLibraryFile {
   key: string;
@@ -304,6 +310,15 @@ class LibraryStore {
     return this.waitForUiIdle();
   }
 
+  /** Live, read-only state for diagnosing scans that stop advancing behind an interaction gate. */
+  get scanDiagnostics() {
+    return {
+      pauseReasons: [...this.scanPauseReasons],
+      resumeWaiters: this.scanResumeWaiters.size,
+      progress: this.progress ? { stage: this.progress.stage, done: this.progress.done, total: this.progress.total, current: this.progress.current } : null,
+    };
+  }
+
   /** Folder selection is always supported (native FSAA or webkitdirectory fallback). */
   get supported(): boolean {
     return folderPickerSupported();
@@ -456,6 +471,10 @@ class LibraryStore {
   private syncedSignature: string | null = null;
   private syncing = false;
   private syncPending = false;
+  private cachedValidationPending = false;
+  private fullMetadataReadRequested = false;
+  /** Explicit metadata refresh also invalidates BIOS ZIPs omitted by the ROM classifier. */
+  archiveRefreshRevision = $state(0);
   /** Per-source metadata cache. Values are lazy entries, never a second copy of ROM bytes. */
   private sourceFileCache = new Map<string, Map<string, LibraryFile>>();
   /** ZIP central-directory metadata only; archive bytes are never retained here. */
@@ -493,7 +512,16 @@ class LibraryStore {
           return new Uint8Array(await file.arrayBuffer());
         };
         const sourceFiles = hydratedBySource.get(entry.origin) ?? new Map<string, LibraryFile>();
-        sourceFiles.set(entry.key, new LazyRom(entry.meta.size, load, entry.archive, entry.meta.lastModified, entry.zipEntry));
+        sourceFiles.set(entry.key, new LazyRom(
+          entry.meta.size,
+          load,
+          entry.archive,
+          entry.meta.lastModified,
+          entry.zipEntry,
+          entry.zipEntry ? undefined : async () => {
+            return sha1File(await readRomFile(dir, entry.archive));
+          },
+        ));
         hydratedBySource.set(entry.origin, sourceFiles);
         if (entry.meta.sha1) {
           const byPath = this.sourceMetadataCache.get(entry.origin) ?? new Map<string, LibraryFileMeta>();
@@ -524,7 +552,29 @@ class LibraryStore {
     this.filePathIndexFiles = null;
     this.filePathIndexSize = -1;
     this.loaded = true;
+    this.cachedValidationPending = true;
     dbg(`[library] hydrated ${files.size} cached entries; validating sources in background`);
+  }
+
+  private cachedDirectorySnapshot(sourceId: string) {
+    const known = new Map<string, { path: string; size: number; lastModified: number }>();
+    const archives = this.sourceZipCache.get(sourceId);
+    for (const file of this.sourceFileCache.get(sourceId)?.values() ?? []) {
+      if (!isLazy(file)) continue;
+      const lazy = file as LazyRom;
+      if (lazy.lastModified === undefined) continue;
+      if (lazy.zipEntry) {
+        const archive = archives?.get(lazy.archive);
+        if (archive?.lastModified !== undefined) known.set(lazy.archive, { path: lazy.archive, size: archive.size, lastModified: archive.lastModified });
+      } else {
+        known.set(lazy.archive, { path: lazy.archive, size: lazy.length, lastModified: lazy.lastModified });
+      }
+    }
+    // Rejected archives are physical files too, even though they have no library row.
+    for (const [path, archive] of archives ?? []) {
+      if (archive.lastModified !== undefined) known.set(path, { path, size: archive.size, lastModified: archive.lastModified });
+    }
+    return [...known.values()];
   }
 
   private persistCachedIndex(
@@ -635,9 +685,12 @@ class LibraryStore {
       do {
         this.syncPending = false;
         const sig = this.romFolderSignature;
-        if (this.loaded && this.syncedSignature === sig) break;
+        if (this.loaded && this.syncedSignature === sig && !this.fullMetadataReadRequested) break;
+        const validateCachedNames = this.cachedValidationPending && !this.fullMetadataReadRequested;
+        this.cachedValidationPending = false;
+        this.fullMetadataReadRequested = false;
         this.syncedSignature = sig;
-        await this.scanAllFolders();
+        await this.scanAllFolders(validateCachedNames);
       } while (this.syncPending);
     } finally {
       this.syncing = false;
@@ -655,6 +708,9 @@ class LibraryStore {
    * use; this is its one public door, so a caller never reaches into the private field.
    */
   async refresh(): Promise<void> {
+    this.fullMetadataReadRequested = true;
+    this.cachedValidationPending = false;
+    if (this.syncing) this.syncPending = true;
     this.syncedSignature = null;
     await this.sync();
   }
@@ -726,8 +782,9 @@ class LibraryStore {
    * A folder that cannot be read is skipped and reported in `scanSkipped`, never treated as an
    * empty folder and never allowed to take the readable folders down with it.
    */
-  async scanAllFolders(): Promise<void> {
+  async scanAllFolders(validateCachedNames = false): Promise<void> {
     this.folderScanning = true;
+    dbg(`[library memory] scan start jsHeapMiB=${jsHeapMiB()}`);
     this.error = null;
     this.progress = { stage: "Preparing library scan", done: 0, total: 0, current: "", folder: "" };
     let lipClaimed = false;
@@ -815,6 +872,7 @@ class LibraryStore {
       this.progress = { stage: "Reading library files", done: 0, total: totalFiles, current: "", folder: "", layers, finalizing: null };
       lipProgress.operationProgress("library-scan", 0);
       lipClaimed = true;
+      const scanMergeStarted = performance.now();
       const merged = await scanLibraryFolders(sources, {
         ...defaultLibraryScanDeps,
         scan: async (src) => {
@@ -837,9 +895,11 @@ class LibraryStore {
             lastTick = now;
             this.progress = { stage: "Reading library files", done: doneFiles, total: totalFiles, current: rel, folder: src.id, layers: [...layers], finalizing: null };
             if (totalFiles > 0) lipProgress.operationProgress("library-scan", doneFiles / totalFiles);
-          }, zipCache, () => this.waitForUiIdle(), nativeArchiveRulesFor(coreRegistry.current, src.placement));
+          }, zipCache, () => this.waitForUiIdle(), nativeArchiveRulesFor(coreRegistry.current, src.placement),
+          validateCachedNames ? this.cachedDirectorySnapshot(src.id) : undefined, this.sourceFileCache.get(src.id));
           const previousMetadata = this.sourceMetadataCache.get(src.id);
           const nextMetadata = new Map<string, LibraryFileMeta>();
+          const metadataStarted = performance.now();
           for (const [path, entry] of r.userRoms) {
             const meta = libraryFileMetaFromScan(path, entry);
             const previous = previousMetadata?.get(path);
@@ -848,6 +908,7 @@ class LibraryStore {
               : meta);
           }
           this.sourceMetadataCache.set(src.id, nextMetadata);
+          dbg(`[library perf] metadata reconciled source=${src.id} files=${r.userRoms.size} elapsed=${Math.round(performance.now() - metadataStarted)}ms`);
           if (layer) {
             layer.status = "done";
             layer.phase = "Ready";
@@ -862,6 +923,8 @@ class LibraryStore {
           };
         },
       });
+      dbg(`[library perf] source scans and folder merge complete sources=${merged.scanned.length} files=${merged.files.size} elapsed=${Math.round(performance.now() - scanMergeStarted)}ms`);
+      dbg(`[library memory] scan merged files=${merged.files.size} jsHeapMiB=${jsHeapMiB()}`);
 
       if (this.progress) this.progress = { ...this.progress, stage: "Reconciling duplicates" };
       this.scanCollisions = merged.collisions;
@@ -870,10 +933,39 @@ class LibraryStore {
       if (merged.scanned.length === 0) return;
 
       const userRoms = merged.files;
+      // Hydration stores final, placed keys. Per-source scans may use loose keys instead,
+      // so their early reuse pass cannot recognize every unchanged dedicated-folder file.
+      // Reconcile once more using the merged key and source before invalidating UI models.
+      if (this.scan) {
+        for (const [key, file] of userRoms) {
+          const old = this.scan.userRoms.get(key);
+          if (old === file || !isLazy(old) || !isLazy(file)
+            || this.fileOrigin.get(key) !== merged.origin.get(key)) continue;
+          const oldLazy = old as LazyRom;
+          const nextLazy = file as LazyRom;
+          if (oldLazy.archive !== nextLazy.archive
+            || JSON.stringify(oldLazy.zipEntry) !== JSON.stringify(nextLazy.zipEntry)
+            || !sameLibraryFileMeta(merged.origin.get(key), libraryFileMetaFromScan(key, old), libraryFileMetaFromScan(key, file))) continue;
+          file.release?.();
+          userRoms.set(key, old);
+        }
+      }
       if (this.progress) this.progress = { ...this.progress, stage: "Organizing library", finalizing: "Organizing library" };
+      const organizeStarted = performance.now();
       const primaryId = merged.scanned[0].id;
       const primaryDir = localFolders.get(primaryId)?.handle as RomDirHandle;
       const hasRomsPrefix = merged.scanned[0].hasRomsPrefix;
+      if (new URLSearchParams(location.search).has("libraryTrace") && this.scan) {
+        let changed = 0;
+        const samples: string[] = [];
+        for (const [key, file] of userRoms) {
+          if (this.scan.userRoms.get(key) === file && this.fileOrigin.get(key) === merged.origin.get(key)) continue;
+          changed++;
+          const old = this.scan.userRoms.get(key);
+          if (samples.length < 5) samples.push(JSON.stringify({ key, old: old ? libraryFileMetaFromScan(key, old) : null, next: libraryFileMetaFromScan(key, file) }));
+        }
+        console.info("[library trace] snapshot comparison", JSON.stringify({ oldCount: this.scan.userRoms.size, nextCount: userRoms.size, sameDir: this.scan.dir === primaryDir, oldPrefix: this.scan.hasRomsPrefix, nextPrefix: hasRomsPrefix, changed, samples }));
+      }
       let sameSnapshot = this.scan !== null
         && this.scan.userRoms.size === userRoms.size
         && this.scan.dir === primaryDir
@@ -899,6 +991,8 @@ class LibraryStore {
         this.filePathIndexFiles = null;
         this.filePathIndexSize = -1;
       }
+      dbg(`[library perf] snapshot organization files=${userRoms.size} sameSnapshot=${sameSnapshot} elapsed=${Math.round(performance.now() - organizeStarted)}ms`);
+      const persistStarted = performance.now();
       this.persistCachedIndex(
         userRoms,
         merged.origin,
@@ -908,6 +1002,8 @@ class LibraryStore {
       );
       saveZipScanCache(this.sourceZipCache);
       scheduleLibraryMetadataSave(this.sourceMetadataCache);
+      dbg(`[library perf] scan caches scheduled elapsed=${Math.round(performance.now() - persistStarted)}ms`);
+      if (!validateCachedNames) this.archiveRefreshRevision++;
       this.pendingHandle = null;
       this.clearDirty();
 

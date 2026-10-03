@@ -102,7 +102,7 @@ const fd = await import(pathToFileURL(join(out, "bundle.js")).href);
 // The install-marker suite recomputes CRCs with the SAME implementation the module reuses
 // (`packages/gnw-patch`'s `crc32`), from this checkout's dist — never a second copy.
 const { superblockCrc32: refCrc32 } = await gnwImport(import.meta.url, "gnw-patch");
-const { unzip: realUnzip } = await import(pathToFileURL(join(out, "unzip.js")).href);
+const { unzip: realUnzip, zipList: realZipList } = await import(pathToFileURL(join(out, "unzip.js")).href);
 
 const readFixture = (name) => JSON.parse(readFileSync(join(fixtures, name), "utf8"));
 const rawVersions = readFixture("versions.json");
@@ -432,7 +432,7 @@ const fixtureFetch = async (url) => {
         : null;
   if (!name) return new Response("", { status: 404 });
   const doc = readFixture(name);
-  if (name === "manifest.json") doc.updates = rawManifestUpdates;
+  if (name === "manifest.json") doc.updates = rawManifest.updates;
   return new Response(JSON.stringify(doc), { status: 200 });
 };
 
@@ -832,6 +832,22 @@ await check("verifyBundleBytes answers on its own, with no archive in scope", as
   const bad = await fd.verifyBundleBytes(build, bytesOf("nope"));
   ok(bad && bad.ok === false, "a mismatching bundle is refused");
   eq(bad.reason, "bundle-hash", "reason");
+});
+
+await check("extraction skips debug files not declared for installation", async () => {
+  const { build, zip } = makeBundle({ mutate: (files) => files.set("debug/unused.elf", bytesOf("unused debug payload")) });
+  // An unsupported method on an unused member proves it is never sent to the inflater.
+  const dv = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+  const entry = realZipList(zip).find((entry) => entry.name === "debug/unused.elf");
+  dv.setUint16(entry.localOffset + 8, 99, true);
+  for (let offset = 0; offset + 46 < zip.length; offset++) {
+    if (dv.getUint32(offset, true) !== 0x02014b50) continue;
+    if (dv.getUint32(offset + 42, true) === entry.localOffset) dv.setUint16(offset + 10, 99, true);
+  }
+  build.bundle.sha256 = sha256hex(zip);
+  const result = await fd.extractBundle(build, zip);
+  ok(result.ok, "the verified declared installation members are still extracted");
+  ok(!result.entriesRead.includes("debug/unused.elf"), "the debug member is not read");
 });
 
 await check("a bundle whose hash does not match is refused BEFORE unzipping", async () => {

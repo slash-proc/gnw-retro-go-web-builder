@@ -338,9 +338,10 @@ export async function mergeFolderScans(
       // scans store LazyRom handles precisely so a large library stays cheap; without releasing
       // this temporary read, merging two folders with the same paths inflated every colliding
       // ROM and left its payload cached forever. Keep the digest, release only the decoded bytes.
-      const bytes = await resolveBytes(v.bytes);
       try {
-        v.hash = await deps.hash(bytes);
+        v.hash = isLazy(v.bytes) && v.bytes.hashSha1
+          ? await v.bytes.hashSha1()
+          : await deps.hash(await resolveBytes(v.bytes));
         hashed++;
       } finally {
         if (isLazy(v.bytes)) v.bytes.release?.();

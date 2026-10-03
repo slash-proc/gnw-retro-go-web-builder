@@ -70,6 +70,7 @@ import { gateInputs, type OfferedFile } from "./inputGate.js";
 import { targetOf } from "./types.js";
 import type { ConverterInput, InputVariant } from "./converterTypes.js";
 import { isLazy, resolveBytes, type MaybeLazy } from "../lazyBytes.js";
+import { sha1File, type HashableFile } from "../fileHash.js";
 
 /**
  * One file discovery may consider. `size` is known WITHOUT reading (a library entry already
@@ -86,9 +87,23 @@ export interface CandidateFile {
   /** A previously verified payload SHA-1, valid for this candidate's metadata fingerprint. */
   sha1?: string;
   read(): Promise<Uint8Array>;
+  /** Optional bounded-memory hash for a direct file whose payload is too large to materialize. */
+  hashSha1?(): Promise<string>;
   /** Persist a SHA-1 discovered during this pass alongside the candidate's file metadata. */
   rememberSha1?(sha1: string): void;
   /** Release a temporary lazy cache after discovery has hashed the candidate. */
+  release?(): void;
+}
+
+/** A discovered match kept in app state without retaining its ROM payload. */
+export interface DiscoveredOffer {
+  inputId: string;
+  filename: string;
+  sha1?: string;
+  variantId?: string;
+  /** Reopen the source file only when the user actually runs this converter. */
+  readBytes(): Promise<Uint8Array>;
+  /** Drop a source-side byte cache after a read or when discovery is replaced. */
   release?(): void;
 }
 
@@ -229,6 +244,7 @@ export async function discoverInput(
   input: ConverterInput,
   candidates: readonly CandidateFile[],
   deps: DiscoveryDeps,
+  metadataOnlyOffers = false,
 ): Promise<InputDiscovery> {
   const empty: InputDiscovery = { inputId: input.id, files: [], found: [], unrecognised: [], hashed: 0 };
 
@@ -245,23 +261,21 @@ export async function discoverInput(
   // run producing a name that collides with the first.
   const consumed = new Set<CandidateFile>();
   const seenVariants = new Set<string>();
-  // Only successful variant matches survive the hash pass. Keeping these bytes avoids reading
-  // the same candidate a second time when it is handed to the input gate below.
-  const matchedBytes = new Map<CandidateFile, Uint8Array>();
   let hashed = 0;
 
   const plausible = sizePlausible(input.variants, byExtension);
-  // Variants are the manifest's authoritative automatic-recognition contract. Hash every
-  // extension/size-plausible candidate before considering a permissive fallback; otherwise a
-  // cap can make a known SMW dump lose to whichever `.sfc` happened to be listed first. Failed
-  // lazy reads are released below, so this is sequential I/O rather than a resident collection;
-  // a persistent metadata hash cache makes later discovery avoid the reads entirely.
-  const hashCandidates = plausible;
-  for (const cand of hashCandidates) {
+  // A manifest may omit sizes or canonical names (Zelda 3 does). Every plausible candidate
+  // must still be hashable; direct files use bounded reads and reuse remembered digests.
+  for (const cand of plausible) {
     const cachedSha1 = cand.sha1?.toLowerCase();
-    const bytes = cachedSha1 === undefined ? await cand.read() : undefined;
-    const sha1 = cachedSha1 ?? (await deps.hash(bytes!)).toLowerCase();
+    let bytes: Uint8Array | undefined;
+    let sha1 = cachedSha1;
     if (cachedSha1 === undefined) {
+      if (cand.hashSha1) sha1 = (await cand.hashSha1()).toLowerCase();
+      else {
+        bytes = await cand.read();
+        sha1 = (await deps.hash(bytes)).toLowerCase();
+      }
       hashed++;
       cand.sha1 = sha1;
       cand.rememberSha1?.(sha1);
@@ -272,17 +286,19 @@ export async function discoverInput(
     if (!variant) {
       // Discovery is a scan-time probe. An unmatched candidate must not become a permanent
       // cache entry merely because a manifest omitted variant sizes.
-      if (bytes !== undefined) cand.release?.();
+      if (metadataOnlyOffers && bytes !== undefined) cand.release?.();
       continue;
     }
     consumed.add(cand);
     // The same dump found in two registered folders is ONE input, not two runs of it.
     if (seenVariants.has(variant.id)) {
-      if (bytes !== undefined) cand.release?.();
+      if (metadataOnlyOffers && bytes !== undefined) cand.release?.();
       continue;
     }
     seenVariants.add(variant.id);
-    if (bytes !== undefined) matchedBytes.set(cand, bytes);
+    // Discovery may inspect a very large library. Do not keep every matching ROM resident
+    // until the gate runs; the bounded offer below can reopen only the files it actually uses.
+    if (metadataOnlyOffers && bytes !== undefined) cand.release?.();
     const found: DiscoveredFile = {
       path: cand.path,
       folderId: cand.folderId,
@@ -314,10 +330,24 @@ export async function discoverInput(
 
   const offered: OfferedFile[] = [];
   for (const { cand } of ordered) {
+    // Library discovery only needs the gate's verdict and filename. The caller stores a
+    // deferred reader for an accepted file and opens it only if the user runs the converter.
+    // Passing the verified digest and metadata length avoids re-reading dozens of cached large
+    // ROM ZIPs just to populate an OfferedFile that is immediately discarded.
+    if (metadataOnlyOffers && cand.sha1 !== undefined) {
+      offered.push({
+        inputId: input.id,
+        filename: baseNameOf(cand.path),
+        bytes: new Uint8Array(0),
+        byteLength: cand.size,
+        sha1: cand.sha1,
+      });
+      continue;
+    }
     offered.push({
       inputId: input.id,
       filename: baseNameOf(cand.path),
-      bytes: matchedBytes.get(cand) ?? await cand.read(),
+      bytes: await cand.read(),
       ...(cand.sha1 !== undefined ? { sha1: cand.sha1 } : {}),
     });
   }
@@ -366,30 +396,34 @@ export async function discoverInputs(
   candidates: readonly CandidateFile[],
   deps: DiscoveryDeps,
 ): Promise<InputDiscovery[]> {
-  const shared = sharedHashDeps(deps);
   const out: InputDiscovery[] = [];
-  for (const input of inputs) out.push(await discoverInput(input, candidates, shared));
+  for (const input of inputs) out.push(await discoverInput(input, candidates, deps));
   return out;
 }
 
-/**
- * `deps` with a per-call memo keyed by the exact bytes object the candidate returns.
- *
- * Keying on the `Uint8Array` identity rather than on a path is deliberate: `libraryCandidates`
- * hands out the scan's own buffer and `folderCandidates` memoises its read, so the same file
- * yields the same object both times, while two genuinely different files can never collide.
- */
-function sharedHashDeps(deps: DiscoveryDeps): DiscoveryDeps {
-  const memo = new Map<Uint8Array, Promise<string>>();
-  return {
-    hash: (bytes) => {
-      const hit = memo.get(bytes);
-      if (hit !== undefined) return hit;
-      const p = deps.hash(bytes);
-      memo.set(bytes, p);
-      return p;
-    },
-  };
+/** Process one input at a time so callers can discard its payloads before the next is read. */
+export async function discoverInputsEach(
+  inputs: readonly ConverterInput[],
+  candidates: readonly CandidateFile[],
+  deps: DiscoveryDeps,
+  visit: (result: InputDiscovery) => void | Promise<void>,
+  metadataOnlyOffers = false,
+): Promise<void> {
+  for (const input of inputs) {
+    // The same candidate objects pass through each input. `discoverInput` writes each digest
+    // onto its candidate, so later inputs reuse metadata without a byte-keyed memo that would
+    // pin every hashed Uint8Array until the whole discovery pass ended.
+    const result = await discoverInput(input, candidates, deps, metadataOnlyOffers);
+    try {
+      await visit(result);
+    } finally {
+      // `result.files` owns only this iteration's bounded offer. Clear it before the next input
+      // can build another, and clear any candidate-side lazy or directory memo too.
+      result.files.length = 0;
+      result.found.length = 0;
+      for (const candidate of candidates) candidate.release?.();
+    }
+  }
 }
 
 // --- Which folders are searched ------------------------------------------------------------
@@ -462,20 +496,26 @@ export function libraryCandidates(
   pathOf: (key: string) => string,
   sha1Of?: (key: string, folderId: string) => string | undefined,
   rememberSha1?: (key: string, folderId: string, sha1: string) => void,
+  extensions?: readonly string[],
 ): CandidateFile[] {
   const out: CandidateFile[] = [];
+  const wantedExtensions = extensions === undefined ? null : new Set(extensions.map(normExt));
   for (const [key, bytes] of files) {
     const folderId = origin.get(key) ?? "";
     if (!allowed.has(folderId)) continue;
+    const path = pathOf(key);
+    if (wantedExtensions && !wantedExtensions.has(extensionOf(path))) continue;
     const sha1 = sha1Of?.(key, folderId);
+    const hashSha1 = isLazy(bytes) ? bytes.hashSha1 : undefined;
     out.push({
-      path: pathOf(key),
+      path,
       folderId,
       // `size` from metadata and `read` deferred: a zipped ROM offered as a converter input is
       // listed and filtered without being inflated, and read only after it survives narrowing.
       size: bytes.length,
       ...(sha1 ? { sha1 } : {}),
       read: () => resolveBytes(bytes),
+      ...(hashSha1 ? { hashSha1: () => hashSha1() } : {}),
       rememberSha1: (sha1) => rememberSha1?.(key, folderId, sha1),
       release: () => { if (isLazy(bytes)) bytes.release?.(); },
     });
@@ -490,7 +530,7 @@ interface WalkableDir {
 interface WalkableEntry {
   kind: string;
   entries?: () => AsyncIterable<[string, WalkableEntry]>;
-  getFile?: () => Promise<{ size: number; arrayBuffer(): Promise<ArrayBuffer> }>;
+  getFile?: () => Promise<HashableFile & { arrayBuffer(): Promise<ArrayBuffer> }>;
 }
 
 /** How deep a folder walk goes. A shelf of WADs is one or two levels; a runaway tree is not. */
@@ -538,7 +578,7 @@ export async function folderCandidates(
           continue;
         }
         if (!want.has(extensionOf(rel)) || typeof entry.getFile !== "function") continue;
-        let file: { size: number; arrayBuffer(): Promise<ArrayBuffer> };
+        let file: HashableFile & { arrayBuffer(): Promise<ArrayBuffer> };
         try {
           file = await entry.getFile();
         } catch {
@@ -549,10 +589,14 @@ export async function folderCandidates(
           path: rel,
           folderId,
           size: file.size,
+          ...((typeof file.stream === "function" || typeof file.slice === "function")
+            ? { hashSha1: () => sha1File(file) }
+            : {}),
           read: async () => {
             if (bytes === null) bytes = new Uint8Array(await file.arrayBuffer());
             return bytes;
           },
+          release: () => { bytes = null; },
         });
       }
     } catch {

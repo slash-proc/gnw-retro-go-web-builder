@@ -129,10 +129,10 @@ const HEX = /^[0-9a-f]{64}$/;
 
 /** Lowercase hex sha256 — the key any caller must present. */
 export async function blobKey(bytes: Uint8Array): Promise<string> {
-  // `.slice()` copies out of any larger buffer the caller is viewing, so the digest covers this
-  // blob and not its neighbours.
-  const copy = bytes.slice();
-  const digest = await crypto.subtle.digest("SHA-256", copy.buffer as ArrayBuffer);
+  // Passing the view hashes exactly its offset/length; WebCrypto already copies its input.
+  // Only shared backing storage requires a private copy for the BufferSource contract.
+  const input = bytes.buffer instanceof ArrayBuffer ? bytes : bytes.slice();
+  const digest = await crypto.subtle.digest("SHA-256", input as BufferSource);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 

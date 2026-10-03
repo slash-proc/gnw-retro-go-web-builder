@@ -57,6 +57,7 @@ class BiosState {
   private seq = 0;
   private biosArchiveScan?: {
     libraryScan: unknown;
+    refreshRevision: number;
     names: string;
     sources: readonly BiosSourceFolder[];
     promise: Promise<BiosCandidate[]>;
@@ -119,8 +120,18 @@ class BiosState {
     for (const [path, data] of library.scan?.userRoms ?? []) {
       const sourceId = library.fileOrigin.get(path);
       const dedicatedBiosSource = sourceId !== undefined && biosFolderIds.has(sourceId);
+      // BIOS ZIPs are enumerated by `localBiosArchiveCandidates`, which checks each central
+      // directory and inflates only members a manifest needs. Passing whole ZIPs through the
+      // generic candidate expander made it read and retain every archive in a BIOS folder,
+      // including unrelated TOSEC bundles, during every BIOS refresh.
+      if (/\.zip$/i.test(path)) continue;
       if (isBiosCandidateKey(path, dedicatedBiosSource))
-        out.push({ where: "folder", path, bytes: data, size: data.length });
+        out.push({
+          where: "folder",
+          path,
+          bytes: data,
+          size: data.length,
+        });
     }
     // Supplied this session. Deduplicated against the scan above, which `mirror()` may already
     // have written them into — the same file reported twice would read as two candidates.
@@ -166,14 +177,14 @@ class BiosState {
     const names = [...new Set(needs.flatMap((need) => need.filenames.map((name) => name.toLowerCase())))].sort().join("|");
     const cached = this.biosArchiveScan;
     if (
-      cached && cached.libraryScan === library.scan && cached.names === names &&
+      cached && cached.libraryScan === library.scan && cached.refreshRevision === library.archiveRefreshRevision && cached.names === names &&
       cached.sources.length === sources.length && cached.sources.every((source, index) =>
         source.id === sources[index]?.id && source.handle === sources[index]?.handle && source.status === sources[index]?.status
       )
     ) return cached.promise;
 
     const promise = scanBiosSourceArchives(sources, needs.flatMap((need) => need.filenames));
-    this.biosArchiveScan = { libraryScan: library.scan, names, sources, promise };
+    this.biosArchiveScan = { libraryScan: library.scan, refreshRevision: library.archiveRefreshRevision, names, sources, promise };
     return promise;
   }
 
@@ -327,7 +338,14 @@ class BiosState {
     try {
       const localArchives = await this.localBiosArchiveCandidates(needs);
       const resolved = await resolveBiosStatus(needs, [...this.candidates, ...localArchives]);
-      if (mine === this.seq) this.all = resolved;
+      // Status rows need candidate paths and locations for display and install decisions, but
+      // keeping candidate bytes here pins every matched BIOS ZIP's full archive buffer in the
+      // reactive store after verification. Keep only metadata once hashing is complete.
+      const statuses = resolved.map((status) => ({
+        ...status,
+        found: status.found.map(({ where, path, size }) => ({ where, path, size })),
+      }));
+      if (mine === this.seq) this.all = statuses;
       // WHY A SLOT IS EMPTY, in one line the owner can paste back. A BIOS that is plainly in a
       // folder and still reported missing has failed somewhere along a chain nothing narrates:
       // marked -> scanned -> placed under `bios/` -> recognised as a candidate -> matched to a
@@ -337,8 +355,14 @@ class BiosState {
       dbg("[bios]", JSON.stringify({
         needs: needs.map((n) => `${n.systemId}/${n.id}`),
         candidates: this.candidates.map((c) => `${c.where}:${c.path}`),
-        filled: resolved.filter((r) => r.present).map((r) => `${r.systemId}/${r.id}`),
-        empty: resolved.filter((r) => !r.present).map((r) => `${r.systemId}/${r.id}=${r.filenames.join("|")}`),
+        archives: this.candidates.filter((c) => c.archive).map((c) => c.path),
+        matches: statuses.filter((r) => r.systemId === "neogeo").map((r) => ({
+          slot: r.id,
+          present: r.present,
+          files: r.found.map((candidate) => candidate.path),
+        })),
+        filled: statuses.filter((r) => r.present).map((r) => `${r.systemId}/${r.id}`),
+        empty: statuses.filter((r) => !r.present).map((r) => `${r.systemId}/${r.id}=${r.filenames.join("|")}`),
       }));
     } finally {
       if (mine === this.seq) this.checking = false;

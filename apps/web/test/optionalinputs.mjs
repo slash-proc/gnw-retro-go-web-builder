@@ -675,8 +675,8 @@ check("a DISCOVERED file names its variant too — a found row leads like a pick
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
   ok(
-    /const id = r\.found\[i\]\?\.variantId;/.test(wire) &&
-      /return id === undefined \? f : \{ \.\.\.f, variantId: id \};/.test(wire),
+    /const found = r\.found\[i\];/.test(wire) &&
+      /variantId: found\.variantId/.test(wire),
     "and discovery actually attaches it, rather than dropping it on the floor",
   );
   ok(

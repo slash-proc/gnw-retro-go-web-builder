@@ -663,6 +663,10 @@ class RomSelectionStore {
    * own files, so no publisher rank applies and the first offered keeps the name.
    */
   private plannedInstallNames(): { planned: PlannedName[]; bytes: Map<string, LibraryFile> } {
+    return measureLibraryPhase("install-name-planning", library.scan?.userRoms.size ?? 0, () => this.planInstallNames());
+  }
+
+  private planInstallNames(): { planned: PlannedName[]; bytes: Map<string, LibraryFile> } {
     const planned: PlannedName[] = [];
     const bytes = new Map<string, LibraryFile>();
     const folder = library.scan?.userRoms;

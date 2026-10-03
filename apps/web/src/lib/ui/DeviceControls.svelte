@@ -220,7 +220,7 @@
 {/if}
 
 {#if configureOpen}
-  <ModalShell onDismiss={dismissAdapterConfig} maxWidth="26rem">
+  <ModalShell onDismiss={dismissAdapterConfig} maxWidth="26rem" zIndex="var(--z-modal-prompt)">
     {#snippet children()}
       <div class="adapter-config">
         <h3>Configure Adapter</h3>

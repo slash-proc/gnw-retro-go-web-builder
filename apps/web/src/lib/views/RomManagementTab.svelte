@@ -83,7 +83,7 @@ import {
   type CoverTarget,
 } from "../sources/coverPlan.js";
 import { buildLogicalInstallPlan } from "../sources/logicalInstallPlan.js";
-  import { carouselAtlasCacheSignature, carouselAtlasContentFingerprint, carouselAtlasFiles, patchCarouselAtlasCover, type CarouselAtlas } from "../sources/carouselAtlas.js";
+  import { carouselAtlasCacheSignature, carouselAtlasContentFingerprint, carouselAtlasSignature, carouselAtlasFiles, patchCarouselAtlasCover, type CarouselAtlas } from "../sources/carouselAtlas.js";
   import { measureLibraryPhase, measureLibraryPhaseAsync } from "../libraryPerformance.js";
   import { prepareCarouselAtlases, setCarouselAtlasInteraction } from "../sources/carouselAtlasWorker.js";
   import { writeCarouselAtlas } from "../sources/carouselAtlas.js";
@@ -964,6 +964,18 @@ import { navigate } from "../nav.js";
   const installAllCores = true;
   let builtFor = $state<string | null>(null);
   let buildToken = 0;
+  let previewActive: Promise<void> | null = null;
+  let previewBundle: { tag: string; promise: ReturnType<typeof fetchBundle> } | null = null;
+
+  function bundleForPreview(tag: string): ReturnType<typeof fetchBundle> {
+    if (previewBundle?.tag === tag) return previewBundle.promise;
+    const promise = fetchBundle(tag);
+    previewBundle = { tag, promise };
+    void promise.catch(() => {
+      if (previewBundle?.promise === promise) previewBundle = null;
+    });
+    return promise;
+  }
 
   // Pyodide Extraction State — now `sources/prepareState.svelte.ts`, a store-backed singleton.
   // These three were component `$state` until the Sources tab needed to drive the same flow;
@@ -1347,9 +1359,10 @@ import { navigate } from "../nav.js";
   const coverPathKey = (sourceId: string | undefined, path: string) => `${sourceId ?? ""}\u0002${path}`;
   const loggedCoverConflicts = new Set<string>();
   let coverLodUrls = new Map<string, string>();
-  // Browser atlas pages provide the scrub surface. Original art has a separate resident budget
-  // large enough for the carousel's 60 covers on either side of the selected game.
-  const COVER_FULL_CACHE_LIMIT = 128;
+  // Browser atlas pages provide the scrub surface. Full-resolution fallback images are for the
+  // selected cover and a small neighborhood only; retaining 128 decoded originals can exceed
+  // the whole renderer memory budget on large libraries.
+  const COVER_FULL_CACHE_LIMIT = 24;
   // Carousel `.img` covers are the permanent fast-scrub representation. They are intentionally
   // not evicted: for the expected few-thousand-title library this is a small, predictable
   // memory cost, and evicting them makes a reverse scrub visibly fall back to a blank tile while
@@ -1390,6 +1403,15 @@ import { navigate } from "../nav.js";
       queueDepth: coverReadQueue.length,
       active: activeCoverReads,
       elapsedMs: coverReadStartedAt ? Math.round(performance.now() - coverReadStartedAt) : 0,
+      atlas: {
+        ready: atlasFallbackReady,
+        cells: atlasCells.size,
+        sources: atlasDataBySource.size,
+        pages: atlasPageUrls.length,
+        signatureMatches: appliedAtlasInputSignature === carouselAtlasInputSignature,
+        signatureLength: carouselAtlasInputSignature.length,
+      },
+      scan: library.scanDiagnostics,
     };
   }
   function resetCoverDebug(): void {
@@ -1463,6 +1485,10 @@ import { navigate } from "../nav.js";
   let atlasPageImagesBySource = coverSession.pageImagesBySource;
   let atlasOwnerBySourcePath = coverSession.ownerBySourcePath;
   let appliedAtlasInputSignature = coverSession.atlasInputSignature;
+  // Until the first atlas cache check completes, the carousel must not fall back to reading
+  // every original while `atlasCells` is still empty. On a cache hit those reads are wasted;
+  // on a cache miss the atlas builder itself is the bounded path that should own the reads.
+  let atlasFallbackReady = $state(false);
   let incrementalAtlasPatchFailed = false;
   let atlasTimer: ReturnType<typeof setTimeout> | null = null;
   let atlasAbort: AbortController | null = null;
@@ -1663,6 +1689,14 @@ import { navigate } from "../nav.js";
       }
       return;
     }
+    // Applying one cover from Game Details already gives us its original bytes and destination.
+    // Patch that image into its existing atlas page and persist the updated signature; rebuilding
+    // every cover in the source is only needed when there is no usable atlas slot or the patch
+    // cannot be saved.
+    if (cover && !coverAtlasPausedForImport) {
+      const patched = await patchImportedAtlasCover(cover);
+      if (patched && await persistIncrementalAtlasUpdates()) return;
+    }
     if (coverAtlasPausedForImport) {
       const persisted = !incrementalAtlasPatchFailed && await persistIncrementalAtlasUpdates();
       coverAtlasPausedForImport = false;
@@ -1679,7 +1713,8 @@ import { navigate } from "../nav.js";
     retainAtlas();
   }
 
-  function collectCarouselAtlasEntries() {
+  const carouselAtlasEntries = $derived.by(() => {
+    void coverAtlasRevision;
     const scan = library.scan;
     const rows = romSelection.rows;
     if (!scan || (rows.length === 0 && homebrew.titles.length === 0)) {
@@ -1741,15 +1776,24 @@ import { navigate } from "../nav.js";
       selectedOriginalCovers = new Map(entries.map((entry) => [entry.key, { sourceId: entry.sourceId, path: entry.path }]));
       return { scan, entries };
     });
+  });
+
+  function collectCarouselAtlasEntries() {
+    return carouselAtlasEntries;
   }
 
   const carouselAtlasInputSignature = $derived.by(() => {
     const { scan, entries } = collectCarouselAtlasEntries();
     if (!scan) return "";
-    const files = measureLibraryPhase("atlas-signature-build", entries.length, () => entries.map(({ sourceId, key, path, file }) =>
-        `${sourceId}\u0000${key}\u0000${path}\u0000${file.length}\u0000${file instanceof Uint8Array ? "" : file.lastModified}`,
-      ).sort().join("\u0001"));
-    return `${coverAtlasRevision}\u0002${files}`;
+    const fingerprint = measureLibraryPhase("atlas-signature-build", entries.length, () =>
+      carouselAtlasSignature("library", entries.map(({ sourceId, key, path, file }) => ({
+        key,
+        path: `${sourceId}\u0000${path}`,
+        size: file.length,
+        lastModified: file instanceof Uint8Array ? undefined : file.lastModified,
+      }))),
+    );
+    return `${coverAtlasRevision}\u0002${fingerprint}`;
   });
 
   // Atlas preparation starts as soon as the library model is ready. The worker owns
@@ -1758,7 +1802,11 @@ import { navigate } from "../nav.js";
   $effect(() => {
     if (coverAtlasPausedForImport) return;
     const signature = carouselAtlasInputSignature;
-    if (signature === appliedAtlasInputSignature) return;
+    if (signature === appliedAtlasInputSignature) {
+      atlasFallbackReady = true;
+      return;
+    }
+    atlasFallbackReady = false;
     const { scan, entries } = untrack(collectCarouselAtlasEntries);
     void signature;
     if (atlasTimer) clearTimeout(atlasTimer);
@@ -1766,6 +1814,7 @@ import { navigate } from "../nav.js";
     if (!scan || entries.length === 0) {
       if (!library.loaded || library.folderScanning) return;
       releaseAtlas();
+      atlasFallbackReady = true;
       return;
     }
     const controller = new AbortController();
@@ -1779,7 +1828,7 @@ import { navigate } from "../nav.js";
         await library.waitForUiIdle();
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       };
-      return prepareCarouselAtlases(entries, undefined, controller.signal, (stage, sourceId, done, total) => {
+      return prepareCarouselAtlases(entries.map((entry) => ({ ...entry })), undefined, controller.signal, (stage, sourceId, done, total) => {
         if (controller.signal.aborted || library.backgroundTask?.id !== taskId) return;
         const now = performance.now();
         if (done < total && now - lastAtlasProgressAt < 100) return;
@@ -1796,7 +1845,9 @@ import { navigate } from "../nav.js";
         if (controller.signal.aborted) return;
         const nextCells = new Map<string, AtlasCell>();
         const urls: string[] = [];
-        const decoded: HTMLImageElement[] = [];
+        // Keep atlas pages encoded; the carousel's rendered cards reference page URLs and let
+        // the browser decode only pages that are actually on screen. Eagerly decoding every
+        // page holds hundreds of full-size image surfaces for the whole library.
         const nextPageUrlsBySource = new Map<string, string[]>();
         const nextPageImagesBySource = new Map<string, HTMLImageElement[]>();
         const atlasSources = [...atlases.entries()];
@@ -1819,41 +1870,22 @@ import { navigate } from "../nav.js";
               await yieldForAtlasUi();
               if (controller.signal.aborted) return;
               if (previousPage && previousPage.width === page.width && previousPage.height === page.height
-                && previousUrls?.[pageIndex] && previousImages?.[pageIndex]
+                && previousUrls?.[pageIndex]
                 && await sameAtlasPage(previousPage.blob, page.blob)) {
                 pageUrls[pageIndex] = previousUrls[pageIndex];
-                pageImages[pageIndex] = previousImages[pageIndex];
               } else {
                 pagesToDecode.push({ sourceId, page, pageIndex });
               }
             }
           }
         }
-        const totalPages = pagesToDecode.length;
-        let decodedPages = 0;
-        if (totalPages > 0 && library.backgroundTask?.id === taskId) {
-          library.backgroundTask = { ...library.backgroundTask, stage: "Decoding browser cover pages", done: 0, total: totalPages, detail: locale.t.roms.backgroundProgress.atlasPages(totalPages) };
-        }
         try {
-          const decodeConcurrency = 4;
-          for (let start = 0; start < pagesToDecode.length; start += decodeConcurrency) {
+          for (const { sourceId, page, pageIndex } of pagesToDecode) {
             await yieldForAtlasUi();
-            if (controller.signal.aborted) throw new DOMException("Atlas decode cancelled", "AbortError");
-            const pageBatch = pagesToDecode.slice(start, start + decodeConcurrency);
-            await Promise.all(pageBatch.map(async ({ sourceId, page, pageIndex }) => {
-              const url = URL.createObjectURL(page.blob);
-              urls.push(url);
-              const image = new Image();
-              image.src = url;
-              decoded.push(image);
-              nextPageUrlsBySource.get(sourceId)![pageIndex] = url;
-              nextPageImagesBySource.get(sourceId)![pageIndex] = image;
-              await image.decode();
-              decodedPages++;
-              if (library.backgroundTask?.id === taskId) {
-                library.backgroundTask = { ...library.backgroundTask, done: decodedPages };
-              }
-            }));
+            if (controller.signal.aborted) throw new DOMException("Atlas preparation cancelled", "AbortError");
+            const url = URL.createObjectURL(page.blob);
+            urls.push(url);
+            nextPageUrlsBySource.get(sourceId)![pageIndex] = url;
           }
           for (const [sourceId, atlas] of atlasSources) {
             const pageUrls = nextPageUrlsBySource.get(sourceId)!;
@@ -1864,11 +1896,15 @@ import { navigate } from "../nav.js";
           }
           if (controller.signal.aborted) throw new DOMException("Atlas decode cancelled", "AbortError");
           const previousUrls = atlasPageUrls;
-          const previousDecoded = atlasDecodedPages;
           const nextUrls = [...nextPageUrlsBySource.values()].flat();
           const nextDecoded = [...nextPageImagesBySource.values()].flat();
+          const encodedPageBytes = [...atlases.values()].reduce(
+            (bytes, atlas) => bytes + atlas.pages.reduce((pageBytes, page) => pageBytes + page.blob.size, 0),
+            0,
+          );
+          const jsHeap = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory?.usedJSHeapSize;
+          dbg(`[carousel-atlas] resident pages=${nextDecoded.length} eagerDecodedPages=0 encodedMiB=${(encodedPageBytes / 1048576).toFixed(1)} jsHeapMiB=${jsHeap === undefined ? "unavailable" : (jsHeap / 1048576).toFixed(1)}`);
           const retainedUrls = new Set(nextUrls);
-          const retainedImages = new Set(nextDecoded);
           atlasPageUrls = nextUrls;
           atlasDecodedPages = nextDecoded;
           atlasDataBySource = atlases;
@@ -1877,18 +1913,18 @@ import { navigate } from "../nav.js";
           atlasOwnerBySourcePath = buildAtlasOwnerIndex();
           atlasCells = nextCells;
           appliedAtlasInputSignature = signature;
+          atlasFallbackReady = true;
           retainAtlas();
           for (const url of previousUrls) if (!retainedUrls.has(url)) URL.revokeObjectURL(url);
-          for (const image of previousDecoded) if (!retainedImages.has(image)) image.src = "";
           if (library.backgroundTask?.id === taskId) library.backgroundTask = null;
         } catch (error) {
           for (const url of urls) URL.revokeObjectURL(url);
-          for (const image of decoded) image.src = "";
           throw error;
         }
       }).catch((error) => {
         // A missing/failed derived atlas leaves the existing lazy cover path in place.
         if (!controller.signal.aborted) dbg("[carousel-atlas] preparation failed", error);
+        if (!controller.signal.aborted) atlasFallbackReady = true;
         if (library.backgroundTask?.id === taskId) library.backgroundTask = null;
       });
     };
@@ -1911,6 +1947,7 @@ import { navigate } from "../nav.js";
     // cover is named after the ROM, and on the card there is only one of that name.
     const gameKey = basePath(key);
     if (lowResolution) return "";
+    if (!atlasFallbackReady) return "";
     const cache = lowResolution ? coverLodUrls : coverUrls;
     const owner = visibleGameByKey.get(key)?.rom?.id ?? homebrew.find(gameKey)?.key;
     const selectedCover = owner ? selectedOriginalCovers.get(owner) : undefined;
@@ -2205,9 +2242,16 @@ import { navigate } from "../nav.js";
     // check below — irrelevant in SD mode (SD capacity is tracked separately via
     // sdUsedBytes). Skip it there so a device that merely happens to be connected while
     // the user manages SD content doesn't trigger a wasted bundle fetch + FrogFS build.
-    if (device.targetMedia === "sd" || !device.isConnected || !baseInstalled) return;
-    if (builtFrogfs && builtFor === selSig) return; // cache hit
-    void buildPreview(selSig);
+    if (device.targetMedia === "sd" || !device.isConnected || !baseInstalled
+      || !library.loaded || library.folderScanning) return;
+    const sig = selSig;
+    if (builtFrogfs && builtFor === sig) return; // cache hit
+    const token = ++buildToken;
+    const timer = setTimeout(() => { void buildPreview(sig, token); }, 250);
+    return () => {
+      clearTimeout(timer);
+      if (buildToken === token) buildToken++;
+    };
   });
 
   const CHEAT_EXTS: Record<string, string> = {
@@ -2429,14 +2473,30 @@ import { navigate } from "../nav.js";
     }
   }
 
-  async function buildPreview(sig: string): Promise<void> {
-    const token = ++buildToken;
+  async function buildPreview(sig: string, token: number): Promise<void> {
+    // Only one preview may own temporary ROM/image buffers. A newer request waits for the
+    // old request to reach a cancellation boundary, then only the latest signature runs.
+    if (previewActive) await previewActive;
+    if (token !== buildToken) return;
+    const run = performPreview(sig, token);
+    previewActive = run;
+    await run;
+    if (previewActive === run) {
+      previewActive = null;
+      building = false;
+    }
+  }
+
+  async function performPreview(sig: string, token: number): Promise<void> {
     building = true;
     buildErr = null;
+    let selectedFiles: Map<string, LibraryFile> | null = null;
     try {
       const versions = await listVersions();
       if (versions.length === 0) throw new Error("No firmware versions are published yet.");
-      const bundle = await fetchBundle(versions[0].tag);
+      if (token !== buildToken) return;
+      const bundle = await bundleForPreview(versions[0].tag);
+      if (token !== buildToken) return;
       // Learn the firmware's declared install locations (manifest.paths) — the device read
       // (frogfsDevice.ts) and the SD write below have no bundle of their own to ask.
       rememberInstallPaths(bundle.manifest?.dist?.paths);
@@ -2452,11 +2512,15 @@ import { navigate } from "../nav.js";
       // it also leaves `ensureCoresPrepared` with nothing to fetch at install time, which is
       // what lets the install reuse this preview instead of discarding it as predating them.
       await prepareState.prepareShippedGames(selectedShippedGameFetches());
+      if (token !== buildToken) return;
       // Same rule one step over: a core the device already holds needs its bytes back in
       // hand or the rebuilt image silently drops it (see `deviceCoreFetches`).
       await prepareDeviceCores();
+      if (token !== buildToken) return;
       // The selection's bytes, read here and nowhere earlier: the plan above is metadata only.
-      const combinedRoms = await materialize(biosState.filterInstall(romSelection.selectedFolderRoms()));
+      selectedFiles = biosState.filterInstall(romSelection.selectedFolderRoms());
+      const combinedRoms = await materialize(selectedFiles);
+      if (token !== buildToken) return;
       const preCoverPlan = buildLogicalInstallPlan({
         libraryFiles: combinedRoms,
         preparedFiles: selectedAssets,
@@ -2465,6 +2529,7 @@ import { navigate } from "../nav.js";
       const flasher = device.utilLoaded ? device.flasher : null;
       const readCover = flasher ? installedCoverReader((off, len) => dumpRegion(flasher, 0, off, len)) : undefined;
       await prepareSelectedCovers(combinedRoms, coverTargets, readCover);
+      if (token !== buildToken) return;
       const logicalPlan = buildLogicalInstallPlan({
         libraryFiles: combinedRoms,
         preparedFiles: selectedAssets,
@@ -2496,7 +2561,11 @@ import { navigate } from "../nav.js";
       newFrogfsLen = null;
       buildErr = e instanceof Error ? e.message : String(e);
     } finally {
-      if (token === buildToken) building = false;
+      // The image and pending LittleFS plan own the bytes they need. The library's
+      // lazy readers must not also pin every selected ROM after this one-shot build.
+      for (const file of selectedFiles?.values() ?? []) {
+        if (isLazy(file)) file.release?.();
+      }
     }
   }
 

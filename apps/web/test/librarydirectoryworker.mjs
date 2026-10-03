@@ -85,6 +85,35 @@ async function exercise(code) {
     assert.equal(completed.entries.filter((entry) => entry.path.startsWith(consoleName + "/")).length, count);
   }
   assert.equal(messages.filter((message) => message.type === "progress").at(-1).done, 1143);
+
+  messages.length = 0;
+  const snapshot = completed.entries;
+  send({ type: "scan", dir: root, cached, archiveRules: { folders: ["neogeo"], loose: false }, snapshot });
+  await waitUntil(() => messages.some((message) => message.type === "complete"));
+  assert.equal(reads, 1143, "cached startup reread known file metadata");
+  assert.equal(messages.find((message) => message.type === "complete").stats.metadataReads, 0);
+
+  children[0][1].entries = async function* () {
+    yield ["new.rom", { kind: "file", async getFile() { reads++; return { size: 12, lastModified: 2 }; } }];
+  };
+  messages.length = 0;
+  send({ type: "scan", dir: root, cached, archiveRules: { folders: ["neogeo"], loose: false }, snapshot });
+  await waitUntil(() => messages.some((message) => message.type === "complete"));
+  const changed = messages.find((message) => message.type === "complete");
+  assert.equal(changed.stats.metadataReads, 1, "startup reads metadata only for new paths");
+  assert.equal(changed.entries.length, 980, "removed paths disappear from the next snapshot");
+  assert.equal(changed.entries.some((entry) => entry.path === "a7800/cached.zip"), false);
+  assert.equal(changed.entries.find((entry) => entry.path === "a7800/new.rom").size, 12);
+
+  children[0][1].entries = async function* () {
+    yield ["new.rom", { kind: "file", async getFile() { reads++; return { size: 99, lastModified: 3 }; } }];
+  };
+  messages.length = 0;
+  send({ type: "scan", dir: root, cached, archiveRules: { folders: ["neogeo"], loose: false } });
+  await waitUntil(() => messages.some((message) => message.type === "complete"));
+  const refreshed = messages.find((message) => message.type === "complete");
+  assert.equal(refreshed.stats.metadataReads, 980, "explicit refresh reads all metadata");
+  assert.equal(refreshed.entries.find((entry) => entry.path === "a7800/new.rom").size, 99, "refresh detects replacements in place");
 }
 
 await exercise(bundle.outputFiles[0].text);
@@ -95,4 +124,7 @@ await assert.rejects(
 const archiveMutation = bundle.outputFiles[0].text.replace("!isNativeRomArchive(path, archiveRules)", "true");
 assert.notEqual(archiveMutation, bundle.outputFiles[0].text, "native archive mutation must change the worker");
 await assert.rejects(exercise(archiveMutation), /native ZIP bypasses directory indexing/);
-console.log("librarydirectoryworker: pause/resume, progress backpressure, 1143-file scan, no payload reads, and pause regression verified");
+const metadataMutation = bundle.outputFiles[0].text.replace("const previousFile = known.get(path);", "const previousFile = undefined;");
+assert.notEqual(metadataMutation, bundle.outputFiles[0].text);
+await assert.rejects(exercise(metadataMutation), /cached startup reread known file metadata/);
+console.log("librarydirectoryworker: pause/resume, backpressure, 1143-file scan, cached presence validation, additions/removals, full refresh, and regressions verified");

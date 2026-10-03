@@ -9,6 +9,7 @@ import { flashImage, dumpRegion } from "./flasher.js";
 import { LOCKED_MODEL } from "./itcmModel.js";
 export { detectModelFromItcm } from "./itcmModel.js";
 import { dbg, dbgLog } from "../debug.js";
+import { electronDirHandle, electronFs } from "../electronFs.js";
 import bootloaderUrl from "@gnw/gnw-patch/vendor/gnw_bootloader_0x08032000.bin?url";
 import unlockPayloadUrl from "@gnw/gnw-flasher/blobs/unlock.bin?url";
 
@@ -745,10 +746,15 @@ type DirPicker = (opts?: { id?: string; mode?: "read" | "readwrite" }) => Promis
 export type BackupDir = FsDirHandle;
 
 export const backupPickerSupported = (): boolean =>
-  typeof window !== "undefined" && typeof (window as unknown as { showDirectoryPicker?: DirPicker }).showDirectoryPicker === "function";
+  typeof window !== "undefined" && (typeof (window as unknown as { showDirectoryPicker?: DirPicker }).showDirectoryPicker === "function" || !!electronFs());
 
 /** Prompt for a read/write backup folder. Returns null if the user cancels. */
 export async function pickBackupFolder(): Promise<BackupDir | null> {
+  const desktop = electronFs();
+  if (desktop) {
+    const picked = await desktop.pickDirectory("gnw-ofw-backups");
+    return picked ? electronDirHandle(picked.rootId, picked.name) : null;
+  }
   const picker = (window as unknown as { showDirectoryPicker?: DirPicker }).showDirectoryPicker;
   if (!picker) throw new Error("This browser doesn't support folder selection (Chromium required).");
   try {

@@ -25,6 +25,11 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(version),
   },
   plugins: [svelte()],
+  build: {
+    // Electron development launches can use an isolated temp output without writing over a
+    // packaged/staged build that may be in use by another checkout.
+    outDir: process.env.WEB_OUT_DIR ?? "dist",
+  },
   resolve: {
     alias: [
       // ST-Link backend lives in the webstlink submodule (browser ESM source).

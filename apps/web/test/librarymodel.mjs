@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** Offline regression coverage for the serializable LibraryRom metadata seam. */
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -195,6 +196,41 @@ check("metadata fingerprints are source-qualified and conservative", () => {
   ok(sameLibraryFileMeta("source-a", a, b), "unchanged metadata");
   ok(!sameLibraryFileMeta("source-a", a, changed), "size invalidation");
   ok(!sameLibraryFileMeta("source-a", libraryFileMeta(a.relativePath, 10), b), "missing mtime is conservative");
+});
+
+// Execute the actual post-merge reconciliation block: hydration uses placed keys, while
+// dedicated-folder scans begin with loose keys. Metadata equality must retain the old reader.
+const librarySource = readFileSync(join(here, "../src/lib/library.svelte.ts"), "utf8");
+const reconciliation = librarySource.slice(librarySource.indexOf("      const userRoms = merged.files;"), librarySource.indexOf('      if (this.progress) this.progress = { ...this.progress, stage: "Organizing library"'));
+function exerciseReconciliation(block) {
+  const context = { sameLibraryFileMeta, libraryFileMetaFromScan: (key, file) => libraryFileMeta(key, file.length, file.lastModified), isLazy: (v) => !!v && typeof v.bytes === "function", JSON };
+  const code = esbuild.transformSync(`function reconcile(merged: any) { ${block} return userRoms; } globalThis.reconcile = reconcile;`, { loader: "ts", target: "es2022" }).code;
+  runInNewContext(code, context);
+  const lazy = (archive, length = 10, lastModified = 20, zipEntry = undefined) => ({ archive, length, lastModified, zipEntry, releases: 0, bytes() { throw Error("snapshot comparison read payload"); }, release() { this.releases++; } });
+  const old = lazy("bios.gg");
+  const next = lazy("bios.gg");
+  const previous = new Map([["bios/bios.gg", old]]);
+  const origin = new Map([["bios/bios.gg", "bios-source"]]);
+  const state = { scan: { userRoms: previous }, fileOrigin: origin };
+  const merge = (file, source = "bios-source") => ({ files: new Map([["bios/bios.gg", file]]), origin: new Map([["bios/bios.gg", source]]) });
+  const result = context.reconcile.call(state, merge(next));
+  ok(result.get("bios/bios.gg") === old, "unchanged placed BIOS reader was replaced");
+  eq(next.releases, 1, "unused new reader released");
+  for (const changed of [lazy("bios.gg", 11), lazy("bios.gg", 10, 21), lazy("renamed.gg"), { ...lazy("bios.gg"), lastModified: undefined }, lazy("bios.gg", 10, 20, { name: "different.rom" })]) {
+    ok(context.reconcile.call(state, merge(changed)).get("bios/bios.gg") === changed, "changed file was incorrectly reused");
+  }
+  const otherSource = lazy("bios.gg");
+  ok(context.reconcile.call(state, merge(otherSource, "another-source")).get("bios/bios.gg") === otherSource, "source ownership was ignored");
+  const removed = context.reconcile.call(state, { files: new Map(), origin: new Map() });
+  eq(removed.size, 0, "removed files are not resurrected");
+}
+check("post-merge hydration retains unchanged placed readers without reading payloads", () => exerciseReconciliation(reconciliation));
+check("ANTI-VACUITY: removing reader retention fails the behavioral check", () => {
+  const mutation = reconciliation.replace("userRoms.set(key, old);", "");
+  ok(mutation !== reconciliation, "retention mutation must change the implementation");
+  let failure;
+  try { exerciseReconciliation(mutation); } catch (error) { failure = error; }
+  ok(failure?.message.includes("unchanged placed BIOS reader was replaced"), "removing retention did not trigger its regression");
 });
 
 console.log(`\nlibrarymodel: ${passed} passed, ${failed} failed`);

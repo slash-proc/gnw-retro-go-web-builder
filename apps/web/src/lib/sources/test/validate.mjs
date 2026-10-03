@@ -138,6 +138,7 @@ await esbuild.build({
     join(here, "../inputGate.ts"),
     join(here, "../inputPrompt.ts"),
     join(here, "../inputDiscovery.ts"),
+    join(here, "../../fileHash.ts"),
     join(here, "../installArtifacts.ts"),
     join(here, "../blobCache.ts"),
     join(here, "../client.ts"),
@@ -154,6 +155,7 @@ await esbuild.build({
     join(here, "../placement.ts"),
   ],
   outdir: out,
+  entryNames: "[name]",
   bundle: true,
   splitting: true, // one shared instance of each module across the four entry points
   format: "esm",
@@ -169,6 +171,7 @@ await esbuild.build({
 });
 
 const load = (name) => import(pathToFileURL(join(out, name)).href);
+const { sha1File } = await load("fileHash.js");
 const { verifyConverterModule, parseWasm } = await load("wasmVerify.js");
 const { runConverterModule, isPlainFilename } = await load("converterRun.js");
 const { gateInputs, checkProcessor, parseToolInputs, parseToolOutputs, parseToolLimits, sha1Hex } =
@@ -3778,6 +3781,9 @@ function prepTitle({ inputs = [], artifacts = [], hasTool = inputs.length > 0, r
 
 const ART = { name: "engine.bin" };
 const offer = (filename, inputId = "base") => ({ inputId, filename, bytes: new Uint8Array([9]) });
+const discoveryOffer = (filename, inputId = "base") => ({
+  inputId, filename, readBytes: async () => new Uint8Array([9]), release: () => {},
+});
 const conversion = (files = [], unrecognised = [], warnings = []) => ({
   files: new Map(files),
   unrecognised,
@@ -6421,7 +6427,7 @@ pcheck("prepare: needsPrompt is false once discovery has answered every input", 
   prepareState.discovered = new Map();
   const t = prepTitle({ inputs: [DISC_INPUT] });
   eq(prepareState.needsPrompt(t), true, "nothing found yet, so the picker is the only route");
-  prepareState.setDiscovered(t.repo, "base", [offer("DOOM.WAD")]);
+  prepareState.setDiscovered(t.repo, "base", [discoveryOffer("DOOM.WAD")]);
   eq(prepareState.isSatisfied(t.repo, "base"), true, "the row reads as satisfied");
   eq(prepareState.needsPrompt(t), false, "and the prompt no longer asks for a file we hold");
   prepareState.setDiscovered(t.repo, "base", []);
@@ -6432,7 +6438,7 @@ pcheck("prepare: needsPrompt is false once discovery has answered every input", 
 pcheck("prepare: an empty offer runs on the discovered files, and a picked file wins", async () => {
   prepareState.discovered = new Map();
   const t = prepTitle({ inputs: [DISC_INPUT], artifacts: [] });
-  prepareState.setDiscovered(t.repo, "base", [offer("FOUND.WAD")], ["FOUND.WAD"]);
+  prepareState.setDiscovered(t.repo, "base", [discoveryOffer("FOUND.WAD")], ["FOUND.WAD"]);
   let seen = null;
   globalThis.__prepFakes.artifacts = async () => new Map();
   globalThis.__prepFakes.convert = async (_t, f) => {
@@ -6523,13 +6529,13 @@ pcheck("unsupply: another title's prepared files are left alone", async () => {
 pcheck("unsupply: a removed auto-discovered file does not come back on the next scan", async () => {
   clearRemoved();
   const t = prepTitle({ inputs: [DISC_INPUT] });
-  prepareState.setDiscovered(t.repo, "base", [offer("DOOM.WAD")]);
+  prepareState.setDiscovered(t.repo, "base", [discoveryOffer("DOOM.WAD")]);
   eq(prepareState.isSatisfied(t.repo, "base"), true, "discovery answered it");
 
   prepareState.unsupply(t.repo, "base", [t]);
   eq(prepareState.isRemoved(t.repo, "base"), true, "the removal is remembered");
   // Exactly what `discoverForSource` does on its next pass: write the full current answer.
-  prepareState.setDiscovered(t.repo, "base", [offer("DOOM.WAD")]);
+  prepareState.setDiscovered(t.repo, "base", [discoveryOffer("DOOM.WAD")]);
   eq(prepareState.isSatisfied(t.repo, "base"), false, "the folder still holds it; the row does not");
   eq(prepareState.discoveredFor(t.repo, "base").length, 0, "and nothing is held for it");
 });
@@ -6544,7 +6550,7 @@ pcheck("unsupply: picking a file again lifts the removal", async () => {
   prepareState.unsupply(t.repo, "base", [t]);
   eq(await prepareState.run(t, [offer("PICKED.WAD")]), true, "the picker still works");
   eq(prepareState.isRemoved(t.repo, "base"), false, "and the removal is lifted");
-  prepareState.setDiscovered(t.repo, "base", [offer("DOOM.WAD")]);
+  prepareState.setDiscovered(t.repo, "base", [discoveryOffer("DOOM.WAD")]);
   eq(prepareState.discoveredFor(t.repo, "base").length, 1, "so discovery is heard again");
 });
 
@@ -6751,7 +6757,7 @@ pcheck("notices: a discovery-fed run still files under the FILE discovery found"
   globalThis.__prepFakes.artifacts = async () => new Map();
   globalThis.__prepFakes.convert = async () =>
     conversion([["zelda3_assets.dat", new Uint8Array([1])]], [], ["patched 3 lumps"]);
-  prepareState.setDiscovered(t.repo, "base", [offer("zelda3.sfc")]);
+  prepareState.setDiscovered(t.repo, "base", [discoveryOffer("zelda3.sfc")]);
 
   eq(await prepareState.run(t, []), true, "prepared from what discovery found");
   assert(
@@ -7038,6 +7044,37 @@ check("discovery: library candidates cost nothing and respect the folder narrowi
   bytesEq(await got[0].read(), ULTIMATE, "and the bytes are already in memory");
 });
 
+check("discovery: direct-file hashing uses stream chunks without a whole-file read", async () => {
+  const bytes = new Uint8Array(5 * 1024 * 1024 + 13).fill(0x53);
+  const handle = {
+    kind: "directory",
+    entries: async function* () {
+      yield ["game.zip", { kind: "file", getFile: async () => ({
+        size: bytes.length,
+        stream: () => new Blob([bytes]).stream(),
+        arrayBuffer: async () => { throw new Error("whole-file reads are forbidden"); },
+      }) }];
+    },
+  };
+  const [candidate] = await folderCandidates(handle, "neogeo", [".zip"]);
+  eq(await candidate.hashSha1(), sha1Of(bytes), "all stream chunks contribute to the digest");
+});
+
+check("discovery: native range hashing bounds each read to four MiB", async () => {
+  const bytes = new Uint8Array(5 * 1024 * 1024 + 13).fill(0x47);
+  const reads = [];
+  const digest = await sha1File({
+    size: bytes.length,
+    slice: (start, end) => ({ arrayBuffer: async () => {
+      reads.push(end - start);
+      return bytes.slice(start, end).buffer;
+    } }),
+  });
+  eq(digest, sha1Of(bytes), "range reads produce the same full-file digest");
+  eq(reads.length, 2, "only the necessary chunks are read");
+  assert(reads.every((size) => size <= 4 * 1024 * 1024), "each temporary buffer is bounded");
+});
+
 check("discovery: walking a folder nothing else walks reads no file content", async () => {
   let reads = 0;
   const file = (bytes) => ({
@@ -7228,11 +7265,12 @@ check("zelda3: a .sfc that is no zelda3 ROM is not attributed, because both inpu
   const counted = ownersShelf().map((c) => ({ ...c, read: async () => { reads++; return c.read(); } }));
   await discoverInputs(zelda3Inputs(), counted, counting());
   // The first input reads and hashes all four candidates. Discovery carries those SHA-1s into
-  // the shared candidates, so the second input reads only its two recognised files for the
+  // the shared candidates. Its own base offer is read once more and the second input reads
+  // only its two recognised files for the
   // converter; it does not re-read the shelf just to hash it again. The unmatched SMW file is
   // never offered under `strict`; dropping that guard makes the count grow while constructing
   // an offer that the gate will refuse.
-  eq(reads, 6, "an unmatched .sfc is hashed once, then dropped without a second input read");
+  eq(reads, 7, "an unmatched .sfc is hashed once, then dropped without a second input read");
 });
 
 check("zelda3: the same dump reachable from two folders is ONE input", async () => {

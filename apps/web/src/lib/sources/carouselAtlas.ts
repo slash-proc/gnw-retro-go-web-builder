@@ -159,13 +159,8 @@ export function carouselAtlasSignature(
   entries: readonly { key: string; path?: string; size: number; lastModified?: number; contentFingerprint?: string }[],
 ): string {
   const ordered = [...entries].sort((a, b) => a.key.localeCompare(b.key));
-  let hash = 0xcbf29ce484222325n;
   const text = `${sourceId}\n${ordered.map((entry) => `${entry.key}\0${entry.path ?? ""}\0${entry.size}\0${entry.lastModified ?? 0}${entry.contentFingerprint === undefined ? "" : `\0${entry.contentFingerprint}`}`).join("\n")}`;
-  for (const byte of new TextEncoder().encode(text)) {
-    hash ^= BigInt(byte);
-    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
-  }
-  return hash.toString(16).padStart(16, "0");
+  return fnv1a64(new TextEncoder().encode(text));
 }
 
 export function carouselAtlasCacheSignature(
@@ -184,12 +179,22 @@ export function carouselAtlasCacheSignature(
 }
 
 export function carouselAtlasContentFingerprint(bytes: Uint8Array): string {
-  let hash = 0xcbf29ce484222325n;
-  for (const byte of bytes) {
-    hash ^= BigInt(byte);
-    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  return fnv1a64(bytes);
+}
+
+/** Preserve the cache's FNV-1a 64-bit format without allocating BigInts for every byte.
+ * The prime is 2^40 + 435. Splitting the accumulator into two 32-bit words makes
+ * the low product and its carry exact within JavaScript's 53-bit integer range. */
+function fnv1a64(bytes: Uint8Array): string {
+  let high = 0xcbf29ce4;
+  let low = 0x84222325;
+  for (let index = 0; index < bytes.length; index++) {
+    low = (low ^ bytes[index]) >>> 0;
+    const product = low * 435;
+    high = (Math.imul(high, 435) + (low << 8) + Math.floor(product / 0x100000000)) >>> 0;
+    low = product >>> 0;
   }
-  return hash.toString(16).padStart(16, "0");
+  return high.toString(16).padStart(8, "0") + low.toString(16).padStart(8, "0");
 }
 
 const ATLAS_MAGIC = new Uint8Array([0x47, 0x4e, 0x57, 0x41, 0x54, 0x4c, 0x31, 0x00]); // GNWATL1\0
@@ -433,6 +438,45 @@ export function decodeCarouselAtlas(bytes: Uint8Array): CarouselAtlas | null {
   }
 }
 
+/** Decode the cache without copying every encoded page into JS memory at once. */
+async function decodeCarouselAtlasFile(file: Blob): Promise<CarouselAtlas | null> {
+  try {
+    const preamble = new Uint8Array(await file.slice(0, ATLAS_MAGIC.byteLength + 8).arrayBuffer());
+    if (preamble.byteLength !== ATLAS_MAGIC.byteLength + 8 || !ATLAS_MAGIC.every((b, i) => preamble[i] === b)) return null;
+    const preambleView = new DataView(preamble.buffer, preamble.byteOffset, preamble.byteLength);
+    const version = preambleView.getUint32(ATLAS_MAGIC.byteLength, true);
+    const manifestLength = preambleView.getUint32(ATLAS_MAGIC.byteLength + 4, true);
+    const offsetAfterManifest = ATLAS_MAGIC.byteLength + 8 + manifestLength;
+    if (version !== ATLAS_VERSION || manifestLength > file.size - ATLAS_MAGIC.byteLength - 12) return null;
+
+    const manifestBytes = new Uint8Array(await file.slice(ATLAS_MAGIC.byteLength + 8, offsetAfterManifest).arrayBuffer());
+    const manifest = JSON.parse(atlasDecoder.decode(manifestBytes)) as Omit<CarouselAtlas, "pages">;
+    const countBytes = new Uint8Array(await file.slice(offsetAfterManifest, offsetAfterManifest + 4).arrayBuffer());
+    if (countBytes.byteLength !== 4) return null;
+    const pageCount = new DataView(countBytes.buffer, countBytes.byteOffset, 4).getUint32(0, true);
+    if (pageCount > 10000) return null;
+
+    const pages: CarouselAtlasPage[] = [];
+    let offset = offsetAfterManifest + 4;
+    for (let index = 0; index < pageCount; index++) {
+      const headerBytes = new Uint8Array(await file.slice(offset, offset + 12).arrayBuffer());
+      if (headerBytes.byteLength !== 12) return null;
+      const header = new DataView(headerBytes.buffer, headerBytes.byteOffset, 12);
+      const width = header.getUint32(0, true);
+      const height = header.getUint32(4, true);
+      const length = header.getUint32(8, true);
+      offset += 12;
+      if (!width || !height || length > file.size - offset) return null;
+      pages.push({ index, width, height, blob: file.slice(offset, offset + length, "image/webp") });
+      offset += length;
+    }
+    if (offset !== file.size) return null;
+    return { ...manifest, pages };
+  } catch {
+    return null;
+  }
+}
+
 const ATLAS_DIRECTORY = scoped("carousel-atlases");
 
 function atlasFileName(sourceId: string): string {
@@ -455,7 +499,7 @@ export async function readCarouselAtlas(sourceId: string): Promise<CarouselAtlas
     const directory = await atlasDirectory(false);
     if (!directory) return null;
     const file = await (await directory.getFileHandle(atlasFileName(sourceId))).getFile();
-    return decodeCarouselAtlas(new Uint8Array(await file.arrayBuffer()));
+    return await decodeCarouselAtlasFile(file);
   } catch {
     return null;
   }

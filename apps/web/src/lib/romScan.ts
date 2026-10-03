@@ -1,4 +1,5 @@
 import { isNativeRomArchive, type NativeArchiveRules } from "./nativeRomArchives.js";
+import { electronDirHandle, electronFs } from "./electronFs.js";
 /**
  * ROM folder scan — turns a user-picked directory into the `userRoms` map that
  * feeds the flash-install pipeline (engine/flashInstall.ts → @gnw/fs-builders).
@@ -52,6 +53,7 @@ interface FsDirHandle {
 interface FsFileHandle {
   kind: "file";
   name: string;
+  getFileMetadata?(): Promise<{ size: number; lastModified: number }>;
   getFile(): Promise<File>;
 }
 
@@ -116,6 +118,8 @@ declare global {
 }
 
 import { homebrew, isHomebrewSourceFile } from "./sources/homebrewTitles.svelte.js";
+import { sha1File } from "./fileHash.js";
+export { sha1File } from "./fileHash.js";
 import { zipExtractOne, type ZipEntry } from "./unzip.js";
 import { readZipDirectory, resolveZipRom, type ZipRomVerdict } from "./zipScan.js";
 export { resolveZipRom } from "./zipScan.js";
@@ -163,6 +167,8 @@ export class LazyRom implements LazyBytes {
     readonly lastModified?: number,
     /** Present for a ZIP-backed ROM so a persisted metadata index can re-open it lazily. */
     readonly zipEntry?: ZipEntry,
+    /** Stream-hash direct files without building a full-size Uint8Array. */
+    readonly hashSha1?: () => Promise<string>,
   ) {
     this.length = length;
   }
@@ -350,22 +356,28 @@ async function walk(
       // Keep regular files lazy as well. Scanning only needs their name and size; reading every
       // ROM into JS memory here made a large library consume gigabytes before the user selected
       // anything to install. The same LazyRom path already protects ZIP payloads.
-      const file = await handle.getFile();
       // The webkitdirectory fallback owns in-memory File objects already; retain its historical
       // eager value semantics for callers/tests. Native File System Access handles are the case
       // that needs lazy reads to avoid copying an entire library into the JS heap.
       if ((handle as FsFileHandle & { eager?: boolean }).eager === true) {
+        const file = await handle.getFile();
         out.set(rel, new Uint8Array(await file.arrayBuffer()));
         await onFile?.(rel);
         continue;
       }
+      const fileHandle = handle as FsFileHandle;
+      const metadata = fileHandle.getFileMetadata
+        ? await fileHandle.getFileMetadata()
+        : await fileHandle.getFile();
       out.set(
         rel,
         new LazyRom(
-          file.size,
+          metadata.size,
           async () => new Uint8Array(await (await readRomFile(root, rel)).arrayBuffer()),
           rel,
-          file.lastModified,
+          metadata.lastModified,
+          undefined,
+          async () => sha1File(await readRomFile(root, rel)),
         ),
       );
       await onFile?.(rel);
@@ -471,13 +483,33 @@ export async function scanRomFileSnapshot(
   zipCache?: Map<string, ZipScanCacheEntry>,
   waitForUi: () => Promise<void> = () => Promise.resolve(),
   archiveRules?: NativeArchiveRules,
+  previousFiles?: ReadonlyMap<string, LibraryFile>,
 ): Promise<RomScanResult> {
   const raw = new Map<string, LibraryFile>();
+  const previousByArchive = new Map<string, LazyRom>();
+  for (const file of previousFiles?.values() ?? []) {
+    if (isLazy(file)) {
+      const lazy = file as LazyRom;
+      previousByArchive.set(`${lazy.archive}\0${lazy.zipEntry?.name ?? ""}`, lazy);
+    }
+  }
   const zipSkips: ZipSkipSummary = { count: 0, samples: [] };
   const yieldToPaint = () => new Promise<void>((resolve) => {
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
-    else setTimeout(resolve, 16);
+    let settled = false;
+    let fallback: ReturnType<typeof setTimeout>;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallback);
+      resolve();
+    };
+    // Never let a throttled background-tab animation frame stall the metadata scan.
+    fallback = setTimeout(finish, 100);
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(finish);
   });
+  let zipCacheHits = 0;
+  let zipInspections = 0;
+  let zipInspectionMs = 0;
   for (let index = 0; index < entries.length; index++) {
     if (index % 128 === 0) {
       await waitForUi();
@@ -496,12 +528,19 @@ export async function scanRomFileSnapshot(
     if (/\.zip$/i.test(name) && !isNativeRomArchive(rel, archiveRules)) {
       const cached = zipCache?.get(rel);
       let verdict: ZipRomVerdict;
-      if (cached && cached.size === size && cached.lastModified === lastModified) verdict = cached.verdict;
+      if (cached && cached.size === size && cached.lastModified === lastModified) {
+        zipCacheHits++;
+        verdict = cached.verdict;
+      }
       else {
+        const zipStarted = performance.now();
         try {
           verdict = resolveZipRom(await readZipDirectory(await readRomFile(dir, rel)));
         } catch (error) {
           verdict = { ok: false, reason: error instanceof Error ? error.message : String(error) };
+        } finally {
+          zipInspections++;
+          zipInspectionMs += performance.now() - zipStarted;
         }
         zipCache?.set(rel, { size, lastModified, verdict });
       }
@@ -517,7 +556,9 @@ export async function scanRomFileSnapshot(
         continue;
       }
       const entry = verdict.entry;
-      raw.set(innerRel, new LazyRom(
+      const previous = previousByArchive.get(`${rel}\0${entry.name}`);
+      raw.set(innerRel, previous && previous.length === entry.size && previous.lastModified === lastModified
+        && JSON.stringify(previous.zipEntry) === JSON.stringify(entry) ? previous : new LazyRom(
         entry.size,
         async () => zipExtractOne(new Uint8Array(await (await readRomFile(dir, rel)).arrayBuffer()), entry),
         rel,
@@ -527,15 +568,19 @@ export async function scanRomFileSnapshot(
       await onFile?.(innerRel);
       continue;
     }
-    raw.set(rel, new LazyRom(
+    const previous = previousByArchive.get(`${rel}\0`);
+    raw.set(rel, previous && !previous.zipEntry && previous.length === size && previous.lastModified === lastModified ? previous : new LazyRom(
       size,
       async () => new Uint8Array(await (await readRomFile(dir, rel)).arrayBuffer()),
       rel,
       lastModified,
+      undefined,
+      async () => sha1File(await readRomFile(dir, rel)),
     ));
     await onFile?.(rel);
   }
 
+  dbg(`[library perf] zip inspection cacheHits=${zipCacheHits} inspected=${zipInspections} elapsed=${Math.round(zipInspectionMs)}ms`);
   if (zipSkips.count > 0) dbg(`[scan] ${zipSkips.count} archives skipped; samples: ${zipSkips.samples.join(" | ")}`);
   const userRoms = new Map<string, LibraryFile>();
   let hasRomsPrefix = false;
@@ -550,7 +595,7 @@ export async function scanRomFileSnapshot(
 
 /** True when the native File System Access API is available (Chromium). */
 export const nativeFolderPickerSupported = (): boolean =>
-  typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
+  typeof window !== "undefined" && (typeof window.showDirectoryPicker === "function" || !!electronFs());
 
 /** Folder picking is always supported — native FSAA in Chromium, <input webkitdirectory> fallback elsewhere. */
 export const folderPickerSupported = (): boolean => true;
@@ -747,6 +792,11 @@ export function buildTreeFromFileList(files: ArrayLike<File>): InputDirHandle {
 }
 
 export async function pickFolder(id: string = "gnw-roms"): Promise<FsDirHandle | null> {
+  const desktop = electronFs();
+  if (desktop) {
+    const picked = await desktop.pickDirectory(id);
+    return picked ? electronDirHandle(picked.rootId, picked.name) : null;
+  }
   if (nativeFolderPickerSupported()) {
     try {
       return await window.showDirectoryPicker!({ id, mode: "readwrite" });

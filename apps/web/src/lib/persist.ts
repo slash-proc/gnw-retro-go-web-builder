@@ -70,6 +70,8 @@ export function saveRaw(key: string, value: string): void {
   }
 }
 
+import { electronDirHandle, electronFs, isElectronDirectoryMarker } from "./electronFs.js";
+
 // --- Directory handles (File System Access API) in IndexedDB --------------------------------
 // FileSystemDirectoryHandle is structured-cloneable, so IndexedDB stores it verbatim. We keep
 // handles in a dedicated DB; on a later visit the handle still needs a permission re-grant.
@@ -135,6 +137,15 @@ export async function loadLibraryIndex<T>(): Promise<T | null> {
 
 /** Persist a directory handle under `key`. Swallows errors. */
 export async function saveDir(key: string, handle: unknown): Promise<void> {
+  if (isElectronDirectoryMarker(handle)) {
+    try {
+      localStorage.setItem(NS + "electron-dir:" + key, JSON.stringify({
+        rootId: handle.__gnwElectronRootId,
+        name: handle.__gnwElectronName,
+      }));
+    } catch { /* non-fatal */ }
+    return;
+  }
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
@@ -151,6 +162,32 @@ export async function saveDir(key: string, handle: unknown): Promise<void> {
 
 /** Load a previously persisted directory handle, or null. Swallows errors. */
 export async function loadDir(key: string): Promise<unknown | null> {
+  const desktop = electronFs();
+  if (desktop) {
+    try {
+      const stored = localStorage.getItem(NS + "electron-dir:" + key);
+      if (stored) {
+        let value: unknown;
+        try { value = JSON.parse(stored); } catch { value = stored; }
+        if (typeof value === "string") {
+          // Migrate paths saved by the earlier `gnw:` implementation to the current
+          // main-process directory capability. These values only came from its native picker.
+          const adopted = await desktop.adoptLegacyDirectory(value);
+          if (adopted) {
+            const handle = electronDirHandle(adopted.rootId, adopted.name);
+            await saveDir(key, handle);
+            return handle;
+          }
+          return null;
+        }
+        if (value && typeof value === "object" &&
+            typeof (value as { rootId?: unknown }).rootId === "string" &&
+            typeof (value as { name?: unknown }).name === "string") {
+          return electronDirHandle((value as { rootId: string }).rootId, (value as { name: string }).name);
+        }
+      }
+    } catch { /* fall through to the browser handle store */ }
+  }
   try {
     const db = await openDb();
     const value = await new Promise<unknown>((resolve, reject) => {
@@ -180,6 +217,7 @@ export async function handlePermission(
   mode: "read" | "readwrite",
   interactive: boolean,
 ): Promise<boolean> {
+  if (isElectronDirectoryMarker(handle)) return true;
   const h = handle as PermissionHandle;
   const opts = { mode };
   try {
@@ -194,6 +232,7 @@ export async function handlePermission(
 /** Forget a persisted directory handle. Swallows errors.
  *  Removing a stored folder MUST call this, or the handle store grows entries forever. */
 export async function deleteDir(key: string): Promise<void> {
+  try { localStorage.removeItem(NS + "electron-dir:" + key); } catch { /* non-fatal */ }
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {

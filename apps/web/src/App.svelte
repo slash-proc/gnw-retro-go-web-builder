@@ -363,6 +363,12 @@
        labels — a border here put a second line directly above them. On Landing (Landing1/2)
        there is no line under the header at all. Artboard wins on pure paint. */
   }
+  /* DeviceControls renders its adapter dialog inside DeviceHeader. Lift the entire header
+     stacking context while that dialog is open, otherwise a root-level connection gate can
+     cover the controls even though the dialog itself has a modal z-index. */
+  .app-header:has(:global(.adapter-config)) {
+    z-index: var(--z-modal-prompt);
+  }
   /* Exactly one lip, always 3px: only the fill changes between states, so there is no layout
      shift when a write starts or ends. */
   .lip {

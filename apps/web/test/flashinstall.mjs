@@ -779,7 +779,9 @@ await check("ROMs are stored RAW — the LZMA compressor is never invoked", asyn
   eq(r.plan.stats.compressed, 0, "nothing may be compressed");
   eq(r.plan.stats.skipped, r.plan.stats.frogfsFiles, "every file must be stored raw");
   assert(globalThis.__lzmaLoads > before, "loadLiblzma must still be reached (the seam is live)");
+  const beforePreview = globalThis.__lzmaLoads;
   const f = await buildFrogfsImage(bundle(), 1, new Map([["nes/a.nes", bytes(4096, 71)]]));
+  eq(globalThis.__lzmaLoads, beforePreview, "raw preview must not initialize an unused WASM compressor");
   eq(f.plan.stats.compressed, 0, "buildFrogfsImage must be raw too");
   assert(!frogPaths(f.plan).some((p) => p.endsWith(".lzma")), "no .lzma sidecars");
 });

@@ -27,7 +27,7 @@
  * firmware bundle now has a real PUBLISHED sha256, so it can be cached under a genuine
  * content key. Wiring that up is deliberately not done here.
  */
-import { unzip as defaultUnzip } from "../unzip.js";
+import { unzip as defaultUnzip, zipList } from "../unzip.js";
 import { blobKey } from "../sources/blobCache.js";
 import type { BundleMember, ContentEntry, FirmwareBuild } from "./types.js";
 
@@ -176,6 +176,7 @@ async function takeMember(
   member: BundleMember,
   ref: MemberRef,
   digest: DigestLike,
+  available: readonly string[],
 ): Promise<ExtractedFile | MissingEntryRefusal | MemberHashRefusal> {
   // `path`, never `install`: `install` says where the bytes go on the DEVICE and has no
   // meaning inside the archive.
@@ -186,7 +187,7 @@ async function takeMember(
       reason: "missing-entry",
       buildId,
       member: ref,
-      available: [...entries.keys()],
+      available: [...available],
     };
   }
   const actual = await digest(bytes);
@@ -222,7 +223,7 @@ export async function extractBundle(
   bundleBytes: Uint8Array,
   options: ExtractOptions = {},
 ): Promise<ExtractionResult> {
-  const unzip = options.unzip ?? defaultUnzip;
+  const declaredPaths = new Set([build.image.path, ...build.content.map((entry) => entry.path)]);
   const digest = options.digest ?? blobKey;
 
   // 1. The bundle's own hash, BEFORE the archive is opened.
@@ -230,8 +231,17 @@ export async function extractBundle(
   if (bad) return bad;
 
   let entries: Map<string, Uint8Array>;
+  let available: string[];
   try {
-    entries = await unzip(bundleBytes);
+    if (options.unzip) {
+      entries = await options.unzip(bundleBytes);
+      available = [...entries.keys()];
+    } else {
+      // Bundles also contain debug/build files. Installation only needs declared members;
+      // inflating the rest wastes buffers on every preview without verifying or using them.
+      available = zipList(bundleBytes).filter((entry) => !entry.isDirectory).map((entry) => entry.name);
+      entries = await defaultUnzip(bundleBytes, declaredPaths);
+    }
   } catch (e) {
     return {
       ok: false,
@@ -242,7 +252,7 @@ export async function extractBundle(
   }
 
   // 2. Every declared member's hash, AFTER extracting.
-  const image = await takeMember(build.id, entries, build.image, { role: "image", path: build.image.path }, digest);
+  const image = await takeMember(build.id, entries, build.image, { role: "image", path: build.image.path }, digest, available);
   if (isRefusal(image)) return image;
 
   const entriesRead = [build.image.path];
@@ -250,7 +260,7 @@ export async function extractBundle(
   const content: ExtractedFile[] = [];
   for (let i = 0; i < build.content.length; i++) {
     const decl: ContentEntry = build.content[i];
-    const taken = await takeMember(build.id, entries, decl, { role: "content", path: decl.path, index: i }, digest);
+    const taken = await takeMember(build.id, entries, decl, { role: "content", path: decl.path, index: i }, digest, available);
     if (isRefusal(taken)) return taken;
     // `install` is carried through verbatim for the write step. It was NOT used to find
     // anything in the archive.

@@ -253,6 +253,8 @@ export interface OfferedFile {
   /** As the user named it. Untrusted text; used for reporting only. */
   filename: string;
   bytes: Uint8Array;
+  /** Known length for metadata-only discovery offers whose payload is deferred. */
+  byteLength?: number;
   /** A SHA-1 previously verified against this file's unchanged metadata fingerprint. */
   sha1?: string;
   /**
@@ -326,10 +328,11 @@ export async function gateInputs(specs: ConverterInput[], files: OfferedFile[]):
 
     // maxBytes first: it costs nothing and it is the check that stops a 4 GB file being
     // hashed at all.
-    if (file.bytes.byteLength > spec.maxBytes) {
+    const byteLength = file.byteLength ?? file.bytes.byteLength;
+    if (byteLength > spec.maxBytes) {
       const err = new ConverterError(
         "input-too-large",
-        `${file.filename}: ${file.bytes.byteLength} > ${spec.maxBytes}`,
+        `${file.filename}: ${byteLength} > ${spec.maxBytes}`,
       );
       errors.push(err);
       verdicts.push({ inputId: spec.id, filename: file.filename, sha1: "", recognised: false, error: err });
@@ -350,7 +353,7 @@ export async function gateInputs(specs: ConverterInput[], files: OfferedFile[]):
     // hand-built spec, and published ROM hashes are conventionally uppercase (zelda3's are).
     // A case difference silently failing every match is not a bug worth the saved cycle.
     const match = spec.variants.find(
-      (v) => v.sha1.toLowerCase() === sha1 && (v.bytes === undefined || v.bytes === file.bytes.byteLength),
+      (v) => v.sha1.toLowerCase() === sha1 && (v.bytes === undefined || v.bytes === byteLength),
     );
 
     if (match) {

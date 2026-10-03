@@ -52,6 +52,7 @@ import { SourceError, type Target } from "./types.js";
 import { prepareText } from "./errorText.js";
 import type { ConverterInput } from "./converterTypes.js";
 import type { OfferedFile } from "./inputGate.js";
+import type { DiscoveredOffer } from "./inputDiscovery.js";
 import type { HomebrewTitle } from "./homebrewTitles.svelte.js";
 import { auditLog, type AuditSeverity } from "../auditLog.svelte.js";
 import { literal, msg, type LogEntry } from "../logEntry.js";
@@ -378,7 +379,7 @@ class PrepareState {
    * `isSatisfied()` for the ROW, and `run()` falls back to discovery only when the caller
    * offered nothing — it never overrides a file the user picked by hand.
    */
-  discovered = $state(new Map<string, OfferedFile[]>());
+  discovered = $state(new Map<string, DiscoveredOffer[]>());
 
   /**
    * Names discovery accepted under `strict: false` without matching a variant, per input key.
@@ -394,7 +395,7 @@ class PrepareState {
    * next pass, and one removed stops satisfying on that same pass, because the caller always
    * writes the complete current answer rather than merging into the old one.
    */
-  setDiscovered(repo: string, inputId: string, files: OfferedFile[], unrecognised: string[] = []): void {
+  setDiscovered(repo: string, inputId: string, files: DiscoveredOffer[], unrecognised: string[] = []): void {
     const key = `${repo}#${inputId}`;
     // An explicit removal outranks discovery: the user took this file out, and a folder they
     // registered still holding it is not a reason to hand it back to them (`removed`).
@@ -421,7 +422,7 @@ class PrepareState {
   }
 
   /** What discovery found for one input, or an empty list. */
-  discoveredFor(repo: string, inputId: string): OfferedFile[] {
+  discoveredFor(repo: string, inputId: string): DiscoveredOffer[] {
     return this.discovered.get(`${repo}#${inputId}`) ?? [];
   }
 
@@ -869,8 +870,8 @@ class PrepareState {
    * Deliberately only consulted for an EMPTY offer (see `run()`): a user who opened the picker
    * has answered the question, and a discovered file must never displace their answer.
    */
-  private discoveredForTitle(title: HomebrewTitle): { files: OfferedFile[]; unrecognised: string[] } {
-    const files: OfferedFile[] = [];
+  private discoveredForTitle(title: HomebrewTitle): { files: DiscoveredOffer[]; unrecognised: string[] } {
+    const files: DiscoveredOffer[] = [];
     const unrecognised: string[] = [];
     for (const input of title.tool?.inputs ?? []) {
       const key = `${title.repo}#${input.id}`;
@@ -1123,7 +1124,23 @@ class PrepareState {
     let unrecognisedAll = unrecognised;
     if (offered.length === 0 && title.tool !== undefined) {
       const auto = this.discoveredForTitle(title);
-      offered = auto.files;
+      offered = [];
+      // Discovery stores only paths and readers. Materialize these inputs at the point of use,
+      // preserving the converter's existing OfferedFile API while keeping idle library state
+      // independent of the total ROM corpus size.
+      for (const discovered of auto.files) {
+        try {
+          offered.push({
+            inputId: discovered.inputId,
+            filename: discovered.filename,
+            bytes: await discovered.readBytes(),
+            ...(discovered.sha1 === undefined ? {} : { sha1: discovered.sha1 }),
+            ...(discovered.variantId === undefined ? {} : { variantId: discovered.variantId }),
+          });
+        } finally {
+          discovered.release?.();
+        }
+      }
       if (auto.files.length > 0) unrecognisedAll = [...unrecognised, ...auto.unrecognised];
     }
     const canConvert = title.tool !== undefined && offered.length > 0;
