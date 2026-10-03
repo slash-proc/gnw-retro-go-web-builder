@@ -52,13 +52,14 @@ async function exercise(code) {
       } }];
     }),
   )]);
+  children.push(["neogeo", directory("neogeo", [["native.zip", { kind: "file", async getFile() { reads++; return { size: 10, lastModified: 1, slice() { throw new Error("native ROM archive inspected"); }, arrayBuffer() { throw new Error("native ROM archive read"); } }; } }]])]);
   children.push([".hidden", { kind: "file", getFile() { throw new Error("hidden file read"); } }]);
   const root = directory("library", children);
   send({ type: "pause" });
   const cached = new Map([["a7800/cached.zip", {
     size: 1, lastModified: 1, verdict: { ok: true, name: "cached.a78", entry: { size: 42 } },
   }]]);
-  send({ type: "scan", dir: root, cached });
+  send({ type: "scan", dir: root, cached, archiveRules: { folders: ["neogeo"], loose: false } });
   await turn();
   assert.equal(reads, 0, "paused worker read file metadata");
   send({ type: "resume" });
@@ -75,14 +76,15 @@ async function exercise(code) {
   await waitUntil(() => messages.some((message) => message.type === "complete" || message.type === "error"));
   assert.equal(messages.find((message) => message.type === "error"), undefined);
   const completed = messages.find((message) => message.type === "complete");
-  assert.equal(completed.entries.length, 1142);
+  assert.equal(completed.entries.length, 1143);
   assert.equal("handle" in completed.entries[0], false, "worker returns path metadata without retaining every file handle");
-  assert.equal(reads, 1142);
+  assert.equal(reads, 1143);
+  assert.equal(completed.cached.has("neogeo/native.zip"), false, "native ZIP bypasses directory indexing");
   assert.equal(completed.cached.get("a7800/cached.zip").verdict.name, "cached.a78");
   for (const [consoleName, count] of consoles) {
     assert.equal(completed.entries.filter((entry) => entry.path.startsWith(consoleName + "/")).length, count);
   }
-  assert.equal(messages.filter((message) => message.type === "progress").at(-1).done, 1142);
+  assert.equal(messages.filter((message) => message.type === "progress").at(-1).done, 1143);
 }
 
 await exercise(bundle.outputFiles[0].text);
@@ -90,4 +92,7 @@ await assert.rejects(
   exercise(bundle.outputFiles[0].text.replace("while (paused)", "while (false)")),
   /paused worker read file metadata/,
 );
-console.log("librarydirectoryworker: pause/resume, progress backpressure, 1142-file scan, no payload reads, and pause regression verified");
+const archiveMutation = bundle.outputFiles[0].text.replace("!isNativeRomArchive(path, archiveRules)", "true");
+assert.notEqual(archiveMutation, bundle.outputFiles[0].text, "native archive mutation must change the worker");
+await assert.rejects(exercise(archiveMutation), /native ZIP bypasses directory indexing/);
+console.log("librarydirectoryworker: pause/resume, progress backpressure, 1143-file scan, no payload reads, and pause regression verified");

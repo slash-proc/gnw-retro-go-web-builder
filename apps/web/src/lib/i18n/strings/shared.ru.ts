@@ -28,6 +28,11 @@ export const sharedRu: SharedStrings = {
     moreOptions: "Другие действия",
   },
   deviceControls: {
+    adapterType: "Тип адаптера",
+    usbProgrammer: "USB-программатор",
+    remoteGdb: "Remote gnwmanager",
+    remoteHost: "Хост",
+    remotePort: "Порт",
     deviceActions: "Действия с устройством",
     rescan: "Пересканировать",
     restartRecoveryMode: "Перезапустить режим восстановления",

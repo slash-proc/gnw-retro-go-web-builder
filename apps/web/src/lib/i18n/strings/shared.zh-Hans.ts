@@ -22,6 +22,11 @@ export const sharedZhHans: SharedStrings = {
     moreOptions: "更多选项",
   },
   deviceControls: {
+    adapterType: "适配器类型",
+    usbProgrammer: "USB 编程器",
+    remoteGdb: "Remote gnwmanager",
+    remoteHost: "主机",
+    remotePort: "端口",
     deviceActions: "设备操作",
     rescan: "重新扫描",
     restartRecoveryMode: "重启恢复模式",

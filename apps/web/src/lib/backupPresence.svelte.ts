@@ -17,11 +17,9 @@
  * confirms both stock firmware hashes. That way this status cannot claim the user has a usable
  * backup based only on a filename, and a copy in a second directory is not invisible.
  *
- * `device.backupTaken` is NOT replaced. It answers a different question -- "did the guided flow
- * complete its backup step" -- and `Wizard.svelte` needs exactly that, deliberately latched, so
- * that a live derivation cannot delete the step the user is standing on (see its comment). This
- * module answers "does a backup exist on disk", which is the question the Status row was asking
- * with the wrong source.
+ * Advanced and Guided Setup read the same published directory snapshots. `forModel`
+ * answers complete/partial from those verified files; a session backup flag does not
+ * establish completion. The guided flow retains its stage layout independently.
  *
  * FOUR STATES, and the third one is the point:
  *   unknown       nothing has looked yet, or this browser cannot pick folders at all
@@ -76,6 +74,16 @@ class BackupPresenceStore {
   private busy = false;
   private refreshAgain = false;
 
+  /** Shared verified inventory used by Advanced and Guided Setup. */
+  snapshots = $state<OfwBackupDirectorySnapshot[]>([]);
+  private scanGeneration = 0;
+
+  forModel(model: string): { complete: FoundBackup | null; partial: boolean } {
+    const backups = this.snapshots.flatMap(({ backups }) => backups).filter((backup) => backup.model === model);
+    const complete = backups.find((backup) => backup.internalOk && backup.externalOk) ?? null;
+    return { complete, partial: !complete && backups.some((backup) => backup.internalPresent || backup.externalPresent) };
+  }
+
   private handle: BackupDir | null = null;
 
   /** Load the source registry and migrate the old one-folder handle into it. */
@@ -97,6 +105,7 @@ class BackupPresenceStore {
 
   /** Hash-scan every permitted registered OFW directory, preserving each set's source. */
   async scanDirectories(): Promise<OfwBackupDirectorySnapshot[]> {
+    const generation = ++this.scanGeneration;
     const rows = await this.directories();
     const snapshots: OfwBackupDirectorySnapshot[] = [];
     for (const source of rows) {
@@ -111,6 +120,7 @@ class BackupPresenceStore {
         snapshots.push({ source: { ...source, status: "missing" }, backups: [] });
       }
     }
+    if (generation === this.scanGeneration) this.snapshots = snapshots;
     return snapshots;
   }
 
@@ -224,6 +234,8 @@ class BackupPresenceStore {
   /** Drop the cached handle so the next `refresh()` re-reads it from storage. For a flow that
    *  changed the stored folder elsewhere. */
   forget(): void {
+    this.scanGeneration++;
+    this.snapshots = [];
     this.handle = null;
     this.state = { kind: "unknown" };
   }

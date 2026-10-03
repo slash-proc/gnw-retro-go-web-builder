@@ -24,7 +24,10 @@ import { device } from "../device.svelte.js";
 import { library } from "../library.svelte.js";
 import { romSelection } from "../romSelection.svelte.js";
 import { sources } from "./store.svelte.js";
+import { localFolders } from "./localFolders.svelte.js";
+import { isBiosUsedBy } from "./types.js";
 import { scanSdBios } from "./sdBios.js";
+import { scanBiosSourceArchives, type BiosSourceFolder } from "./biosArchives.js";
 import { dbg } from "../debug.js";
 import {
   applyBiosPolicy,
@@ -32,8 +35,8 @@ import {
   biosAllowedFilenames,
   biosOmittedFilenames,
   collectBiosNeeds,
+  isBiosCandidateKey,
   installsBios,
-  isBiosFolderKey,
   outstanding,
   resolveBiosStatus,
   sortForDisplay,
@@ -45,11 +48,6 @@ import {
   type GameRef,
 } from "./bios.js";
 
-/** Folder keys that hold BIOS assets rather than games — `bios/…` or `<system>_bios/…`, the
- *  two shapes `flashImage.ts`'s `userDest` accepts. Lives in `bios.ts` so the install-policy
- *  filter there and this scan agree on what counts as a BIOS asset by construction. */
-const isFolderBiosKey = isBiosFolderKey;
-
 class BiosState {
   /** Every declared slot, resolved. Empty until the first resolve lands. */
   all = $state<BiosStatus[]>([]);
@@ -57,6 +55,12 @@ class BiosState {
   checking = $state(false);
 
   private seq = 0;
+  private biosArchiveScan?: {
+    libraryScan: unknown;
+    names: string;
+    sources: readonly BiosSourceFolder[];
+    promise: Promise<BiosCandidate[]>;
+  };
 
   /** Active sources whose fresh manifest we hold. */
   readonly sourceRefs: BiosSourceRef[] = $derived.by(() =>
@@ -97,6 +101,11 @@ class BiosState {
   /** Files that could fill a slot: the target medium's own `bios/` tree, plus the folder's. */
   readonly candidates: BiosCandidate[] = $derived.by(() => {
     const out: BiosCandidate[] = [];
+    const biosFolderIds = new Set(
+      localFolders.folders
+        .filter((folder) => folder.usedBy.some(isBiosUsedBy))
+        .map((folder) => folder.id),
+    );
     if (device.targetMedia === "sd") {
       // Read the handle so a newly-picked card re-runs the consuming effect, which is what
       // drives `refresh()` and therefore the scan below.
@@ -108,7 +117,9 @@ class BiosState {
       }
     }
     for (const [path, data] of library.scan?.userRoms ?? []) {
-      if (isFolderBiosKey(path))
+      const sourceId = library.fileOrigin.get(path);
+      const dedicatedBiosSource = sourceId !== undefined && biosFolderIds.has(sourceId);
+      if (isBiosCandidateKey(path, dedicatedBiosSource))
         out.push({ where: "folder", path, bytes: data, size: data.length });
     }
     // Supplied this session. Deduplicated against the scan above, which `mirror()` may already
@@ -146,6 +157,24 @@ class BiosState {
       // SD mode syncs the CHANGED subset only; without this the file is stored and never written.
       library.markDirty(key);
     }
+  }
+
+  private localBiosArchiveCandidates(needs: BiosNeedEntry[]): Promise<BiosCandidate[]> {
+    const sources = localFolders.folders
+      .filter((folder) => folder.usedBy.some(isBiosUsedBy))
+      .map((folder) => ({ id: folder.id, handle: folder.handle, status: folder.status }));
+    const names = [...new Set(needs.flatMap((need) => need.filenames.map((name) => name.toLowerCase())))].sort().join("|");
+    const cached = this.biosArchiveScan;
+    if (
+      cached && cached.libraryScan === library.scan && cached.names === names &&
+      cached.sources.length === sources.length && cached.sources.every((source, index) =>
+        source.id === sources[index]?.id && source.handle === sources[index]?.handle && source.status === sources[index]?.status
+      )
+    ) return cached.promise;
+
+    const promise = scanBiosSourceArchives(sources, needs.flatMap((need) => need.filenames));
+    this.biosArchiveScan = { libraryScan: library.scan, names, sources, promise };
+    return promise;
   }
 
   /**
@@ -296,7 +325,8 @@ class BiosState {
     }
     this.checking = true;
     try {
-      const resolved = await resolveBiosStatus(needs, this.candidates);
+      const localArchives = await this.localBiosArchiveCandidates(needs);
+      const resolved = await resolveBiosStatus(needs, [...this.candidates, ...localArchives]);
       if (mine === this.seq) this.all = resolved;
       // WHY A SLOT IS EMPTY, in one line the owner can paste back. A BIOS that is plainly in a
       // folder and still reported missing has failed somewhere along a chain nothing narrates:

@@ -55,7 +55,7 @@ await esbuild.build({
   logLevel: "warning",
 });
 const {
-  buildCoreRegistry, registryIsAuthoritative, classifyForRegistry, consoleGroups,
+  hashSelectedRole, nativeArchiveRulesFor, buildCoreRegistry, registryIsAuthoritative, classifyForRegistry, consoleGroups,
   dedicatedFolderPlacement, looseFileFolder, placementToken, isLibrarySource, isCoreKind, isKnownConsoleDir,
 } = await import(pathToFileURL(join(out, "coreRegistry.js")).href);
 
@@ -1158,6 +1158,25 @@ await check("the Library's row controls go through the ROW api, not the file api
   ok(/romSelection\.(?:isSelected|toggle)\(g\.key\)/.test("romSelection.toggle(g.key)"),
      "the bare-call pattern does not match a bare call, so finding none proves nothing");
 });
+
+// Same-extension inputs cannot be confused with their converted outputs.
+const hybridSystem = { folder: "neogeo", longName: "Neo Geo", shortName: "Neo Geo", installable: [".zip", ".gno"],
+  hashSelectedInputs: [{ extensions: [".zip"], maxBytes: 100, variants: [{ bytes: 3 }] }] };
+eq(hashSelectedRole(hybridSystem, "encrypted.zip", 3), "ingestable", "pending hash cannot install raw");
+eq(hashSelectedRole(hybridSystem, "ordinary.zip", 2), "installable", "size excludes encrypted variant");
+eq(hashSelectedRole(hybridSystem, "ordinary.zip", 3, false), "installable", "hash miss passes through");
+eq(hashSelectedRole(hybridSystem, "encrypted.zip", 3, true), "ingestable", "hash match requires conversion");
+eq(hashSelectedRole(hybridSystem, "oversized.zip", 101, false), "ingestable", "input limit cannot be bypassed");
+const hybridRules = nativeArchiveRulesFor({ systems: [hybridSystem] }, { fallback: "neogeo" });
+ok(hybridRules.loose && hybridRules.folders.includes("neo geo"), "native archives follow aliases and dedicated folders");
+const encryptedEntry = { key: "neogeo/game.zip", system: "neogeo", name: "game.zip", size: 3, inFolder: true, installed: false, role: "ingestable" };
+const hybridRows = buildGameRows([encryptedEntry], () => ".zip", () => ({ matched: true }), () => 7);
+eq(hybridRows.length, 1, "one input/output name gives one row");
+eq(hybridRows[0].size, 7, "preview weighs converted bytes");
+eq(hybridRows[0].needsPrepare, false, "same-name output in asset store is prepared");
+const installedHybrid = buildGameRows([{ ...encryptedEntry, installed: true, installedOutputSize: 7 }], () => ".zip", () => ({ matched: true }));
+eq(installedHybrid[0].needsPrepare, false, "installed converted output does not require preparing again");
+eq(installedHybrid[0].installed, true, "installed output recognized separately from source");
 
 console.log(`\ncoreregistry: ${passed} checks passed, ${failures.length} failed`);
 if (failures.length) { for (const f of failures) console.error("  FAIL " + f); process.exit(1); }

@@ -15,6 +15,8 @@
    * Every value from a manifest (title, repo slug, console names) is untrusted third-party
    * text and is interpolated as text — never {@html}, never a path.
    */
+  import { onDestroy } from "svelte";
+  import { importBundle, type BundleImport } from "../sources/bundle.js";
   import { locale } from "../i18n/locale.svelte.js";
   import { sources, sourceDisplayName, type SourceRow } from "../sources/store.svelte.js";
   import { isCoreKind } from "../sources/types.js";
@@ -39,6 +41,10 @@
   let mode = $state<"url" | "bundle" | "raw">("url");
   let urlInput = $state("");
   let rawPending = $state<Awaited<ReturnType<typeof rawCoreSource>> | null>(null);
+
+  let bundlePending = $state<{ data: Uint8Array; imported: BundleImport } | null>(null);
+  let readingBundle = $state(false);
+  onDestroy(() => bundlePending?.imported.release());
 
   sources.load();
 
@@ -84,16 +90,27 @@
   }
 
   /**
-   * Read the picked zip and hand the bytes to the store, clearing the input so re-picking the
+   * Verify the picked zip for review, clearing the input so re-picking the
    * same file after a failure still fires `change` (same reasoning as the Sources tab).
    */
   async function pickBundle(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file || sources.adding) return;
-    const data = new Uint8Array(await file.arrayBuffer());
+    if (!file || sources.adding || readingBundle) return;
     input.value = "";
-    await sources.importBundleFile(data);
+    bundlePending?.imported.release();
+    bundlePending = null;
+    sources.addError = null;
+    readingBundle = true;
+    try {
+      const data = new Uint8Array(await file.arrayBuffer());
+      bundlePending = { data, imported: await importBundle(data) };
+    } catch (err) {
+      const error = err instanceof SourceError ? err : new SourceError("bundle-invalid");
+      sources.addError = { code: error.code, detail: error.detail };
+    } finally {
+      readingBundle = false;
+    }
   }
 
   async function pickRaw(e: Event) {
@@ -136,7 +153,7 @@
           bind:value={urlInput}
           placeholder={t.urlPlaceholder}
           aria-label={t.urlLabel}
-          disabled={sources.adding}
+          disabled={sources.adding || readingBundle}
         />
         <Button variant="action" type="submit" disabled={sources.adding || !urlInput.trim()}>
           {sources.adding ? t.adding : t.add}
@@ -149,10 +166,23 @@
           type="file"
           accept=".zip,application/zip"
           onchange={pickBundle}
-          disabled={sources.adding}
+          disabled={sources.adding || readingBundle}
         />
       </label>
-      {#if sources.adding}<p class="hint">{t.importing}</p>{/if}
+      {#if sources.adding || readingBundle}<p class="hint">{t.importing}</p>{/if}
+      {#if bundlePending}
+        {@const resolved = bundlePending.imported.resolved}
+        <div class="rawsummary">
+          <strong>{resolved.manifest.title}</strong> ({resolved.entry.tag})
+          <div>{isCoreKind(resolved.entry.kind) ? t.colCores : t.colHomebrew}</div>
+          <div>{resolved.manifest.targets.flatMap((target) => target.systems ?? []).map((system) => system.longName).join(", ")}</div>
+        </div>
+        <Button variant="action" disabled={sources.adding || readingBundle} onclick={async () => {
+          const pending = bundlePending!;
+          bundlePending = null;
+          await sources.importBundleFile(pending.data, pending.imported);
+        }}>{t.add}</Button>
+      {/if}
     {:else}
       <label class="field">
         <span class="label">CORE binary</span>

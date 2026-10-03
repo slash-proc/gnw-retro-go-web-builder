@@ -1,3 +1,4 @@
+import { isNativeRomArchive, type NativeArchiveRules } from "./nativeRomArchives.js";
 /**
  * ROM folder scan — turns a user-picked directory into the `userRoms` map that
  * feeds the flash-install pipeline (engine/flashInstall.ts → @gnw/fs-builders).
@@ -263,6 +264,7 @@ async function walk(
   hbPrefixes: readonly string[],
   zipCache?: Map<string, ZipScanCacheEntry>,
   zipSkips?: ZipSkipSummary,
+  archiveRules?: NativeArchiveRules,
 ): Promise<void> {
   for await (const [name, handle] of dir.entries()) {
     if (isHidden(name)) continue; // .DS_Store, .git, … (the pipeline also drops .DS_Store)
@@ -274,7 +276,7 @@ async function walk(
 
     if (handle.kind === "directory") {
       // Do not recurse into subdirectories inside homebrew
-      await walk(handle, root, rel, out, onFile, hbPrefixes, zipCache, zipSkips);
+      await walk(handle, root, rel, out, onFile, hbPrefixes, zipCache, zipSkips, archiveRules);
     } else {
       if (isInsideHomebrew || hbPrefixes.some((p) => rel.startsWith(`${p}/`))) {
         // Cover art (celeste.png, "Zelda 3.png", …) also lives directly in homebrew/ (see
@@ -296,7 +298,7 @@ async function walk(
           isCoverImage || homebrew.deviceFiles.has(hbKey) || isHomebrewSourceFile(name) || !!homebrew.owning(hbKey);
         if (!isWhitelisted) continue;
       }
-      if (/\.zip$/i.test(name)) {
+      if (/\.zip$/i.test(name) && !isNativeRomArchive(rel, archiveRules)) {
         let verdict: ZipRomVerdict;
         const file = await handle.getFile();
         const cached = zipCache?.get(rel);
@@ -437,10 +439,11 @@ export async function scanRomDirectory(
   onFile: ScanProgressFn | null = null,
   hbPrefixes: readonly string[] = LEGACY_HOMEBREW_PREFIXES,
   zipCache: Map<string, ZipScanCacheEntry> | undefined = undefined,
+  archiveRules?: NativeArchiveRules,
 ): Promise<RomScanResult> {
   const raw = new Map<string, LibraryFile>();
   const zipSkips: ZipSkipSummary = { count: 0, samples: [] };
-  await walk(dir, dir, "", raw, onFile, hbPrefixes, zipCache, zipSkips);
+  await walk(dir, dir, "", raw, onFile, hbPrefixes, zipCache, zipSkips, archiveRules);
   if (zipSkips.count > 0) {
     dbg(`[scan] ${zipSkips.count} archives skipped; samples: ${zipSkips.samples.join(" | ")}`);
   }
@@ -467,6 +470,7 @@ export async function scanRomFileSnapshot(
   onFile: ScanProgressFn | null = null,
   zipCache?: Map<string, ZipScanCacheEntry>,
   waitForUi: () => Promise<void> = () => Promise.resolve(),
+  archiveRules?: NativeArchiveRules,
 ): Promise<RomScanResult> {
   const raw = new Map<string, LibraryFile>();
   const zipSkips: ZipSkipSummary = { count: 0, samples: [] };
@@ -489,7 +493,7 @@ export async function scanRomFileSnapshot(
       const hbKey = hbRoot ? rel.slice(hbRoot.length + 1) : name;
       if (!(isCoverImage || homebrew.deviceFiles.has(hbKey) || isHomebrewSourceFile(name) || !!homebrew.owning(hbKey))) continue;
     }
-    if (/\.zip$/i.test(name)) {
+    if (/\.zip$/i.test(name) && !isNativeRomArchive(rel, archiveRules)) {
       const cached = zipCache?.get(rel);
       let verdict: ZipRomVerdict;
       if (cached && cached.size === size && cached.lastModified === lastModified) verdict = cached.verdict;
@@ -807,7 +811,7 @@ export async function pickSdCardFolder(): Promise<void> {
  * Uses the native File System Access API when available, otherwise falls back to
  * <input webkitdirectory>.
  */
-export async function pickAndScanRomFolder(id: string = "gnw-roms"): Promise<RomScanResult | null> {
+export async function pickAndScanRomFolder(id: string = "gnw-roms", archiveRules?: NativeArchiveRules): Promise<RomScanResult | null> {
   const dir = await pickFolder(id);
   if (!dir) return null;
 
@@ -816,7 +820,7 @@ export async function pickAndScanRomFolder(id: string = "gnw-roms"): Promise<Rom
     throw new Error("Invalid folder selected. Please select your 'roms' folder containing console subfolders (e.g., nes, gbc, md).");
   }
 
-  return scanRomDirectory(validRoot);
+  return scanRomDirectory(validRoot, null, undefined, undefined, archiveRules);
 }
 
 /**

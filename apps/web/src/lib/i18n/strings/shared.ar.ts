@@ -42,6 +42,11 @@ export const sharedAr: SharedStrings = {
     moreOptions: "خيارات أخرى",
   },
   deviceControls: {
+    adapterType: "نوع المحول",
+    usbProgrammer: "مبرمج USB",
+    remoteGdb: "Remote gnwmanager",
+    remoteHost: "المضيف",
+    remotePort: "المنفذ",
     deviceActions: "إجراءات الجهاز",
     rescan: "إعادة الفحص",
     restartRecoveryMode: "إعادة تشغيل وضع الاستعادة",

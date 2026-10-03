@@ -14,6 +14,8 @@
  * identical in the UI, and (b) forgetting the manifests too, which throws away downloads the
  * session already paid for. Both are asserted by counting fetches.
  */
+import vm from "node:vm";
+import ts from "typescript";
 import { mkdtempSync, symlinkSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -210,11 +212,59 @@ await check("dual boot tracks backup and patch completion separately", () => {
   // A patched Zelda/Mario image in bank 1 is device truth. The local backup flag is still
   // required for Retro-Go-only, which never patches, but must not keep an already-patched
   // dual-boot device looking unfinished after a reload or another session.
-  assert(/let backupStepDone = \$derived\(step1Skipped \|\| backupPresent\)/.test(wiz), "backup completion uses validated local backups");
+  assert(/let backupStepDone = \$derived\(backupPresent\)/.test(wiz), "backup completion uses validated local backups");
   assert(/let patchStepDone = \$derived\(path === "dual" && isPatched\)/.test(wiz), "dual patch completion is separate from backup completion");
   const patchedPredicate = wiz.match(/const isPatched = \$derived\(([\s\S]*?)\n  \);/)?.[1] ?? "";
   assert(/b.index === 1 && b.ofw\?\.patched === true/.test(patchedPredicate), "patch requires a patched official image in bank 1");
   assert(!/hasAssets/.test(patchedPredicate), "missing external partition inventory does not undo patch completion");
+});
+
+await check("guided backup completion requires a verified pair for the detected firmware", () => {
+  const script=wiz.slice(wiz.indexOf(">")+1,wiz.indexOf("</script>"));
+  const ast=ts.createSourceFile("wizard.ts",script,ts.ScriptTarget.Latest,true);
+  const declarations=ast.statements.filter(ts.isVariableStatement).flatMap(n=>[...n.declarationList.declarations]);
+  function completion(model,inventory,skipped=false,override=null) {
+    const derived=x=>x;derived.by=fn=>fn();
+    const shared=readFileSync(join(here,"../src/lib/backupPresence.svelte.ts"),"utf8");
+    const sharedAst=ts.createSourceFile("backup.ts",shared,ts.ScriptTarget.Latest,true);
+    const store=sharedAst.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==="BackupPresenceStore");
+    const method=store.members.find(n=>n.name?.getText(sharedAst)==="forModel");
+    const context=vm.createContext({$derived:derived,device:{model,itcmOfwModel:"unknown",extSizeMB:64},step1Skipped:skipped,backupModelOverride:override,inventory});
+    vm.runInContext(ts.transpileModule(`class SharedBackups { ${method.getText(sharedAst)} };globalThis.backupPresence=new SharedBackups();backupPresence.snapshots=[{backups:inventory}];`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
+    for(const name of ["backupModel","backupForDevice","backupPresent","backupStepDone"]) {
+      const declaration=declarations.find(n=>n.name.getText(ast)===name);
+      assert(declaration?.initializer,`missing ${name}`);
+      vm.runInContext(`globalThis.${name}=${declaration.initializer.getText(ast)}`,context);
+    }
+    return context.backupStepDone;
+  }
+  const zelda={model:"zelda",internalOk:true,externalOk:true};
+  const mario={model:"mario",internalOk:false,externalOk:true};
+  assert(!completion("mario",[zelda,mario]),"Another firmware's complete pair must not complete this device's backup");
+  assert(!completion("mario",[mario],true),"Skipping backup must not show verified completion");
+  assert(!completion("unknown",[zelda]),"Unknown firmware must not assume an unrelated backup is usable");
+  assert(!completion("mario",[zelda,mario],false,"zelda"),"Detected firmware must override an old fallback model");
+  assert(completion("mario",[{...mario,internalOk:true}]),"A verified matching pair completes backup");
+  assert(!completion("mario",[]),"Removed files must clear completion");
+});
+
+await check("successful backup refreshes files and retains its verified firmware model", async () => {
+  const script=wiz.slice(wiz.indexOf(">")+1,wiz.indexOf("</script>"));
+  const ast=ts.createSourceFile("wizard.ts",script,ts.ScriptTarget.Latest,true);
+  const node=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==="runStep1");
+  assert(node,"Missing backup entry point");
+  const dir={};
+  const pair={model:"mario",internalOk:true,externalOk:true,internal:new Uint8Array(4),external:new Uint8Array(4)};
+  let scans=0;
+  const context=vm.createContext({backupModel:"mario",backupModelOverride:null,backupSourceChoiceId:"mario",backupSourceChoices:[{id:"mario",dir,backup:pair}],
+    device:{model:"unknown",deviceClass:null,transport:null,markBackupTaken(){}},
+    localFolders:{async adoptOfwBackup(){}},scanBackupFolder:async()=>[pair],
+    backupPresence:{async refresh(){scans++;},async scanDirectories(){scans++;}},
+    msg:()=>"",isBroken:false});
+  vm.runInContext(ts.transpileModule(node.getText(ast)+";globalThis.runStep1=runStep1;",{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
+  await context.runStep1({signal:{aborted:false},start(){},finish(){},log(){}},false);
+  assert(scans===2,"Successful backup must refresh verified file status before returning");
+  assert(context.backupModelOverride==="mario","The verified firmware model must survive temporary loss of device detection");
 });
 
 console.log(`\nversionrefresh: ${passed} passed, ${failed} failed`);

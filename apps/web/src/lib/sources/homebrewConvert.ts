@@ -147,8 +147,6 @@ export async function convertHomebrewTitle(
   const tool = title.tool;
   if (!tool) throw new ConverterError("unsupported-processor", title.key);
 
-  const wasm = await fetchConverterBinary(tool, opts?.binaryDeps);
-
   // The files arrive already bound to an input: the prompt asks per-SLOT, so the user picking
   // a file for "Translated ROM" IS the answer to which input it belongs to. This used to
   // re-derive the id from the file extension instead, which silently broke every tool with two
@@ -159,6 +157,16 @@ export async function convertHomebrewTitle(
   //
   // ONE gate pass, over the whole set, before any Worker exists — `maxCount` and the arity
   // rules are only meaningful checked here.
+  if (tool.inputs.some((input) => input.unmatched === "passthrough")) {
+    const use = useForTool(title.target, tool.id);
+    const systems = title.target.systems ?? [];
+    const system = systems.find((entry) => entry.id === (use?.system ?? (systems.length === 1 ? systems[0].id : undefined)));
+    if (title.target.kind !== "core" || use?.required !== false || !system
+      || tool.inputs[0].extensions.some((extension) => !system.extensions.some((ext) => (Array.isArray(ext) ? ext[0] : ext).toLowerCase() === extension.toLowerCase()))
+      || use.outputs.length !== 1 || use.outputs[0] !== tool.outputs[0].id) {
+      throw new ConverterError("unsupported-processor", "invalid passthrough destination");
+    }
+  }
   const gate = await gateInputs(tool.inputs, files);
   if (gate.errors.length > 0) throw gate.errors[0];
 
@@ -176,15 +184,21 @@ export async function convertHomebrewTitle(
   // a tool with a derived output and anything other than one `runPerFile` input, so this can
   // no longer silently convert the first of several.
   const perFileId = tool.inputs.find((i) => i.runPerFile)?.id;
-  const batches = planRuns(gate.accepted, perFileId);
+  const passthrough = gate.accepted.filter((file) => verdictOf.get(file)?.passthrough);
+  const convertible = gate.accepted.filter((file) => !verdictOf.get(file)?.passthrough);
+  const batches = passthrough.length && convertible.length === 0 ? [] : planRuns(convertible, perFileId);
+  const wasm = batches.length ? await fetchConverterBinary(tool, opts?.binaryDeps) : undefined;
 
-  const produced: ProducedFile[] = [];
+  const produced: ProducedFile[] = passthrough.map((file) => {
+    if (!isPlainFilename(file.filename)) throw new ConverterError("output-name", file.filename);
+    return { name: file.filename, bytes: file.bytes, spec: tool.outputs[0], from: file.filename };
+  });
   const warnings: string[] = [];
 
   for (const batch of batches) {
     const result = await runConverter({
       tool,
-      wasm,
+      wasm: wasm!,
       inputs: batch.inputs,
       ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
       ...(opts?.signal ? { signal: opts.signal } : {}),

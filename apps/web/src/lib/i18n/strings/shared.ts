@@ -34,6 +34,11 @@ export const sharedEn = {
     moreOptions: "More options",
   },
   deviceControls: {
+    adapterType: "Adapter type",
+    usbProgrammer: "USB Programmer",
+    remoteGdb: "Remote gnwmanager",
+    remoteHost: "Host",
+    remotePort: "Port",
     deviceActions: "Device actions",
     rescan: "Rescan",
     restartRecoveryMode: "Restart Recovery Mode",

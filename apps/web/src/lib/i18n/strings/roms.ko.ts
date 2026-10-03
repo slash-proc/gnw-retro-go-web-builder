@@ -275,6 +275,7 @@ export const romsKo: RomsStrings = {
       noGamesFound: "게임을 찾을 수 없어요",
       defaultVariantLabel: "기본 종류:",
       stop: "중지",
+      minimize: "최소화",
       progressLabel: (done: number, total: number) => `${done} of ${total} covers scraped`,
       showGeneratedCovers: "Show generated covers",
       skipExistingCovers: "Skip entries with an existing cover",

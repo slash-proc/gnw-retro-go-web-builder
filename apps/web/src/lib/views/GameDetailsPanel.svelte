@@ -23,6 +23,7 @@
   import { homebrew } from "../sources/homebrewTitles.svelte.js";
   import { romSelection, type Game } from "../romSelection.svelte.js";
   import { cacheDerivedCover, library } from "../library.svelte.js";
+  import { massCoverImport } from "../massCoverImport.svelte.js";
   import { systemIdsFor, isKnownSystemFolder } from "../screenscraper/config.js";
   import { coverSystemFor } from "../sources/coverSystem.js";
   import { inlineCoverPathsForRom, sourceCoverPathForRom, type LibraryRom } from "../sources/libraryModel.js";
@@ -775,7 +776,6 @@
   });
 
   // --- Import Modal State ---
-  let showImportModal = $state(false);
   let importSelected = $state<Set<string>>(new Set());
   let importGamesList = $state<Array<Game & { hasCover: boolean }>>([]);
   let importPreparing = $state(false);
@@ -786,31 +786,23 @@
   let importFilterConsole = $state<string>("all");
   let defaultVariant = $state<"box" | "ss" | "mix3" | "mix4" | "mix5">("box");
 
-  let isImporting = $state(false);
-  let importProgress = $state({ current: 0, total: 0 });
-  let showGeneratedCovers = $state(true);
   let skipExistingCovers = $state(true);
-  let importPreviewBlob = $state<Blob | null>(null);
-  let importPreviewUrl = $state<string | null>(null);
-  let importPreviewMessage = $state<string | null>(null);
-
-  $effect(() => {
-    if (!importPreviewBlob) {
-      importPreviewUrl = null;
-      return;
-    }
-    const url = URL.createObjectURL(importPreviewBlob);
-    importPreviewUrl = url;
-    return () => URL.revokeObjectURL(url);
-  });
 
   async function startImport() {
-    isImporting = true;
-    importPreviewBlob = null;
-    importPreviewMessage = null;
+    // A panel can remount while the scraper is running. The shared lock prevents a second
+    // worker from starting, and makes every Import button reopen this same run.
+    if (massCoverImport.active) return;
+    massCoverImport.active = true;
+    massCoverImport.minimized = false;
+    massCoverImport.cancelRequested = false;
+    massCoverImport.current = 0;
+    massCoverImport.total = 0;
+    massCoverImport.previewBlob = null;
+    massCoverImport.previewMessage = null;
     const changedPaths = new Set<string>();
     let importedCovers = 0;
 
+    try {
     const filesToScrape: File[] = [];
     const coverSources = new Map<string, {
       dir: RomDirHandle | null;
@@ -823,6 +815,7 @@
       return !skipExistingCovers || !selectedGame?.hasCover;
     });
     for (const key of keysToImport) {
+      if (massCoverImport.cancelRequested) break;
       const selectedGame = importGameByKey.get(key);
       const entry = selectedGame?.rom
         ? (library.fileForRom(selectedGame.rom) ?? library.fileForPath(key))
@@ -888,15 +881,14 @@
       if (isLazy(entry)) entry.release?.();
     }
 
-    importProgress = { current: 0, total: filesToScrape.length };
+    massCoverImport.total = filesToScrape.length;
     if (filesToScrape.length === 0) {
-      isImporting = false;
       return;
     }
 
-    try {
       const batchSize = 25;
       for (let batchStart = 0; batchStart < filesToScrape.length; batchStart += batchSize) {
+        if (massCoverImport.cancelRequested) break;
         const batch = filesToScrape.slice(batchStart, batchStart + batchSize);
         await runCovers({
         files: batch,
@@ -914,9 +906,9 @@
           dbg(`[cover] ${msg}`);
         },
         onMiss: (miss: any) => {
-          if (showGeneratedCovers) {
-            importPreviewBlob = null;
-            importPreviewMessage = locale.t.roms.gameDetailsPanel.importModal.coverNotFound(miss.name);
+          if (massCoverImport.showGeneratedCovers) {
+            massCoverImport.previewBlob = null;
+            massCoverImport.previewMessage = locale.t.roms.gameDetailsPanel.importModal.coverNotFound(miss.name);
           }
           auditLog.add(
             "warning",
@@ -926,8 +918,8 @@
           );
         },
         onProgress: (done: number, total: number) => {
-          importProgress.current = batchStart + done;
-          importProgress.total = filesToScrape.length;
+          massCoverImport.current = batchStart + done;
+          massCoverImport.total = filesToScrape.length;
         },
         onStatus: () => {},
         // @ts-ignore
@@ -939,9 +931,9 @@
           const { blob, outputPath, file } = cover;
           const originalKey = file?.gnwOriginalKey;
           const coverSource = originalKey ? coverSources.get(originalKey.toLowerCase()) : undefined;
-          if (showGeneratedCovers) {
-            importPreviewMessage = null;
-            importPreviewBlob = blob;
+          if (massCoverImport.showGeneratedCovers) {
+            massCoverImport.previewMessage = null;
+            massCoverImport.previewBlob = blob;
           }
 
           let relPath = "";
@@ -1013,13 +1005,15 @@
           importedCovers++;
           await onCoverChange?.(false, { key: originalKey, sourceId: coverSource?.sourceId, path: storedOriginalPath, bytes: originalBytes });
         },
-        shouldCancel: () => !isImporting
+        shouldCancel: () => massCoverImport.cancelRequested
         });
         batch.length = 0;
       }
       filesToScrape.length = 0;
-      importSelected = new Set();
-      showImportModal = false;
+      if (!massCoverImport.cancelRequested) {
+        importSelected = new Set();
+        massCoverImport.modalOpen = false;
+      }
     } catch (e: any) {
       dbg(`[covers] the cover import failed: ${e?.message || String(e)}`);
       auditLog.add(
@@ -1031,7 +1025,9 @@
     } finally {
       if (library.scan) library.markDirtyMany(changedPaths);
       if (importedCovers > 0) await onCoverChange?.(true);
-      isImporting = false;
+      massCoverImport.active = false;
+      massCoverImport.minimized = false;
+      massCoverImport.modalOpen = false;
     }
   }
 
@@ -1100,8 +1096,12 @@
   }
 
   async function openImportModal(): Promise<void> {
+    if (massCoverImport.active) {
+      massCoverImport.minimized = false;
+      return;
+    }
+    massCoverImport.modalOpen = true;
     const run = ++importPreparation;
-    showImportModal = true;
     importPreparing = true;
     importSelected = new Set();
     importGamesList = [];
@@ -1112,7 +1112,7 @@
     const next: Array<Game & { hasCover: boolean }> = [];
     const selected = new Set<string>();
     for (let start = 0; start < games.length; start += 100) {
-      if (run !== importPreparation || !showImportModal) return;
+      if (run !== importPreparation || !massCoverImport.modalOpen) return;
       for (const game of games.slice(start, start + 100)) {
         const hasCover = hasLocalCover(game.key, game.rom);
         next.push({ ...game, hasCover });
@@ -1120,7 +1120,7 @@
       }
       await nextFrame();
     }
-    if (run !== importPreparation || !showImportModal) return;
+    if (run !== importPreparation || !massCoverImport.modalOpen) return;
     importGamesList = next;
     importSelected = selected;
     importPreparing = false;
@@ -1393,7 +1393,7 @@
       <h3>{locale.t.roms.gameDetailsPanel.coverArt.heading}</h3>
       <div class="panel-head-actions">
         {#if ssUsername}
-          <button class="settings-btn" title={locale.t.roms.gameDetailsPanel.coverArt.importTitle} onclick={() => void openImportModal()}>
+          <button class="mass-import-btn" title={locale.t.roms.gameDetailsPanel.coverArt.importTitle} aria-label={locale.t.roms.gameDetailsPanel.importModal.title} onclick={() => void openImportModal()}>
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
@@ -1881,23 +1881,22 @@
   </div>
 {/if}
 
-{#if showImportModal}
+{#if massCoverImport.modalOpen && !massCoverImport.minimized && !massCoverImport.active}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <!-- The import dialog is deliberately modal: clicking the dimmed page must not discard the
-       user's selection or stop a running batch. The explicit X is the dismissal control. -->
+  <!-- A running import can be minimized or stopped; only an idle selection dialog has an X. -->
   <div class="modal-backdrop">
     <div class="modal-content import">
       <div class="import-head">
         <h3 class="import-title">{locale.t.roms.gameDetailsPanel.importModal.title}</h3>
-        <button aria-label={locale.t.shared.common.close} onclick={() => showImportModal = false} class="modal-close">
+        <button aria-label={locale.t.shared.common.close} onclick={() => massCoverImport.modalOpen = false} class="modal-close">
           <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
 
       {#if importPreparing}
       <div class="empty">Preparing cover inventory…</div>
-      {:else if !isImporting}
+      {:else if !massCoverImport.active}
       <div class="consoles import-filter">
         <button class="console" class:active={importFilterConsole === "all"} onclick={() => importFilterConsole = "all"}>
           {locale.t.roms.gameDetailsPanel.importModal.allFilterLabel(importGamesList.length)}
@@ -1971,7 +1970,7 @@
 
       <div class="import-options">
         <label class="check-label">
-          <input type="checkbox" bind:checked={showGeneratedCovers} />
+          <input type="checkbox" bind:checked={massCoverImport.showGeneratedCovers} />
           {locale.t.roms.gameDetailsPanel.importModal.showGeneratedCovers}
         </label>
         <label class="check-label">
@@ -1993,7 +1992,7 @@
           </label>
 
         <div class="import-btns">
-          <button class="mbtn" onclick={() => showImportModal = false}>
+          <button class="mbtn" onclick={() => massCoverImport.modalOpen = false}>
             {locale.t.shared.common.cancel}
           </button>
           <button class="mbtn primary" onclick={startImport} disabled={importableSelectedCount === 0}>
@@ -2001,31 +2000,6 @@
           </button>
         </div>
       </div>
-      {:else}
-        <div class="import-running">
-          {#if showGeneratedCovers}
-            <div class="import-preview-viewport">
-              {#if importPreviewUrl}
-                <img src={importPreviewUrl} alt={locale.t.roms.gameDetailsPanel.importModal.generatedCoverPreviewAlt} />
-              {:else if importPreviewMessage}
-                <span>{importPreviewMessage}</span>
-              {:else}
-                <span>{locale.t.roms.gameDetailsPanel.importModal.showGeneratedCovers}</span>
-              {/if}
-            </div>
-          {/if}
-          <div class="importing">
-            <div class="import-progress" role="progressbar"
-              aria-label={locale.t.roms.gameDetailsPanel.importModal.progressLabel(importProgress.current, importProgress.total)}
-              aria-valuemin="0" aria-valuemax={importProgress.total} aria-valuenow={importProgress.current}>
-              <div class="import-progress-fill" style={`width: ${importProgress.total > 0 ? Math.round(importProgress.current / importProgress.total * 100) : 0}%`}></div>
-            </div>
-            <span class="import-progress-label">{locale.t.roms.gameDetailsPanel.importModal.progressLabel(importProgress.current, importProgress.total)}</span>
-            <button class="mbtn" onclick={() => isImporting = false}>
-              {locale.t.roms.gameDetailsPanel.importModal.stop}
-            </button>
-          </div>
-        </div>
       {/if}
 
     </div>
@@ -2680,7 +2654,7 @@
     display: flex;
     gap: 0.25rem;
   }
-  .settings-btn {
+  .settings-btn, .mass-import-btn {
     background: none;
     border: none;
     cursor: pointer;
@@ -3031,53 +3005,6 @@
     display: flex;
     gap: 1.25rem;
     margin-top: 0.75rem;
-  }
-  .import-running {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .import-preview-viewport {
-    height: 220px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    border-radius: var(--r-card);
-    background: var(--surface-sunk);
-  }
-  .import-preview-viewport img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
-  .import-preview-viewport span {
-    color: var(--ink-soft);
-    font-size: var(--fs-micro);
-  }
-  .importing {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--ink-soft);
-    font-size: var(--fs-micro);
-    margin-inline-end: 1rem;
-  }
-  .import-progress {
-    width: 10rem;
-    height: 0.45rem;
-    overflow: hidden;
-    border-radius: 999px;
-    background: var(--hairline);
-  }
-  .import-progress-fill {
-    height: 100%;
-    border-radius: inherit;
-    background: var(--model-accent);
-    transition: width 120ms ease-out;
-  }
-  .import-progress-label {
-    white-space: nowrap;
   }
   .mbtn {
     padding: 0.5rem 1rem;

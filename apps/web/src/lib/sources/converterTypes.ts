@@ -115,6 +115,8 @@ export interface ConverterInput {
   variants: InputVariant[];
   /** Default TRUE. False means "try it, and tell the user it was not recognised". */
   strict: boolean;
+  /** Match variants for conversion; other files are installed unchanged. */
+  unmatched?: "passthrough";
   label?: Record<string, string>;
   description?: Record<string, string>;
 }

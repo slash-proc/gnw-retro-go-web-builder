@@ -1,3 +1,4 @@
+import type { NativeArchiveRules } from "./nativeRomArchives.js";
 import { scanRomDirectory, scanRomFileSnapshot, type RomDirHandle, type RomFileSnapshot, type RomScanResult, type ZipScanCacheEntry } from "./romScan.js";
 
 export type DirectorySnapshotEntry = RomFileSnapshot;
@@ -16,9 +17,10 @@ export async function scanLibraryDirectory(
   onProgress: (path: string, count: number) => Promise<void>,
   cached: Map<string, ZipScanCacheEntry>,
   waitForUi: () => Promise<void>,
+  archiveRules?: NativeArchiveRules,
 ): Promise<RomScanResult> {
   if (typeof Worker === "undefined" || typeof FileSystemDirectoryHandle === "undefined" || !(dir instanceof FileSystemDirectoryHandle)) {
-    return scanRomDirectory(dir, (path) => onProgress(path, 1), undefined, cached);
+    return scanRomDirectory(dir, (path) => onProgress(path, 1), undefined, cached, archiveRules);
   }
   const entries = await new Promise<DirectorySnapshotEntry[]>((resolve, reject) => {
     const worker = new Worker(new URL("./libraryDirectory.worker.ts", import.meta.url), { type: "module" });
@@ -61,12 +63,12 @@ export async function scanLibraryDirectory(
     };
     try {
       if (paused) worker.postMessage({ type: "pause" });
-      worker.postMessage({ type: "scan", dir, cached });
+      worker.postMessage({ type: "scan", dir, cached, archiveRules });
     } catch (error) {
       finish();
       reject(error);
     }
   });
-  const result = await scanRomFileSnapshot(dir, entries, (path) => onProgress(path, 0), cached, waitForUi);
+  const result = await scanRomFileSnapshot(dir, entries, (path) => onProgress(path, 0), cached, waitForUi, archiveRules);
   return { ...result, dir };
 }

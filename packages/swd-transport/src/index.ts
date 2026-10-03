@@ -628,3 +628,6 @@ export class WebStlinkTransport extends BaseTransport {
     await this.stlink.set_reg(num, val);
   }
 }
+
+/** Shared memory transport for injected remote backends; retains watchdog-safe ARM control. */
+export { BaseTransport as MemoryTransport };

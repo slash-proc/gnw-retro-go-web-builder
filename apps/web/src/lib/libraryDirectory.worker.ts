@@ -1,3 +1,4 @@
+import { isNativeRomArchive, type NativeArchiveRules } from "./nativeRomArchives.js";
 import { readZipDirectory, resolveZipRom } from "./zipScan.js";
 import type { DirectorySnapshotEntry } from "./libraryDirectoryWorker.js";
 import type { ZipScanCacheEntry } from "./romScan.js";
@@ -10,7 +11,7 @@ async function checkpoint(): Promise<void> {
   while (paused) await new Promise<void>((resolve) => { resume = resolve; });
 }
 
-async function scan(dir: FileSystemDirectoryHandle, cached: Map<string, ZipScanCacheEntry>): Promise<void> {
+async function scan(dir: FileSystemDirectoryHandle, cached: Map<string, ZipScanCacheEntry>, archiveRules?: NativeArchiveRules): Promise<void> {
   const entries: DirectorySnapshotEntry[] = [];
   let lastProgress = 0;
   let lastProgressCount = 0;
@@ -32,7 +33,7 @@ async function scan(dir: FileSystemDirectoryHandle, cached: Map<string, ZipScanC
       }
       const fileHandle = handle as FileSystemFileHandle;
       const file = await fileHandle.getFile();
-      if (/\.zip$/i.test(name)) {
+      if (/\.zip$/i.test(name) && !isNativeRomArchive(path, archiveRules)) {
         const previous = cached.get(path);
         if (!previous || previous.size !== file.size || previous.lastModified !== file.lastModified) {
           try {
@@ -58,7 +59,7 @@ async function scan(dir: FileSystemDirectoryHandle, cached: Map<string, ZipScanC
 }
 
 self.onmessage = (event: MessageEvent<
-  { type: "scan"; dir: FileSystemDirectoryHandle; cached: Map<string, ZipScanCacheEntry> }
+  { type: "scan"; dir: FileSystemDirectoryHandle; cached: Map<string, ZipScanCacheEntry>; archiveRules?: NativeArchiveRules }
   | { type: "pause" | "resume" | "ack" }
 >) => {
   const message = event.data;
@@ -71,7 +72,7 @@ self.onmessage = (event: MessageEvent<
     acknowledge?.();
     acknowledge = undefined;
   } else if (message.type === "scan") {
-    void scan(message.dir, message.cached).catch((error) => {
+    void scan(message.dir, message.cached, message.archiveRules).catch((error) => {
       self.postMessage({ type: "error", message: error instanceof Error ? error.message : String(error) });
     });
   }

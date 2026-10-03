@@ -42,7 +42,7 @@ import {
   type SkippedFolder,
 } from "./sources/libraryScan.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
-import { dedicatedFolderPlacement, isLibrarySource } from "./sources/coreRegistry.js";
+import { dedicatedFolderPlacement, isLibrarySource, nativeArchiveRulesFor } from "./sources/coreRegistry.js";
 import { coverBlobStore } from "./screenscraper/coverStore.js";
 import { libraryCoverCacheKey, libraryFileMetaFromScan, sameLibraryFileMeta, type LibraryFileMeta, type LibraryRom } from "./sources/libraryModel.js";
 import { zipExtractOne, type ZipEntry } from "./unzip.js";
@@ -664,7 +664,7 @@ class LibraryStore {
     this.folderScanning = true;
     this.error = null;
     try {
-      const r = await pickAndScanRomFolder();
+      const r = await pickAndScanRomFolder("gnw-roms", nativeArchiveRulesFor(coreRegistry.current));
       if (r) {
         // Register the pick in `localFolders` (the multi-folder list is the source of truth
         // now) and then re-merge EVERY ROM folder, so a second pick adds to the library
@@ -837,7 +837,7 @@ class LibraryStore {
             lastTick = now;
             this.progress = { stage: "Reading library files", done: doneFiles, total: totalFiles, current: rel, folder: src.id, layers: [...layers], finalizing: null };
             if (totalFiles > 0) lipProgress.operationProgress("library-scan", doneFiles / totalFiles);
-          }, zipCache, () => this.waitForUiIdle());
+          }, zipCache, () => this.waitForUiIdle(), nativeArchiveRulesFor(coreRegistry.current, src.placement));
           const previousMetadata = this.sourceMetadataCache.get(src.id);
           const nextMetadata = new Map<string, LibraryFileMeta>();
           for (const [path, entry] of r.userRoms) {

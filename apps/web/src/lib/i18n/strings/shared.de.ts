@@ -21,6 +21,11 @@ export const sharedDe: SharedStrings = {
     moreOptions: "Weitere Optionen",
   },
   deviceControls: {
+    adapterType: "Adaptertyp",
+    usbProgrammer: "USB-Programmiergerät",
+    remoteGdb: "Remote gnwmanager",
+    remoteHost: "Host",
+    remotePort: "Port",
     deviceActions: "Geräteaktionen",
     rescan: "Erneut scannen",
     restartRecoveryMode: "Recovery-Modus neu starten",

@@ -21,6 +21,11 @@ export const sharedJa: SharedStrings = {
     moreOptions: "その他のオプション",
   },
   deviceControls: {
+    adapterType: "アダプターの種類",
+    usbProgrammer: "USBプログラマー",
+    remoteGdb: "Remote gnwmanager",
+    remoteHost: "ホスト",
+    remotePort: "ポート",
     deviceActions: "デバイス操作",
     rescan: "再スキャン",
     restartRecoveryMode: "リカバリーモードを再起動",

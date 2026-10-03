@@ -55,7 +55,7 @@
     !!device.info && (device.deviceClass?.kind === "retrogo-sd" || device.deviceClass?.kind === "retrogo-old"),
   );
 
-  let sourceSnapshots = $state<Awaited<ReturnType<typeof backupPresence.scanDirectories>>>([]);
+  const sourceSnapshots = $derived(backupPresence.snapshots);
   let selectedSourceId = $state<string | null>(null);
   let userVariantFilter = $state<"both" | OfwModel | null>(null);
   const variantFilter = $derived(userVariantFilter ?? (detectedModel === "unknown" ? "both" : detectedModel));
@@ -112,7 +112,7 @@
   // (a Mario device with only a Zelda backup on disk should still be able to back up Mario).
   const offerBackup = $derived(
     detectedModel !== "unknown"
-      ? !allBackups.some((f) => f.model === detectedModel && f.internalOk && f.externalOk)
+      ? !backupPresence.forModel(detectedModel).complete
       : !backupValid,
   );
   // Cross-model: the backup's firmware vs the scanned hardware. Zelda firmware on Mario
@@ -249,7 +249,6 @@
     const generation = ++scanGeneration;
     const snapshots = await backupPresence.scanDirectories();
     if (generation !== scanGeneration) return null;
-    sourceSnapshots = snapshots;
     selectedSourceId = selectedSourceId && snapshots.some((s) => s.source.id === selectedSourceId)
       ? selectedSourceId
       : (detectedModel !== "unknown"

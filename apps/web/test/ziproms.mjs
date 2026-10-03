@@ -506,5 +506,29 @@ await rm(out, { recursive: true, force: true });
   ok(Buffer.from(real.get("gb/Lazy.gb")).equals(rom), "materialize: the bytes are the ROM");
 }
 
+// Native cartridge ZIPs are not wrappers, even when malformed as an ordinary ZIP.
+{
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+  let reads = 0;
+  const handle = { kind: "file", async getFile() { return { size: bytes.length, lastModified: 1,
+    slice() { throw new Error("native archive directory inspected"); },
+    async arrayBuffer() { reads++; return bytes.buffer; } }; } };
+  const dir = (children) => ({ kind: "directory", async *entries() { yield* children; } });
+  const nested = dir([["Neo Geo", dir([["cartridge.zip", handle]])]]);
+  const rules = { folders: ["neogeo", "neo geo"], loose: true };
+  const scanned = await scanRomDirectory(nested, null, undefined, undefined, rules);
+  eq(reads, 0, "native archive scan reads metadata only");
+  ok(scanned.userRoms.has("Neo Geo/cartridge.zip"), "native archive keeps original filename");
+  ok(Buffer.from(await romBytes(scanned.userRoms.get("Neo Geo/cartridge.zip"))).equals(Buffer.from(bytes)),
+    "native archive installs original complete bytes");
+  const before = reads;
+  const snap = await scanRomFileSnapshot(nested, [{ path: "Neo Geo/cartridge.zip", size: 4, lastModified: 1 }],
+    null, new Map(), undefined, rules);
+  eq(reads, before, "snapshot assembler never opens native archive");
+  ok(snap.userRoms.has("Neo Geo/cartridge.zip"), "snapshot keeps native archive");
+  const loose = await scanRomDirectory(dir([["loose.zip", handle]]), null, undefined, undefined, rules);
+  ok(loose.userRoms.has("loose.zip"), "dedicated console folder preserves loose native ZIP");
+}
+
 console.log(`\nziproms: ${checks - failures} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);

@@ -3051,7 +3051,7 @@ await esbuild.build({
 });
 const { sources: sourcesStore } = await load("sourcesStore.js");
 
-sourcesStore.load();
+sourcesStore.load(false); // Offline fixture: catalogue fetching is covered separately.
 /**
  * The bundle row's status AT THE INSTANT `load()` returned, captured here rather than read
  * inside the check below. The property under test is "a bundle row says `loading` straight
@@ -3524,7 +3524,7 @@ check("sources: a row with nothing to say yields no segments at all", () => {
 check("store: a persisted card survives being read back by load(), extensions and all", async () => {
   await settled;
   sourcesStore.setActive("a/emu", true); // any mutation; persist() is private
-  sourcesStore.load(); // exactly what a reload does: re-read localStorage into the store
+  sourcesStore.load(false); // exactly what a reload does: re-read localStorage into the store
 
   const emu = sourcesStore.get("a/emu");
   assert(emu, "the row came back");
@@ -4958,7 +4958,7 @@ scheck("store: the retained list survives a persist()/load() round-trip with NO 
 
   coldStart();
   await offline(async () => {
-    sources.load();
+    sources.load(false);
     // Synchronously, before the background refresh it kicked off could possibly answer:
     const row = sources.get("o/r");
     eq(row.card.versions.length, 3, "read straight back out of storage");
@@ -4985,7 +4985,7 @@ scheck("store: selecting an older version changes the card, the manifest, and th
 
 scheck("store: a pin survives a reload and still governs the next refresh", async () => {
   coldStart();
-  await offline(() => sources.load());
+  await offline(() => sources.load(false));
   eq(sources.get("o/r").pinnedTag, "v1.0.0", "read back");
 
   // A NEWER release appears upstream. A pinned row must not silently jump to it.
@@ -8424,6 +8424,141 @@ check("no hand-written file in apps/web carries a raw NUL byte", () => {
   walk(join(here, "../../../../test"));
   assert(scanned > 100, `the scan must actually walk the tree (saw ${scanned} files)`);
   eq(bad.join(","), "", "write the escape, not the byte");
+});
+
+// Hash-selected ZIP conversion uses the same host as Doom, with a direct-file branch.
+function hybridTitle() {
+  const output = { id: "zip", extension: ".zip", maxBytes: 1024 };
+  return doomTitle({
+    inputs: [wadInput({ id: "game", extensions: [".zip"], unmatched: "passthrough", strict: true,
+      variants: [{ id: "encrypted", sha1: sha1Of(new Uint8Array([1, 2, 3])), bytes: 3 }] })],
+    outputs: [output],
+    target: { kind: "core", systems: [{ id: "neogeo", extensions: [".zip", ".gno"] }],
+      uses: [{ tool: "doom-whd", outputs: ["zip"], required: false, system: "neogeo" }] },
+  });
+}
+const hybridFile = (filename, bytes) => ({ inputId: "game", filename, bytes: new Uint8Array(bytes) });
+check("hybrid: unmatched ZIP retains filename and bytes without loading WASM", async () => {
+  const { title } = hybridTitle();
+  let loads = 0;
+  const file = hybridFile("ordinary.zip", [7, 8, 9]);
+  const result = await convertHomebrewTitle(title, [file], {
+    binaryDeps: { fetch: async () => { loads++; throw new Error("unneeded binary fetch"); }, cache: new BlobCache({ backend: nullBlobBackend, quota: nullQuota }) },
+    spawnWorker: () => { throw new Error("unneeded Worker"); },
+  });
+  eq(loads, 0, "all-passthrough must not load a converter");
+  eq(result.files.get(file.filename), file.bytes, "unchanged bytes, no derivation");
+  eq(result.unrecognised[0], file.filename, "passthrough is not verified playable");
+});
+check("hybrid: only encrypted input enters Worker in a mixed batch", async () => {
+  const { title, wasm } = hybridTitle();
+  const seen = [];
+  const ordinary = hybridFile("ordinary.zip", [8, 9]);
+  const result = await convertHomebrewTitle(title, [hybridFile("encrypted.zip", [1, 2, 3]), ordinary], {
+    binaryDeps: binaryDepsFor(wasm), spawnWorker: () => recordingWorker(seen, ["zip"]),
+  });
+  eq(seen.length, 1, "one encrypted file, one run");
+  eq(seen[0].inputs[0].filename, "encrypted.zip", "ordinary ZIP never enters WASM");
+  eq(result.files.get("ordinary.zip"), ordinary.bytes, "ordinary bytes preserved");
+  assert(result.files.has("encrypted.zip"), "converted output keeps same ZIP name");
+});
+check("hybrid: passed-through and converted filenames share collision checks", async () => {
+  const { title, wasm } = hybridTitle();
+  let code;
+  try { await convertHomebrewTitle(title,
+    [hybridFile("game.zip", [1, 2, 3]), hybridFile("GAME.zip", [7])],
+    { binaryDeps: binaryDepsFor(wasm), spawnWorker: () => recordingWorker([], ["zip"]) }); }
+  catch (error) { code = error.code; }
+  eq(code, "name-collision", "mixed branches must not overwrite each other");
+});
+check("hybrid: converter failure never falls back to encrypted source bytes", async () => {
+  const { title, wasm } = hybridTitle();
+  let failed = false;
+  try {
+    await convertHomebrewTitle(title, [hybridFile("encrypted.zip", [1, 2, 3])], {
+      binaryDeps: binaryDepsFor(wasm), spawnWorker: () => { throw new Error("converter failed"); },
+    });
+  } catch { failed = true; }
+  assert(failed, "conversion failure must propagate");
+});
+check("hybrid: extension, filename and count refusals precede converter loading", async () => {
+  const { title } = hybridTitle();
+  title.tool.inputs[0].maxCount = 1;
+  for (const files of [[hybridFile("ordinary.gno", [7])], [hybridFile("../game.zip", [7])],
+    [hybridFile("a.zip", [7]), hybridFile("b.zip", [8])]]) {
+    let failed = false;
+    try { await convertHomebrewTitle(title, files, { binaryDeps: { fetch: async () => { throw new Error("binary loaded before refusal"); } } }); }
+    catch (error) { assert(!String(error).includes("binary loaded"), "limits before fetch"); failed = true; }
+    assert(failed, "invalid routing input refused");
+  }
+});
+
+check("hybrid regression: removing passthrough routing loads WASM for an ordinary ZIP", async () => {
+  const source = readFileSync(join(here, "../homebrewConvert.ts"), "utf8");
+  const mutated = source.replaceAll("verdictOf.get(file)?.passthrough", "false");
+  assert(mutated !== source, "mutation must remove routing");
+  await esbuild.build({
+    entryPoints: [join(here, "../homebrewConvert.ts")], outfile: join(out, "hybrid-mutant.js"),
+    bundle: true, format: "esm", platform: "neutral", target: "es2022", external: ["module"],
+    plugins: [gnwResolve(join(here, "../../../../test")), { name: "remove-hybrid-routing", setup(build) {
+      build.onLoad({ filter: /homebrewConvert\.ts$/ }, () => ({ contents: mutated, loader: "ts", resolveDir: join(here, "..") }));
+    } }], logLevel: "warning",
+  });
+  const mutant = await load("hybrid-mutant.js");
+  let loads = 0;
+  try { await mutant.convertHomebrewTitle(hybridTitle().title, [hybridFile("ordinary.zip", [7, 8, 9])], {
+    binaryDeps: { fetch: async () => { loads++; throw new Error("mutation fetched WASM"); },
+      cache: new BlobCache({ backend: nullBlobBackend, quota: nullQuota }) },
+  }); } catch {}
+  eq(loads, 1, "the ordinary-ZIP test detects removed routing through a real fetch attempt");
+});
+
+// Optional external release smoke test; no ROMs or release binaries are committed here.
+if (process.env.NEOGEO_BUNDLE) check("Neo Geo bundle: real WASM conversion through mixed host routing", async () => {
+  const bundleBytes = new Uint8Array(readFileSync(process.env.NEOGEO_BUNDLE));
+  const imported = await importZip(bundleBytes);
+  try {
+    const manifest = imported.resolved.manifest;
+    const tool = prepareTool(manifest.tools[0]);
+    eq(tool.inputs[0].unmatched, "passthrough", "bundle routing policy retained");
+    const { default: JSZip } = await import("jszip");
+    const bundleZip = await JSZip.loadAsync(bundleBytes);
+    const wasm = await bundleZip.file("neogeo_decrypt.wasm").async("uint8array");
+    const cartridge = new JSZip();
+    for (const [name, size] of [["252-p1.p1", 0x200000], ["252-c1.c1", 0x800000], ["252-c2.c2", 0x800000],
+      ["252-m1.m1", 0x20000], ["252-v1.v1", 0x400000]]) {
+      const bytes = new Uint8Array(size);
+      for (let index = 0; index < size; index++) bytes[index] = index & 255;
+      cartridge.file(name, bytes);
+    }
+    const fixture = await cartridge.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+    // Synthetic upstream-style cartridge fixture, explicitly added as a test-only hash.
+    tool.inputs[0].variants.push({ id: "synthetic-ganryu", sha1: sha1Of(fixture), bytes: fixture.length });
+    const title = { key: "test/neogeo#gnw-retro-go", tool, target: manifest.targets[0] };
+    const ordinary = hybridFile("ordinary.zip", [7, 8, 9]);
+    let runs = 0;
+    const result = await convertHomebrewTitle(title,
+      [hybridFile("ganryu.zip", fixture), ordinary], {
+        binaryDeps: binaryDepsFor(wasm),
+        spawnWorker: () => {
+          const worker = { onmessage: null, onerror: null, terminate() {}, postMessage(request) {
+            runs++;
+            runConverterModule(request).then(
+              (result) => worker.onmessage({ data: { type: "done", ...result } }),
+              (error) => worker.onmessage({ data: { type: "error", code: error.code, detail: error.detail } }),
+            );
+          } };
+          return worker;
+        },
+      });
+    eq(runs, 1, "only selected encrypted fixture ran real WASM");
+    eq(result.files.get("ordinary.zip"), ordinary.bytes, "unmatched ZIP stayed intact");
+    const converted = result.files.get("ganryu.zip");
+    assert(converted?.length > fixture.length, "real decryptor produced a cartridge ZIP");
+    const archive = await JSZip.loadAsync(converted);
+    assert(archive.file("ganryu-p1.p1"), "decryptor uses its canonical cartridge chip names");
+    eq((await archive.file("ganryu-p1.p1").async("uint8array")).length, 0x200000, "program chip length preserved");
+  } finally { imported.release(); }
 });
 
 await allChecks();

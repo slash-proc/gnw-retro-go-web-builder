@@ -53,6 +53,9 @@ function parseVariants(list: unknown): InputVariant[] {
       throw new SourceError("malformed");
     }
     if (!HEX40.test(raw.sha1)) throw new SourceError("malformed");
+    if (raw.unmatched !== undefined && (raw.unmatched !== "passthrough" || raw.strict !== undefined)) {
+      throw new SourceError("malformed", `${raw.id}: invalid unmatched policy`);
+    }
     return {
       id: raw.id,
       sha1: raw.sha1.toLowerCase(),
@@ -118,6 +121,9 @@ export function parseToolInputs(tool: Tool): ConverterInput[] {
     ) {
       throw new SourceError("malformed");
     }
+    if (raw.unmatched !== undefined && (raw.unmatched !== "passthrough" || raw.strict !== undefined)) {
+      throw new SourceError("malformed", `${raw.id}: invalid unmatched policy`);
+    }
     return {
       id: raw.id,
       required: raw.required,
@@ -137,6 +143,7 @@ export function parseToolInputs(tool: Tool): ConverterInput[] {
       // "Default `true`. Refuse a file matching no variant." An absent key is strict; only an
       // explicit `false` relaxes it.
       strict: raw.strict !== false,
+      ...(raw.unmatched === "passthrough" ? { unmatched: "passthrough" as const } : {}),
       ...(isObj(raw.label) ? { label: raw.label as Record<string, string> } : {}),
       ...(isObj(raw.description) ? { description: raw.description as Record<string, string> } : {}),
     };
@@ -172,6 +179,9 @@ export function parseToolOutputs(tool: Tool): ConverterOutputSpec[] {
     }
     if (hasExtension && (typeof raw.extension !== "string" || !EXTENSION.test(raw.extension))) {
       throw new SourceError("malformed");
+    }
+    if (raw.unmatched !== undefined && (raw.unmatched !== "passthrough" || raw.strict !== undefined)) {
+      throw new SourceError("malformed", `${raw.id}: invalid unmatched policy`);
     }
     return {
       id: raw.id,
@@ -262,6 +272,7 @@ export interface GateVerdict {
   recognised: boolean;
   /** Which variant, when recognised. */
   variantId?: string;
+  passthrough?: boolean;
   /**
    * That variant's canonical `filename`, when it declares one. This is rule 1 of spec/03's
    * derived-name resolution and the gate is the only place that knows it — by the time the
@@ -325,6 +336,13 @@ export async function gateInputs(specs: ConverterInput[], files: OfferedFile[]):
       continue;
     }
 
+    if (spec.unmatched === "passthrough" && (!isPlainFilename(file.filename)
+      || !spec.extensions.some((extension) => file.filename.toLowerCase().endsWith(extension.toLowerCase())))) {
+      const err = new ConverterError("input-unrecognised", file.filename);
+      errors.push(err);
+      verdicts.push({ inputId: spec.id, filename: file.filename, sha1: "", recognised: false, error: err });
+      continue;
+    }
     const sha1 = file.sha1?.toLowerCase() ?? await sha1Hex(file.bytes);
     // A variant may pin `bytes` as well; a hash collision is not the thing this catches, a
     // mis-published variant is. Both must agree for a match to count.
@@ -354,7 +372,7 @@ export async function gateInputs(specs: ConverterInput[], files: OfferedFile[]):
     }
 
     // No match. `strict` — and nothing else, and certainly not the module — decides.
-    if (spec.strict) {
+    if (spec.strict && spec.unmatched !== "passthrough") {
       const err = new ConverterError("input-unrecognised", file.filename);
       errors.push(err);
       verdicts.push({ inputId: spec.id, filename: file.filename, sha1, recognised: false, error: err });
@@ -362,6 +380,7 @@ export async function gateInputs(specs: ConverterInput[], files: OfferedFile[]):
     }
     const verdict: GateVerdict = { inputId: spec.id, filename: file.filename, sha1, recognised: false };
     verdicts.push(verdict);
+    if (spec.unmatched === "passthrough") verdict.passthrough = true;
     unrecognised.push(verdict);
     accepted.push(file);
   }

@@ -50,7 +50,11 @@ import type { VariantHint } from "./gameRows.js";
  * directly. Written in full per source on every pass, like `setDiscovered`.
  */
 /** A hint plus who contributed it, so one source's pass can replace only its own entries. */
-interface OwnedHint extends VariantHint {
+interface RecognitionHint extends VariantHint {
+  sha1?: string;
+}
+
+interface OwnedHint extends RecognitionHint {
   repo: string;
 }
 
@@ -58,14 +62,14 @@ class VariantHints {
   private byKey = $state(new Map<string, OwnedHint>());
 
   /** Replace every hint contributed by `repo`; other sources' entries are left alone. */
-  set(repo: string, hints: ReadonlyMap<string, VariantHint>): void {
+  set(repo: string, hints: ReadonlyMap<string, RecognitionHint>): void {
     const next = new Map(this.byKey);
     for (const [k, v] of [...next]) if (v.repo === repo) next.delete(k);
     for (const [k, v] of hints) next.set(k, { ...v, repo });
     this.byKey = next;
   }
 
-  get(key: string): VariantHint | undefined {
+  get(key: string): RecognitionHint | undefined {
     return this.byKey.get(key);
   }
 }
@@ -110,7 +114,15 @@ export async function discoverForSource(
     // `found[]` is one-per-`files[]`, same order, and carries the matched variant. The Library
     // pairs a `.wad` with the `.whd` it becomes on that variant's declared filename, so record
     // it rather than dropping it on the floor as this did before.
-    const hints = new Map<string, VariantHint>();
+    const hints = new Map<string, RecognitionHint>();
+    for (const input of inputs.filter((entry) => entry.unmatched === "passthrough")) {
+      for (const candidate of candidates) {
+        if (input.extensions.some((extension) => candidate.path.toLowerCase().endsWith(extension.toLowerCase()))) {
+          hints.set(candidate.path, { sha1: candidate.sha1, matched: input.variants.some((variant) => candidate.sha1?.toLowerCase() === variant.sha1.toLowerCase()
+            && (variant.bytes === undefined || variant.bytes === candidate.size)) });
+        }
+      }
+    }
     for (const r of results) {
       // `found[]` also names the matched VARIANT, not just its declared output filename, and a
       // discovered row leads with that variant's label exactly as a picked one does. Same
@@ -134,7 +146,7 @@ export async function discoverForSource(
       prepareState.setDiscovered(repo, r.inputId, files, r.unrecognised);
       for (const i of keep) {
         const f = r.found[i];
-        if (f.variantFilename) hints.set(f.path, { variantFilename: f.variantFilename });
+        hints.set(f.path, { sha1: f.sha1, matched: f.variantId !== undefined, ...(f.variantFilename ? { variantFilename: f.variantFilename } : {}) });
       }
     }
     variantHints.set(repo, hints);

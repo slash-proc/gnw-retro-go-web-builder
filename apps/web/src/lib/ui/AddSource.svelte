@@ -16,6 +16,8 @@
   //
   // The confirming `Add` lives in the page's ONE footer bar, not in this panel, so the caller
   // drives it: `canAdd` says whether there is anything to add, `submit()` performs it.
+  import { onDestroy } from "svelte";
+  import { importBundle, type BundleImport } from "../sources/bundle.js";
   import { locale } from "../i18n/locale.svelte.js";
   import { sources } from "../sources/store.svelte.js";
   import { errorText } from "../sources/errorText.js";
@@ -45,10 +47,22 @@
   let found = $state<ResolvedSource | null>(null);
   let foundRelease = $state<(() => void) | null>(null);
   let looking = $state(false);
+  let bundlePending = $state<{ data: Uint8Array; imported: BundleImport } | null>(null);
+  onDestroy(() => bundlePending?.imported.release());
+
+  function changeMode(mode: typeof addMode) {
+    bundlePending?.imported.release();
+    bundlePending = null;
+    foundRelease?.();
+    foundRelease = null;
+    found = null;
+    sources.addError = null;
+    addMode = mode;
+  }
 
   const busy = $derived(looking || sources.adding);
   $effect(() => {
-    canAdd = (addMode === "url" || addMode === "raw") && found !== null && !busy;
+    canAdd = found !== null && !busy;
   });
 
   /** Resolve the typed repo WITHOUT keeping it. Errors land in the same place add's do. */
@@ -76,7 +90,12 @@
   /** The footer bar's Add. Exposed to the owner through `bind:this`. */
   export async function submit(): Promise<void> {
     if (!canAdd) return;
-    if (found && addMode === "url" && sources.addResolved(found)) {
+    if (addMode === "bundle" && bundlePending) {
+      const pending = bundlePending;
+      bundlePending = null;
+      found = null;
+      if (await sources.importBundleFile(pending.data, pending.imported)) onDone();
+    } else if (found && addMode === "url" && sources.addResolved(found)) {
       urlInput = "";
       found = null;
       onDone();
@@ -88,7 +107,7 @@
   }
 
   /**
-   * Read the picked zip and hand it to the store. The file is read here rather than in
+   * Verify the picked zip for review; the footer Add hands it to the store. The file is read here rather than in
    * `sources/` so that module never has to know about the DOM; everything below the store
    * boundary sees bytes.
    *
@@ -99,10 +118,24 @@
   async function pickBundle(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file || sources.adding) return;
-    const data = new Uint8Array(await file.arrayBuffer());
+    if (!file || busy) return;
     input.value = "";
-    if (await sources.importBundleFile(data)) onDone();
+    bundlePending?.imported.release();
+    bundlePending = null;
+    found = null;
+    sources.addError = null;
+    looking = true;
+    try {
+      const data = new Uint8Array(await file.arrayBuffer());
+      const imported = await importBundle(data);
+      bundlePending = { data, imported };
+      found = imported.resolved;
+    } catch (err) {
+      const error = err instanceof SourceError ? err : new SourceError("bundle-invalid");
+      sources.addError = { code: error.code, detail: error.detail };
+    } finally {
+      looking = false;
+    }
   }
 
   async function pickRawCore(e: Event) {
@@ -161,15 +194,15 @@
       type="button"
       class="mode"
       class:on={addMode === "url"}
-      onclick={() => (addMode = "url")}>{t.modeUrl}</button
+      disabled={busy} onclick={() => changeMode("url")}>{t.modeUrl}</button
     >
     <button
       type="button"
       class="mode"
       class:on={addMode === "bundle"}
-      onclick={() => (addMode = "bundle")}>{t.modeBundle}</button
+      disabled={busy} onclick={() => changeMode("bundle")}>{t.modeBundle}</button
     >
-    <button type="button" class="mode" class:on={addMode === "raw"} onclick={() => (addMode = "raw")}>Raw binary</button>
+    <button type="button" class="mode" class:on={addMode === "raw"} disabled={busy} onclick={() => changeMode("raw")}>Raw binary</button>
   </div>
 
   {#if addMode === "url"}
@@ -190,6 +223,51 @@
       </Button>
     </form>
 
+    {#if !found}<p class="hint">{t.urlHint}</p>{/if}
+
+    {#if sources.addError}
+      <p class="err">{errorText(t, sources.addError.code, sources.addError.detail)}</p>
+    {/if}
+  {:else if addMode === "bundle"}
+    <!-- The offline path (spec/06-bundle.md). Everything the manifest names is verified
+         against its declared size and sha256 during the import, so a large bundle spends a
+         visible moment here before its recognition summary appears. -->
+    <label class="field">
+      <span class="label">{t.bundleLabel}</span>
+      <input
+        type="file"
+        accept=".zip,application/zip"
+        onchange={pickBundle}
+        disabled={busy}
+      />
+    </label>
+    {#if busy}<p class="hint">{t.importing}</p>{/if}
+    {#if sources.addError}
+      <p class="err">{errorText(t, sources.addError.code, sources.addError.detail)}</p>
+    {/if}
+  {:else}
+    <label class="field">
+      <span class="label">CORE binary</span>
+      <input type="file" accept=".core,application/octet-stream" onchange={pickRawCore} disabled={sources.adding} />
+    </label>
+    {#if found}
+      {@const target = foundTarget}
+      <div class="section">
+        <div class="cap">CORE binary</div>
+        <div class="panel">
+          <div class="prow"><span class="plabel">Name</span><span class="pval">{found.manifest.title}</span></div>
+          <div class="prow"><span class="plabel">Version</span><span class="pval">{found.entry.tag}</span></div>
+          <div class="prow"><span class="plabel">Systems</span><span class="pval">{(target?.systems ?? []).map((s) => s.longName).join(", ")}</span></div>
+          {#if target && target.artifacts.length > 0}<div class="prow"><span class="plabel">File</span><span class="pval mono">{target.artifacts[0].filename} ({formatSize(target.artifacts[0].bytes)}</span></div>{/if}
+        </div>
+      </div>
+    {/if}
+    {#if sources.adding}<p class="hint">Reading CORE binary…</p>{/if}
+    {#if sources.addError}
+      <p class="err">{errorText(t, sources.addError.code, sources.addError.detail)}</p>
+    {/if}
+  {/if}
+  {#if addMode !== "raw"}
     {#if found}
       {@const target = foundTarget}
       <div class="section">
@@ -229,50 +307,6 @@
           {/if}
         </div>
       </div>
-    {:else}
-      <p class="hint">{t.urlHint}</p>
-    {/if}
-
-    {#if sources.addError}
-      <p class="err">{errorText(t, sources.addError.code, sources.addError.detail)}</p>
-    {/if}
-  {:else if addMode === "bundle"}
-    <!-- The offline path (spec/06-bundle.md). Everything the manifest names is verified
-         against its declared size and sha256 during the import, so a large bundle spends a
-         visible moment here; `sources.adding` is what the label reflects. -->
-    <label class="field">
-      <span class="label">{t.bundleLabel}</span>
-      <input
-        type="file"
-        accept=".zip,application/zip"
-        onchange={pickBundle}
-        disabled={sources.adding}
-      />
-    </label>
-    {#if sources.adding}<p class="hint">{t.importing}</p>{/if}
-    {#if sources.addError}
-      <p class="err">{errorText(t, sources.addError.code, sources.addError.detail)}</p>
-    {/if}
-  {:else}
-    <label class="field">
-      <span class="label">CORE binary</span>
-      <input type="file" accept=".core,application/octet-stream" onchange={pickRawCore} disabled={sources.adding} />
-    </label>
-    {#if found}
-      {@const target = foundTarget}
-      <div class="section">
-        <div class="cap">CORE binary</div>
-        <div class="panel">
-          <div class="prow"><span class="plabel">Name</span><span class="pval">{found.manifest.title}</span></div>
-          <div class="prow"><span class="plabel">Version</span><span class="pval">{found.entry.tag}</span></div>
-          <div class="prow"><span class="plabel">Systems</span><span class="pval">{(target?.systems ?? []).map((s) => s.longName).join(", ")}</span></div>
-          {#if target && target.artifacts.length > 0}<div class="prow"><span class="plabel">File</span><span class="pval mono">{target.artifacts[0].filename} ({formatSize(target.artifacts[0].bytes)}</span></div>{/if}
-        </div>
-      </div>
-    {/if}
-    {#if sources.adding}<p class="hint">Reading CORE binary…</p>{/if}
-    {#if sources.addError}
-      <p class="err">{errorText(t, sources.addError.code, sources.addError.detail)}</p>
     {/if}
   {/if}
 </div>

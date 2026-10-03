@@ -144,6 +144,10 @@ function checkRunShape(
     // `parseToolInputs` keeps `runPerFile` only when it is literally `true`, and resolves
     // `allowMultiple` through the `repeatable` shim, so an old manifest is judged on the flag it
     // meant rather than the key it spelled.
+    if (inp.unmatched === "passthrough" && (inputs.length !== 1 || !inp.allowMultiple || !inp.runPerFile
+      || inp.variants.length === 0 || outputs.length !== 1 || !outputs[0].extension)) {
+      throw new SourceError("malformed", `${toolId}/${inp.id}: invalid passthrough routing`);
+    }
     if (inp.runPerFile && !inp.allowMultiple) {
       throw new SourceError("malformed", `${toolId}/${inp.id}: runPerFile without allowMultiple`);
     }

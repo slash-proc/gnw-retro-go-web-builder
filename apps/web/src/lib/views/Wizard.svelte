@@ -192,29 +192,17 @@
 
   // The backup step describes what is on disk now, like Overview. A historical "backup taken"
   // flag must never keep this green after the files have been deleted. Prefer the connected
-  // device's detected model; before model detection, match Overview and accept any complete pair.
-  let backupInventory = $state<FoundBackup[]>([]);
+  // device's detected model; an unknown model cannot establish a matching backup.
   let backupModelOverride = $state<OfwModel | null>(null);
-  const backupModel = $derived(backupModelOverride ?? (device.model !== "unknown"
-    ? device.model
-    : device.extSizeMB === 1 ? "mario" : device.extSizeMB === 4 ? "zelda" : "unknown"));
-  const backupForDevice = $derived.by(() => {
-    const matching = backupModel === "unknown"
-      ? backupInventory
-      : backupInventory.filter((backup) => backup.model === backupModel);
-    return matching.find((backup) => backup.internalOk && backup.externalOk) ?? null;
-  });
-  const backupPartial = $derived.by(() => {
-    const matching = backupModel === "unknown"
-      ? backupInventory
-      : backupInventory.filter((backup) => backup.model === backupModel);
-    return !matching.some((backup) => backup.internalOk && backup.externalOk) &&
-      matching.some((backup) => backup.internalPresent || backup.externalPresent);
-  });
+  const backupModel = $derived(device.model !== "unknown" ? device.model
+    : device.itcmOfwModel !== "unknown" ? device.itcmOfwModel
+    : backupModelOverride ?? "unknown");
+  const backupForDevice = $derived(backupPresence.forModel(backupModel).complete);
+  const backupPartial = $derived(backupPresence.forModel(backupModel).partial);
   const backupPresent = $derived(!!backupForDevice);
   $effect(() => {
     untrack(() => void backupPresence.refresh());
-    untrack(() => void refreshBackupInventory());
+    untrack(() => void backupPresence.scanDirectories());
   });
 
   // Backup and patch are separate dual-boot stages. The backup remains useful on its own if
@@ -225,7 +213,7 @@
   let step1Skipped = $state(false);
   let skipBackupAcknowledged = $state(false);
   let lockedExternalRecovery = $state<{ dir: BackupDir; models: OfwModel[] } | null>(null);
-  let backupStepDone = $derived(step1Skipped || backupPresent);
+  let backupStepDone = $derived(backupPresent);
   let backupStepActive = $derived(!backupStepDone);
   let patchStepDone = $derived(path === "dual" && isPatched);
   let patchStepActive = $derived(path === "dual" && backupStepDone && !patchStepDone);
@@ -246,20 +234,6 @@
   let backupSourceChoices = $state<Array<{ id: string; dir: BackupDir; backup: FoundBackup }>>([]);
   let backupSourceChoiceId = $state("");
   let backupInventoryScanId = 0;
-
-  async function refreshBackupInventory(): Promise<void> {
-    const scanId = ++backupInventoryScanId;
-    const snapshots = await backupPresence.scanDirectories();
-    const byModel = new Map<OfwModel, FoundBackup>();
-    for (const { backups } of snapshots) {
-      for (const backup of backups) {
-        const previous = byModel.get(backup.model);
-        if (!previous || (backup.internalOk && backup.externalOk && !(previous.internalOk && previous.externalOk)))
-          byModel.set(backup.model, backup);
-      }
-    }
-    if (scanId === backupInventoryScanId) backupInventory = [...byModel.values()];
-  }
 
   async function detectBackupVariant(): Promise<void> {
     // A normal bank-vector scan is cheaper when it can identify the model. On RDP1 stock
@@ -293,7 +267,6 @@
       }
     }
     const available = [...byModel.values()];
-    if (scanId === backupInventoryScanId) backupInventory = available.map(({ backup }) => backup);
     // Guided setup offers one choice per firmware variant. If duplicate copies live in
     // separate directories, use the first verified source silently rather than exposing
     // directory-management detail to a user who only needs Mario or Zelda.
@@ -338,7 +311,7 @@
       confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
       phases: backupOnlyPhases,
       choicePicker: backupSourcePicker(),
-      onClose: () => { void backupPresence.refresh(); void refreshBackupInventory(); },
+      onClose: () => { void backupPresence.refresh(); void backupPresence.scanDirectories(); },
       exec: runStep1,
     });
   }
@@ -375,7 +348,7 @@
       confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
       phases: backupOnlyPhases,
       choicePicker: backupSourcePicker(),
-      onClose: () => { void backupPresence.refresh(); void refreshBackupInventory(); },
+      onClose: () => { void backupPresence.refresh(); void backupPresence.scanDirectories(); },
       exec: runStep1,
     });
   }
@@ -631,6 +604,11 @@
       device.markBackupTaken();
     }
 
+    // Keep the hash-identified model when recovery/reconnection clears live detection.
+    // Completion still comes from the shared file inventory, never from this model alone.
+    backupModelOverride = targetModel ?? null;
+    await Promise.all([backupPresence.scanDirectories(), backupPresence.refresh()]);
+
     // Retro-Go only: the backup is the whole job. Nothing has been written to the device, and
     // the install step that follows will overwrite the stock firmware anyway — so stop here
     // rather than patching a firmware the user has said they don't want to keep.
@@ -809,7 +787,7 @@
   );
 
   // Step 2: Install Retro-Go
-  let step2Active = $derived((path === "dual" ? patchStepDone : backupStepDone) && !isInstalled);
+  let step2Active = $derived((path === "dual" ? patchStepDone : step1Skipped || backupStepDone) && !isInstalled);
   let step2Done = $derived(isInstalled);
 
   // The whole index, not just the newest tag: `versionRelation` orders by POSITION in this
@@ -1623,6 +1601,7 @@
   function choose(p: WizardPath) {
     path = p;
     backupModelOverride = null;
+    step1Skipped = false;
     skipExpanded = false;
     // Latch here (see `rgoNeedsBackup`): the Retro-Go-only backup step is always present and
     // optional. Taking a backup must not remove the step while the user is interacting with it.
@@ -1634,7 +1613,7 @@
     // flow so a file deleted since the previous visit cannot leave a stale green status.
     void (async () => {
       await detectBackupVariant();
-      await Promise.all([backupPresence.refresh(), refreshBackupInventory()]);
+      await Promise.all([backupPresence.refresh(), backupPresence.scanDirectories()]);
     })();
   }
 </script>

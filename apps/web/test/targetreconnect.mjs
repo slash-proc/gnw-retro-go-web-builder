@@ -3,15 +3,20 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { execFileSync } from "node:child_process";
 import ts from "typescript";
 
-const source = readFileSync(new URL("../src/lib/device.svelte.ts", import.meta.url), "utf8");
+const source = process.env.REMOTE_CONNECT_SOURCE
+  ? readFileSync(process.env.REMOTE_CONNECT_SOURCE,"utf8")
+  : process.env.STLINK_BASELINE === "1"
+  ? execFileSync("git", ["-c", "safe.directory=/app", "show", "main:apps/web/src/lib/device.svelte.ts"], {cwd:"/app",encoding:"utf8"})
+  : readFileSync(new URL("../src/lib/device.svelte.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("device.svelte.ts", source, ts.ScriptTarget.Latest, true);
 const store = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === "DeviceStore");
 assert.ok(store, "DeviceStore must be available to test its actual connection methods");
 const names = ["connect", "_teardownConnection", "stopPoll", "enterStockMonitor", "enterRecoveryMode",
   "isConnected", "markTargetUnresponsive", "scheduleTargetReconnect", "retryTargetConnection", "RETRY_POLL_INTERVAL_MS",
-  "connectSilent", "chooseAdapter"];
+  "connectSilent", "chooseAdapter", "REMOTE_RECONNECT_NOTIFY_AFTER", "remoteReconnectFailures"];
 const methods = names.map((name) => {
   const node = store.members.find((member) => member.name?.getText(ast) === name);
   assert.ok(node, `Missing method ${name}`);
@@ -32,10 +37,10 @@ const statusFor = (device) => vm.runInNewContext(statusExpression, { device, loc
 } } } });
 
 function fixture({ recovery = false, booting = false, attachGate, attachFailures = 0,
-  startup = false, attachError = "Transfer count mismatch" } = {}) {
-  const calls = { attach: 0, dispose: 0, oldPoll: 0, boot: 0, reads: [] };
+  remote = false, startup = false, attachError = "Transfer count mismatch" } = {}) {
+  const calls = { attach: 0, dispose: 0, oldPoll: 0, boot: 0, reads: [], notifications: [] };
   const adapter = {};
-  const stale = { busy: () => true };
+  const stale = { busy: () => !remote };
   const fresh = { busy: () => false };
   const availability = { adapterPresent: true };
   const scheduledRetries = [];
@@ -48,9 +53,16 @@ function fixture({ recovery = false, booting = false, attachGate, attachFailures
     navigator: { usb: { addEventListener() {}, removeEventListener() {} } },
     dbg() {}, isPickerDismissal: () => false,
     deviceSafety: { linkGone() {} }, lipProgress: { setQuiet() {} },
-    auditLog: { add() {} }, msg: () => "",
+    auditLog: { add(...args) { calls.notifications.push(args); } }, msg: () => "",
     getKnownProbes: async () => availability.adapterPresent ? [adapter] : [],
     chooseProbe: async () => adapter,
+    connectRemoteProbe: async () => {
+      calls.attach++;
+      if (calls.attach <= attachFailures) throw new Error(attachError);
+      if (attachGate) await attachGate;
+      return { probeName: "gnwmanager", transport: fresh, isOpen: () => true,
+        onLost() {}, dispose: async () => { calls.dispose++; } };
+    },
     connectProbe: async (options) => {
       calls.attach++;
       assert.equal(options.device, adapter, "Reconnect should reuse the selected USB adapter");
@@ -69,14 +81,15 @@ function fixture({ recovery = false, booting = false, attachGate, attachFailures
   vm.runInContext(compiled, context);
   const device = new context.DeviceStore();
   Object.assign(device, {
+    adapterType: remote ? "remote" : "usb", remoteHost: "localhost", remotePort: 8765,
     connection: "lost", targetUnresponsive: true, transport: stale,
-    probe: { device: adapter, transport: stale, dispose: async () => { calls.dispose++; } },
+    probe: { device: adapter, transport: stale, isOpen: () => true, dispose: async () => { calls.dispose++; } },
     selectedAdapter: adapter, _connectPromise: null, _stubBootDepth: booting ? 1 : 0,
     targetPingStalled: true, _suppressAutoRetry: false, targetReconnectTimer: null,
     _deferredDispose: [], _gen: 0, pollTimer: null, pollSuspendDepth: 0,
     adapterFrequencyHz: 4_000_000, itcmOfwModel: "unknown", model: "unknown",
     startupTrace() {}, startPoll() {},
-    clearInfo() { if (!startup) throw new Error("Reconnecting from lost must preserve the inventory"); },
+    clearInfo() { if (!startup && !remote) throw new Error("Reconnecting from lost must preserve the inventory"); },
     pollTick: async () => { calls.oldPoll++; },
     refreshItcmOfwHint: async (transport) => {
       assert.equal(transport, fresh, "Variant detection must use the new transport");
@@ -209,4 +222,71 @@ function fixture({ recovery = false, booting = false, attachGate, attachFailures
   assert.equal(device.adapterAvailable, false);
   assert.equal(statusFor(device), "No valid adapter selected", "An unusable programmer must remain distinct from an absent console");
 }
-console.log("target reconnect: 10 scenarios passed");
+{
+  const { device, scheduledRetries } = fixture({ startup: true, attachFailures: 1,
+    attachError: "Device unavailable." });
+  await device.connectSilent();
+  assert.equal(device.adapterAvailable, true, "An enumerated programmer remains selected after USB attachment fails");
+  assert.equal(statusFor(device), "No device detected");
+  assert.equal(scheduledRetries.length, 1);
+  scheduledRetries[0].fn();
+  await new Promise(setImmediate);
+  assert.equal(device.connection, "connected", "Transient attachment failure must retry without opening a chooser");
+}
+{
+  const { device, calls } = fixture({ remote: true });
+  device.connection = "connected";
+  device.targetUnresponsive = false;
+  await device.connect();
+  assert.equal(calls.dispose, 0, "Remote Connect must reuse a healthy session");
+  assert.equal(calls.attach, 0, "Confirming remote configuration must not create another server session");
+}
+{
+  let release;
+  const attachGate = new Promise(resolve => { release = resolve; });
+  const { device, calls } = fixture({ remote: true, startup: true, attachGate });
+  const first = device.connect();
+  const second = device.connect(undefined, { forcePicker: true });
+  assert.equal(first, second, "A remote modal and automatic reconnect must share one attempt, even with forcePicker");
+  release();
+  await Promise.all([first,second]);
+  assert.equal(calls.attach, 1);
+  await device.connect();
+  assert.equal(calls.attach, 1, "Re-confirming after a successful background connect must reuse its socket");
+  await device.connect(undefined, {reconnect:true});
+  assert.equal(calls.attach, 2, "An explicit remote reconnect must still replace the session");
+}
+{
+  const {device,calls}=fixture({remote:true,attachFailures:7,attachError:"Could not connect to ws://localhost:8765/gdb"});
+  for(let i=1;i<=7;i++) {
+    await device.retryTargetConnection();
+    assert.equal(calls.notifications.length,i<4?0:1,"Remote reconnect must notify once after four failures");
+    assert.ok(device.targetReconnectTimer,"Notification must not stop reconnection");
+  }
+  await device.retryTargetConnection();
+  assert.equal(device.remoteReconnectFailures,0,"Successful connection must reset the outage counter");
+  device.connection="lost";device.targetUnresponsive=true;
+  for(let i=0;i<4;i++) {
+    const fail=async()=>{throw new Error("remote outage");};
+    device.refreshItcmOfwHint=fail;
+    await device.retryTargetConnection();
+  }
+  assert.equal(calls.notifications.length,2,"A later outage should get its own single notification");
+}
+{
+  const {device,calls}=fixture({remote:true,attachFailures:1,attachError:"Could not connect to ws://localhost:8765/gdb"});
+  await assert.rejects(device.connect(),/Could not connect/);
+  assert.equal(calls.notifications.length,1,"Explicit Connect must still report errors immediately");
+}
+{
+  const {device,calls}=fixture({remote:true});
+  let reattachments=0;
+  device.probe.reattach=async()=>{reattachments++;if(reattachments===1)throw new Error("No device detected");};
+  await assert.rejects(device.connect(undefined,{reconnect:true,recoveryOnly:true}),/No device detected/);
+  assert.equal(calls.dispose,0,"Target power loss must retain the existing remote session");
+  await device.connect(undefined,{reconnect:true,recoveryOnly:true});
+  assert.equal(reattachments,2,"The existing remote backend must be reopened after target power-cycle");
+  assert.equal(calls.attach,0,"Target reattach must not open a competing WebSocket");
+  assert.equal(calls.dispose,0);
+}
+console.log("target reconnect: 16 scenarios passed");

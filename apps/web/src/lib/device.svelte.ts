@@ -2,7 +2,8 @@
 // layer; read everywhere. Drives the structural model accent.
 import type { GnwFlasher, DeviceInfo } from "@gnw/gnw-flasher";
 import type { LittlefsTreeNode } from "@gnw/fs-builders";
-import { connectProbe, getKnownProbes, serialTransport, chooseProbe, type ProbeHandle, type SerialTransport } from "./engine/transport.js";
+import { connectRemoteProbe, DEFAULT_REMOTE_PORT, remoteGdbUrl, type AdapterType } from "./engine/remoteAdapter.js";
+import { ProbePickerDismissed, connectProbe, getKnownProbes, serialTransport, chooseProbe, type ProbeHandle, type SerialTransport } from "./engine/transport.js";
 import { bootStub, readInfo, dumpRegion, attachFlasher, isStubAlive, pingTarget, readRdpLocked } from "./engine/flasher.js";
 import { scanExtflashPartitions, scanExtflashPartitionsLazy, type ExtPartition } from "./engine/fsscan.js";
 import { scanIntflashBanks, retroGoInfo, INT_BANK_BASES, type IntflashBank } from "./engine/intflashscan.js";
@@ -43,16 +44,9 @@ export type Firmware = "stock-ofw" | "retro-go" | "unknown";
  *  surfacing real errors (see ui/DeviceControls.svelte's Recovery Mode item). */
 export class StubLoadCancelled extends Error {}
 
-/**
- * THE USER CLOSED THE BROWSER'S DEVICE CHOOSER. `navigator.usb.requestDevice()` rejects with a
- * `NotFoundError` DOMException both when no device matches AND when the person simply dismisses
- * the picker, and the two are indistinguishable from here. Treating it as a failure would ring
- * the bell every time someone opened Change Adapter and thought better of it, which is the way
- * an error channel gets trained out of the reader. The bell is errors only, so a cancel must
- * not reach it.
- */
+/** Cancellation is tagged at the picker boundary, never inferred from an attachment error. */
 function isPickerDismissal(e: unknown): boolean {
-  return e instanceof DOMException && e.name === "NotFoundError";
+  return e instanceof ProbePickerDismissed;
 }
 
 /** Thrown by `ensureUnlocked()` when the user declined the one prompt that survives — the
@@ -74,6 +68,21 @@ class DeviceStore {
   /** The selected programmer is available independently of the console's SWD connection. */
   adapterAvailable = $state(false);
   private selectedAdapter: USBDevice | null = null;
+  adapterType = $state<AdapterType>(loadSel("adapterType", "usb"));
+  remoteHost = $state<string>(loadSel("remoteHost", "localhost"));
+  remotePort = $state<number>(loadSel("remotePort", DEFAULT_REMOTE_PORT));
+
+  async configureAdapter(type: AdapterType, host: string, port: number): Promise<void> {
+    if (type === "remote") remoteGdbUrl(host, port);
+    await this.disconnect();
+    this.adapterType = type;
+    this.remoteHost = host.trim();
+    this.remotePort = port;
+    saveSel("adapterType", type);
+    saveSel("remoteHost", this.remoteHost);
+    saveSel("remotePort", port);
+    this._suppressAutoRetry = false;
+  }
   private adapterPollTimer: ReturnType<typeof setInterval> | null = null;
   private adapterPollBusy = false;
   /** SWD clock used when attaching to the debug adapter. Persisted as a user preference. */
@@ -194,6 +203,8 @@ class DeviceStore {
   private pinging = false;
   private targetUnresponsive = false;
   private targetReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private remoteReconnectFailures = 0;
+  private static readonly REMOTE_RECONNECT_NOTIFY_AFTER = 4;
   private powerCycleReconnectMode = false;
   private powerCycleReconnectPromise: Promise<void> | null = null;
   private targetPingStalled = false;
@@ -466,6 +477,12 @@ class DeviceStore {
 
   /** Attach to a probe; recoveryOnly skips target reads for stock firmware with SWD disabled. */
   connect(log?: (m: string) => void, opts?: { forcePicker?: boolean; reconnect?: boolean; swdClockHz?: number; recoveryOnly?: boolean; backgroundRetry?: boolean }): Promise<void> {
+    // forcePicker changes USB authorization only; remote attempts always share ownership.
+    if (this.adapterType === "remote" && opts?.forcePicker) opts = { ...opts, forcePicker: false };
+    if (this.adapterType === "remote" && !this._connectPromise && this.isConnected &&
+        !this.targetUnresponsive && this.probe?.isOpen?.() && !opts?.reconnect && !opts?.recoveryOnly) {
+      return Promise.resolve();
+    }
     // Dedupe by the in-flight promise ALONE, not by `connection === "connecting"`. A lost link
     // starts reconnectLoop() while the USB `connect` event independently fires connectSilent();
     // connectSilent's "am I still lost?" guard is checked BEFORE its own await of
@@ -510,6 +527,21 @@ class DeviceStore {
 
     this._connectPromise = (async () => {
       try {
+        if (this.adapterType === "remote") {
+          if ((opts?.reconnect || opts?.recoveryOnly) && this.probe?.isOpen?.() && this.probe.reattach) {
+            await this.probe.reattach();
+          } else {
+            if (this.probe) await this._teardownConnection();
+            const attached = await connectRemoteProbe(this.remoteHost, this.remotePort,
+              (available) => { this.adapterAvailable = available; });
+            this.probe = attached;
+            attached.onLost(() => {
+              if (this.probe !== attached) return;
+              this.adapterAvailable = false;
+              void this.handleLost();
+            });
+          }
+        } else {
         let selectedDevice: USBDevice | undefined;
         if (opts?.forcePicker) {
           selectedDevice = await chooseProbe();
@@ -538,10 +570,13 @@ class DeviceStore {
           device: selectedDevice ?? this.selectedAdapter ?? undefined,
           swdClockHz: opts?.swdClockHz ?? this.adapterFrequencyHz,
         });
-        this.selectedAdapter = this.probe.device;
+        this.selectedAdapter = this.probe.device ?? null;
         this.adapterAvailable = true;
         this.probeName = this.probe.probeName;
-        navigator.usb.addEventListener("disconnect", this.onUsbDisconnect);
+        navigator.usb?.addEventListener("disconnect", this.onUsbDisconnect);
+        }
+        this.adapterAvailable = true;
+        this.probeName = this.probe.probeName;
         this.transport = serialTransport(this.probe.transport);
         this.startupTrace("probe-attached", `adapter=${this.probeName ?? "unknown"}`);
         this.stockMonitorMode = false;
@@ -668,7 +703,7 @@ class DeviceStore {
           this.extSizeMB = this.info.externalFlashSizeMiB;
           this.startupTrace("flash-size-refresh-done", `bytes=${flashSize} elapsed=${Math.round(performance.now() - sizeStartedAt)}ms`);
         }
-        const targetResponding = await raceWithFallback(pingTarget(transport), 300, false);
+        const targetResponding = await this.raceTransport(pingTarget(transport), 300, false);
         if (!targetResponding) {
           // The adapter is attached and can still reset/load the RAM utility, even when
           // stock firmware refuses normal debug transactions. Keep this actionable as a
@@ -708,10 +743,17 @@ class DeviceStore {
           // A probe can remain enumerated while the console is powered off. The first
           // transaction then reports "Transfer count mismatch"; that is an expected
           // unavailable-device state, not failed work and must not raise an error notification.
-          const unavailable = /Transfer count mismatch/i.test(this.error);
+          const unavailable = /Transfer count mismatch|No device detected|unable to connect to the target|Error connecting DP/i.test(this.error);
           const expectedLockedBackupPowerCycle = unavailable &&
             this.lockedBackupPrompt !== null && this.powerCycleReconnectMode;
-          if (expectedLockedBackupPowerCycle || (unavailable && opts?.backgroundRetry)) {
+          if (this.adapterType === "remote" && opts?.backgroundRetry) {
+            // Notify once per outage after four failed attempts; polling keeps retrying.
+            this.remoteReconnectFailures++;
+            if (this.remoteReconnectFailures === DeviceStore.REMOTE_RECONNECT_NOTIFY_AFTER) {
+              auditLog.add("error", "device", msg((t) => t.shared.auditLog.connectFailed, this.error));
+            }
+            dbg(`[connect] remote reconnect attempt ${this.remoteReconnectFailures} failed: ${this.error}`);
+          } else if (expectedLockedBackupPowerCycle || (unavailable && opts?.backgroundRetry)) {
             // The adapter stays connected while the user removes console power. Reattach
             // attempts during this prompt are expected to fail until the blue screen returns;
             // recording each retry as a warning currently raises a notification per attempt.
@@ -728,18 +770,25 @@ class DeviceStore {
         const pickerCancelledWithLiveHandle = isPickerDismissal(e) && opts?.forcePicker && this.probe;
         if (pickerCancelledWithLiveHandle) this.connection = previousConnection;
         else {
-          const adapterResponded = this.probe !== null || /Transfer count mismatch|Transfer response (?:FAULT|WAIT|NO_ACK)/i.test(this.error);
-          await this._teardownConnection();
-          const known = await getKnownProbes();
-          this.adapterAvailable = adapterResponded && this.selectedAdapter !== null && known.includes(this.selectedAdapter);
+          const remoteAvailable = this.adapterType === "remote" && this.adapterAvailable;
+          const invalidAdapter = /unsupported|not supported|not recent firmware/i.test(this.error);
+          // Target power loss does not require replacing a healthy remote session.
+          // Keep it so the next attach runs on the server's existing serialized worker.
+          if (!(this.adapterType === "remote" && this.probe?.isOpen?.() && this.probe.reattach)) {
+            await this._teardownConnection();
+          }
+          const known = this.adapterType === "remote" ? [] : await getKnownProbes();
+          this.adapterAvailable = this.adapterType === "remote" ? remoteAvailable :
+            !invalidAdapter && this.selectedAdapter !== null && known.includes(this.selectedAdapter);
           this.targetUnresponsive = this.adapterAvailable;
           this.connection = this.adapterAvailable || wasLost ? "lost" : "disconnected";
           // Startup can fail before a live transport exists. The selected programmer still
           // needs target retries when the console is plugged in later.
-          if (!isPickerDismissal(e) && this.selectedAdapter) this.scheduleTargetReconnect();
+          if (!isPickerDismissal(e) && (this.selectedAdapter || this.adapterType === "remote")) this.scheduleTargetReconnect();
         }
         throw e;
       } finally {
+        if (this.error === null) this.remoteReconnectFailures = 0;
         this._connectPromise = null;
       }
     })();
@@ -761,6 +810,10 @@ class DeviceStore {
     if (this.adapterPollTimer) return;
     this.adapterPollTimer = setInterval(() => {
       if (this.adapterPollBusy || this.probe || this.isConnected || this.connection === "connecting") return;
+      if (this.adapterType === "remote") {
+        this.scheduleTargetReconnect();
+        return;
+      }
       this.adapterPollBusy = true;
       void getKnownProbes().then((known) => {
         if (this.probe || this.isConnected || known.length === 0) return;
@@ -950,15 +1003,24 @@ class DeviceStore {
       (vtor >= 0x20000000 && vtor < 0x30000000);
   }
 
-  /** Keep passive bulk reads bounded too: a disconnected target may leave a read pending
-   *  behind the adapter. The still-busy transport is observed by the normal silence timer. */
+  /** Keep passive USB reads bounded too: a disconnected target may leave a read pending
+   *  behind the adapter. Remote calls use their WebSocket request deadline instead. */
   private async probePassiveTarget(
     transport: NonNullable<typeof this.transport>,
   ): Promise<{ itcm: { model: "mario" | "zelda" | null; readable: boolean; cleared: boolean }; runtime: RuntimeState } | null> {
-    return raceWithFallback((async () => ({
+    return this.raceTransport((async () => ({
       itcm: await this.refreshItcmOfwHint(transport),
       runtime: await detectRuntime(transport, this.banks, { pcFallback: false }),
     }))(), 800, null);
+  }
+
+  /** Local timeout races cannot cancel their SWD request. Keep their short budgets for
+   *  direct USB, but let remote calls settle under the WebSocket client's own request
+   *  deadline; otherwise a slow GPIO read is misclassified as a dead target while the
+   *  server is still using it. */
+  private raceTransport<T>(action: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+    if (this.adapterType === "remote") return action;
+    return raceWithFallback(action, timeoutMs, fallback);
   }
 
   private enterStockMonitor(model: Model, rdpLocked: boolean | null): void {
@@ -1011,6 +1073,10 @@ class DeviceStore {
     if (this.connection !== "disconnected" && this.connection !== "lost") return;
     if (this._suppressAutoRetry) return; // manual disconnect — user must reconnect explicitly
     try {
+      if (this.adapterType === "remote") {
+        await this.connect(undefined, { backgroundRetry: true });
+        return;
+      }
       const known = await getKnownProbes();
       if (known.length === 0) return;
       if (known.length !== 1 && (!this.selectedAdapter || !known.includes(this.selectedAdapter))) return;
@@ -1046,7 +1112,7 @@ class DeviceStore {
     const transport = this.flasher?.transport ?? this.transport;
     if (!transport) return false;
     try {
-      return await raceWithFallback(isStubAlive(transport), 2500, false);
+      return await this.raceTransport(isStubAlive(transport), 2500, false);
     } catch {
       return false;
     }
@@ -1066,7 +1132,7 @@ class DeviceStore {
       // at the intflash→extflash handover, inside ensureStub, which flashImage invokes
       // OUTSIDE its 120s stall watchdog — so a hang here was covered by nothing at all and
       // simply stalled the flow forever. Mirrors stubAlive()'s protection directly above.
-      return await raceWithFallback(this.flasher.getContext(3000).then(() => true), 3500, false);
+      return await this.raceTransport(this.flasher.getContext(3000).then(() => true), 3500, false);
     } catch {
       return false;
     }
@@ -1096,10 +1162,10 @@ class DeviceStore {
     // Why it matters: startStub() is nine SEPARATE awaited transport operations (reset, the
     // verified firmware load, two status writes, msp, pc, the pc read-back, resume, waitForIdle).
     // Between them the serial queue drains and `transport.busy()` is FALSE, so pollTick()'s
-    // busy() guard passes and it issues a ping into the middle of the boot. That ping is
-    // time-boxed at 300 ms by raceWithFallback but NOT cancelled, so if it lands behind one of
-    // the load's chunks it blows the box, reports `false`, and calls handleLost() -- which sets
-    // _reconnectAfterBoot, and from there any throw out of bootStub tears the connection down
+    // busy() guard passes and it issues a ping into the middle of the boot. On USB that ping is
+    // time-boxed at 300 ms but NOT cancelled, so if it lands behind one of the load's chunks it
+    // blows the box, reports `false`, and calls handleLost() -- which sets _reconnectAfterBoot,
+    // and from there any throw out of bootStub tears the connection down
     // and declares it lost. The device is left reset (black screen) with no stub. Same class of
     // interleaving the screenshot path documents in CLAUDE.md, and the same cure.
     //
@@ -1138,7 +1204,8 @@ class DeviceStore {
       // background scan racing the install) closed and reopened the handle. `USBDevice.opened`
       // is the browser's own answer and costs nothing.
       const sameHandle =
-        cachedFlasher.transport === this.transport && this.probe.device.opened !== false;
+        cachedFlasher.transport === this.transport && this.probe.device?.opened !== false &&
+        this.probe.isOpen?.() !== false;
       if (!sameHandle) {
         dbg("[ensureStub] cached flasher holds a superseded transport -> re-booting a fresh stub");
       }
@@ -1308,6 +1375,9 @@ class DeviceStore {
     const t0 = Date.now();
     let bootMs = 0;
     let outcome = "ok";
+    // The same menu action serves as both Start and Restart. Preserve the state at click
+    // time: an explicit restart must bypass ensureStub()'s live-flasher reuse path.
+    const restartRequested = this.utilLoaded;
     // Deliberately untyped and empty-string rather than `string | null`: test/recoveryrescan.mjs
     // lifts this method's TEXT and compiles it on its own, stripping only the return annotation.
     // A type annotation in here makes that lift throw, and its armed guard then fails the whole
@@ -1326,7 +1396,7 @@ class DeviceStore {
         try {
           // Let the standard StubLoadModal authorize the first reset. The user has already
           // confirmed this recovery operation, so automatic retries must not prompt again.
-          await this.ensureStub(undefined, attempt > 1);
+          await this.ensureStub(undefined, restartRequested || attempt > 1);
           break;
         } catch (e) {
           if (e instanceof StubLoadCancelled || attempt >= 3) throw e;
@@ -2094,7 +2164,9 @@ class DeviceStore {
       if (root) {
         // The card's homebrew directory is the manifest's (`/homebrews`); romScan deliberately
         // does not know that -- see LEGACY_HOMEBREW_PREFIXES for why it must not import it.
-        const scan = await scanRomDirectory(root, null, homebrewScanPrefixes());
+        const { coreRegistry } = await import("./sources/coreRegistry.svelte.js");
+        const { nativeArchiveRulesFor } = await import("./sources/coreRegistry.js");
+        const scan = await scanRomDirectory(root, null, homebrewScanPrefixes(), undefined, nativeArchiveRulesFor(coreRegistry.current));
         this.sdInstalledPaths = new Set(scan.userRoms.keys());
         const games: InstalledGame[] = [];
         // Classification is `devicePaths.ts`'s job, not this loop's: the directories are the
@@ -2262,12 +2334,16 @@ class DeviceStore {
     if (this._suppressAutoRetry || (this.isConnected && !this.targetUnresponsive)) return;
     if (this._connectPromise || this._stubBootDepth > 0 || this.scanning ||
         this.pollSuspendDepth > 0 || this.pinging ||
-        (this.transport?.busy() && !this.targetPingStalled)) {
+        (this.transport?.busy() && (this.adapterType === "remote" || !this.targetPingStalled))) {
       this.scheduleTargetReconnect();
       return;
     }
     lipProgress.setQuiet(true);
     try {
+      if (this.adapterType === "remote") {
+        await this.connect(undefined, { reconnect: true, backgroundRetry: true });
+        return;
+      }
       // The selected adapter may itself have disappeared. Never open a picker from polling.
       const known = await getKnownProbes();
       if (this._suppressAutoRetry || (this.isConnected && !this.targetUnresponsive)) return;
@@ -2366,7 +2442,7 @@ class DeviceStore {
       // Check the Recovery mailbox first so a live locked-device utility is adopted and
       // represented as Recovery before stock signatures or runtime vectors are considered.
       if (this.utilLoaded || this.runtimeKind === "recovery") {
-        const alive = await raceWithFallback(isStubAlive(this.transport), 300, false);
+        const alive = await this.raceTransport(isStubAlive(this.transport), 300, false);
         if (alive) {
           this.targetPingStalled = false;
           this.utilLoaded = true;
@@ -2449,11 +2525,11 @@ class DeviceStore {
         return;
       }
 
-      // Time-box the ping: a yanked device usually leaves the read HANGING (the adapter keeps
-      // retrying — the blinking), so "no response in 300 ms while idle" == lost. Safe to
-      // time-box because we only ping when the link is idle (never queued behind a long op).
+      // Time-box USB pings: a yanked device usually leaves the read HANGING (the adapter keeps
+      // retrying — the blinking), so "no response in 300 ms while idle" == lost. Remote calls
+      // instead use their WebSocket request deadline; racing them locally cannot cancel the RPC.
       const pingStarted = Date.now();
-      const ok = await raceWithFallback(pingTarget(this.transport), 300, false);
+      const ok = await this.raceTransport(pingTarget(this.transport), 300, false);
       const pingMs = Date.now() - pingStarted;
       if (deviceSafety.state === "settling" && (pingMs > 100 || !ok)) {
         dbg(`[poll] settling ping ok=${ok} elapsed=${pingMs}ms`);
@@ -2580,7 +2656,7 @@ class DeviceStore {
 
       // Check what is running to update UI state. Recovery was handled by its mailbox-only
       // branch above; this path is for unlocked firmware and uses non-halting VTOR polling.
-      const utilAlive = await raceWithFallback(isStubAlive(this.transport), 300, false);
+      const utilAlive = await this.raceTransport(isStubAlive(this.transport), 300, false);
       if (utilAlive) {
         this.runtimeKind = "recovery";
         this.runtimeBank = null;
@@ -2746,7 +2822,7 @@ class DeviceStore {
       // Identity is not enough: the reconnect cadence attaches a NEW ProbeHandle wrapping the
       // SAME USBDevice, and disposing that closes the device out from under the live session
       // ("The device must be opened first" on its next write).
-      if (p === this.probe || (this.probe && p.device === this.probe.device)) continue;
+      if (p === this.probe || (p.device && this.probe && p.device === this.probe.device)) continue;
       void Promise.resolve()
         .then(() => p.dispose())
         .catch(() => {
@@ -2848,6 +2924,7 @@ class DeviceStore {
    *  flight) until the user explicitly reconnects (which re-enables it — see connect()). */
   async disconnect(): Promise<void> {
     this._suppressAutoRetry = true;
+    this.remoteReconnectFailures = 0;
     if (this.targetReconnectTimer) clearTimeout(this.targetReconnectTimer);
     this.targetReconnectTimer = null;
     if (this.stubPrompt) {

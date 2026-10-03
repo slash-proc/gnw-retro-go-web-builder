@@ -291,6 +291,7 @@ export const romsAr: RomsStrings = {
       noGamesFound: "لم يُعثر على ألعاب",
       defaultVariantLabel: "النوع الافتراضي:",
       stop: "إيقاف",
+      minimize: "تصغير",
       progressLabel: (done: number, total: number) => `${done} of ${total} covers scraped`,
       showGeneratedCovers: "Show generated covers",
       skipExistingCovers: "Skip entries with an existing cover",

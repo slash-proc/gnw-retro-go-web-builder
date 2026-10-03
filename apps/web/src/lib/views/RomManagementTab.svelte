@@ -73,6 +73,7 @@
   import type { MappedSpec } from "@gnw/fs-builders";
   import { readGameData, type InstalledGame } from "../engine/frogfsDevice.js";
 import { homebrew, type HomebrewTitle } from "../sources/homebrewTitles.svelte.js";
+import { nativeArchiveRulesFor } from "../sources/coreRegistry.js";
 import { coreRegistry } from "../sources/coreRegistry.svelte.js";
 import { coverPathsForRom, type LibraryRom } from "../sources/libraryModel.js";
 import { stripFilenameExtension } from "../filename.js";
@@ -366,7 +367,7 @@ import { navigate } from "../nav.js";
       if (!device.sdHandle) return;
       const root = await getValidRoot(device.sdHandle);
       if (!root) return;
-      const scan = await scanRomDirectory(root);
+      const scan = await scanRomDirectory(root, null, undefined, undefined, nativeArchiveRulesFor(coreRegistry.current));
       if (gen !== cheatsBaselineGen) return;
       for (const [path, data] of scan.userRoms) {
         // Filter by path before resolving bytes. The SD scan is lazy; resolving every entry here
@@ -1311,8 +1312,11 @@ import { navigate } from "../nav.js";
   // WAD sitting in a folder they registered. Nothing is converted: `prepareTitle` still needs
   // the user's click, this only decides whether it has a question left to ask.
   let lastDiscoverySigs = new Map<string, string>();
+  let lastDiscoveryScan: typeof library.scan = null;
   $effect(() => {
     const scan = library.scan;
+    const scanChanged = scan !== lastDiscoveryScan;
+    lastDiscoveryScan = scan;
     const byRepo = new Map<string, { inputs: ConverterInput[]; keys: string[] }>();
     for (const t of homebrew.titles) {
       if (!t.tool) continue;
@@ -1323,7 +1327,7 @@ import { navigate } from "../nav.js";
     }
     for (const [repo, e] of byRepo) {
       const sig = `${discoverySignature(repo, e.inputs.map((i) => i.id), e.keys)}#${scan ? "s" : "-"}`;
-      if (lastDiscoverySigs.get(repo) === sig) continue;
+      if (!scanChanged && lastDiscoverySigs.get(repo) === sig) continue;
       lastDiscoverySigs.set(repo, sig);
       void discoverForSource(repo, e.inputs, e.keys);
     }
@@ -1521,6 +1525,15 @@ import { navigate } from "../nav.js";
         owners.set(`${sourceId ?? ""}\u0000${path.toLowerCase()}`, rom.id);
       }
     }
+    // Mass-imported art can be the first cover a ROM has, so it has no `rom.cover.originalPaths`
+    // entry yet. Keep the explicit owner/path mapping when rebuilding the atlas owner index.
+    for (const [gameKey, override] of coverOverridePaths) {
+      const owner = romSelection.rows.find((row) => row.key === gameKey)?.rom?.id ?? homebrew.find(gameKey)?.key;
+      if (!owner) continue;
+      const sourceId = override.sourceId ?? "unknown-source";
+      const path = override.path.split("\u0000", 1)[0].toLowerCase();
+      owners.set(`${sourceId}\u0000${path}`, owner);
+    }
     const files = library.scan?.userRoms;
     if (files) {
       for (const title of homebrew.titles) {
@@ -1552,12 +1565,15 @@ import { navigate } from "../nav.js";
     return true;
   }
 
-  async function patchImportedAtlasCover(cover: { sourceId?: string; path: string; bytes: Uint8Array }): Promise<boolean> {
+  async function patchImportedAtlasCover(cover: { key?: string; sourceId?: string; path: string; bytes: Uint8Array }): Promise<boolean> {
     const sourceId = cover.sourceId ?? "unknown-source";
     const atlas = atlasDataBySource.get(sourceId);
     const foldedPath = cover.path.split("\u0000", 1)[0].toLowerCase();
+    const gameKey = cover.key ? basePath(cover.key) : "";
     const owner = atlasOwnerBySourcePath.get(`${sourceId}\u0000${foldedPath}`)
-      ?? atlasOwnerBySourcePath.get(`\u0000${foldedPath}`);
+      ?? atlasOwnerBySourcePath.get(`\u0000${foldedPath}`)
+      ?? romSelection.rows.find((row) => row.key === gameKey)?.rom?.id
+      ?? homebrew.find(gameKey)?.key;
     if (!atlas || !owner) return false;
     const pageUrls = atlasPageUrlsBySource.get(sourceId);
     const pageImages = atlasPageImagesBySource.get(sourceId);
@@ -1571,6 +1587,7 @@ import { navigate } from "../nav.js";
       image.src = nextUrl;
       await image.decode();
       atlasDataBySource.set(sourceId, patched.atlas);
+      atlasOwnerBySourcePath.set(`${sourceId}\u0000${foldedPath}`, owner);
       pageUrls[patched.pageIndex] = nextUrl;
       pageImages[patched.pageIndex] = image;
       atlasPageUrls.push(nextUrl);
@@ -1639,7 +1656,11 @@ import { navigate } from "../nav.js";
     if (!refreshAtlas) {
       if (!coverAtlasPausedForImport) incrementalAtlasPatchFailed = false;
       coverAtlasPausedForImport = true;
-      if (!cover || !(await patchImportedAtlasCover(cover))) incrementalAtlasPatchFailed = true;
+      // Once one update requires the rebuild fallback, further patch attempts cannot restore
+      // the batch to the incremental path.
+      if (!incrementalAtlasPatchFailed && (!cover || !(await patchImportedAtlasCover(cover)))) {
+        incrementalAtlasPatchFailed = true;
+      }
       return;
     }
     if (coverAtlasPausedForImport) {
@@ -1695,7 +1716,12 @@ import { navigate } from "../nav.js";
       const overrides = new Map<string, string>();
       for (const [key, override] of coverOverridePaths) {
         const owner = rows.find((row) => row.key === key)?.rom?.id ?? homebrew.find(key)?.key;
-        if (owner) overrides.set(owner, override.path);
+        if (owner) {
+          overrides.set(owner, override.path);
+          const sourceId = override.sourceId ?? "unknown-source";
+          const path = override.path.split("\u0000", 1)[0].toLowerCase();
+          owners.set(`${sourceId}\u0000${path}`, owner);
+        }
       }
       const entries = measureLibraryPhase("atlas-file-matching", scan.userRoms.size, () =>
         carouselAtlasFiles(scan.userRoms, library.fileOrigin, owners, displayNames, overrides, (owner, candidates, chosen) => {
@@ -3937,7 +3963,7 @@ import { navigate } from "../nav.js";
       }
       const root = await getValidRoot(device.sdHandle);
       return {
-        paths: root ? new Set((await scanRomDirectory(root)).userRoms.keys()) : new Set(),
+        paths: root ? new Set((await scanRomDirectory(root, null, undefined, undefined, nativeArchiveRulesFor(coreRegistry.current))).userRoms.keys()) : new Set(),
         root,
       };
     })();
@@ -4512,11 +4538,13 @@ import { navigate } from "../nav.js";
     // Sizes come from metadata, so a zipped ROM is matched without being inflated; only the
     // one that MATCHES is read, and only then.
     const localFor = async (path: string, size: number): Promise<Uint8Array | undefined> => {
+      const sourceIsInput = romSelection.games.some((game) => game.role === "ingestable"
+        && game.key.toLowerCase() === path.toLowerCase());
       const candidates: (LibraryFile | undefined)[] = [
         userRoms.get(path),
         selectedAssets.get(path),
         prepareState.assets.get(path),
-        library.fileForPath(path),
+        ...(sourceIsInput ? [] : [library.fileForPath(path)]),
       ];
       for (const c of candidates) if (c && c.length === size) return await romBytes(c);
       return undefined;

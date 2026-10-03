@@ -283,6 +283,7 @@ export const romsRu: RomsStrings = {
       noGamesFound: "Игр не найдено",
       defaultVariantLabel: "Вариант по умолчанию:",
       stop: "Остановить",
+      minimize: "Свернуть",
       progressLabel: (done: number, total: number) => `${done} of ${total} covers scraped`,
       showGeneratedCovers: "Show generated covers",
       skipExistingCovers: "Skip entries with an existing cover",

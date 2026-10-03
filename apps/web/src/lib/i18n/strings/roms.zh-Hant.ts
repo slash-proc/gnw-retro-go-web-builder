@@ -275,6 +275,7 @@ export const romsZhHant: RomsStrings = {
       noGamesFound: "找不到遊戲",
       defaultVariantLabel: "預設樣式：",
       stop: "停止",
+      minimize: "最小化",
       progressLabel: (done: number, total: number) => `${done} of ${total} covers scraped`,
       showGeneratedCovers: "Show generated covers",
       skipExistingCovers: "Skip entries with an existing cover",

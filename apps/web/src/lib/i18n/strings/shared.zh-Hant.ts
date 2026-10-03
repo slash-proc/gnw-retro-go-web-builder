@@ -22,6 +22,11 @@ export const sharedZhHant: SharedStrings = {
     moreOptions: "更多選項",
   },
   deviceControls: {
+    adapterType: "介面卡類型",
+    usbProgrammer: "USB 燒錄器",
+    remoteGdb: "Remote gnwmanager",
+    remoteHost: "主機",
+    remotePort: "連接埠",
     deviceActions: "裝置操作",
     rescan: "重新掃描",
     restartRecoveryMode: "重新啟動復原模式",

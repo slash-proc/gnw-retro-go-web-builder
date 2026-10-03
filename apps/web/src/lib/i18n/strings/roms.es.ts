@@ -275,6 +275,7 @@ export const romsEs: RomsStrings = {
       noGamesFound: "No se encontraron juegos",
       defaultVariantLabel: "Variante predeterminada:",
       stop: "Detener",
+      minimize: "Minimizar",
       progressLabel: (done: number, total: number) => `${done} of ${total} covers scraped`,
       showGeneratedCovers: "Show generated covers",
       skipExistingCovers: "Skip entries with an existing cover",

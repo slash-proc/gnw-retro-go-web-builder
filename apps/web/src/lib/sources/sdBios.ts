@@ -38,6 +38,8 @@ interface FileLike {
  * card holding something odd under `bios/`.
  */
 const MAX_READ_BYTES = 1024 * 1024;
+/** BIOS bundle ZIPs are read as containers, then only declared members are inflated. */
+const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024;
 
 /** Depth cap. Real trees are `bios/<core>/<file>`; this only stops a pathological card. */
 const MAX_DEPTH = 4;
@@ -51,11 +53,13 @@ async function walk(dir: DirLike, prefix: string, depth: number, out: BiosCandid
       continue;
     }
     const file = await handle.getFile();
-    if (file.size > MAX_READ_BYTES) {
+    const archive = /\.zip$/i.test(name);
+    if (file.size > (archive ? MAX_ARCHIVE_BYTES : MAX_READ_BYTES)) {
       out.push({ where: "device", path, size: file.size });
       continue;
     }
-    out.push({ where: "device", path, bytes: new Uint8Array(await file.arrayBuffer()), size: file.size });
+    out.push({ where: "device", path, bytes: new Uint8Array(await file.arrayBuffer()), size: file.size,
+      ...(archive ? { archive: true } : {}) });
   }
 }
 

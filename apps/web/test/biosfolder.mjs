@@ -18,7 +18,7 @@
  * `biosDir: "pce"`, filenames `syscard3.pce` / `syscard3.bin`, `required`, `strict`), a folder
  * marked for BIOS and nothing else, and the file at the folder root.
  */
-import { mkdtempSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -34,6 +34,30 @@ const eq = (a, b, msg) => {
     throw new Error(`${msg}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`);
   }
 };
+
+function storedZip(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const u16 = (v) => Uint8Array.of(v & 255, (v >>> 8) & 255);
+  const u32 = (v) => Uint8Array.of(v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255);
+  for (const [name, payload] of files) {
+    const n = encoder.encode(name);
+    const b = payload;
+    const local = Uint8Array.from([...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(0), ...u32(b.length), ...u32(b.length), ...u16(n.length), ...u16(0), ...n, ...b]);
+    chunks.push(local);
+    central.push(Uint8Array.from([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(0), ...u32(b.length), ...u32(b.length), ...u16(n.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(0), ...u32(offset), ...n]));
+    offset += local.length;
+  }
+  const directory = Uint8Array.from(central.flatMap((c) => [...c]));
+  const end = Uint8Array.from([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length),
+    ...u32(directory.length), ...u32(offset), ...u16(0)]);
+  return Uint8Array.from([...chunks.flatMap((c) => [...c]), ...directory, ...end]);
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = mkdtempSync(join(tmpdir(), "gnw-biosfolder-"));
@@ -51,6 +75,7 @@ const build = async (entry, name) => {
 const reg = await build("coreRegistry.ts", "coreRegistry.js");
 const scan = await build("libraryScan.ts", "libraryScan.js");
 const bios = await build("bios.ts", "bios.js");
+const biosArchives = await build("biosArchives.ts", "biosArchives.js");
 
 // --- The owner's fixture ------------------------------------------------------------------
 
@@ -149,6 +174,120 @@ await check("THE CHAIN: PCE-GO's System Card slot is filled", () => {
   const found = bios.matchCandidates(slot, pool);
   eq(found.map((c) => c.path), ["bios/syscard3.pce"],
     "the file in the marked folder must fill the slot");
+});
+
+await check("a dedicated BIOS source contributes nested Neo Geo files", () => {
+  const { isBiosCandidateKey, collectBiosNeeds, matchCandidates } = bios;
+  const system = {
+    id: "neogeo", longName: "Neo Geo", shortName: "Neo Geo", extensions: [".zip", ".gno"],
+    bios: [
+      { id: "bios", filename: ["uni-bios.rom", "uni-bios_4_0.rom", "sp-s2.sp1"], required: true },
+      { id: "sfix", filename: ["sfix.sfix", "sfix.sfx"], required: true },
+      { id: "zoom", filename: "000-lo.lo", required: true },
+    ],
+  };
+  const needs = collectBiosNeeds([{
+    repo: "gnwmanager/gngeo-retro-go-sd",
+    manifest: { title: "Neo Geo", targets: [{ platform: "game-and-watch", kind: "core", systems: [system] }] },
+  }], []);
+  const nested = [
+    "SNK - NeoGeo CD/000-lo.lo",
+    "firmware/uni-bios.rom",
+    "firmware/sfix.sfix",
+  ];
+  const pool = nested
+    .filter((path) => isBiosCandidateKey(path, true))
+    .map((path) => ({ where: "folder", path, bytes: new Uint8Array(8), size: 8 }));
+  eq(needs.map((need) => matchCandidates(need, pool).map((candidate) => candidate.path)),
+    [["firmware/uni-bios.rom"], ["firmware/sfix.sfix"], ["SNK - NeoGeo CD/000-lo.lo"]],
+    "all declared BIOS filenames in nested dedicated BIOS sources are candidates");
+
+  const state = readFileSync(join(here, "../src/lib/sources/biosState.svelte.ts"), "utf8");
+  ok(/localFolders\.folders[\s\S]*filter\(\(folder\) => folder\.usedBy\.some\(isBiosUsedBy\)\)/.test(state),
+    "the candidate source list must come from folders explicitly marked for BIOS");
+  ok(/library\.fileOrigin\.get\(path\)[\s\S]*dedicatedBiosSource = sourceId !== undefined && biosFolderIds\.has\(sourceId\)[\s\S]*isBiosCandidateKey\(path, dedicatedBiosSource\)/.test(state),
+    "nested scan paths must be admitted based on their dedicated BIOS folder origin");
+});
+
+await check("a BIOS source ZIP contributes declared members without exposing unrelated files", async () => {
+  const { collectBiosNeeds, resolveBiosStatus } = bios;
+  const system = {
+    id: "neogeo", longName: "Neo Geo", shortName: "Neo Geo", extensions: [".zip", ".gno"],
+    bios: [
+      { id: "bios", filename: ["uni-bios.rom", "uni-bios_4_0.rom", "sp-s2.sp1"], required: true },
+      { id: "sfix", filename: ["sfix.sfix", "sfix.sfx"], required: true },
+      { id: "zoom", filename: "000-lo.lo", required: true },
+    ],
+  };
+  const needs = collectBiosNeeds([{
+    repo: "gnwmanager/gngeo-retro-go-sd",
+    manifest: { title: "Neo Geo", targets: [{ platform: "game-and-watch", kind: "core", systems: [system] }] },
+  }], []);
+  const archive = storedZip([
+    ["firmware/uni-bios_4_0.rom", new Uint8Array([1, 2, 3])],
+    ["firmware/sfix.sfix", new Uint8Array([4, 5])],
+    ["firmware/000-lo.lo", new Uint8Array([6])],
+    ["game.zip", new Uint8Array([7, 8, 9])],
+  ]);
+  const statuses = await resolveBiosStatus(needs, [{
+    where: "folder", path: "bios/neogeo.zip", bytes: archive, size: archive.length, archive: true,
+  }]);
+  eq(statuses.map((status) => status.present), [true, true, true],
+    "members of a BIOS directory ZIP should fill Neo Geo manifest slots");
+  eq(statuses.map((status) => status.found[0].path), [
+    "bios/neogeo.zip!/firmware/uni-bios_4_0.rom",
+    "bios/neogeo.zip!/firmware/sfix.sfix",
+    "bios/neogeo.zip!/firmware/000-lo.lo",
+  ], "only manifest-declared members should be returned as BIOS candidates");
+  const nativeGameZip = await resolveBiosStatus(needs, [{
+    where: "folder", path: "roms/neogeo/game.zip", bytes: archive, size: archive.length,
+  }]);
+  eq(nativeGameZip.map((status) => status.present), [false, false, false],
+    "an ordinary Neo Geo ROM ZIP must remain opaque to BIOS discovery");
+});
+
+await check("BIOS source ZIP indexing is independent of the library scan", async () => {
+  const { collectBiosNeeds, resolveBiosStatus } = bios;
+  const system = {
+    id: "neogeo", longName: "Neo Geo", shortName: "Neo Geo", extensions: [".zip", ".gno"],
+    bios: [
+      { id: "bios", filename: ["uni-bios.rom", "uni-bios_4_0.rom", "sp-s2.sp1"], required: true },
+      { id: "sfix", filename: ["sfix.sfix", "sfix.sfx"], required: true },
+      { id: "zoom", filename: "000-lo.lo", required: true },
+    ],
+  };
+  const needs = collectBiosNeeds([{
+    repo: "gnwmanager/gngeo-retro-go-sd",
+    manifest: { title: "Neo Geo", targets: [{ platform: "game-and-watch", kind: "core", systems: [system] }] },
+  }], []);
+  const archive = storedZip([
+    ["firmware/uni-bios_4_0.rom", new Uint8Array([1, 2, 3])],
+    ["firmware/sfix.sfix", new Uint8Array([4, 5])],
+    ["firmware/000-lo.lo", new Uint8Array([6])],
+    ["game.zip", new Uint8Array([7, 8, 9])],
+  ]);
+  const backing = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength);
+  let payloadReads = 0;
+  const file = {
+    size: archive.length,
+    slice(from) { return { arrayBuffer: async () => backing.slice(from) }; },
+    async arrayBuffer() { payloadReads++; return backing; },
+  };
+  const fileHandle = { kind: "file", name: "neogeo.zip", getFile: async () => file };
+  const root = { kind: "directory", name: "bios", async *entries() { yield ["neogeo.zip", fileHandle]; } };
+  const candidates = await biosArchives.scanBiosSourceArchives([
+    { id: "bios-source", handle: root, status: "ready" },
+  ], needs.flatMap((need) => need.filenames));
+  eq(candidates.map((candidate) => candidate.path), [
+    "neogeo.zip!/firmware/uni-bios_4_0.rom",
+    "neogeo.zip!/firmware/sfix.sfix",
+    "neogeo.zip!/firmware/000-lo.lo",
+  ], "the direct BIOS folder walk indexes matching archive members without library.scan");
+  eq(payloadReads, 0, "indexing reads only the central directory and leaves the archive payload lazy");
+  const resolved = await resolveBiosStatus(needs, candidates);
+  eq(resolved.map((status) => status.present), [true, true, true],
+    "members found by the independent scan fill all three Neo Geo requirements");
+  eq(payloadReads, 1, "matching members share one lazy archive payload read");
 });
 
 // --- THE ACTUAL BUG: marked for BIOS *and* a console ---------------------------------------

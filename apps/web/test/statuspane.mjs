@@ -249,7 +249,7 @@ const mismatchExpr = (pane.match(/const backupMismatch = \$derived\(([^;]*)\);/)
 ok(/!backupCovered/.test(mismatchExpr), "the mismatch is the uncovered case, not a second rule");
 // The same rule the Firmware tab runs, so the two surfaces cannot disagree about who is covered.
 const ofw = read("../src/lib/advanced/OfficialFirmwareSection.svelte");
-ok(/f\.model === detectedModel/.test(ofw), "precondition: the Firmware tab still judges coverage per model");
+ok(/backupPresence\.forModel\(detectedModel\)\.complete/.test(ofw), "the Firmware tab uses shared verified coverage for the detected model");
 // A folder full of the wrong console's backups still needs a backup taken. Read the ACTION'S
 // OWN CONDITION, not the row: the row also mentions `backupMismatch` in the chips' class
 // bindings, so a `mismatch ... backUpNow` search over it is bridged by markup that has nothing

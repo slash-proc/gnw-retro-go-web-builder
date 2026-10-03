@@ -4,6 +4,7 @@
   import { library } from "./lib/library.svelte.js";
   import { deviceSafety } from "./lib/installProgress.svelte.js";
   import { lipProgress } from "./lib/lipProgress.svelte.js";
+  import { massCoverImport } from "./lib/massCoverImport.svelte.js";
   import { runCacheMigrations } from "./lib/sources/cacheMigrations.js";
   import { locale } from "./lib/i18n/locale.svelte.js";
   import { applyDirection } from "./lib/direction.svelte.js";
@@ -18,6 +19,7 @@
   import FolderGateModal from "./lib/ui/FolderGateModal.svelte";
   import ConnectGateModal from "./lib/ui/ConnectGateModal.svelte";
   import InstallProgressModal from "./lib/ui/InstallProgressModal.svelte";
+  import MassCoverImportOverlay from "./lib/ui/MassCoverImportOverlay.svelte";
 
   function backgroundStageLabel(stage: string): string {
     const labels = locale.t.roms.backgroundProgress;
@@ -40,12 +42,21 @@
   }
 
   const backgroundStatus = $derived.by(() => {
+    if (massCoverImport.active && massCoverImport.minimized) {
+      return {
+        stage: locale.t.roms.gameDetailsPanel.importModal.progressLabel(massCoverImport.current, massCoverImport.total),
+        detail: locale.t.roms.gameDetailsPanel.importModal.title,
+        fraction: massCoverImport.total > 0 ? massCoverImport.current / massCoverImport.total : null,
+        resumeCoverImport: true,
+      };
+    }
     const task = library.backgroundTask;
     if (task) {
       return {
         stage: backgroundStageLabel(task.stage),
         detail: task.detail,
         fraction: task.total > 0 ? task.done / task.total : null,
+        resumeCoverImport: false,
       };
     }
     const progress = library.progress;
@@ -58,6 +69,7 @@
       stage: backgroundStageLabel(progress.stage),
       detail,
       fraction: progress.total > 0 ? progress.done / progress.total : null,
+      resumeCoverImport: false,
     };
   });
 
@@ -189,8 +201,24 @@
   <FolderGateModal />
   <ConnectGateModal />
   <InstallProgressModal />
+  <MassCoverImportOverlay />
   {#if backgroundStatus}
-    <aside class="background-status" aria-live="polite" aria-atomic="true">
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -- role is a button only for the resumable import case below. -->
+    <aside
+      class="background-status"
+      class:background-status--interactive={backgroundStatus.resumeCoverImport}
+      aria-live="polite" aria-atomic="true"
+      role={backgroundStatus.resumeCoverImport ? "button" : undefined}
+      tabindex={backgroundStatus.resumeCoverImport ? 0 : undefined}
+      aria-label={backgroundStatus.resumeCoverImport ? locale.t.roms.gameDetailsPanel.importModal.title : undefined}
+      onclick={backgroundStatus.resumeCoverImport ? () => { massCoverImport.minimized = false; } : undefined}
+      onkeydown={backgroundStatus.resumeCoverImport ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          massCoverImport.minimized = false;
+        }
+      } : undefined}
+    >
       <div class="background-status__heading">
         <span>{backgroundStatus.stage}</span>
         {#if backgroundStatus.fraction !== null}
@@ -269,6 +297,10 @@
     background: var(--surface);
     box-shadow: 0 4px 18px rgb(0 0 0 / 14%);
     pointer-events: none;
+  }
+  .background-status--interactive {
+    pointer-events: auto;
+    cursor: pointer;
   }
   .background-status__heading {
     display: flex;

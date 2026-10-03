@@ -80,6 +80,7 @@ import type { LibraryRom } from "./libraryModel.js";
 
 /** What one scanned file is, before any pairing. The shape `romSelection` already has. */
 export interface RomEntry {
+  installedOutputSize?: number;
   key: string;
   system: string;
   /** The filename, with extension. */
@@ -99,6 +100,8 @@ export interface RomEntry {
  * when discovery has not run, or ran and matched no variant — both mean "derive the name".
  */
 export interface VariantHint {
+  /** Complete-file hash matched a conversion variant. False means install unchanged. */
+  matched?: boolean;
   /** The matched variant's declared `filename`, e.g. `"The Ultimate Doom.whd"`. */
   variantFilename?: string;
 }
@@ -234,10 +237,10 @@ export function buildGameRows(
       // Once prepared the row's weight is its OUTPUT — that is the file that will be copied,
       // and the size the install budget has to account for. A prepared-in-store output knows
       // its own byte length, so the budget is right before the file ever reaches a folder.
-      size: output ? output.size : (preparedSize ?? e.size),
+      size: output ? output.size : (preparedSize ?? e.installedOutputSize ?? e.size),
       inFolder: e.inFolder || (output?.inFolder ?? false),
-      installed: output?.installed ?? false,
-      needsPrepare: output === undefined && preparedSize === undefined,
+      installed: output?.installed ?? (e.installedOutputSize !== undefined),
+      needsPrepare: output === undefined && preparedSize === undefined && e.installedOutputSize === undefined,
       inputKey: e.key,
       ...(output ? { outputKey: output.key } : {}),
       ...(e.rom ? { rom: e.rom } : {}),

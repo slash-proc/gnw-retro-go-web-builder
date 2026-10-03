@@ -297,6 +297,7 @@ export const romsUk: RomsStrings = {
       noGamesFound: "Ігор не знайдено",
       defaultVariantLabel: "Варіант за замовчуванням:",
       stop: "Зупинити",
+      minimize: "Згорнути",
       progressLabel: (done: number, total: number) => `${done} of ${total} covers scraped`,
       showGeneratedCovers: "Show generated covers",
       skipExistingCovers: "Skip entries with an existing cover",

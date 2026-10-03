@@ -48,6 +48,7 @@ import { isCoreKind } from "./types.js";
  * it for everyone who only has cartridges.
  */
 import { resolveBytes, type MaybeLazy } from "../lazyBytes.js";
+import { zipExtractOne, zipList } from "../unzip.js";
 export type BiosNeed =
   /** `required: true` — the system does not work without it. */
   | "required"
@@ -196,6 +197,8 @@ export interface BiosCandidate {
   bytes?: MaybeLazy;
   /** Size in bytes, known for both sides. */
   size: number;
+  /** A ZIP file from an explicitly BIOS-scoped folder; its matching members can fill slots. */
+  archive?: boolean;
 }
 
 export type BiosVerified =
@@ -260,6 +263,7 @@ export async function resolveBiosStatus(
   needs: BiosNeedEntry[],
   pool: BiosCandidate[],
 ): Promise<BiosStatus[]> {
+  pool = await expandBiosArchives(needs, pool);
   const out: BiosStatus[] = [];
   for (const need of needs) {
     const found = matchCandidates(need, pool);
@@ -295,6 +299,49 @@ export async function resolveBiosStatus(
     });
   }
   return out;
+}
+
+/**
+ * BIOS bundles are common (notably `neogeo.zip`). Inspect them only when the caller has
+ * explicitly marked the containing directory as a BIOS source. The normal ROM scanner keeps
+ * native cartridge ZIPs opaque; this is a separate BIOS-only path and extracts only members
+ * whose basenames a core manifest declares.
+ */
+async function expandBiosArchives(
+  needs: BiosNeedEntry[],
+  pool: BiosCandidate[],
+): Promise<BiosCandidate[]> {
+  const wanted = new Set(needs.flatMap((need) => need.filenames.map((name) => name.toLowerCase())));
+  if (wanted.size === 0) return pool;
+  const expanded: BiosCandidate[] = [];
+  // Bound both the archive and each inflated member. Manifest BIOS files are small; this keeps
+  // a malformed BIOS source archive from turning a status refresh into an unbounded allocation.
+  const maxArchiveBytes = 32 * 1024 * 1024;
+  const maxMemberBytes = 4 * 1024 * 1024;
+  for (const archive of pool) {
+    if (!archive.archive || archive.bytes === undefined || archive.size > maxArchiveBytes) continue;
+    try {
+      const bytes = await resolveBytes(archive.bytes);
+      for (const entry of zipList(bytes)) {
+        if (entry.isDirectory || entry.size > maxMemberBytes) continue;
+        const memberName = basename(entry.name);
+        if (!wanted.has(memberName.toLowerCase()) || entry.encrypted || (entry.method !== 0 && entry.method !== 8)) continue;
+        try {
+          expanded.push({
+            where: archive.where,
+            path: `${archive.path}!/${entry.name}`,
+            bytes: await zipExtractOne(bytes, entry),
+            size: entry.size,
+          });
+        } catch {
+          // A broken/unreadable member is simply not a usable BIOS candidate.
+        }
+      }
+    } catch {
+      // Invalid, unsupported or truncated ZIPs contribute no BIOS members.
+    }
+  }
+  return expanded.length ? [...pool, ...expanded] : pool;
 }
 
 /** Slots the user must act on: needed now, and either absent or refused by `strict`. */
@@ -467,6 +514,15 @@ export function isBiosFolderKey(key: string): boolean {
   if (key.startsWith("bios/")) return true;
   const slash = key.indexOf("/");
   return slash > 0 && key.slice(0, slash).endsWith("_bios");
+}
+
+/**
+ * A file from a folder explicitly marked for BIOS is a BIOS candidate regardless of how deeply
+ * it is nested. General library folders still need the structural `bios/` or `<system>_bios/`
+ * path, so their unrelated files cannot satisfy a BIOS slot by basename alone.
+ */
+export function isBiosCandidateKey(key: string, fromDedicatedBiosFolder = false): boolean {
+  return fromDedicatedBiosFolder || isBiosFolderKey(key);
 }
 
 /**

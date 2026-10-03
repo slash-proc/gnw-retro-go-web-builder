@@ -135,3 +135,43 @@ is being manipulated or its spring is still moving.
   one row per held file, each with its own remove; whether another fits is the picker being
   present or absent (`slotsLeft`), not a pluralised label. `chooseFiles` is deleted in every
   locale. Two i18n keys differing only in plurality are a smell.
+
+## Hash-selected ROM conversion and native ZIPs
+
+A core input can declare `unmatched: "passthrough"` (gwrg-dist-spec). Published
+whole-file SHA-1 variants select the files that require conversion. Other files keep
+their original bytes and filename. Input limits, destination names, and collisions
+apply to both branches; a failed conversion never falls back to the original input.
+An all-unmatched batch does not load the WASM converter.
+
+`systems[].extensions` determines whether ZIPs are native cartridge files. Such
+archives bypass ZIP-directory indexing in both the directory worker and fallback
+scanner, including dedicated source folders and system-name aliases. Wrapped ROM
+ZIPs for other systems retain the existing extraction behavior.
+
+The registry carries hash-selected input declarations. Until a plausible input's
+hash is known, it remains a converter input and cannot enter either install path.
+Discovery recognition is tied to the source's metadata-cached digest. Converted ZIPs
+may retain their input filename: the game row uses prepared output bytes and size,
+and the source ZIP is excluded from the shared install map and retained-file fallback.
+An installed output can be preserved independently of its encrypted source.
+
+BIOS discovery also follows the origin of a folder explicitly marked `Used for: BIOS`.
+The library scan already walks those folders recursively; its per-file origin lets BIOS
+matching see nested files without treating unrelated nested files from ordinary ROM folders
+as BIOS. BIOS discovery independently walks the handles for BIOS-marked sources, indexes ZIP
+central directories, and inflates only manifest-declared BIOS members. The regular game scan
+keeps its normal archive rules, so multi-file ZIPs in a BIOS source can still provide firmware
+without being accepted as wrapped games. Neo Geo game ZIPs from ordinary ROM sources remain
+opaque and are never searched for BIOS files.
+
+For an optional smoke test of a local Neo Geo distribution bundle, copy the bundle
+into the dev container and run:
+
+```sh
+docker compose exec dev sh -c 'cd /app/apps/web && NEOGEO_BUNDLE=/tmp/neogeo-bundle.zip node src/lib/sources/test/validate.mjs'
+```
+
+The test imports and verifies the real bundle, generates a synthetic cartridge,
+adds its hash to the test-only variant table, and runs the bundled decryptor through
+the mixed conversion host. It commits no game ROMs or distribution binaries.

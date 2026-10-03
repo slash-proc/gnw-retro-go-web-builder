@@ -760,12 +760,12 @@ class SourcesStore {
    * source came from. Only `origin` records the difference, and only so the row can be
    * labelled unverified and kept off the refresh path.
    */
-  async importBundleFile(data: Uint8Array): Promise<boolean> {
+  async importBundleFile(data: Uint8Array, prepared?: BundleImport): Promise<boolean> {
     this.addError = null;
     this.adding = true;
     let imported: BundleImport | undefined;
     try {
-      imported = await importBundle(data);
+      imported = prepared ?? await importBundle(data);
       const { resolved } = imported;
       const existing = this.get(resolved.repo);
 

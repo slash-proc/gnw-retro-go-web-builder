@@ -29,6 +29,8 @@
  * PURE AND SVELTE-FREE, so `test/libraryscan.mjs` can drive it with plain objects. The
  * reactive singleton lives in `coreRegistry.svelte.ts`.
  */
+import { parseToolInputs } from "./inputGate.js";
+import type { ConverterInput } from "./converterTypes.js";
 import type { Manifest, SystemEntry, Target } from "./types.js";
 import { isBiosUsedBy, isCoreKind, systemOf, targetOf } from "./types.js";
 
@@ -70,6 +72,7 @@ export interface RegisteredSystem {
    * file counts towards its console existing.
    */
   ingestable: string[];
+  hashSelectedInputs?: ConverterInput[];
   /**
    * The extension the converter's output carries, when this system has one — `outputs[].extension`,
    * or the extension of `outputs[].filename` for an output that declares a fixed name instead.
@@ -227,6 +230,7 @@ function normaliseExtensions(raw: readonly (string | string[])[] | undefined): s
 /** What a target's converter contributes to one system: what it eats, and what it emits. */
 interface SystemConversion {
   ingestable: string[];
+  hashSelectedInputs?: ConverterInput[];
   outputExtension?: string;
 }
 
@@ -274,6 +278,7 @@ function ingestableBySystem(manifest: Manifest, target: Target): Map<string, Sys
     const prev = out.get(id);
     out.set(id, {
       ingestable: [...new Set([...(prev?.ingestable ?? []), ...exts])],
+      hashSelectedInputs: [...(prev?.hashSelectedInputs ?? []), ...(tool.inputs?.some((input) => (input as { unmatched?: string }).unmatched === "passthrough") ? parseToolInputs(tool).filter((input) => input.unmatched === "passthrough") : [])],
       // First `use` to declare one wins, matching `push`'s first-declaration-wins rule.
       outputExtension: prev?.outputExtension ?? outputExtensionOf(tool, use.outputs),
     });
@@ -354,6 +359,7 @@ export function buildCoreRegistry(rows: readonly RegistrySourceRow[]): CoreRegis
           shortName: sys.shortName || sys.longName || sys.id,
           installable: normaliseExtensions(sys.extensions),
           ingestable: ingest.get(sys.id)?.ingestable ?? [],
+          hashSelectedInputs: ingest.get(sys.id)?.hashSelectedInputs ?? [],
           ...(ingest.get(sys.id)?.outputExtension ? { outputExtension: ingest.get(sys.id)!.outputExtension } : {}),
           browse: sys.browse === "directory" ? "directory" : "file",
           compression: sys.compression === true,
@@ -466,6 +472,9 @@ export function classifyForRegistry(
   );
   if (!sys) return null;
   const ext = extension.toLowerCase();
+  // Cached cards can precede their full manifest. An overlapping input extension remains
+  // conservative until hashSelectedRole can resolve the complete policy and fingerprint.
+  if (sys.installable.includes(ext) && sys.ingestable.includes(ext)) return { system: sys, role: "ingestable" };
   if (sys.installable.includes(ext)) return { system: sys, role: "installable" };
   if (sys.ingestable.includes(ext)) return { system: sys, role: "ingestable" };
   return { system: sys, role: "unknown" };
@@ -761,4 +770,23 @@ export function placementToken(placement: LooseFilePlacement | undefined): strin
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([ext, folder]) => `${ext}>${folder}`)
     .join(",") + suffix;
+}
+
+/** Pending hash recognition must never install a potentially encrypted input. */
+export function hashSelectedRole(system: RegisteredSystem, filename: string, size: number, matched?: boolean): FileRole | undefined {
+  const input = system.hashSelectedInputs?.find((entry) => entry.extensions.some((extension) => filename.toLowerCase().endsWith(extension.toLowerCase())));
+  if (!input) return undefined;
+  if (size > input.maxBytes) return "ingestable";
+  if (matched !== undefined) return matched ? "ingestable" : "installable";
+  if (input.variants.every((variant) => variant.bytes !== undefined && variant.bytes !== size)) return "installable";
+  return "ingestable";
+}
+
+/** The same archive policy is passed to worker, fallback and SD scans. */
+export function nativeArchiveRulesFor(reg: CoreRegistry, placement?: LooseFilePlacement) {
+  const systems = reg.systems.filter((system) => system.installable.includes(".zip"));
+  return {
+    folders: systems.flatMap((system) => [system.folder, system.longName, system.shortName].map((name) => name.toLowerCase())),
+    loose: !!placement && systems.some((system) => looseFileFolder(placement, "game.zip") === system.folder),
+  };
 }

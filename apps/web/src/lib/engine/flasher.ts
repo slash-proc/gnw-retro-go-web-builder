@@ -33,11 +33,17 @@ export function attachFlasher(transport: SwdTransport): GnwFlasher {
 }
 
 /** Passively detect an already-running gnwmanager RAM util: its mailbox STATUS reads back
- *  as STATUS_IDLE. This is a single RAM read (the mailbox lives in SRAM), so it's safe while
- *  the firmware is freely running — no halt, no reset. Returns false on any read error. */
+ *  as STATUS_IDLE and the Cortex-M core is not halted. Both reads are passive; this does not
+ *  halt or reset the target. Returns false on any read error. */
 export async function isStubAlive(transport: SwdTransport): Promise<boolean> {
   try {
-    return ((await transport.readWord(MAILBOX_ADDR)) >>> 0) === STATUS_IDLE;
+    const status = (await transport.readWord(MAILBOX_ADDR)) >>> 0;
+    if (status !== STATUS_IDLE) return false;
+    // IDLE is retained in the mailbox if the core stops while the RAM stub is running.
+    // Treating that stale value as liveness made Recovery Mode look active on a black
+    // screen, and caused ensureStub() to reuse a halted flasher instead of rebooting it.
+    const dhcsr = (await transport.readWord(0xe000edf0)) >>> 0;
+    return (dhcsr & (1 << 17)) === 0; // DHCSR.S_HALT
   } catch {
     return false;
   }

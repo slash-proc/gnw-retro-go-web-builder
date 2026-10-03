@@ -25,6 +25,7 @@ import { basePath } from "./sources/libraryScan.js";
 import { coreRegistry } from "./sources/coreRegistry.svelte.js";
 import {
   classifyForRegistry,
+  hashSelectedRole,
   consoleGroups,
   registryIsAuthoritative,
   type CoreRegistry,
@@ -34,7 +35,7 @@ import { planNames, firstCollisionError, type NameCollision, type PlannedName } 
 import { buildGameRows, selectionKeyFor, type GameRow } from "./sources/gameRows.js";
 import { prepareState } from "./sources/prepareState.svelte.js";
 import { variantHints } from "./sources/discoveryWire.svelte.js";
-import { type ConverterError } from "./sources/converterTypes.js";
+import { ConverterError } from "./sources/converterTypes.js";
 import { measureLibraryPhase } from "./libraryPerformance.js";
 
 /**
@@ -191,6 +192,7 @@ export function parseDeviceGamePath(path: string): ParsedRom | null {
 }
 
 export interface Game {
+  installedOutputSize?: number;
   /** "<system>/<name>" — also the folder userRoms key for in-folder games. */
   key: string;
   system: string;
@@ -441,6 +443,16 @@ class RomSelectionStore {
 
         const parsed = parseRomPath(path);
         if (!parsed) continue;
+        const registered = coreRegistry.current.byFolder.get(parsed.system.toLowerCase());
+        if (registered) {
+          const hint = variantHints.get(path);
+          const sourceId = library.fileOrigin.get(path);
+          const digest = sourceId ? library.sha1ForPath(basePath(path), sourceId) : undefined;
+          // A path can be reused for different bytes between scans. Only trust recognition
+          // tied to the current source's unchanged metadata fingerprint.
+          const matched = hint?.sha1 && hint.sha1 === digest ? hint.matched : undefined;
+          parsed.role = hashSelectedRole(registered, parsed.name, data.length, matched) ?? parsed.role;
+        }
 
         const key = canonicalKey(path, parsed);
         if (!findByCardKey(key)) {
@@ -497,7 +509,15 @@ class RomSelectionStore {
       const existing = findByCardKey(key);
       // A canonical path/name match is only an exact installed match when the byte size also
       // agrees. The same filename can legitimately refer to a different dump or conversion.
-      if (existing && existing.rom.file.size === g.size) {
+      if (existing?.role === "ingestable" && existing.name.toLowerCase() === parsed.name.toLowerCase()) {
+        existing.installedOutputSize = g.size;
+        existing.installed = true;
+        existing.inFolder = false; // Source bytes are encrypted; preserve the device output.
+        existing.size = g.size;
+        existing.rom.device.installed = true;
+        existing.rom.device.path = path;
+        existing.rom.device.size = g.size;
+      } else if (existing && existing.rom.file.size === g.size) {
         existing.installed = true;
         existing.rom.device.installed = true;
         existing.rom.device.path = path;
@@ -654,7 +674,7 @@ class RomSelectionStore {
     // Doom game selected `doom/doom.wad`, and it shipped beside the `.whd` it becomes. On the
     // owner's card that was `doom.wad` + `doom2.wad`, ~27 MB, next to their own outputs.
     // Both install flows share this map, so Flash was packing them into FrogFS too.
-    const ingestable = new Set(this.games.filter((g) => g.role === "ingestable").map((g) => g.key));
+    const ingestable = new Set(this.games.filter((g) => g.role === "ingestable").flatMap((g) => [g.key, g.rom.file.relativePath]));
     const covered = this.coveredTitles();
     for (const [key, data] of folder) {
       if (ingestable.has(key)) continue;
@@ -755,6 +775,15 @@ class RomSelectionStore {
 
   /** The throwing shape of `installNameCollisions`, for the install flows. */
   installNameError(): ConverterError | undefined {
+    for (const system of coreRegistry.current.systems) {
+      for (const input of system.hashSelectedInputs ?? []) {
+        const selected = this.games.filter((game) => game.system === system.folder && this.selectedKeys.has(game.key)
+          && input.extensions.some((extension) => game.name.toLowerCase().endsWith(extension.toLowerCase())));
+        if (input.maxCount !== undefined && selected.length > input.maxCount) {
+          return new ConverterError("input-too-many", input.id);
+        }
+      }
+    }
     return firstCollisionError(planNames(this.plannedInstallNames().planned));
   }
 }

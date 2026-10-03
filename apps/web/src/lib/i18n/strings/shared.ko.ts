@@ -21,6 +21,11 @@ export const sharedKo: SharedStrings = {
     moreOptions: "추가 옵션",
   },
   deviceControls: {
+    adapterType: "어댑터 유형",
+    usbProgrammer: "USB 프로그래머",
+    remoteGdb: "Remote gnwmanager",
+    remoteHost: "호스트",
+    remotePort: "포트",
     deviceActions: "기기 작업",
     rescan: "다시 스캔",
     restartRecoveryMode: "복구 모드 재시작",

@@ -13,6 +13,7 @@
   import { auditLog } from "../auditLog.svelte.js";
   import { msg } from "../logEntry.js";
   import ModalShell from "./ModalShell.svelte";
+  import { DEFAULT_REMOTE_PORT, type AdapterType } from "../engine/remoteAdapter.js";
   import { getKnownProbes } from "../engine/transport.js";
 
   let { statusColor = "red" }: { statusColor?: string } = $props();
@@ -20,6 +21,10 @@
   let open = $state(false);
   let configureOpen = $state(false);
   let configuring = $state(false);
+  let connectRequested = $state(false);
+  let adapterType = $state<AdapterType>("usb");
+  let remoteHost = $state("localhost");
+  let remotePort = $state(DEFAULT_REMOTE_PORT);
   let configureError = $state<string | null>(null);
   let customFrequency = $state(4_000_000);
   let customFrequencyMode = $state(false);
@@ -32,12 +37,24 @@
     if (!prompt) return;
     if (device.isConnected) {
       configureOpen = false;
+      connectRequested = false;
       device.resolveAdapterConfiguration();
       return;
     }
     if (prompt === lastAdapterPrompt) return;
     lastAdapterPrompt = prompt;
     void changeAdapter();
+  });
+
+  $effect(() => {
+    if (!connectRequested || configuring || !configureOpen || !device.isConnected ||
+        adapterType !== device.adapterType ||
+        (adapterType === "remote" && (remoteHost.trim() !== device.remoteHost || remotePort !== device.remotePort))) return;
+    // A background retry can finish the Connect request after its initial failure.
+    configureOpen = false;
+    configureError = null;
+    connectRequested = false;
+    device.resolveAdapterConfiguration();
   });
 
   function toggle() {
@@ -75,8 +92,12 @@
     });
   }
   async function changeAdapter() {
+    connectRequested = false;
     open = false;
     configureError = null;
+    adapterType = device.adapterType;
+    remoteHost = device.remoteHost;
+    remotePort = device.remotePort;
     selectedAdapterName = device.probeName;
     const known = await getKnownProbes();
     availableAdapterNames = known.map((d) => d.productName || "CMSIS-DAP");
@@ -101,6 +122,7 @@
     configuring = true;
     configureError = null;
     try {
+      if (device.adapterType !== "usb") await device.configureAdapter("usb", remoteHost, remotePort);
       await device.chooseAdapter();
       selectedAdapterName = device.probeName;
     } catch (e) {
@@ -110,24 +132,33 @@
     }
   }
   function dismissAdapterConfig() {
+    connectRequested = false;
     configureOpen = false;
     if (device.adapterConfigPrompt) device.cancelAdapterConfiguration();
   }
   async function confirmAdapterConfig() {
-    if (!device.adapterConfigPrompt) {
+    if (adapterType === "usb" && device.adapterType === "usb" && !device.adapterConfigPrompt) {
       if (customFrequencyMode) applyCustomFrequency();
       device.setAdapterFrequency(device.adapterFrequencyHz);
       configureOpen = false;
       return;
     }
     configuring = true;
+    connectRequested = true;
     configureError = null;
     try {
-      if (customFrequencyMode) applyCustomFrequency();
-      device.setAdapterFrequency(device.adapterFrequencyHz);
-      await device.connectAndStartRecoveryMode();
+      if (adapterType !== device.adapterType || remoteHost !== device.remoteHost || remotePort !== device.remotePort) {
+        await device.configureAdapter(adapterType, remoteHost, remotePort);
+      }
+      if (adapterType === "usb") {
+        if (customFrequencyMode) applyCustomFrequency();
+        device.setAdapterFrequency(device.adapterFrequencyHz);
+      }
+      if (device.adapterConfigPrompt) await device.connectAndStartRecoveryMode();
+      else await device.connect();
       if (!device.isConnected) throw new Error(device.error ?? locale.t.shared.connectGateModal.connectionFailed);
       configureOpen = false;
+      connectRequested = false;
       device.resolveAdapterConfiguration();
     } catch (e) {
       configureError = e instanceof Error ? e.message : String(e);
@@ -193,6 +224,17 @@
     {#snippet children()}
       <div class="adapter-config">
         <h3>Configure Adapter</h3>
+        <label for="adapter-type">{locale.t.shared.deviceControls.adapterType}</label>
+        <select id="adapter-type" bind:value={adapterType} disabled={configuring}>
+          <option value="usb">{locale.t.shared.deviceControls.usbProgrammer}</option>
+          <option value="remote">{locale.t.shared.deviceControls.remoteGdb}</option>
+        </select>
+        {#if adapterType === "remote"}
+          <label for="remote-host">{locale.t.shared.deviceControls.remoteHost}</label>
+          <input id="remote-host" bind:value={remoteHost} placeholder="localhost" disabled={configuring} />
+          <label for="remote-port">{locale.t.shared.deviceControls.remotePort}</label>
+          <input id="remote-port" type="number" min="1" max="65535" bind:value={remotePort} disabled={configuring} />
+        {:else}
         <div class="adapter-row">
           <span class="adapter-name">{selectedAdapterName ?? "No adapter selected"}</span>
           <button class="choose-adapter" disabled={configuring} onclick={chooseAdapterOnly}>Choose</button>
@@ -213,10 +255,11 @@
             <span>MHz (1–10 MHz)</span>
           </div>
         {/if}
+        {/if}
         {#if configureError}<p class="config-error">{configureError}</p>{/if}
         <div class="config-actions">
           <button class="config-cancel" onclick={dismissAdapterConfig}>{locale.t.shared.common.cancel}</button>
-          <button class="config-connect" disabled={configuring} onclick={confirmAdapterConfig}>{device.adapterConfigPrompt ? locale.t.shared.common.connect : "OK"}</button>
+          <button class="config-connect" disabled={configuring} onclick={confirmAdapterConfig}>{device.adapterConfigPrompt || adapterType === "remote" || adapterType !== device.adapterType ? locale.t.shared.common.connect : "OK"}</button>
         </div>
       </div>
     {/snippet}
@@ -277,6 +320,7 @@
   .adapter-config h3 { margin: 0; font-size: var(--fs-title); }
   .config-note { margin: 0 0 8px; color: var(--ink-soft); font-size: var(--fs-caption); }
   .adapter-config label { font-size: var(--fs-caption); font-weight: 600; }
+  .adapter-config input { font: inherit; padding: 8px; min-width: 0; }
   .adapter-config select { font: inherit; padding: 8px; }
   .adapter-row { display: flex; align-items: center; gap: 10px; }
   .adapter-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
