@@ -7,6 +7,12 @@ const { lstat, mkdir, open, readFile, realpath, readdir, rename, rm, writeFile }
 const { pathToFileURL } = require("node:url");
 const { rendererSourceFingerprint } = require("./build-contract.js");
 
+// Opt-in local DevTools protocol for controlled Electron debugging. Chromium binds this
+// endpoint to loopback; keep it disabled for normal launches and packaged builds.
+if (process.env.GNW_DEBUG_ELECTRON === "1") {
+  app.commandLine.appendSwitch("remote-debugging-port", process.env.GNW_DEBUG_PORT || "9224");
+}
+
 protocol.registerSchemesAsPrivileged([
   { scheme: "gnw", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
@@ -247,6 +253,9 @@ function createWindow() {
     },
   });
   win.once("ready-to-show", () => win.show());
+  if (process.env.GNW_DEBUG_ELECTRON === "1") {
+    win.webContents.openDevTools({ mode: "detach" });
+  }
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("https://")) void shell.openExternal(url);
     return { action: "deny" };

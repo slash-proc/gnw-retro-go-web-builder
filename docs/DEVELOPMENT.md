@@ -18,6 +18,11 @@ docker compose down              # stop
 
 Open <http://localhost:3000> in Chrome/Edge. That is **`apps/web`, the real UI** (Vite + Svelte 5, HMR). The throwaway ES-module test harness lives at **`/dev`**, proxied to the Express backend.
 
+For debugging, prefer the visible, persistent, CDP-enabled session in
+[`AGENT_DEBUGGING.md`](./AGENT_DEBUGGING.md): `scripts/debug-chromium.sh` reuses an existing
+session, preserves browser permissions and library state, and can be inspected directly. The
+same guide covers the fingerprint-checked Electron launcher and its opt-in DevTools endpoint.
+
 How the container is wired (see `docker-compose.yml`):
 - The repo is bind-mounted at `/app`, so source edits are live.
 - `node_modules` and each package's `dist/` are **anonymous volumes**. The backend serves built `dist/` under `/packages` so the `/dev` harness imports packages directly.

@@ -30,6 +30,7 @@ subject. `CLAUDE.md` carries the trigger for each.
 |---|---|
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | The codebase map, the layered design, device classification, and the key decisions (why no OpenOCD, dependency injection). Includes the **Master Glossary & Hardware Quick Reference**. |
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | How to build, run and test (the validation oracles), the Docker and worktree gotchas, and the CI artifact pipeline. |
+| [AGENT_DEBUGGING.md](./AGENT_DEBUGGING.md) | The preferred visible Chromium/Electron workflow for agent-led reproduction, instrumentation, memory analysis, and CDP attachment. |
 | [FILESYSTEMS.md](./FILESYSTEMS.md) | How data is stored: FrogFS (ROMs/BIOS) vs LittleFS (cores/saves), the WASM integrations, LZMA for ROMs, and the client-side packing pipeline. |
 | [PATCHING.md](./PATCHING.md) | The firmware patcher (stock Mario/Zelda to dual-boot), the byte-exact `liblzma` requirement, and the `GnwLayoutSuperblock` v2. |
 | [UX_DESIGN.md](./UX_DESIGN.md) | The UI structure mapped to `apps/web/src/`: Guided vs Advanced, and the mental model for ROM and game management. |
