@@ -11,7 +11,7 @@ export const deviceHeaderEs: DeviceHeaderStrings = {
   connectedRetroGo: "Conectado (Retro-Go)",
   connectedAs: (label: string) => `Conectado (${label})`,
   connected: "Conectado",
-  connectedDebuggingDisabled: "Conectado. La depuración está desactivada.",
+  connectedDebuggingDisabled: "Conexión perdida. Esperando al dispositivo...",
   scanning: "Escaneando…",
   dash: "—",
   patchMissing: "Falta el parche",

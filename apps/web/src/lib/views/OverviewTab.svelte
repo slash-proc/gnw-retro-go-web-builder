@@ -37,7 +37,7 @@
   } = $props();
 
   // Read once: a browser does not grow WebUSB mid-session, and this decides which of the
-  // disconnected states we show. The same test `Landing.svelte` gates its card on.
+  // disconnected state for direct USB. Remote GNW Manager connections use WebSocket instead.
   const webusbSupported = typeof navigator !== "undefined" && !!navigator.usb;
 
   // Overview is passive. It must not open the shared connection gate merely because
@@ -185,10 +185,10 @@
      the old single grey wait line was the first and often last thing a newcomer saw. A browser
      with no WebUSB can never reach a device however long it waits and must not be told to wait;
      an in-flight connect genuinely is a wait; everything else needs an adapter physically wired
-     to the device, which is irreducible and so is named rather than implied. Connect is offered
-     ONLY where it can succeed. -->
+     to the device, which is irreducible and so is named rather than implied. Browsers without
+     WebUSB get a direct-USB explanation unless the remote adapter is selected. -->
 {#snippet disconnected()}
-  {#if !webusbSupported}
+  {#if !webusbSupported && device.adapterType === "usb"}
     <div class="nodev">
       <p class="nodev-title">{locale.t.overview.noDevice.browserTitle}</p>
       <p class="nodev-body">{locale.t.overview.noDevice.browserBody}</p>

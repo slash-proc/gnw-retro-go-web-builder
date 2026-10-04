@@ -33,6 +33,7 @@ import littlefsWasmUrl from "@gnw/fs-builders/vendor/littlefs-wasm/littlefs.wasm
 import { loadLiblzma } from "./patch.js";
 import { flashImage } from "./flasher.js";
 import type { FirmwareBundle } from "../artifacts.js";
+import { formatNumber } from "../util.js";
 
 export interface FlashInstallInputs {
   bundle: FirmwareBundle;
@@ -225,11 +226,11 @@ export async function buildFlashInstall(inp: FlashInstallInputs): Promise<FlashI
     throw new Error("LittleFS sizing unexpectedly changed the mapped FrogFS address");
   }
   if (!layout.fits) {
-    const over = (-layout.freeBytes / (1024 * 1024)).toFixed(1);
+    const over = formatNumber(-layout.freeBytes / (1024 * 1024), 1, 1);
     throw new BudgetError(
-      `Content doesn't fit this extflash: FrogFS ${(frogfs.length / 1048576).toFixed(1)} MB + ` +
-        `LittleFS ${(layout.littlefsLength / 1048576).toFixed(1)} MB exceeds ` +
-        `${(inp.extflashSize / 1048576).toFixed(0)} MB by ${over} MB. Remove some ROMs.`,
+      `Content doesn't fit this extflash: FrogFS ${formatNumber(frogfs.length / 1048576, 1, 1)} MB + ` +
+        `LittleFS ${formatNumber(layout.littlefsLength / 1048576, 1, 1)} MB exceeds ` +
+        `${formatNumber(inp.extflashSize / 1048576, 0)} MB by ${over} MB. Remove some ROMs.`,
     );
   }
 
@@ -363,7 +364,7 @@ export async function flashFrogfsRegion(
   /** Stops the write at the next 256 KiB block boundary. See PhaseReporter.signal. */
   abortSignal?: AbortSignal,
 ): Promise<void> {
-  const mib = (n: number) => (n / 1048576).toFixed(1);
+  const mib = (n: number) => formatNumber(n / 1048576, 1, 1);
   const available = geom.ceilingOffset - geom.frogfsOffset;
   if (geom.frogfsOffset + frogfs.length > geom.ceilingOffset) {
     throw new BudgetError(

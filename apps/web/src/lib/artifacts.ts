@@ -48,6 +48,7 @@ import {
   type FirmwareVersionsFile,
 } from "./firmwareDist/index.js";
 import { manifestOnce, versionsOnce, forgetVersions } from "./firmwareDist/memo.js";
+import { hashHex } from "./cryptoHash.js";
 
 /** Repo that publishes the firmware distribution (the owner's fork for now). */
 export const ARTIFACT_REPO = "slash-proc/game-and-watch-retro-go-sd";
@@ -165,8 +166,7 @@ export async function fetchUpdateArchive(tag: string, bank: 1 | 2, deps?: Bundle
   if (!response.ok) throw new Error(`firmware update download failed (${response.status})`);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.length !== asset.bytes) throw new Error(`firmware update size mismatch (expected ${asset.bytes}, got ${bytes.length})`);
-  const actual = await crypto.subtle.digest("SHA-256", bytes);
-  const hash = [...new Uint8Array(actual)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hash = await hashHex("SHA-256", bytes);
   if (hash !== asset.sha256) throw new Error(`firmware update hash mismatch (expected ${asset.sha256}, got ${hash})`);
   return bytes;
 }

@@ -129,7 +129,7 @@ import { navigate } from "../nav.js";
   import Button from "../ui/Button.svelte";
   import StatusChip from "../ui/StatusChip.svelte";
   import GameDetailsPanel from "./GameDetailsPanel.svelte";
-  import { download, formatSize } from "../util.js";
+  import { download, formatNumber, formatSize } from "../util.js";
   import JSZip from "jszip";
 
   let dismissedFirefoxWarning = $state(false);
@@ -538,7 +538,7 @@ import { navigate } from "../nav.js";
      unit themselves inside the localized sentence. Anything that formats a size on its own
      must use `formatSize()` — pairing MiB() with a literal unit suffix hardcodes an English
      unit in all seven locales. (Guarded by `test/formatsize.mjs`'s source scan.) */
-  const MiB = (n: number): string => String(parseFloat((n / 1048576).toFixed(2)));
+  const MiB = (n: number): string => formatNumber(n / 1048576);
 
   let {
     openSet,

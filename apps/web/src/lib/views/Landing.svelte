@@ -84,14 +84,11 @@
     <!-- The re-synced Landing2 (31cc2f7) deletes the "Modded with … / Change" recall row
          outright; the ← Back line below is the only way back to step 1. -->
     <div class="choices" class:held={step !== 'action'}>
-      <!-- `disabled` is the guarantee, not the class: `class:disabled` only greyed the card,
-           so on a browser without WebUSB it stayed clickable and focusable and dropped the
-           user on a device screen that can never connect. The class still carries the LOOK,
-           and `pointer-events: none` stops the hover affordance a disabled button keeps. -->
+      <!-- Device management also supports remote GNW Manager over WebSocket, which does not
+           require WebUSB. Keep this entry available in Firefox so users can configure it. -->
       <button
         class="choice"
-        class:disabled={!webusb}
-        disabled={!webusb || step !== 'action'}
+        disabled={step !== 'action'}
         onclick={() => onNavigate('device', device.targetMedia)}
       >
         <!-- Landing2 draws an icon on both action cards: the chosen media, tinted green, on
@@ -106,9 +103,6 @@
         <span class="text">
           <span class="label">{locale.t.landing.manageDevice}</span>
           <span class="sub">{locale.t.landing.manageDeviceDesc}</span>
-          {#if !webusb}
-            <span class="sub">{locale.t.landing.unsupportedBrowser}</span>
-          {/if}
         </span>
       </button>
 

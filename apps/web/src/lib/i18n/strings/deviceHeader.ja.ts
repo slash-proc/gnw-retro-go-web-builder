@@ -11,7 +11,7 @@ export const deviceHeaderJa: DeviceHeaderStrings = {
   connectedRetroGo: "接続済み（Retro-Go）",
   connectedAs: (label: string) => `接続済み（${label}）`,
   connected: "接続済み",
-  connectedDebuggingDisabled: "接続済み。デバッグは無効です。",
+  connectedDebuggingDisabled: "接続が切断されました。デバイスを待っています...",
   scanning: "スキャン中…",
   dash: "—",
   patchMissing: "パッチが見つかりません",

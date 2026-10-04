@@ -12,6 +12,7 @@
  */
 
 import type { SwdTransport, ProgressFn } from "@gnw/swd-transport";
+import { createSHA1, createSHA256 } from "hash-wasm";
 export type { ProgressFn } from "@gnw/swd-transport";
 
 /** Memory-mapped mailbox base — gnwmanager gnw.py. */
@@ -176,14 +177,23 @@ const STOCK_MODELS = [
 
 const sha1Hex = async (data: Uint8Array): Promise<string> => {
   const view = new Uint8Array(data); // own buffer for crypto.subtle
-  const digest = await globalThis.crypto.subtle.digest("SHA-1", view);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest("SHA-1", view);
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  const hasher = await createSHA1();
+  hasher.init(); hasher.update(view);
+  return hasher.digest("hex");
 };
 
 /** 32-byte SHA-256 digest (gnwmanager utils.sha256). */
 const sha256 = async (data: Uint8Array): Promise<Uint8Array> => {
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", new Uint8Array(data));
-  return new Uint8Array(digest);
+  const view = new Uint8Array(data);
+  if (globalThis.crypto?.subtle) return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", view));
+  const hasher = await createSHA256();
+  hasher.init(); hasher.update(view);
+  const hex = hasher.digest("hex");
+  return Uint8Array.from({ length: hex.length / 2 }, (_, i) => Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16));
 };
 
 /** Pad `data` up to a multiple of `mod` with `fill` (gnwmanager utils.pad_bytes). */

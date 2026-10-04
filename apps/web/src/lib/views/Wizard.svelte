@@ -24,7 +24,7 @@
   import { isStubAlive, dumpRegion, flashImage } from "../engine/flasher.js";
   import { raceWithFallback } from "../engine/timeout.js";
   import { saveFileToDirOrDownload, nativeFolderPickerSupported, pickSdCardFolder } from "../romScan.js";
-  import { download } from "../util.js";
+  import { download, formatNumber } from "../util.js";
   import { hex } from "../advanced/addr.js";
   import { readFrogfsState } from "../engine/fsscan.js";
   import { scanReservedOffset, defaultLittlefsLength } from "../flashLayout.js";
@@ -111,7 +111,7 @@
   type WizardPath = "dual" | "rgo" | "stock";
   let path = $state<WizardPath | null>(null);
 
-  const MiB = (n: number) => (n / 1048576).toFixed(2);
+  const MiB = (n: number) => formatNumber(n / 1048576, 2, 2);
 
   const hasAssets = $derived(
     device.partitions.some(p => p.type.includes("Assets") || p.type.includes("OFW"))

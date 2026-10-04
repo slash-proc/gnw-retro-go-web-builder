@@ -51,6 +51,7 @@
  * on the user's disk that the UI cannot see is a byte the user cannot reclaim.
  */
 import { scoped } from "../storageScope.js";
+import { hashHex } from "../cryptoHash.js";
 
 export type BlobCategory =
   | "firmware"
@@ -131,9 +132,7 @@ const HEX = /^[0-9a-f]{64}$/;
 export async function blobKey(bytes: Uint8Array): Promise<string> {
   // Passing the view hashes exactly its offset/length; WebCrypto already copies its input.
   // Only shared backing storage requires a private copy for the BufferSource contract.
-  const input = bytes.buffer instanceof ArrayBuffer ? bytes : bytes.slice();
-  const digest = await crypto.subtle.digest("SHA-256", input as BufferSource);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex("SHA-256", bytes);
 }
 
 /** `<category>.<hash>`. The category is always one of the known tokens, so the name is safe. */

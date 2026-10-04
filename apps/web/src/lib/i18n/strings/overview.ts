@@ -17,7 +17,7 @@ export const overviewEn = {
     body: "Backups, patching and firmware need an ST-Link v2 (or compatible) adapter wired to the device.",
     browserTitle: "This browser cannot reach the device",
     browserBody:
-      "Device access needs WebUSB. Chrome, Edge and Opera have it; Library and Sources work in any browser.",
+      "Direct USB access needs WebUSB (Chrome, Edge or Opera). To connect through GNW Manager, open the device menu and choose Remote.",
   },
   info: {
     readProtection: "Read protection",

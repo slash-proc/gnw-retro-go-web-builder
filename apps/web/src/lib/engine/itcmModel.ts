@@ -15,8 +15,7 @@ export interface ItcmModelProbe {
 }
 
 async function sha1Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-1", bytes as BufferSource);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex("SHA-1", bytes);
 }
 
 const isFilledWith = (bytes: Uint8Array, value: number): boolean =>
@@ -46,3 +45,4 @@ export async function detectModelFromItcm(transport: {
 }): Promise<ItcmModel | null> {
   return (await probeModelFromItcm(transport)).model;
 }
+import { hashHex } from "../cryptoHash.js";

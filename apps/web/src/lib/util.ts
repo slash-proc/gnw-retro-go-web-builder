@@ -1,5 +1,17 @@
 import { locale } from "./i18n/locale.svelte.js";
 
+/** Format a displayed number with the active locale's decimal and grouping separators. */
+export function formatNumber(
+  value: number,
+  maximumFractionDigits = 2,
+  minimumFractionDigits = 0,
+): string {
+  return new Intl.NumberFormat(locale.current, {
+    maximumFractionDigits,
+    minimumFractionDigits,
+  }).format(value);
+}
+
 /** Trigger a browser download of `data` (raw bytes or an already-built Blob) as `name`.
  *  The <a> is appended to the document before clicking — some browsers don't reliably
  *  fire a click on a fully detached element, so this is the more broadly spec-compliant
@@ -31,14 +43,13 @@ export function download(name: string, data: Uint8Array | Blob): void {
  *  In a component the `locale.current` read inside `t` also makes the call reactive, so a
  *  language switch re-renders sizes along with everything else. */
 export function formatSize(bytes: number): string {
-  const trim = (n: number, dp: number) => String(parseFloat(n.toFixed(dp)));
   if (!Number.isFinite(bytes)) return "—";
   const u = locale.t.shared.units;
   const fmt = (n: string, unit: string) => `${n}${u.space}${unit}`;
-  if (bytes >= 1073741824) return fmt(trim(bytes / 1073741824, 2), u.gb);
-  if (bytes >= 1048576) return fmt(trim(bytes / 1048576, 2), u.mb);
-  if (bytes >= 1024) return fmt(trim(bytes / 1024, 2), u.kb);
-  return fmt(String(Math.round(bytes)), u.b);
+  if (bytes >= 1073741824) return fmt(formatNumber(bytes / 1073741824), u.gb);
+  if (bytes >= 1048576) return fmt(formatNumber(bytes / 1048576), u.mb);
+  if (bytes >= 1024) return fmt(formatNumber(bytes / 1024), u.kb);
+  return fmt(formatNumber(Math.round(bytes), 0), u.b);
 }
 
 /** Bare kilobyte NUMBER (not a formatted string) — `<1` below 512 B. Deliberately NOT routed
@@ -61,7 +72,7 @@ export function formatSizePair(value: number, max: number, sep: string = "/"): s
     : max >= 1048576 ? [u.mb, 1048576]
     : max >= 1024 ? [u.kb, 1024]
     : [u.b, 1];
-  const n = (v: number) => String(parseFloat((v / div).toFixed(div === 1 ? 0 : 1)));
+  const n = (v: number) => formatNumber(v / div, div === 1 ? 0 : 1);
   return `${n(value)}${sep}${n(max)}${u.space}${unit}`;
 }
 

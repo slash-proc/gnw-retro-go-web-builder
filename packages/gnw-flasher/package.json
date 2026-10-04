@@ -14,6 +14,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@gnw/swd-transport": "*"
+    "@gnw/swd-transport": "*",
+    "hash-wasm": "^4.12.0"
   }
 }

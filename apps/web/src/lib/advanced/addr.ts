@@ -5,6 +5,7 @@
 
 export { EXTBASE, BANK_BASE } from "../engine/addr.js";
 import { EXTBASE, BANK_BASE } from "../engine/addr.js";
+import { locale } from "../i18n/locale.svelte.js";
 
 const MULT: Record<string, number> = {
   k: 1 << 10,
@@ -36,7 +37,7 @@ export const hex = (n: number): string => "0x" + (n >>> 0).toString(16);
 export const hex8 = (n: number): string => "0x" + (n >>> 0).toString(16).padStart(8, "0");
 
 /** Grouped decimal byte count, e.g. 245,760. */
-export const commas = (n: number): string => n.toLocaleString("en-US");
+export const commas = (n: number): string => n.toLocaleString(locale.current);
 
 /** Region size (bytes) for a bank: ext from device size, 256 KiB per int bank. */
 export const regionSize = (bank: number, extSizeMB: number | null): number =>

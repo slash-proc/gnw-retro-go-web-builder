@@ -9,9 +9,11 @@ import { flashImage, dumpRegion } from "./flasher.js";
 import { LOCKED_MODEL } from "./itcmModel.js";
 export { detectModelFromItcm } from "./itcmModel.js";
 import { dbg, dbgLog } from "../debug.js";
+import { hashHex } from "../cryptoHash.js";
 import { electronDirHandle, electronFs } from "../electronFs.js";
 import bootloaderUrl from "@gnw/gnw-patch/vendor/gnw_bootloader_0x08032000.bin?url";
 import unlockPayloadUrl from "@gnw/gnw-flasher/blobs/unlock.bin?url";
+import { formatNumber } from "../util.js";
 
 export type OfwModel = "mario" | "zelda";
 
@@ -55,8 +57,7 @@ export const DEVICES: Record<OfwModel, DeviceDesc> = {
 };
 
 async function sha1Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-1", bytes as BufferSource);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex("SHA-1", bytes);
 }
 
 export interface DetectResult {
@@ -665,8 +666,8 @@ export async function patchAndFlash(
   // (e.g. a Zelda 4 MB external can't be flashed onto a 1 MB Mario chip).
   if (extFlashBytes > 0 && res.external.length > extFlashBytes) {
     throw new Error(
-      `Patched external image is ${(res.external.length / 1048576).toFixed(2)} MB but this device's ` +
-        `external flash is only ${(extFlashBytes / 1048576).toFixed(2)} MB — it won't fit.`,
+      `Patched external image is ${formatNumber(res.external.length / 1048576, 2, 2)} MB but this device's ` +
+        `external flash is only ${formatNumber(extFlashBytes / 1048576, 2, 2)} MB — it won't fit.`,
     );
   }
   // In bootloader (dual-boot) mode the SD bootloader is a THIRD image, flashed into the
@@ -940,8 +941,8 @@ export async function restoreStock(
   // start a partial write that would leave the device with neither firmware intact.
   if (extFlashBytes > 0 && external.length > extFlashBytes) {
     throw new Error(
-      `Backup's external image is ${(external.length / 1048576).toFixed(2)} MB but this device's ` +
-        `external flash is only ${(extFlashBytes / 1048576).toFixed(2)} MB — it won't fit.`,
+      `Backup's external image is ${formatNumber(external.length / 1048576, 2, 2)} MB but this device's ` +
+        `external flash is only ${formatNumber(extFlashBytes / 1048576, 2, 2)} MB — it won't fit.`,
     );
   }
 

@@ -28,6 +28,7 @@ import {
 import { isPlainFilename } from "./converterRun.js";
 import { isSubpath } from "./subpath.js";
 import { SourceError, type Tool } from "./types.js";
+import { hashHex } from "../cryptoHash.js";
 
 // --- Manifest narrowing --------------------------------------------------------------------
 
@@ -240,9 +241,7 @@ export function checkProcessor(tool: Tool): void {
  * module importing nothing), and every ROM hash table in the world is already SHA-1.
  */
 export async function sha1Hex(bytes: Uint8Array): Promise<string> {
-  const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  const digest = await crypto.subtle.digest("SHA-1", copy as ArrayBuffer);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex("SHA-1", bytes);
 }
 
 // --- The gate ---------------------------------------------------------------------------------

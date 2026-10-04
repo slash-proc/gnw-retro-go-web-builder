@@ -11,7 +11,7 @@ export const deviceHeaderKo: DeviceHeaderStrings = {
   connectedRetroGo: "연결됨 (Retro-Go)",
   connectedAs: (label: string) => `연결됨 (${label})`,
   connected: "연결됨",
-  connectedDebuggingDisabled: "연결됨. 디버깅이 비활성화되어 있습니다.",
+  connectedDebuggingDisabled: "연결이 끊겼습니다. 기기를 기다리는 중...",
   scanning: "스캔 중…",
   dash: "—",
   patchMissing: "패치 누락",

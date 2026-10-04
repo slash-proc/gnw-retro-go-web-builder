@@ -27,6 +27,7 @@ import {
 } from "./types.js";
 import { isPlainFilename } from "./converterRun.js";
 import { isSubpath } from "./subpath.js";
+import { hashHex } from "../cryptoHash.js";
 
 // --- Repo reference normalisation ------------------------------------------------------
 
@@ -91,12 +92,7 @@ function pagesRootFor(repo: string): string {
 
 /** Lowercase hex sha256 of some bytes. */
 export async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {
-  const buf =
-    bytes instanceof Uint8Array
-      ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
-      : bytes;
-  const digest = await crypto.subtle.digest("SHA-256", buf as ArrayBuffer);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex("SHA-256", bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
 }
 
 /**

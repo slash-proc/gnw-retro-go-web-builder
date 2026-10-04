@@ -6,6 +6,7 @@
   import Button from "./Button.svelte";
   import ModalShell from "./ModalShell.svelte";
   import { locale } from "../i18n/locale.svelte.js";
+  import { formatNumber } from "../util.js";
 
   let powerCycleStatus = $state<"red" | "yellow" | "green">("red");
   let checkingStatus = false;
@@ -76,11 +77,11 @@
     {#snippet children()}
       <h3>{locale.t.officialFirmware.lockedBackupFailureTitle}</h3>
       <p class="muted">{device.lockedBackupFailurePrompt.error}</p>
-      <p class="muted">{locale.t.officialFirmware.lockedBackupFailureDetails((device.lockedBackupFailurePrompt.nextSwdClockHz / 1_000_000).toFixed(1))}</p>
+      <p class="muted">{locale.t.officialFirmware.lockedBackupFailureDetails(formatNumber(device.lockedBackupFailurePrompt.nextSwdClockHz / 1_000_000, 1, 1))}</p>
       <div class="actions">
         <Button variant="cancel" onclick={() => device.chooseLockedBackupFailure("stop")}>{locale.t.officialFirmware.lockedBackupStop}</Button>
         <Button variant="default" onclick={() => device.chooseLockedBackupFailure("restore")}>{locale.t.officialFirmware.lockedBackupRestore}</Button>
-        <Button variant="action" onclick={() => device.chooseLockedBackupFailure("retry")}>{locale.t.officialFirmware.lockedBackupRetry((device.lockedBackupFailurePrompt.nextSwdClockHz / 1_000_000).toFixed(1))}</Button>
+        <Button variant="action" onclick={() => device.chooseLockedBackupFailure("retry")}>{locale.t.officialFirmware.lockedBackupRetry(formatNumber(device.lockedBackupFailurePrompt.nextSwdClockHz / 1_000_000, 1, 1))}</Button>
       </div>
     {/snippet}
   </ModalShell>

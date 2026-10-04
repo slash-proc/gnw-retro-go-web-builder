@@ -11,6 +11,7 @@
   import { device } from "../device.svelte.js";
   import { EXTBASE } from "../engine/addr.js";
   import { locale } from "../i18n/locale.svelte.js";
+  import { formatNumber } from "../util.js";
 
   // additionsCount/additionsBytes/removalsCount/removalsBytes were removed from this
   // component's props — they duplicated the "N new, N removed" detail already shown on
@@ -33,7 +34,7 @@
   } = $props();
 
   const hex = (n: number): string => "0x" + (n >>> 0).toString(16);
-  const mib = (n: number): string => (n / 1048576).toFixed(2) + " MB";
+  const mib = (n: number): string => formatNumber(n / 1048576, 2, 2) + " MB";
 
   function kindOf(p: ExtPartition): string {
     if (p.fs) return p.fs;

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { device } from "../device.svelte.js";
   import { dumpRegion } from "../engine/flasher.js";
-  import { download, kb } from "../util.js";
+  import { download, formatNumber, kb } from "../util.js";
   import {
     parseAddr, hex, hex8, commas, BANK_BASE, EXTBASE, bankForAddr, regionSize,
     INT_BAR_NOTE, INT_BAR_SIZE, EXT_BAR_NOTE, extBarSize,
@@ -117,7 +117,7 @@
       });
       download(filename, data);
       const secs = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-      result = locale.t.dumpSection.resultSummary((data.length / (1 << 20)).toFixed(1), secs);
+      result = locale.t.dumpSection.resultSummary(formatNumber(data.length / (1 << 20), 1, 1), secs);
     } catch (e) {
       if (canceled) canceledChip = true;
       else error = e instanceof Error ? e.message : String(e);

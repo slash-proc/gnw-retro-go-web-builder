@@ -222,7 +222,7 @@
 {#if configureOpen}
   <ModalShell onDismiss={dismissAdapterConfig} maxWidth="26rem" zIndex="var(--z-modal-prompt)">
     {#snippet children()}
-      <div class="adapter-config">
+      <form class="adapter-config" onsubmit={(e) => { e.preventDefault(); void confirmAdapterConfig(); }}>
         <h3>Configure Adapter</h3>
         <label for="adapter-type">{locale.t.shared.deviceControls.adapterType}</label>
         <select id="adapter-type" bind:value={adapterType} disabled={configuring}>
@@ -231,13 +231,13 @@
         </select>
         {#if adapterType === "remote"}
           <label for="remote-host">{locale.t.shared.deviceControls.remoteHost}</label>
-          <input id="remote-host" bind:value={remoteHost} placeholder="localhost" disabled={configuring} />
+          <input id="remote-host" bind:value={remoteHost} placeholder="localhost" required disabled={configuring} />
           <label for="remote-port">{locale.t.shared.deviceControls.remotePort}</label>
-          <input id="remote-port" type="number" min="1" max="65535" bind:value={remotePort} disabled={configuring} />
+          <input id="remote-port" type="number" min="1" max="65535" bind:value={remotePort} required disabled={configuring} />
         {:else}
         <div class="adapter-row">
           <span class="adapter-name">{selectedAdapterName ?? "No adapter selected"}</span>
-          <button class="choose-adapter" disabled={configuring} onclick={chooseAdapterOnly}>Choose</button>
+          <button class="choose-adapter" type="button" disabled={configuring} onclick={chooseAdapterOnly}>Choose</button>
         </div>
         {#if availableAdapterNames.length > 1}
           <span class="available-adapters">Available adapters: {availableAdapterNames.join(", ")}</span>
@@ -258,10 +258,10 @@
         {/if}
         {#if configureError}<p class="config-error">{configureError}</p>{/if}
         <div class="config-actions">
-          <button class="config-cancel" onclick={dismissAdapterConfig}>{locale.t.shared.common.cancel}</button>
-          <button class="config-connect" disabled={configuring} onclick={confirmAdapterConfig}>{device.adapterConfigPrompt || adapterType === "remote" || adapterType !== device.adapterType ? locale.t.shared.common.connect : "OK"}</button>
+          <button class="config-cancel" type="button" onclick={dismissAdapterConfig}>{locale.t.shared.common.cancel}</button>
+          <button class="config-connect" type="submit" disabled={configuring}>{device.adapterConfigPrompt || adapterType === "remote" || adapterType !== device.adapterType ? locale.t.shared.common.connect : "OK"}</button>
         </div>
-      </div>
+      </form>
     {/snippet}
   </ModalShell>
 {/if}

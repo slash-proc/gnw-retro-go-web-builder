@@ -36,7 +36,7 @@
   import { isStubAlive } from "../engine/flasher.js";
   import { raceWithFallback } from "../engine/timeout.js";
   import { saveFileToDirOrDownload, nativeFolderPickerSupported, pickSdCardFolder } from "../romScan.js";
-  import { download } from "../util.js";
+  import { download, formatNumber } from "../util.js";
   import JSZip from "jszip";
   import BankCard from "../ui/BankCard.svelte";
   import { locale } from "../i18n/locale.svelte.js";
@@ -330,7 +330,7 @@
   const supported = folderPickerSupported();
   const extBytes = $derived(device.info?.externalFlashSizeBytes ?? 0);
   const blockSize = $derived(device.info?.minEraseSizeBytes ?? 4096);
-  const MiB = (n: number) => (n / 1048576).toFixed(2);
+  const MiB = (n: number) => formatNumber(n / 1048576, 2, 2);
   const hex = (n: number) => "0x" + (n >>> 0).toString(16);
 
   // Current on-device flash layout (from the device scan) — drives the geometry aid below.

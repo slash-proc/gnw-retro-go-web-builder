@@ -24,7 +24,7 @@
   import { msg } from "../logEntry.js";
   import { dbg } from "../debug.js";
   import { locale } from "../i18n/locale.svelte.js";
-  import { formatSize } from "../util.js";
+  import { formatNumber, formatSize } from "../util.js";
   import PaneFooter from "./PaneFooter.svelte";
   import { localFolders, displayName, OFW_BACKUP_SOURCE_LIMIT } from "../sources/localFolders.svelte.js";
   import { backupPresence } from "../backupPresence.svelte.js";
@@ -190,10 +190,10 @@
     }
   }
 
-  const MiB = (n: number): string => (n / 1048576).toFixed(2);
+  const MiB = (n: number): string => formatNumber(n / 1048576, 2, 2);
   // Same MiB figure without the trailing ".00" — the artboards print whole megabytes as
   // "4 MB", not "4.00 MB" (BackupPatch*.dc.html:87, corrected in 31cc2f7).
-  const mbShort = (n: number): string => MiB(n).replace(/\.00$/, "");
+  const mbShort = (n: number): string => MiB(n).replace(/[.,]00$/, "");
   // Row sizes as the artboard prints them: "128 KB" under a megabyte, "4 MB" over
   // (BackupPatchAllowed.dc.html:87, "int 128 KB" and "ext 1 MB"). That is exactly `formatSize`'s
   // contract, so this is the shared helper rather than a fourth local copy of it. The other
