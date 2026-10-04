@@ -14,11 +14,12 @@ npm ci                 # once
 npm run dev
 ```
 
-`npm run dev` builds the renderer with the same Docker image and workspace build used by the
-project, stages it, and launches Electron. Electron checks the staged source fingerprint at
-startup and refuses to open if it does not match the checkout. This prevents direct launches
-from silently showing a stale renderer. The renderer uses `PUBLIC_BASE=./` for the `gnw://app`
-origin.
+`npm run dev` uses the running Docker dev service, builds the internal package graph and Vite
+renderer bundle, stages it, and launches Electron. It does not run the full web test chain; use
+the push gate for that. Electron checks the staged source fingerprint at startup and refuses to
+open if it does not match the checkout. This prevents direct launches from silently showing a
+stale renderer. The renderer uses `PUBLIC_BASE=./` for the `gnw://app` origin. Rebuild the dev
+image with `docker compose build dev` after changing dependency manifests.
 
 ## Packaging
 
