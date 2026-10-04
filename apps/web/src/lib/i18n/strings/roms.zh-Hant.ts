@@ -220,6 +220,8 @@ export const romsZhHant: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `第 ${slot} 格`,
       noSavesFound: "找不到存檔",
+      scrollWidgetsUpAriaLabel: '向上捲動小工具',
+      scrollWidgetsDownAriaLabel: '向下捲動小工具',
       previousSaveAriaLabel: "上一個存檔",
       nextSaveAriaLabel: "下一個存檔",
       loading: "載入中...",

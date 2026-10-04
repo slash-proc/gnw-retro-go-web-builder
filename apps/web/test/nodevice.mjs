@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * The Overview tab with no device attached, and the canvas having no two boards on top of
- * each other.
+ * The Overview tab with no device attached.
  *
  *   docker exec gnw-web-builder-dev-1 sh -c 'cd /app/apps/web && node test/nodevice.mjs'
  *
@@ -52,7 +51,7 @@ const eq = (got, want, msg) => {
 /**
  * The disconnected markup, which is now a `{#snippet disconnected()}` handed to `OverviewRail`
  * rather than an `{#if !device.isConnected}` branch wrapping the whole tab. That restructure is
- * the rail landing (docs/design/proposals/overview-v2): the rail is drawn with or without a
+ * the overview rail landing: the rail is drawn with or without a
  * device, and only Status swaps to this snippet. The three states inside it are unchanged and
  * are still what this file exists to defend.
  */
@@ -232,29 +231,6 @@ check("no locale's no-device copy carries a middot or an em dash", () => {
     ok(!block.includes("·"), `${f} uses a middot`);
     ok(!block.includes("—"), `${f} uses an em dash`);
   }
-});
-
-// ---------------------------------------------------------------------------------------
-// 5. The canvas has no two boards on top of each other.
-// ---------------------------------------------------------------------------------------
-
-check("no two artboards share a position, or overlap at all", () => {
-  const canvas = JSON.parse(
-    readFileSync(join(here, "../../../docs/design/mockups/canvas.json"), "utf8"),
-  );
-  const a = canvas.artboards;
-  ok(Array.isArray(a) && a.length > 50, `only ${a?.length} artboards -- fix this guard`);
-  const clashes = [];
-  for (let i = 0; i < a.length; i++) {
-    for (let j = i + 1; j < a.length; j++) {
-      const p = a[i];
-      const q = a[j];
-      if (p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h) {
-        clashes.push(`${p.file} and ${q.file} at (${p.x}, ${p.y})`);
-      }
-    }
-  }
-  eq(clashes, [], "boards drawn on top of one another");
 });
 
 if (failures.length) {

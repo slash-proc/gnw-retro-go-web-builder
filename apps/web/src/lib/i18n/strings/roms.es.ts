@@ -220,6 +220,8 @@ export const romsEs: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `Ranura ${slot}`,
       noSavesFound: "No se encontraron partidas guardadas",
+      scrollWidgetsUpAriaLabel: 'Desplazar widgets hacia arriba',
+      scrollWidgetsDownAriaLabel: 'Desplazar widgets hacia abajo',
       previousSaveAriaLabel: "Partida guardada anterior",
       nextSaveAriaLabel: "Partida guardada siguiente",
       loading: "Cargando...",

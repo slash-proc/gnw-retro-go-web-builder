@@ -220,6 +220,8 @@ export const romsKo: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `슬롯 ${slot}`,
       noSavesFound: "세이브를 찾을 수 없어요",
+      scrollWidgetsUpAriaLabel: '위젯 위로 스크롤',
+      scrollWidgetsDownAriaLabel: '위젯 아래로 스크롤',
       previousSaveAriaLabel: "이전 세이브",
       nextSaveAriaLabel: "다음 세이브",
       loading: "불러오는 중...",

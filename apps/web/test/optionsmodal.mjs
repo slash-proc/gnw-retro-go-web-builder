@@ -1,30 +1,5 @@
 #!/usr/bin/env node
-/**
- * The Library's additional-options modal is a tabbed control.
- *
- *   docker compose exec dev sh -c 'cd /app/apps/web && node test/optionsmodal.mjs'
- *
- * This file used to pin the opposite arrangement: Cover art, Saves and Cheats SIDE BY SIDE as
- * three weighted columns, with Saves narrowest, Cheats widest and the spread bounded under 1.5.
- * That premise is gone. The approved boards (`docs/design/mockups/LibraryComposedOptions.dc.html`
- * and its `…Saves` / `…Cheats` siblings) draw one section at a time under a tab strip, and the
- * owner reported the shipped side-by-side grid as the defect. A column-weight guard cannot be
- * satisfied by a layout with one column, so the three weight checks were DELETED rather than
- * loosened -- there is nothing left for them to be about. What replaced them pins what the
- * tabbed arrangement means instead:
- *
- *   - three tabs exist, and exactly one panel is rendered at a time (not three with two hidden)
- *   - the strip is a real ARIA tablist, keyboard-operable, each panel tied to its tab
- *   - Cheats still holds presets AND manual entry AND the configured list. A tab is not
- *     permission to trim a section; cheats are a device feature like saves.
- *   - the modal keeps ONE width across all three tabs, so switching tab does not resize it
- *   - tabs are the `bare` (modal) arrangement only, never forced on the accordion default
- *
- * The two width checks at the end are carried over unchanged, because they were never about the
- * columns: the modal's own maxWidth bound, and ModalShell's shared default staying untouched.
- *
- * Nothing here has been rendered; this is arithmetic and structure over declared source.
- */
+/** Structural guards for the Library widget rail and its focused category modals. */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,141 +10,65 @@ const failures = [];
 const check = (name, fn) => { try { fn(); passed++; } catch (e) { failures.push(`${name}: ${e.message}`); } };
 const ok = (c, m) => { if (!c) throw new Error(m); };
 const eq = (a, b, m) => { if (a !== b) throw new Error(`${m}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`); };
-
 const read = (p) => readFileSync(join(here, "../src/lib", p), "utf8");
-/** Comments stripped first: a `}` inside one truncates every rule match after it. */
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/<!--[\s\S]*?-->/g, "");
 const panel = strip(read("views/GameDetailsPanel.svelte"));
 const tab = strip(read("views/RomManagementTab.svelte"));
 const shell = strip(read("ui/ModalShell.svelte"));
 
-const TABS = ["cover", "saves", "cheats"];
-
-check("the modal draws a tab strip, not three side-by-side panels", () => {
-  ok(/role="tablist"/.test(panel), "no role=\"tablist\" in the options panel -- the sections are not tabs");
-  eq((panel.match(/role="tab"/g) ?? []).length, 1,
-    "expected exactly one role=\"tab\" button template (the strip is an {#each} over the tab ids), "
-    + "not one hand-written button per section");
-  const at = panel.indexOf('role="tablist"');
-  ok(panel.slice(0, at).includes("{#if bare}"),
-    "the tab strip is not gated on `bare`; the accordion default would grow a tablist too");
+check("the Library has the three widget buttons and no Additional options trigger", () => {
+  eq((tab.match(/class="widget-button"/g) ?? []).length, 3, "expected Covers, Saves, and Cheats widget buttons");
+  for (const id of ["covers", "saves", "cheats"]) ok(tab.includes(`openWidget(\"${id}\")`), `missing ${id} widget opener`);
+  ok(!tab.includes("class=\"opts-btn\""), "the Additional options button remains");
+  ok(/\.carousel-widget-layout[\s\S]*?\.widget-rail/.test(tab), "the widget rail is not beside the carousel");
 });
 
-check("the tab ids are exactly the three sections", () => {
-  const m = panel.match(/const TAB_IDS\s*:[^=]*=\s*\[([^\]]+)\]/);
-  ok(m, "TAB_IDS is gone; re-derive this guard against whatever replaced it");
-  const ids = [...m[1].matchAll(/"([a-z]+)"/g)].map((x) => x[1]);
-  eq(ids.join(","), TABS.join(","),
-    "the modal's tabs are cover art, saves and cheats, in that order");
+check("each widget opens its own category in the modal", () => {
+  for (const id of ["covers", "saves", "cheats"]) ok(panel.includes(`widget === \"${id}\"`), `missing ${id} panel gate`);
+  ok(tab.includes("widget={activeWidget}"), "the active widget is not passed into GameDetailsPanel");
+  ok(tab.includes("activeWidget === \"covers\" ? \"48rem\""), "Covers does not size to its content");
+  ok(tab.includes("activeWidget === \"saves\" ? \"46rem\""), "Saves does not size to its content");
+  ok(tab.includes("activeWidget === \"cheats\" ? \"54rem\""), "Cheats does not size to its content");
 });
 
-check("exactly one panel is rendered at a time", () => {
-  // The point of the whole change. Three panels with two display:none'd is not a tab control,
-  // it is three headings the user cannot see -- so the gate must be an {#if} around the markup.
-  for (const id of TABS) {
-    const guard = new RegExp(`\\{#if !bare \\|\\| activeTab === "${id}"\\}`);
-    ok(guard.test(panel),
-      `the ${id} panel is not gated on activeTab; either it always renders (all three at once) `
-      + "or it is hidden with CSS, which leaves it in the accessibility tree and the tab order");
-    ok(new RegExp(`id=\\{bare \\? "opt-panel-${id}"`).test(panel),
-      `the ${id} panel has no tabpanel id, so its tab's aria-controls points at nothing`);
+check("Covers has Cover art and ScreenScraper tabs using existing settings", () => {
+  eq((panel.match(/role="tab"/g) ?? []).length, 1, "expected one reusable tab button template");
+  ok(panel.includes('const TAB_IDS: OptTab[] = ["cover", "screenscraper"]'), "Covers tabs are not scoped to cover art and ScreenScraper");
+  ok(panel.includes('widget === "covers" && activeTab === "cover"'), "Cover art is not gated to its tab");
+  ok(panel.includes('widget === "covers" && activeTab === "screenscraper"'), "ScreenScraper settings are not gated to their tab");
+  for (const setting of ["username", "password", "rememberCredentials", "preferLocalCovers", "saveToRomsFolder"]) {
+    ok(panel.includes(`screenScraperSettings.${setting}`), `ScreenScraper tab lost ${setting}`);
   }
-  ok(!/display:\s*none/.test(panel.slice(panel.indexOf(".opt-tabs"), panel.indexOf(".opt-tabs") + 400)),
-    "the tab strip hides something with display:none; tabs switch by not rendering, not by hiding");
+  ok(!panel.includes("showCoverSettings"), "the nested ScreenScraper settings modal remains");
 });
 
-check("each panel is a tabpanel named by its own tab", () => {
-  eq((panel.match(/role=\{bare \? "tabpanel" : undefined\}/g) ?? []).length, 3,
-    "expected three conditional role=\"tabpanel\" panels");
-  eq((panel.match(/aria-labelledby=\{bare \? "opt-tab-/g) ?? []).length, 3,
-    "a tabpanel with the heading hidden is unnamed unless it points back at its tab");
+check("widget controls remain accessible", () => {
+  ok(/tabindex=\{activeTab === id \? 0 : -1\}/.test(panel), "Covers tabs lack roving tabindex");
+  ok(/onkeydown=\{\(e\) => onTabKey\(e, id\)\}/.test(panel), "Covers tabs lack keyboard navigation");
+  ok(panel.includes('"ArrowRight"') && panel.includes('"ArrowLeft"') && panel.includes('"Home"') && panel.includes('"End"'), "tab keyboard navigation is incomplete");
+  ok(tab.includes("class:active={optionsOpen && activeWidget"), "the open widget is not indicated on the rail");
+  ok(tab.includes("disabled={!detailsSelectedId}"), "widgets can open without a selected game");
+  ok(tab.includes("savesAvailableByGame[detailsSelectedId] !== true"), "Saves is enabled before a save is found");
+  ok(tab.includes("!cheatsSupportedForSelectedGame()"), "Cheats stays enabled for unsupported consoles");
+  ok(tab.includes("gameHasSavesInNames"), "Saves availability does not use the panel's save filename rules");
+  ok(tab.includes("class=\"widget-rail-viewport\""), "the widgets do not share a carousel-height scrolling viewport");
+  ok(tab.includes("scrollWidgetsUpAriaLabel") && tab.includes("scrollWidgetsDownAriaLabel"), "overflow scroll controls are missing accessible labels");
+  ok(tab.includes("M16.5 4.8a8 8 0 0 1 0 14.4"), "Cover art does not use icon 3 from the selection board");
+  ok(tab.includes("M8 3v6h9V3"), "Saves does not use icon 2 from the selection board");
+  ok(tab.includes("circle cx=\"12\" cy=\"4.5\" r=\"2.2\""), "Cheats is missing the key above the gamepad");
 });
 
-check("the strip is keyboard-operable", () => {
-  ok(/tabindex=\{activeTab === id \? 0 : -1\}/.test(panel),
-    "no roving tabindex: every tab would be a separate tab stop, which is not the tabs pattern");
-  ok(/onkeydown=\{\(e\) => onTabKey\(e, id\)\}/.test(panel), "the tabs have no keydown handler");
-  for (const key of ["ArrowRight", "ArrowLeft", "Home", "End"]) {
-    ok(panel.includes(`"${key}"`), `onTabKey does not handle ${key}`);
-  }
-  ok(/aria-selected=\{activeTab === id\}/.test(panel), "no aria-selected on the tabs");
-  ok(/\.focus\(\)/.test(panel), "arrow keys move selection without moving focus to the new tab");
+check("the modal keeps its own title and selected-game context", () => {
+  ok(tab.includes("class=\"opts-context\""), "the selected game context is missing");
+  ok(tab.includes("locale.t.roms.gameDetailsPanel.coverArt.heading"), "the Covers widget title is missing");
+  ok(tab.includes("locale.t.roms.gameDetailsPanel.saves.heading"), "the Saves widget title is missing");
+  ok(tab.includes("locale.t.roms.gameDetailsPanel.cheats.heading"), "the Cheats widget title is missing");
 });
 
-check("the active tab is visibly active, not only announced", () => {
-  const at = panel.indexOf(".opt-tab.active");
-  ok(at >= 0, "no .opt-tab.active rule: the selected tab looks identical to the others");
-  const body = panel.slice(at, panel.indexOf("}", at));
-  ok(/box-shadow:\s*inset 0 -3px 0/.test(body),
-    `the active tab has no inset underline (boards: box-shadow: inset 0 -3px 0): ${body.trim()}`);
-  ok(/font-weight:\s*700/.test(body), "the active tab is not bolder than its peers");
-});
-
-check("Cheats keeps presets, manual entry and the configured list", () => {
-  // The section was not trimmed to fit a tab. All three parts are the feature.
-  const at = panel.indexOf('activeTab === "cheats"');
-  ok(at >= 0, "the cheats panel gate is gone");
-  const body = panel.slice(at);
-  for (const [what, re] of [
-    ["the preset list", /cheats\.presets|presetLabel|presets\b/],
-    ["manual entry", /cheats\.manual|manualCode|addManual/i],
-    ["the configured count", /configuredCheat/],
-  ]) {
-    ok(re.test(body), `the cheats tab no longer draws ${what}`);
-  }
-});
-
-check("the modal keeps one width across all three tabs", () => {
-  // The boards draw the same 980px frame on all three, so switching tab must not resize the
-  // modal. A per-tab maxWidth would be the jump the owner asked not to have.
-  const m = [...tab.matchAll(/<ModalShell[\s\S]{0,200}?maxWidth="([^"]+)"/g)].map((x) => x[1]);
-  ok(m.length >= 1, "the options modal no longer passes maxWidth; re-derive this");
-  eq(new Set(m).size, 1, `ModalShell is given ${new Set(m).size} different widths: ${m.join(", ")}`);
-  ok(!/maxWidth=\{/.test(tab),
-    "a modal width is computed rather than fixed, so the frame can change size between tabs");
-});
-
-check("tabs are the modal arrangement only", () => {
-  // GameDetailsPanel's default is the accordion (bare = false). A caller outside the Library
-  // modal must not silently acquire a tab strip.
-  ok(/bare\s*=\s*false/.test(panel), "the `bare` prop lost its false default");
-  const callers = [...tab.matchAll(/<GameDetailsPanel/g)].length;
-  ok(callers >= 1, "RomManagementTab no longer renders GameDetailsPanel; re-derive this guard");
-  eq((tab.match(/<GameDetailsPanel[\s\S]{0,400}?bare/g) ?? []).length, callers,
-    "a GameDetailsPanel caller in the Library tab does not pass `bare`");
-});
-
-check("the panel grid is a single column", () => {
-  const at = panel.indexOf(".game-details-accordion.bare .details-panels");
-  ok(at >= 0, "the bare panel grid rule is gone; the modal was restructured, re-derive this");
-  const body = panel.slice(at, panel.indexOf("}", at));
-  const m = body.match(/grid-template-columns:([^;]+);/);
-  ok(m, `no grid-template-columns in the bare panel grid: ${body}`);
-  const tracks = m[1].trim();
-  eq((tracks.match(/minmax\(|fr\b/g) ?? []).length, 2,
-    `expected one minmax(0, 1fr) track now that one panel shows at a time, got ${tracks}`);
-  ok(/minmax\(\s*0\s*,/.test(tracks),
-    `the track needs a minmax(0, …) floor, got ${tracks}. An <input> carries an intrinsic `
-    + "minimum width, and a bare fr track floors at it and blows the grid past the modal.");
-});
-
-check("the modal is narrower than it shipped", () => {
-  const m = tab.match(/<ModalShell onDismiss=\{\(\) => \(optionsOpen = false\)\} maxWidth="([^"]+)"/);
-  ok(m, "the options modal no longer passes maxWidth; re-derive this");
-  const rem = Number(m[1].replace("rem", ""));
-  ok(Number.isFinite(rem), `maxWidth is not a rem value: ${m[1]}`);
-  ok(rem < 62, `the options modal is ${m[1]}, not narrower than the 62rem it shipped at`);
-  // A floor too: the cheats manual-entry row is one code input, one description input and a
-  // button on a line, and it is what the width is actually for.
-  ok(rem >= 56, `${m[1]} is too narrow for the cheats manual entry row (code, description, Add)`);
-});
-
-check("the shared shell's own default is untouched", () => {
-  // Every other modal in the app takes ModalShell's default. Changing it here would resize
-  // all of them, which is why the options modal passes its own value instead.
+check("the shared modal shell default stays untouched", () => {
   const m = shell.match(/maxWidth\s*=\s*"([^"]+)"/);
-  ok(m, "ModalShell no longer declares a default maxWidth");
-  eq(m[1], "26rem", "ModalShell's default width changed, which resizes every other modal");
+  ok(m, "ModalShell no longer declares maxWidth");
+  eq(m[1], "26rem", "ModalShell's default width changed");
 });
 
 /* --- The two-column bodies -------------------------------------------------------------------

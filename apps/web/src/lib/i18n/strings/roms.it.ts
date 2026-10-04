@@ -220,6 +220,8 @@ export const romsIt: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `Slot ${slot}`,
       noSavesFound: "Nessun salvataggio trovato",
+      scrollWidgetsUpAriaLabel: 'Scorri widget verso l’alto',
+      scrollWidgetsDownAriaLabel: 'Scorri widget verso il basso',
       previousSaveAriaLabel: "Salvataggio precedente",
       nextSaveAriaLabel: "Salvataggio successivo",
       loading: "Caricamento…",

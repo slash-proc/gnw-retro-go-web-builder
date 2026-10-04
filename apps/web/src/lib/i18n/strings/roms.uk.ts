@@ -238,6 +238,8 @@ export const romsUk: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `Слот ${slot}`,
       noSavesFound: "Збережень не знайдено",
+      scrollWidgetsUpAriaLabel: 'Прокрутити віджети вгору',
+      scrollWidgetsDownAriaLabel: 'Прокрутити віджети вниз',
       previousSaveAriaLabel: "Попереднє збереження",
       nextSaveAriaLabel: "Наступне збереження",
       loading: "Завантаження…",

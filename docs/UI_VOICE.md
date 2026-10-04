@@ -1,11 +1,9 @@
 # UI voice: what to write, and what never to
 
-**Read this before writing or changing any user-visible string, and before drawing any board.**
+**Read this before writing or changing any user-visible string.**
 
 Every rule below is a correction the owner actually made, quoted. They are here because each one
-was fought over at least once. `docs/design/proposals/overview-v2/README.md` is the worked example
-of this voice applied to one surface, and it is the standard he accepted; this file is the general
-rule it came from.
+was fought over at least once. The rules apply to copy in the current interface.
 
 ---
 
@@ -15,7 +13,8 @@ rule it came from.
 2. **Never add copy to something you were not asked to touch.**
 3. **Never signal state through wording.** No pluralised label, no `n added`, no tally.
 4. **Never invent a word.** Not a heading, not a section name, not a category.
-5. **Never invent a state.** If no artboard draws it, report the gap.
+5. **Never invent a state or behavior.** Base it on implemented functionality; bring ideas for
+   new functionality to the owner before implementing them.
 6. **Never use `·` or an em-dash.**
 7. **Never say "emulator" for a core, or "ROMs" for the Library.**
 
@@ -50,7 +49,7 @@ screen cannot function without is a different job from selling a choice.
 
 Note this reversed an earlier decision: those three strings were added deliberately to answer
 beginner-audit finding F4 ("the chooser has no explanations"). He overruled it. **F4 is withdrawn**
-(see `docs/design/proposals/beginner-audit.md`). Do not re-derive it from the audit.
+Do not re-derive it from the old audit.
 
 ## 2. No filler
 

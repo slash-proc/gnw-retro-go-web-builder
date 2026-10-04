@@ -43,8 +43,6 @@ subject. `CLAUDE.md` carries the trigger for each.
 | [ELECTRON.md](./ELECTRON.md) | The desktop build's filesystem plan: what a native `FsDirHandle` changes, and the open questions the owner still has to answer. |
 | [DECISIONS.md](./DECISIONS.md) / [DECISIONS-MAP.md](./DECISIONS-MAP.md) | Open design questions, and what each candidate policy would decide. |
 | [BLOCKED-AUDIT.md](./BLOCKED-AUDIT.md) | Audit rows waiting on an owner ruling. |
-| [design/mockups/](./design/mockups) | The approved artboards plus their index. **Guarded** — `apps/web/test/artboard-index.mjs` requires the index, `canvas.json` and the files on disk to agree. |
-| [design/proposals/](./design/proposals) | Design proposals not yet accepted. Deliberately outside `mockups/`, so the guard ignores them and nothing lands on the canvas by accident. |
 
 ### Reference tables and narrower subjects
 

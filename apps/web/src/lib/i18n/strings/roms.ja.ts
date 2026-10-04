@@ -220,6 +220,8 @@ export const romsJa: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `スロット${slot}`,
       noSavesFound: "セーブデータが見つかりません",
+      scrollWidgetsUpAriaLabel: 'ウィジェットを上にスクロール',
+      scrollWidgetsDownAriaLabel: 'ウィジェットを下にスクロール',
       previousSaveAriaLabel: "前のセーブデータ",
       nextSaveAriaLabel: "次のセーブデータ",
       loading: "読み込み中...",

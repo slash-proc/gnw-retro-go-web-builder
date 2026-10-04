@@ -8322,19 +8322,12 @@ check("prepare: one string per kind, in every locale", () => {
   }
 });
 
-// 25e. The collision sentence is the BOARD's, not a second wording. ModalNameCollision.dc.html
-// draws "differ only in case" and "can hold only one of them"; reusing those exact clauses is
-// what stops a modal and a one-liner telling the user two different things about one failure.
-check("prepare: the collision sentence reuses the board's wording", () => {
-  const board = readFileSync(
-    join(here, "../../../../../../docs/design/mockups/ModalNameCollision.dc.html"),
-    "utf8",
-  );
+// 25e. The modal and one-line error use the same collision wording.
+check("prepare: the collision sentence preserves the shared wording", () => {
   const en = readFileSync(join(here, "../../i18n/strings/sources.ts"), "utf8");
   const at = en.indexOf("errPrepareCollision:");
   const sentence = en.slice(at, en.indexOf("\n", en.indexOf('"', at) + 1));
   for (const clause of ["differ only in case", "can hold only one of them"]) {
-    assert(board.includes(clause), `the board should still say "${clause}"`);
     assert(sentence.includes(clause), `the string should reuse "${clause}"`);
   }
 });

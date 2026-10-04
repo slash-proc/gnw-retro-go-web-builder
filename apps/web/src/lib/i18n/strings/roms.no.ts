@@ -220,6 +220,8 @@ export const romsNo: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `Plass ${slot}`,
       noSavesFound: "Fant ingen lagringer",
+      scrollWidgetsUpAriaLabel: 'Rull widgeter opp',
+      scrollWidgetsDownAriaLabel: 'Rull widgeter ned',
       previousSaveAriaLabel: "Forrige lagring",
       nextSaveAriaLabel: "Neste lagring",
       loading: "Laster...",

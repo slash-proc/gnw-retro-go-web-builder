@@ -4,12 +4,10 @@
  *
  *   docker exec gnw-web-builder-dev-1 sh -c 'cd /app/apps/web && node test/overviewrail.mjs'
  *
- * WHY THIS EXISTS. `docs/design/proposals/overview-v2/README.md` is mostly rules a compiler
- * cannot hold: which panes exist and in which group, that log actions sit with the log rather
+ * WHY THIS EXISTS. This suite guards rules a compiler cannot hold: which panes exist and in which group, that log actions sit with the log rather
  * than in the page footer, that a status row is a colour and not a score, that the output panel
  * is not terminal black. Every one of those was argued for out of an owner annotation, and every
- * one of them is a single line of markup away from being quietly undone by someone who did not
- * read the README. This file is that README's teeth.
+ * one of them is a single line of markup away from being quietly undone. These assertions guard them.
  *
  * These are source-shape assertions. The behaviour lives in `.svelte` components and every suite
  * in this repo stubs runes as identity functions, so a rendered DOM is not reachable here; if the

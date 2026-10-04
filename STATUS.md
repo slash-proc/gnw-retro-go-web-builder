@@ -4,31 +4,11 @@ This document is the definitive source of truth for the current state of the Gam
 Builder project. For the UI overhaul specifically, read [`HANDOVER.md`](./HANDOVER.md) first —
 it carries the owner's standing instructions and the corrections that have already cost work.
 
-## UI redesign conformance (as of 2026-09-08)
+## UI work
 
-**Read [`docs/CONFORMANCE.md`](./docs/CONFORMANCE.md) first, and read the counts there rather
-than here.** It is the live scoreboard, it states how its figures are derived, and it has been
-re-derived with a hand-validated parser; a number copied out of it into this file would rot.
-`docs/audit-ui-conformance.md` is a *findings list*, not a measure of conformance — quoting its
-closed-findings ratio as progress is the mistake that once sent work toward cleanup while whole
-screens sat unbuilt.
-
-The redesign is built against the artboards in `docs/design/mockups/` — count them with
-`ls docs/design/mockups/*.dc.html | wc -l`, and read the number the surveys actually walk off
-`docs/CONFORMANCE.md`'s scoreboard rather than from here. **56 of the 85 boards have been
-walked; 28 have never been surveyed** (mostly the Sources family and the composed Library,
-drawn after both passes), and `Specimen` is a type-and-grey reference sheet rather than a screen
-that never counts. An earlier version of this paragraph claimed nothing but `Specimen` and
-`FileBrowserFrogfs` was unsurveyed; that was true when 57 boards existed and quietly stopped
-being true as boards were added. `apps/web/test/artboard-index.mjs` (in `npm run check`) keeps
-the board set, `docs/design/mockups/README.md`'s index and `canvas.json` from disagreeing, and
-since 2026-09-12 it also fails when a board is walked by neither survey, holding the 28 in a
-backlog list that only shrinks.
-
-The boards and the published Claude Design canvas (URL in `docs/design/mockups/README.md`) drift
-silently — nothing syncs them. 19 boards were found a generation behind and were resynced in
-`31cc2f7`; every verdict resting on a stale reading has since been re-walked. **Diff the canvas
-before trusting a board, and re-check anything citing one.** See HANDOVER §2.
+Mockup artboards and design proposals have been removed from the repository. The Svelte
+components are now the source of truth for the interface. The historical conformance reports
+remain archived in `docs/`; their old board counts do not describe the current project state.
 
 Open questions live in [`docs/DECISIONS.md`](./docs/DECISIONS.md), what each proposed policy
 would decide in [`docs/DECISIONS-MAP.md`](./docs/DECISIONS-MAP.md), and the owner-blocked rows in
@@ -279,14 +259,9 @@ and leaves the `?`. It shipped a blank white page once (`d3493c5`). See CLAUDE.m
 gotchas. `i18n-locale-drift.mjs` fails when an English string changes without its fourteen siblings;
 it now runs inside a container worktree, and **a SKIP from it is a broken worktree, never a pass**.
 
-Two documentation guards run in the same script and are the reason the bookkeeping above is
-checked rather than asserted (see CLAUDE.md's "Documentation guards" and HANDOVER §4b):
-`conformance-counts.mjs` re-derives the per-status counts of both artboard surveys by the rule
-`docs/CONFORMANCE.md` states and diffs them against that file's scoreboard table;
-`artboard-index.mjs` fails when the `docs/design/mockups/*.dc.html` set, the README index table
-and `canvas.json` disagree in either direction. Both exit non-zero when they cannot actually run,
-rather than printing a green line — and a survey status cell is never the thing to "fix" to make
-a count pass.
+The documentation guard `conformance-counts.mjs` re-derives the historical per-status counts of
+the two artboard surveys by the rule `docs/CONFORMANCE.md` states. It checks the archived
+scoreboard, not the current interface.
 
 `ofw-patch.mjs` covers `patchAndFlash` offline (capacity guard, bootloader-overlap guard, the
 single-write bank-1 splice, write order/targets, progress accounting including the spliced

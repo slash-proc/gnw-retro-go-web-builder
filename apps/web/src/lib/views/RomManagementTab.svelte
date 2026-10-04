@@ -142,8 +142,95 @@ import { navigate } from "../nav.js";
   /** The bottom dock's drawer. SUMMARY ONLY now: the options left the dock for a modal, so this
    *  is no longer a two-way choice between drawers that could never both be open. */
   let openDrawer = $state<"summary" | null>(null);
-  /** The additional-options modal, opened from the info pane's button and nowhere else. */
+  /** The selected Library widget, opened from the rail beside the carousel. */
   let optionsOpen = $state(false);
+  let activeWidget = $state<"covers" | "saves" | "cheats">("covers");
+  let savesAvailableByGame = $state<Record<string, boolean>>({});
+  let widgetRailViewport = $state<HTMLDivElement | null>(null);
+  let widgetRailItems = $state<HTMLDivElement | null>(null);
+  let widgetRailHasOverflow = $state(false);
+  let widgetRailScrollTop = $state(0);
+
+  function updateWidgetRailScroll(): void {
+    const viewport = widgetRailViewport;
+    if (!viewport) return;
+    widgetRailHasOverflow = viewport.scrollHeight > viewport.clientHeight + 1;
+    widgetRailScrollTop = viewport.scrollTop;
+  }
+
+  function scrollWidgetRail(direction: -1 | 1): void {
+    widgetRailViewport?.scrollBy({ top: direction * 120, behavior: "smooth" });
+  }
+
+  const lineCheatSystems = new Set(["nes", "gb", "gbc", "pce"]);
+  const wholeFileCheatSystems = new Set(["msx", "col", "sg1000"]);
+
+  function gameHasSavesInNames(names: string[], baseName: string): boolean {
+    return names.some((name) => name === `${baseName}.sram` ||
+      (/^(.*?)-(\d+)\.(raw|sav)$/.exec(name)?.[1] === baseName));
+  }
+
+  async function checkSelectedGameSaves(gameId: string, token: number): Promise<void> {
+    const game = visibleGameByKey.get(gameId);
+    const unknownHomebrew = unknownHomebrewByName.get(gameId);
+    if (!game && !unknownHomebrew) return;
+
+    const system = game?.system ?? "homebrew";
+    let baseName = game?.name ?? unknownHomebrew!.name;
+    if (system === "homebrew") {
+      const hb = homebrew.find(game?.key ?? gameId);
+      const binFile = hb?.deviceFiles.find((file) => file.endsWith(".bin"));
+      if (binFile) baseName = binFile;
+    }
+
+    try {
+      let names: string[];
+      if (device.targetMedia === "sd") {
+        if (!library.scan) return;
+        const prefix = `data/${system}/`;
+        names = [...library.scan.userRoms.keys()]
+          .filter((path) => path.startsWith(prefix) && !path.slice(prefix.length).includes("/"))
+          .map((path) => path.slice(prefix.length));
+      } else {
+        if (!device.utilLoaded) return;
+        const tree = await ensureLfsTree();
+        const dataDir = tree.children?.find((entry) => entry.name === "data" && entry.isDirectory);
+        const systemDir = dataDir?.children?.find((entry) => entry.name === system && entry.isDirectory);
+        names = (systemDir?.children ?? []).filter((entry) => !entry.isDirectory).map((entry) => entry.name);
+      }
+      if (token !== savesProbeToken) return;
+      savesAvailableByGame[gameId] = gameHasSavesInNames(names, baseName);
+    } catch {
+      // Leave availability unknown when the device tree cannot be read; the Saves panel still
+      // provides its existing connection and read-error behavior.
+    }
+  }
+
+  let savesProbeToken = 0;
+  $effect(() => {
+    const gameId = detailsSelectedId;
+    const media = device.targetMedia;
+    const utilLoaded = device.utilLoaded;
+    const scanReady = library.scan;
+    if (!gameId || savesAvailableByGame[gameId] !== undefined) return;
+    if (media === "sd" && !scanReady) return;
+    if (media !== "sd" && !utilLoaded) return;
+    const token = ++savesProbeToken;
+    const timer = setTimeout(() => void checkSelectedGameSaves(gameId, token), 250);
+    return () => clearTimeout(timer);
+  });
+
+  function cheatsSupportedForSelectedGame(): boolean {
+    const system = visibleGameByKey.get(detailsSelectedId)?.system ??
+      (unknownHomebrewByName.has(detailsSelectedId) ? "homebrew" : "");
+    return lineCheatSystems.has(system) || wholeFileCheatSystems.has(system);
+  }
+
+  function openWidget(widget: "covers" | "saves" | "cheats"): void {
+    if (detailsSelectedId) selectedCarouselId = detailsSelectedId;
+    activeWidget = widget;
+    optionsOpen = true;
+  }
 
   // Fire the folder-gate modal as soon as this tab is shown, if required folders are missing.
   // Also request device inventory. App.svelte requests it before exposing the Library route;
@@ -169,8 +256,15 @@ import { navigate } from "../nav.js";
       if (!(e.target as HTMLElement).closest(".sortpick")) sortMenuOpen = false;
     };
     document.addEventListener("click", onDocClick);
+    const railObserver = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(updateWidgetRailScroll)
+      : null;
+    if (widgetRailViewport) railObserver?.observe(widgetRailViewport);
+    if (widgetRailItems) railObserver?.observe(widgetRailItems);
+    requestAnimationFrame(updateWidgetRailScroll);
     return () => {
       document.removeEventListener("click", onDocClick);
+      railObserver?.disconnect();
       if (window.__gnwCoverDebug?.snapshot === coverDebugSnapshot) delete window.__gnwCoverDebug;
     };
   });
@@ -436,10 +530,8 @@ import { navigate } from "../nav.js";
   });
 
   const hex = (n: number): string => "0x" + (n >>> 0).toString(16);
-  /* Roms.dc.html / RomsOptions.dc.html (2026-09-08 refresh) print whole megabytes WITHOUT
-     the trailing hundredths: `1 MB`, `2 MB`, `50 MB of ...` — while a fractional figure keeps
-     the two places it needs (`3.54 MB`, `+0.12 MB net change`). So: two decimals, trailing
-     zeros trimmed. Same rule `util.ts`'s formatSize() already uses.
+  /* Whole megabytes omit decimals (`1 MB`), while fractional figures keep two decimals
+     (`3.54 MB`, `+0.12 MB net change`). Trailing zeros are trimmed, matching `formatSize()`.
 
      `MiB()` returns the bare NUMBER only, and survives solely for the `roms.summary.*`
      string functions (`projected`, `netChange`, `spaceAlert.notEnoughSpace`), which name the
@@ -3660,21 +3752,13 @@ import { navigate } from "../nav.js";
     return locale.t.roms.summary.netChange(net > 0 ? "+" : "\u2212", MiB(Math.abs(net)));
   });
 
-  /** Title for the "Additional options" drawer — names the selected game. */
-  /* RomsOptions.dc.html (2026-09-08 refresh) captions the drawer
-     `Additional options — Aerobiz Supersonic`: the section name STAYS, the game name is
-     appended after an em dash. Composed from the existing `summary.additionalOptions`
-     string (the same words the bar's toggle uses, sentence case as the artboard draws it)
-     plus runtime data, so no new translated key is needed. */
+  /** Context line naming the game configured by the active widget. */
   const selectedGameLabel = $derived.by<string>(() => {
-    const head = locale.t.roms.summary.additionalOptions;
-    const named = (name: string) => `${head} — ${name.replace(/\.[^/.]+$/, "")}`;
-    if (!selectedCarouselId) return head;
+    if (!selectedCarouselId) return "";
     const g = visibleGames.find((x) => x.key === selectedCarouselId);
-    // A row's `name` is already extension-free; `unknownHomebrew` below is a raw filename.
-    if (g) return `${head} — ${g.name}`;
+    if (g) return g.name;
     const hb = unknownHomebrew.find((x) => x.name === selectedCarouselId);
-    return hb ? named(hb.name) : head;
+    return hb ? hb.name.replace(/\.[^/.]+$/, "") : "";
   });
 
   /** Install/sync confirmation sentence — names the device or the SD card per the install target. */
@@ -5033,11 +5117,9 @@ import { navigate } from "../nav.js";
         </div>
       {:else}
         <div class="seltable">
-          <!-- The capped body column. Roms.dc.html:89 draws the dock as a FULL-BLEED sibling of
-               the padded body, so the --maxw cap and the 40px sides belong to THIS wrapper.
-               While the cap sat on `.tabpane` the dock was nested inside it and could only
-               cancel the padding with a negative margin, never the cap — so above a 1440px
-               viewport the dock stopped at the capped column instead of the page edge. -->
+          <!-- The Library uses the full pane width with the standard 40px page padding, so the
+               four horizontal gutters between the screen edges, game list, carousel, and
+               widget rail stay balanced. -->
           <div class="page-body pagecol">
           <!-- Console filter (single-select, incl. All), then the search field and the
                Library refresh. One row: the chips are the growing item and wrap inside their
@@ -5274,7 +5356,8 @@ import { navigate } from "../nav.js";
             </div> <!-- left-column -->
 
           <div class="carousel-pane">
-            <div style="flex: 1; min-height: 0;">
+            <div class="carousel-widget-layout">
+            <div class="carousel-widget-main" style="flex: 1; min-height: 0;">
                 <Carousel
                 covers={carouselCovers}
                 bind:selectedId={selectedCarouselId}
@@ -5298,6 +5381,49 @@ import { navigate } from "../nav.js";
                 systemLabel={(c) => c.system}
                 version={coverVersion}
               />
+            </div>
+            <aside class="widget-rail">
+              {#if widgetRailHasOverflow}
+                <button class="widget-scroll-button" aria-label={locale.t.roms.gameDetailsPanel.saves.scrollWidgetsUpAriaLabel} disabled={widgetRailScrollTop <= 1} onclick={() => scrollWidgetRail(-1)}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg>
+                </button>
+              {/if}
+              <div class="widget-rail-viewport" bind:this={widgetRailViewport} onscroll={updateWidgetRailScroll}>
+                <div class="widget-rail-items" bind:this={widgetRailItems}>
+              <button class="widget-button" class:active={optionsOpen && activeWidget === "covers"} disabled={!detailsSelectedId} onclick={() => openWidget("covers")}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 4.8a8 8 0 0 1 0 14.4"/><rect x="3" y="3" width="14" height="18" rx="1.5"/><circle cx="10" cy="12" r="3.5"/><circle cx="10" cy="12" r=".7"/></svg>
+                <span>{locale.t.roms.gameDetailsPanel.coverArt.heading}</span>
+              </button>
+              <button class="widget-button" class:active={optionsOpen && activeWidget === "saves"} disabled={!detailsSelectedId || savesAvailableByGame[detailsSelectedId] !== true} onclick={() => openWidget("saves")}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h13l4 4v14H4z"/><path d="M8 3v6h9V3M8 14h9M8 18h9"/><path d="M15 3v3"/></svg>
+                <span>{locale.t.roms.gameDetailsPanel.saves.heading}</span>
+              </button>
+              <button class="widget-button" class:active={optionsOpen && activeWidget === "cheats"} disabled={!detailsSelectedId || !cheatsSupportedForSelectedGame()} onclick={() => openWidget("cheats")}>
+                <svg class="widget-cheats-icon" viewBox="0 0 64 64" aria-hidden="true">
+                  <rect class="cheats-icon-frame" x="2" y="1.8" width="60" height="60" rx="5.8" />
+                  <g class="cheats-icon-shape">
+                    <!-- Stepped, open shackle -->
+                    <path d="M35.5 11.4h9.2v1.5h1.8v2h1.5v10.2h-3.5v-8.1H43v-1.8h-8.2V17h-1.5v5.6h-3.5v-7.7h1.5v-2h2.2z" />
+                    <!-- Lock body: heavy squared outline with the left side open for the key -->
+                    <path d="M25.5 26.5h17.8v1.3h2v1.2h1.4v1.5h1.1v17.9h-1.1v1.5h-1.4v1.4H25.5v-1.4h-1.4v-5.5h2.8v3.4h16.2V31.3H26.9v2h-2.8v-3.8h1.4z" />
+                    <!-- Key bow with a square cutout, shaft and teeth -->
+                    <path fill-rule="evenodd" d="M9.1 28.5h7.3v1.7h2.2v1.8h1.4v1.4h10.8v3.7h-4.2v2.1h-2.2v-2.1h-2.2v2.1H19v-2.1h-2.6v5.1h-1.8v1.5H9.1v-1.5H7v-1.8H5.8V32.1H7v-1.9h2.1zm1.8 4.1v4h3.8v-4z" />
+                    <!-- Keyhole -->
+                    <path d="M35.8 33.3h2.4v.8h1v1h.8v2.8H39v2h-.5v3.5h.9v1h.8v1.8h-5.7v-1.8h.8v-1h.9v-3.5h-.6v-2h-1v-2.8h.8v-1h1z" />
+                    <!-- Small motion marks -->
+                    <path d="M54.2 31.7h5.5v1.8h-5.5zM55.7 25.5h1.8v2h-1.8zM53.9 27.6h1.8v1.8h-1.8z" />
+                  </g>
+                </svg>
+                <span>{locale.t.roms.gameDetailsPanel.cheats.heading}</span>
+              </button>
+                </div>
+              </div>
+              {#if widgetRailHasOverflow}
+                <button class="widget-scroll-button" aria-label={locale.t.roms.gameDetailsPanel.saves.scrollWidgetsDownAriaLabel} disabled={widgetRailScrollTop + (widgetRailViewport?.clientHeight ?? 0) >= (widgetRailViewport?.scrollHeight ?? 0) - 1} onclick={() => scrollWidgetRail(1)}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                </button>
+              {/if}
+            </aside>
             </div>
 
             <div class="info-pane">
@@ -5364,21 +5490,6 @@ import { navigate } from "../nav.js";
                   <div class="info-empty">{locale.t.roms.selectGames.infoEmpty}</div>
                 {/if}
 
-                <!-- THE ONLY WAY INTO THE OPTIONS. At the foot of the pane that describes the one
-                     game it configures, so the control sits with its subject. Drawn only when
-                     something is selected: it configures a game, and with none picked there is
-                     nothing for it to open. -->
-                {#if activeGame || activeHb}
-                  <div class="info-foot">
-                    <button class="opts-btn" onclick={() => (optionsOpen = true)}>
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
-                           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
-                        ><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg
-                      >
-                      <span>{locale.t.roms.summary.additionalOptions}</span>
-                    </button>
-                  </div>
-                {/if}
               {:else}
                 <div class="info-empty">{locale.t.roms.selectGames.infoEmpty}</div>
               {/if}
@@ -5529,10 +5640,6 @@ import { navigate } from "../nav.js";
                 {/if}
               </div>
 
-              <!-- NO `Additional options` DISCLOSURE HERE ANY MORE. The trigger is the button at
-                   the foot of the info pane, which sits beside the game it configures; this one
-                   rose from the bottom edge, opposite the row it acted on. Two controls opening
-                   one thing is the duplication this redesign removes (LibraryComposed.dc.html). -->
               <div class="bar-right">
                 {#if device.targetMedia === "sd"}
                   {#if nativeFolderPickerSupported()}
@@ -5632,10 +5739,13 @@ import { navigate } from "../nav.js";
        two rem and weighting the columns (`GameDetailsPanel.svelte`) spends the saving where it
        is needed instead of dividing it in three. Going narrower starts squeezing that one row,
        which is the thing to check before trimming further. -->
-  <ModalShell onDismiss={() => (optionsOpen = false)} maxWidth="60rem">
+  <ModalShell onDismiss={() => (optionsOpen = false)} maxWidth={activeWidget === "covers" ? "48rem" : activeWidget === "saves" ? "46rem" : "54rem"}>
     {#snippet children()}
       <div class="opts-head">
-        <h3 class="opts-title">{selectedGameLabel}</h3>
+        <div>
+          <h3 class="opts-title">{activeWidget === "covers" ? locale.t.roms.gameDetailsPanel.coverArt.heading : activeWidget === "saves" ? locale.t.roms.gameDetailsPanel.saves.heading : locale.t.roms.gameDetailsPanel.cheats.heading}</h3>
+          <div class="opts-context">{selectedGameLabel}</div>
+        </div>
         <button class="drawer-x" aria-label={locale.t.shared.common.close} onclick={() => (optionsOpen = false)}>
           <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
@@ -5644,6 +5754,7 @@ import { navigate } from "../nav.js";
         {#if activeGame}
           <GameDetailsPanel
             bare
+            widget={activeWidget}
             gameKey={activeGame.key}
             rom={activeGame.rom}
             gameName={activeGame.name}
@@ -5656,6 +5767,7 @@ import { navigate } from "../nav.js";
         {:else if activeHb}
           <GameDetailsPanel
             bare
+            widget={activeWidget}
             gameKey={activeHb.name}
             gameName={activeHb.name}
             system="homebrew"
@@ -5831,8 +5943,9 @@ import { navigate } from "../nav.js";
     /* The Library gets a wider, responsive reading frame than the other Advanced panes.
        Keep the proven 1600px baseline, allow larger displays to grow with their height, and
        cap the result against the viewport so an ultra-wide window does not become a banner. */
-    max-width: min(92vw, max(1600px, 92vh));
+    max-width: none;
   }
+  .page-body.pagecol { max-width: none; }
   /* consoles | search | refresh. The chips are the one item that grows and wraps, so they
      take `flex: 1 1 auto` and the other two keep their intrinsic size. `align-items: center`
      is the whole of "the search stays centred to that": the field sits against the MIDDLE of
@@ -6172,7 +6285,11 @@ import { navigate } from "../nav.js";
     min-height: 0;
     overflow-y: auto;
     flex: 1 1 auto;
-    grid-template-columns: minmax(0, 0.88fr) minmax(0, 1fr);
+    column-gap: 2.5rem;
+    grid-template-columns:
+      minmax(0, 0.94fr)
+      minmax(0, 1fr)
+      4.5rem;
   }
   .left-column {
     grid-column: auto;
@@ -6199,12 +6316,11 @@ import { navigate } from "../nav.js";
   }
   .info-pane {
     flex-shrink: 0;
-    /* Was a flat 80px, which is the height of the metadata block alone. The `Additional options`
-       button now sits under it, so the pane is its content's height with the old figure as a
-       floor -- a fixed 80 would have put the button outside the box it belongs to. */
+    /* Keep room for the selected game's metadata beneath the carousel. */
     min-height: 80px;
-    /* Artboard: the now-playing block under the coverflow is bare type on the page
-       ground — no surface, no border. Spacing carries the boundary. */
+    /* Leave a Summary-tab-height buffer before the pinned dock can rise over this text. */
+    margin-bottom: 2rem;
+    /* Keep the now-playing block unboxed; spacing separates it from the carousel. */
     padding: 0.75rem 1rem;
     display: flex;
     flex-direction: column;
@@ -6436,12 +6552,124 @@ import { navigate } from "../nav.js";
      job, and a carousel floating in the middle of a tall column is not what any artboard shows.
      The mechanism went, so the rule it existed for went with it. */
   .carousel-pane {
-    grid-column: auto;
+    grid-column: 2 / 4;
     display: flex;
     flex-direction: column;
     height: 100%;
     min-width: 0;
   }
+  .carousel-widget-layout {
+    display: flex;
+    align-items: stretch;
+    gap: 2.5rem;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+  .carousel-widget-main { min-width: 0; }
+  .widget-rail {
+    display: flex;
+    flex: 0 0 4.5rem;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+    gap: 0.3rem;
+  }
+  .widget-rail-viewport {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: center;
+    min-height: 0;
+    width: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+  .widget-rail-viewport::-webkit-scrollbar { display: none; }
+  .widget-rail-items {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    margin-block: auto;
+  }
+  .widget-scroll-button {
+    appearance: none;
+    display: grid;
+    flex: 0 0 1.5rem;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    color: var(--ink-soft);
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .widget-scroll-button svg {
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .widget-scroll-button:hover:not(:disabled) { color: var(--ink); }
+  .widget-scroll-button:disabled { opacity: 0.35; cursor: default; }
+  .widget-scroll-button:focus-visible {
+    outline: 2px solid var(--zelda-green);
+    outline-offset: 2px;
+  }
+  .widget-button {
+    appearance: none;
+    display: flex;
+    width: 4.5rem;
+    min-height: 4.5rem;
+    flex: 0 0 4.5rem;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    padding: 0.35rem 0.15rem;
+    color: var(--ink-soft);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-card);
+    font: inherit;
+    font-size: var(--fs-micro);
+    line-height: 1.1;
+    cursor: pointer;
+  }
+  .widget-button svg {
+    width: 1.35rem;
+    height: 1.35rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .widget-button .widget-cheats-icon {
+    width: 2rem;
+    height: 2rem;
+  }
+  .widget-button .widget-cheats-icon .cheats-icon-frame {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.3;
+  }
+  .widget-button .widget-cheats-icon .cheats-icon-shape { fill: currentColor; stroke: none; }
+  .widget-button:hover:not(:disabled) {
+    color: var(--ink);
+    border-color: var(--ink-soft);
+  }
+  .widget-button.active { color: var(--zelda-green); border-color: var(--zelda-green); }
+  .widget-button:focus-visible { outline: 2px solid var(--zelda-green); outline-offset: 2px; }
+  .widget-button:disabled { opacity: 0.45; cursor: default; }
 
   /* ---- Bottom dock (bar + drawers) ---- */
   /* RomsNewSystem/RomsSdNoCard/LibrarySummary all draw the dock as a full-bleed
@@ -6489,6 +6717,7 @@ import { navigate } from "../nav.js";
     font-size: var(--fs-title);
     letter-spacing: -0.01em;
   }
+  .opts-context { margin-top: 0.15rem; color: var(--ink-soft); font-size: var(--fs-caption); }
   /* THE SCROLLPORT HAS TO REACH THE MODAL'S EDGES, because a child inside it does.
      `GameDetailsPanel`'s tab strip is full-bleed by `margin-inline: -1.5rem`, cancelling the
      1.5rem that `ModalShell`'s `.modal-body.padded` puts on our PARENT so its bottom rule
@@ -6509,30 +6738,6 @@ import { navigate } from "../nav.js";
     overflow-y: auto;
     margin-inline: -1.5rem;
     padding-inline: 1.5rem;
-  }
-  /* The one way in, at the foot of the pane that describes the game it configures. */
-  .info-foot {
-    display: flex;
-    justify-content: center;
-    margin-top: auto;
-    padding-top: 0.75rem;
-  }
-  .opts-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    font: inherit;
-    font-size: var(--fs-btn-sm);
-    font-weight: 600;
-    color: var(--ink);
-    background: var(--surface);
-    border: 1px solid var(--hairline);
-    border-radius: 5px;
-    padding: 0.55rem 1.1rem;
-    cursor: pointer;
-  }
-  .opts-btn:hover {
-    border-color: var(--ink-soft);
   }
 
   /* Half of `ModalShell`'s 0.5 backdrop: "a little", because this is a panel over its own page

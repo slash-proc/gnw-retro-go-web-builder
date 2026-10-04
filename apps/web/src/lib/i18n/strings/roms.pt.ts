@@ -223,6 +223,8 @@ export const romsPt: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `Slot ${slot}`,
       noSavesFound: "Nenhum save encontrado",
+      scrollWidgetsUpAriaLabel: 'Rolar widgets para cima',
+      scrollWidgetsDownAriaLabel: 'Rolar widgets para baixo',
       previousSaveAriaLabel: "Save anterior",
       nextSaveAriaLabel: "Save seguinte",
       loading: "A carregar...",

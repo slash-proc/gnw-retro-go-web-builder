@@ -234,6 +234,8 @@ export const romsAr: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `الخانة ${slot}`,
       noSavesFound: "لم يُعثر على ملفات حفظ",
+      scrollWidgetsUpAriaLabel: 'تمرير الأدوات لأعلى',
+      scrollWidgetsDownAriaLabel: 'تمرير الأدوات لأسفل',
       previousSaveAriaLabel: "ملف الحفظ السابق",
       nextSaveAriaLabel: "ملف الحفظ التالي",
       loading: "جارٍ التحميل...",

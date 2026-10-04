@@ -220,6 +220,8 @@ export const romsDe: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `Slot ${slot}`,
       noSavesFound: "Keine Spielstände gefunden",
+      scrollWidgetsUpAriaLabel: 'Widgets nach oben scrollen',
+      scrollWidgetsDownAriaLabel: 'Widgets nach unten scrollen',
       previousSaveAriaLabel: "Vorheriger Spielstand",
       nextSaveAriaLabel: "Nächster Spielstand",
       loading: "Wird geladen …",

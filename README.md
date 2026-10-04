@@ -38,7 +38,6 @@ The engine works end-to-end and is hardware-tested. See [`STATUS.md`](./STATUS.m
 | SD-card content sync (no probe needed) | ✅ |
 | **SD card as a first-class source**: pick a card, see its contents by category against a stated capacity, migrate a legacy `roms/homebrew` folder | ✅ |
 | 15 languages, including right-to-left (Arabic) | ✅ |
-| UI redesign against the artboards in `docs/design/mockups/` | ⏳ In-Progress |
 | Desktop (Electron) build — a shell exists; real filesystem access is still the plan in `docs/ELECTRON.md` | ⏳ In-Progress |
 
 ## Quick start (Docker — nothing is installed on your host)

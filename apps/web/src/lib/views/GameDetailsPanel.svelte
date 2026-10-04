@@ -57,7 +57,8 @@
     configuredCheats = $bindable({}),
     configuredCheatFiles = $bindable({}),
     onCoverChange,
-    bare = false
+    bare = false,
+    widget = "covers"
   }: {
     gameKey: string;
     rom: LibraryRom | undefined;
@@ -67,10 +68,10 @@
     configuredCheats: Record<string, string[]>;
     configuredCheatFiles: Record<string, Uint8Array>;
     onCoverChange: ((refreshAtlas?: boolean, cover?: { key?: string; sourceId?: string; path: string; bytes: Uint8Array }) => void | Promise<void>) | undefined;
-    /** Render the panel body directly, with no <details>/<summary> accordion chrome and with
-     *  the three sub-panels un-boxed — for hosts that already provide a surface and a title
-     *  (the Library tab's "Additional options" drawer). Default false keeps the accordion. */
+    /** Render the panel body without accordion chrome for the Library's focused widget modal.
+     *  Default false keeps the accordion used by other hosts. */
     bare: boolean | undefined;
+    widget: "covers" | "saves" | "cheats";
   } = $props();
 
   // Firmware only applies cheats on GB/GBC/NES/PCE (line-based Game Genie/patch codes) and
@@ -722,7 +723,6 @@
   }
 
   // --- ScreenScraper State ---
-  let showCoverSettings = $state(false);
   let ssUsername = $state(localStorage.getItem(SS_KEYS.ssUsername) || "");
   // Obfuscated at rest (see localCrypt.ts) — decoded async right after init, below.
   let ssPassword = $state("");
@@ -1306,31 +1306,15 @@
     (configuredCheats[gameKey] || []).reduce((t, l) => t + (l.split(',')[0].trim() ? l.split(',')[0].split('+').length : 0), 0)
   );
 
-  // --- The tabs (bare mode only) -----------------------------------------------------------
-  //
-  // ONE SECTION AT A TIME, which is what the approved boards draw
-  // (`LibraryComposedOptions{,Saves,Cheats}.dc.html`). The three shipped side by side in one
-  // grid, so the modal had to be wide enough for the widest of them and Saves -- a slot strip,
-  // a preview, a date and a link -- sat in a third of a 60rem frame holding almost nothing.
-  //
-  // The tab LABEL IS THE SECTION HEADING, so this adds no string: `coverArt.heading`,
-  // `saves.heading` and `cheats.heading` already say exactly what the boards' tabs say. The
-  // in-panel `<h3>` is hidden in tabbed mode instead of being drawn twice, and the panel is
-  // `aria-labelledby` its tab, so the heading is still announced.
-  //
-  // Only `bare` gets tabs. The accordion path is a different host contract (its own
-  // `<summary>` already gates the whole body) and nothing in the app uses it today, so giving
-  // it tabs would be inventing behaviour for a caller that does not exist.
-  type OptTab = "cover" | "saves" | "cheats";
-  const TAB_IDS: OptTab[] = ["cover", "saves", "cheats"];
+  // The Covers widget keeps its art controls and ScreenScraper preferences together.
+  // Saves and Cheats each render only their existing panel.
+  type OptTab = "cover" | "screenscraper";
+  const TAB_IDS: OptTab[] = ["cover", "screenscraper"];
   let activeTab = $state<OptTab>("cover");
-  const tabLabel = $derived((id: OptTab) =>
-    id === "cover"
-      ? locale.t.roms.gameDetailsPanel.coverArt.heading
-      : id === "saves"
-        ? locale.t.roms.gameDetailsPanel.saves.heading
-        : locale.t.roms.gameDetailsPanel.cheats.heading,
-  );
+  $effect(() => { widget; activeTab = "cover"; });
+  const tabLabel = $derived((id: OptTab) => id === "cover"
+    ? locale.t.roms.gameDetailsPanel.coverArt.heading
+    : locale.t.roms.gameDetailsPanel.screenScraperSettings.title);
 
   /**
    * Arrow keys move between tabs, Home and End jump to the ends.
@@ -1356,11 +1340,11 @@
 </script>
 
 {#snippet detailsPanels()}
-    {#if bare}
+    {#if bare && widget === "covers"}
       <!-- Same shape as the Library tab's own nav and the console filter strip: the active item
            carries an inset bottom rule rather than a filled chip (boards: `padding: 0 2px 12px;
            box-shadow: inset 0 -3px 0 #3e9e4e`). A third idiom for the same job would be noise. -->
-      <div class="opt-tabs" role="tablist" aria-label={locale.t.roms.gameDetailsPanel.additionalOptions}>
+      <div class="opt-tabs" role="tablist" aria-label={locale.t.roms.gameDetailsPanel.coverArt.heading}>
         {#each TAB_IDS as id (id)}
           <button
             type="button"
@@ -1378,7 +1362,7 @@
       </div>
     {/if}
     <div class="details-panels">
-      {#if !bare || activeTab === "cover"}
+      {#if !bare || (widget === "covers" && activeTab === "cover")}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <!-- A tabpanel IS focusable in the tabs pattern: Tab out of the strip lands in the panel.
            The rule fires because the role here is conditional (`bare` only) and cannot be read statically. -->
@@ -1401,12 +1385,6 @@
             </svg>
           </button>
         {/if}
-        <button class="settings-btn" title={locale.t.roms.gameDetailsPanel.coverArt.settingsTitle} onclick={() => showCoverSettings = true}>
-          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-          </svg>
-        </button>
       </div>
     </div>
     <hr />
@@ -1552,16 +1530,28 @@
 
   {/if}
 
-  {#if !bare || activeTab === "saves"}
+  {#if bare && widget === "covers" && activeTab === "screenscraper"}
+  <section class="panel scraper-settings-panel" role="tabpanel" id="opt-panel-screenscraper" aria-labelledby="opt-tab-screenscraper" tabindex="0">
+    <h3>{locale.t.roms.gameDetailsPanel.screenScraperSettings.title}</h3>
+    <hr />
+    <div class="panel-content settings-fields">
+      <label class="field-label">{locale.t.roms.gameDetailsPanel.screenScraperSettings.username}<input type="text" bind:value={ssUsername} class="field-input" /></label>
+      <label class="field-label">{locale.t.roms.gameDetailsPanel.screenScraperSettings.password}<input type="password" bind:value={ssPassword} class="field-input" /></label>
+      <label class="check-label"><input type="checkbox" bind:checked={ssRemember} />{locale.t.roms.gameDetailsPanel.screenScraperSettings.rememberCredentials}</label>
+      {#if ssRemember}<p class="field-note">{locale.t.roms.gameDetailsPanel.screenScraperSettings.rememberNote}</p>{/if}
+      <hr class="modal-rule" />
+      <label class="check-label"><input type="checkbox" bind:checked={ssPreferLocal} />{locale.t.roms.gameDetailsPanel.screenScraperSettings.preferLocalCovers}</label>
+      <label class="check-label" class:disabled={!nativeFolderPickerSupported()}><input type="checkbox" bind:checked={ssSaveLocal} disabled={!nativeFolderPickerSupported()} /><div class="check-stack"><span>{locale.t.roms.gameDetailsPanel.screenScraperSettings.saveToRomsFolder}</span>{#if !nativeFolderPickerSupported()}<span class="sub-note">{locale.t.roms.gameDetailsPanel.screenScraperSettings.saveToRomsFolderFirefoxNote}</span>{/if}</div></label>
+    </div>
+  </section>
+  {/if}
+
+  {#if !bare || widget === "saves"}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <!-- A tabpanel IS focusable in the tabs pattern: Tab out of the strip lands in the panel.
        The rule fires because the role here is conditional (`bare` only) and cannot be read statically. -->
   <div
     class="panel"
-    role={bare ? "tabpanel" : undefined}
-    id={bare ? "opt-panel-saves" : undefined}
-    aria-labelledby={bare ? "opt-tab-saves" : undefined}
-    tabindex={bare ? 0 : undefined}
   >
     <h3>{locale.t.roms.gameDetailsPanel.saves.heading}</h3>
     <hr />
@@ -1636,17 +1626,13 @@
 
   {/if}
 
-  {#if !bare || activeTab === "cheats"}
+  {#if !bare || widget === "cheats"}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <!-- A tabpanel IS focusable in the tabs pattern: Tab out of the strip lands in the panel.
        The rule fires because the role here is conditional (`bare` only) and cannot be read statically. -->
   <div
     class="panel cheats-panel"
     class:disabled={!isCheatSupported}
-    role={bare ? "tabpanel" : undefined}
-    id={bare ? "opt-panel-cheats" : undefined}
-    aria-labelledby={bare ? "opt-tab-cheats" : undefined}
-    tabindex={bare ? 0 : undefined}
   >
     <h3>{locale.t.roms.gameDetailsPanel.cheats.heading}</h3>
     <hr />
@@ -1821,65 +1807,6 @@
     </details>
   {/if}
 </div>
-
-{#if showCoverSettings}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) showCoverSettings = false; }}>
-    <div class="modal-content settings">
-      <h3 class="modal-title">{locale.t.roms.gameDetailsPanel.screenScraperSettings.title}</h3>
-
-      <div class="settings-fields">
-        <div>
-          <label class="field-label">
-            {locale.t.roms.gameDetailsPanel.screenScraperSettings.username}
-            <input type="text" bind:value={ssUsername} class="field-input" />
-          </label>
-        </div>
-
-        <div>
-          <label class="field-label">
-            {locale.t.roms.gameDetailsPanel.screenScraperSettings.password}
-            <input type="password" bind:value={ssPassword} class="field-input" />
-          </label>
-        </div>
-
-        <label class="check-label">
-          <input type="checkbox" bind:checked={ssRemember} />
-          {locale.t.roms.gameDetailsPanel.screenScraperSettings.rememberCredentials}
-        </label>
-        {#if ssRemember}
-          <p class="field-note">
-            {locale.t.roms.gameDetailsPanel.screenScraperSettings.rememberNote}
-          </p>
-        {/if}
-
-        <hr class="modal-rule" />
-
-        <label class="check-label">
-          <input type="checkbox" bind:checked={ssPreferLocal} />
-          {locale.t.roms.gameDetailsPanel.screenScraperSettings.preferLocalCovers}
-        </label>
-
-        <label class="check-label" class:disabled={!nativeFolderPickerSupported()}>
-          <input type="checkbox" bind:checked={ssSaveLocal} disabled={!nativeFolderPickerSupported()} />
-          <div class="check-stack">
-            <span>{locale.t.roms.gameDetailsPanel.screenScraperSettings.saveToRomsFolder}</span>
-            {#if !nativeFolderPickerSupported()}
-              <span class="sub-note">{locale.t.roms.gameDetailsPanel.screenScraperSettings.saveToRomsFolderFirefoxNote}</span>
-            {/if}
-          </div>
-        </label>
-      </div>
-
-      <div class="modal-actions">
-        <button class="close-btn" onclick={() => showCoverSettings = false}>
-          {locale.t.shared.common.close}
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
 
 {#if massCoverImport.modalOpen && !massCoverImport.minimized && !massCoverImport.active}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -2104,16 +2031,11 @@
     outline-offset: 4px;
   }
 
-  /* Un-boxed inside the Library tab's white "Additional options" drawer — the drawer already
-     provides the surface, so nesting a white/sunk card inside it reads as a box in a box. */
+  /* The modal shell provides the surface, so the widget body stays unboxed. */
   .game-details-accordion.bare .details-panels {
     margin-top: 0;
-    /* ONE PANEL AT A TIME. The three sections are tabs, not columns: the boards
-       (`LibraryComposedOptions.dc.html`, `…Saves.dc.html`, `…Cheats.dc.html`) each draw the
-       same 980px frame with a single body under the strip, so the grid here carries one track.
-       `minmax(0, 1fr)`, not a bare `fr`: an `<input>` carries an intrinsic minimum width, and a
-       bare track floors at it and blows the grid out past the modal. That was the reason the
-       earlier three-column version spelled every track this way, and it still applies to one. */
+    /* One widget body at a time. Keep the track shrinkable so intrinsic input widths cannot
+       push the content beyond its modal. */
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
     padding-top: 24px;
@@ -2663,8 +2585,7 @@
     padding: 4px;
     border-radius: var(--r-control);
   }
-  /* RomsOptions.dc.html: the column's children sit 14px apart, and the heading row above
-     already carries its own 14px margin — so no extra top margin here. */
+  /* The heading row already carries its own spacing, so the options stack needs no top margin. */
   .cover-options {
     display: flex;
     flex-direction: column;

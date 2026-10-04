@@ -410,6 +410,7 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
     padding-bottom: var(--page-pad-bottom);
   }
   .tabpane.library {
+    max-width: none;
     padding-top: var(--page-pad-top-library);
     padding-bottom: var(--page-pad-bottom-library);
   }

@@ -4,9 +4,7 @@
  *
  *   docker compose exec dev sh -c 'cd /app/apps/web && node test/flashcancel.mjs'
  *
- * Drawn by docs/design/mockups/FlashingCancel.dc.html (the footer link plus its
- * `Stops after the current block` caption) and FlashingCancelConfirm.dc.html (the
- * `Keep writing` / `Stop` dialog over it).
+ * Covers the footer Cancel control, its progress caption, and the confirmation dialog.
  *
  * WHAT THIS HAS TO PROVE, AND WHY A LOOSER TEST WOULD BE WORTHLESS. The engine has taken an
  * `abortSignal` all along; what never existed was a user-reachable controller and the wiring

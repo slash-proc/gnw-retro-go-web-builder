@@ -234,6 +234,8 @@ export const romsEn = {
       sram: "SRAM",
       slotLabel: (slot: string) => `Slot ${slot}`,
       noSavesFound: "No saves found",
+      scrollWidgetsUpAriaLabel: 'Scroll widgets up',
+      scrollWidgetsDownAriaLabel: 'Scroll widgets down',
       previousSaveAriaLabel: "Previous Save",
       nextSaveAriaLabel: "Next Save",
       loading: "Loading...",

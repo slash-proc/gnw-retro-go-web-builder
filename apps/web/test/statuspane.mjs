@@ -26,8 +26,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const read = (p) => readFileSync(join(here, p), "utf8");
 const pane = read("../src/lib/ui/StatusPane.svelte");
 const tab = read("../src/lib/views/OverviewTab.svelte");
-// The rail landing (docs/design/proposals/overview-v2) moved three of this suite's subjects out
-// of OverviewTab: StatusPane and ActivityPane are mounted by the rail, and the external-flash
+// The overview rail moved three of this suite's subjects out of OverviewTab:
+// StatusPane and ActivityPane are mounted by the rail, and the external-flash
 // figures moved into the Details pane. Section 5 below reads them where they now live. Nothing
 // about WHAT it asserts changed -- only which file is asked.
 const rail = read("../src/lib/views/OverviewRail.svelte");

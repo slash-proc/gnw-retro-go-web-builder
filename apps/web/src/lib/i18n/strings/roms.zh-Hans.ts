@@ -220,6 +220,8 @@ export const romsZhHans: RomsStrings = {
       sram: "SRAM",
       slotLabel: (slot: string) => `存档位 ${slot}`,
       noSavesFound: "没有找到存档",
+      scrollWidgetsUpAriaLabel: '向上滚动小组件',
+      scrollWidgetsDownAriaLabel: '向下滚动小组件',
       previousSaveAriaLabel: "上一个存档",
       nextSaveAriaLabel: "下一个存档",
       loading: "载入中…",

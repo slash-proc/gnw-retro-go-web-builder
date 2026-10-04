@@ -2,6 +2,10 @@
 
 Branch `feat/ui-redesign`. Read this before `STATUS.md` or any audit document.
 
+**Owner ruling, 2026-10-04:** all UI mockups and design proposals were removed from the repository.
+References to them below are historical only. Treat the current Svelte components and the owner's
+scope for each task as the UI source of truth; do not recreate or follow the deleted boards.
+
 **Writing or changing a user-visible string, or drawing a board? Read
 [`docs/UI_VOICE.md`](./docs/UI_VOICE.md) first.** It is the rule set for what copy may say, every
 line of it quoted from a correction made here. §2 and §3 below are the history; that file is the

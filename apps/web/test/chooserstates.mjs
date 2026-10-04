@@ -3,9 +3,9 @@
  *
  *   docker compose exec dev sh -c 'cd /app/apps/web && node test/chooserstates.mjs'
  *
- * The specification is `docs/design/proposals/guided-v2/chooseandsee/LOGIC.md`, a state matrix
- * that cites a file and line for every gate. This suite walks it: each row names a device, the
- * cards it must draw, and the floor note it must or must not carry. A row moving is a failure.
+ * `chooserPlan.ts` is the state matrix for the chooser. This suite walks it: each row names a
+ * device, the cards it must draw, and the floor note it must or must not carry. A row moving is
+ * a failure.
  *
  * WHY THIS RENDERS THE COMPONENT rather than asserting on the source. Earlier in this project a
  * component shipped whose tabs did not work while `svelte-check`, `vite build` and 22 targeted
@@ -244,7 +244,7 @@ function check(name, fn) {
   }
 }
 
-// ── The matrix. Rows are LOGIC.md section 4. ────────────────────────────────────────────────
+// ── The chooser state matrix. ───────────────────────────────────────────────────────────────
 const ROWS = [
   // #   bank 1            ext     cards                      note
   [1, "stock Zelda/Mario", STOCK, 32, ["dual", "rgo"], null],

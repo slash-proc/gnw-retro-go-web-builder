@@ -4,8 +4,8 @@
  *
  *   docker exec gnw-web-builder-dev-1 sh -c 'cd /app/apps/web && node test/firstrun.mjs'
  *
- * Three findings from docs/design/proposals/beginner-audit.md, all of which stop a beginner
- * outright rather than merely annoying them:
+ * Three first-run usability guarantees that stop a beginner outright rather than merely
+ * annoying them:
  *
  *   F1  The "Manage Device" card was greyed by CSS alone on a browser without WebUSB. It kept
  *       its click handler AND its place in the tab order, so it dropped the user on a device
@@ -239,26 +239,6 @@ check("no new string carries a middle dot or an em-dash", () => {
       }
     }
   }
-});
-
-// ── the boards ────────────────────────────────────────────────────────────────────────
-const boards = join(here, "../../../docs/design/mockups");
-check("both new states are drawn", () => {
-  const files = readdirSync(boards);
-  for (const f of ["GuidedLocked.dc.html", "Landing2Unsupported.dc.html"]) {
-    ok(files.includes(f), `${f} is missing -- the state is implemented but undrawn`);
-  }
-});
-
-// GuidedLayout.dc.html and GuidedLayoutStock.dc.html still DRAW the three descriptions, so
-// they are now behind the code rather than ahead of it. Redrawing an approved mockup is the
-// owner's call, so this records the divergence instead of asserting either way, and fails if
-// someone re-adds the copy to the code to make the boards right again.
-check("the chooser boards are the stale half, and the code is not dragged back to them", () => {
-  const drawn = ["GuidedLayout.dc.html", "GuidedLayoutStock.dc.html"]
-    .filter((f) => /Pick which one runs at power-on/.test(readFileSync(join(boards, f), "utf8")));
-  ok(drawn.length === 0 || !/choice-desc/.test(wizard),
-     `${drawn.join(", ")} still draw the struck descriptions and the code has grown them back`);
 });
 
 // ── dead copy ──────────────────────────────────────────────────────────────
