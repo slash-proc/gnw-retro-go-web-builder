@@ -13,7 +13,9 @@ const src = join(web,"src/lib/ui/DeviceControls.svelte");
 const source = readFileSync(process.env.REMOTE_MODAL_SOURCE || src,"utf8");
 const init = "let configureOpen = $state(false);";
 assert.equal(source.split(init).length,2);
-const dir = mkdtempSync(join(web,"node_modules/.remote-ui-"));
+// Keep the generated module under the workspace so Node resolves its hoisted Svelte deps.
+// npm ci need not create apps/web/node_modules, so using that as the temp parent is unsafe.
+const dir = mkdtempSync(join(web,".remote-ui-"));
 try {
  const bodies=[];
  for(const mode of ["usb","remote"]){
