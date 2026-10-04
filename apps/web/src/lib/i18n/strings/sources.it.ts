@@ -161,6 +161,7 @@ export const sourcesIt: SourcesStrings = {
     nameOptional: "(facoltativo)",
     noFolderChosen: "Nessuna cartella scelta",
     choose: "Scegli…",
+    chooseAgain: "Concedi l'autorizzazione scegliendo di nuovo la cartella",
     subtitleDirectories: "Cartelle che contengono i file di giochi e homebrew.",
     configureDirectoryTitle: "Configura directory",
     save: "Salva",

@@ -83,7 +83,7 @@
             {/if}
           </div>
           <div class="item-actions">
-            {#if !library.selected && library.pendingHandle}
+            {#if !library.selected && (library.pendingHandle || library.pendingFolderId)}
               <button class="link" onclick={() => library.reconnect()}>{locale.t.shared.folderGateModal.reconnectLastFolder}</button>
               <span class="sep">{locale.t.shared.common.or}</span>
             {/if}

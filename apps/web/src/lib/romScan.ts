@@ -356,9 +356,9 @@ async function walk(
       // Keep regular files lazy as well. Scanning only needs their name and size; reading every
       // ROM into JS memory here made a large library consume gigabytes before the user selected
       // anything to install. The same LazyRom path already protects ZIP payloads.
-      // The webkitdirectory fallback owns in-memory File objects already; retain its historical
-      // eager value semantics for callers/tests. Native File System Access handles are the case
-      // that needs lazy reads to avoid copying an entire library into the JS heap.
+      // Test/node shims that already hold bytes in memory may opt in via eager: true.
+      // Native File System Access handles and browser InputFileHandle shims remain lazy so
+      // scanning only inspects metadata without reading files into the JS heap.
       if ((handle as FsFileHandle & { eager?: boolean }).eager === true) {
         const file = await handle.getFile();
         out.set(rel, new Uint8Array(await file.arrayBuffer()));
@@ -659,6 +659,23 @@ class InputDirHandle implements FsDirHandle {
   kind = "directory" as const;
   name: string;
   private children = new Map<string, InputDirHandle | InputFileHandle>();
+  /**
+   * Stable identity fingerprint, set by `buildTreeFromFileList` on the root handle.
+   *
+   * Firefox has no `FileSystemHandle.isSameEntry()` — every pick returns a new in-memory
+   * object, so the default `nativeIsSameEntry` (which calls `a.isSameEntry(b)`) always
+   * returns `false`. Without this, picking the same folder twice registers it as two separate
+   * entries in `localFolders` and then walks it twice in `dedupeSources`, doubling memory use
+   * and freezing the main thread.
+   *
+   * The fingerprint is a sorted list of "relPath|size|lastModified" entries for every file in the original
+   * FileList. Sorting removes any dependency on browser-specific enumeration order.
+   * Two picks of the same folder on disk produce identical lists; a different folder or a
+   * change to the contents produces a different one.
+   *
+   * Not `private`: `buildTreeFromFileList` (same module) sets it directly after construction.
+   */
+  _fingerprint: string | null = null;
 
   constructor(name: string) {
     this.name = name;
@@ -688,11 +705,24 @@ class InputDirHandle implements FsDirHandle {
     }
   }
 
+  /**
+   * Mirrors `FileSystemHandle.isSameEntry()` so that `nativeIsSameEntry` in
+   * `sources/libraryScan.ts` can recognise two picks of the same folder as identical.
+   *
+   * Only meaningful when both handles carry a fingerprint (i.e. both are root handles
+   * returned by `buildTreeFromFileList`). A sub-directory handle has no fingerprint and
+   * will always return `false`, matching the native API's semantics for handles that are
+   * not the SAME entry.
+   */
+  async isSameEntry(other: unknown): Promise<boolean> {
+    if (!(other instanceof InputDirHandle)) return false;
+    if (!this._fingerprint || !other._fingerprint) return false;
+    return this._fingerprint === other._fingerprint;
+  }
 }
 
 class InputFileHandle implements FsFileHandle {
   kind = "file" as const;
-  readonly eager = true;
   name: string;
   private file: File;
   constructor(name: string, file: File) {
@@ -704,58 +734,40 @@ class InputFileHandle implements FsFileHandle {
   }
 }
 
+/**
+ * Firefox/macOS keeps the last directory on the native file-input control. Keep one hidden
+ * control per logical picker so the ROM and SD flows retain separate picker locations.
+ */
+const fallbackInputs = new Map<string, HTMLInputElement>();
+
 /** Pick a folder via a hidden <input webkitdirectory> element. Returns null on cancel. */
-function pickFolderViaInput(): Promise<FileList | null> {
+function pickFolderViaInput(id: string): Promise<FileList | null> {
   return new Promise((resolve) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    // @ts-ignore — webkitdirectory is non-standard but widely supported
-    input.webkitdirectory = true;
-    input.multiple = true;
-    input.style.display = "none";
-    document.body.appendChild(input);
-
+    let input = fallbackInputs.get(id);
+    if (!input) {
+      input = document.createElement("input");
+      input.type = "file";
+      // @ts-ignore — webkitdirectory is non-standard but widely supported
+      input.webkitdirectory = true;
+      input.multiple = true;
+      input.id = id;
+      input.name = id;
+      input.style.display = "none";
+      document.body.appendChild(input);
+      fallbackInputs.set(id, input);
+    }
     let resolved = false;
-    input.addEventListener("change", () => {
+    const finish = (files: FileList | null) => {
+      if (resolved) return;
       resolved = true;
-      if (input.parentNode) document.body.removeChild(input);
-      resolve(input.files && input.files.length > 0 ? input.files : null);
-    });
-    
-    // Cancel detection is notoriously flaky across browsers. When the file dialog
-    // closes, the window regains focus. In Firefox, the user has to confirm an
-    // interstitial "Upload X files?" prompt. If we rely on a pure timeout from focus,
-    // we often cancel prematurely while the browser is building the FileList.
-    // The most robust way to detect a true cancel is to wait for the user to interact
-    // with the page again (e.g. moving the mouse or clicking) after focus returns.
-    window.addEventListener("focus", function onFocus() {
-      window.removeEventListener("focus", onFocus);
-      
-      const onUserActive = () => {
-        cleanup();
-        if (!resolved) {
-          resolved = true;
-          if (input.parentNode) document.body.removeChild(input);
-          resolve(null);
-        }
-      };
+      resolve(files);
+    };
 
-      const cleanup = () => {
-        window.removeEventListener("pointermove", onUserActive);
-        window.removeEventListener("pointerdown", onUserActive);
-        window.removeEventListener("keydown", onUserActive);
-      };
-
-      // Give a tiny grace period before listening for interaction, so the focus click
-      // itself doesn't trigger the cancel.
-      setTimeout(() => {
-        if (!resolved) {
-          window.addEventListener("pointermove", onUserActive, { once: true });
-          window.addEventListener("pointerdown", onUserActive, { once: true });
-          window.addEventListener("keydown", onUserActive, { once: true });
-        }
-      }, 500);
-    }, { once: true });
+    // `change` is dispatched after Firefox finishes its directory-upload confirmation.
+    // A focus-based timeout races that confirmation and can turn a successful pick into a
+    // silent cancel. The input's `cancel` event is the browser-provided no-selection signal.
+    input.onchange = () => finish(input.files);
+    input.oncancel = () => finish(null);
 
     input.click();
   });
@@ -773,6 +785,11 @@ export function buildTreeFromFileList(files: ArrayLike<File>): InputDirHandle {
   // is the folder the user picked.
   const root = new InputDirHandle("roms");
   let rootName = "";
+  // Fingerprint entries: collected alongside the tree build so we do one loop, not two.
+  // Each entry is "relPath|size" (using the FULL webkitRelativePath, which includes the
+  // top-level folder name, so two folders with the same contents but different names produce
+  // different fingerprints — even though both are read-only shims with no handle identity).
+  const fpEntries: string[] = [];
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const relPath = (file as any).webkitRelativePath as string;
@@ -785,9 +802,16 @@ export function buildTreeFromFileList(files: ArrayLike<File>): InputDirHandle {
     const inner = relPath.slice(firstSlash + 1);
     if (!inner) continue;
     root.insert(inner, file);
+    // Include the full path (before stripping the top-level folder) and the file's size so
+    // that the same folder picked twice yields the same fingerprint and a different folder
+    // (or a changed file) yields a different one.
+    fpEntries.push(`${relPath}|${file.size}|${file.lastModified}`);
   }
   // Use the actual folder name the user picked
   if (rootName) (root as any).name = rootName;
+  // Assign the fingerprint: sort for stability (browser enumeration order is not guaranteed
+  // to be consistent across picks) and join into one string.
+  root._fingerprint = fpEntries.sort().join("\n");
   return root;
 }
 
@@ -806,7 +830,7 @@ export async function pickFolder(id: string = "gnw-roms"): Promise<FsDirHandle |
     }
   }
 
-  const files = await pickFolderViaInput();
+  const files = await pickFolderViaInput(id);
   if (!files) return null;
   return buildTreeFromFileList(files);
 }
@@ -857,11 +881,10 @@ export async function pickSdCardFolder(): Promise<void> {
 }
 
 /**
- * Prompt for a folder then scan it. Returns null if the user cancels the picker.
- * Uses the native File System Access API when available, otherwise falls back to
- * <input webkitdirectory>.
+ * Prompt for a folder and return its validated root handle. Returns null if cancelled.
+ * Validates that the folder contains console subfolders, a 'roms/' folder, or homebrew.
  */
-export async function pickAndScanRomFolder(id: string = "gnw-roms", archiveRules?: NativeArchiveRules): Promise<RomScanResult | null> {
+export async function pickRomFolder(id: string = "gnw-roms"): Promise<RomDirHandle | null> {
   const dir = await pickFolder(id);
   if (!dir) return null;
 
@@ -869,6 +892,18 @@ export async function pickAndScanRomFolder(id: string = "gnw-roms", archiveRules
   if (!validRoot) {
     throw new Error("Invalid folder selected. Please select your 'roms' folder containing console subfolders (e.g., nes, gbc, md).");
   }
+
+  return validRoot;
+}
+
+/**
+ * Prompt for a folder then scan it. Returns null if the user cancels the picker.
+ * Uses the native File System Access API when available, otherwise falls back to
+ * <input webkitdirectory>.
+ */
+export async function pickAndScanRomFolder(id: string = "gnw-roms", archiveRules?: NativeArchiveRules): Promise<RomScanResult | null> {
+  const validRoot = await pickRomFolder(id);
+  if (!validRoot) return null;
 
   return scanRomDirectory(validRoot, null, undefined, undefined, archiveRules);
 }

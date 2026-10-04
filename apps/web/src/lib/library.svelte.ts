@@ -3,6 +3,7 @@
 // or SD-push). The folder is picked + scanned once via romScan and reused across the tab.
 // (RomSection in the Retro-Go tab can migrate onto this store later.)
 import {
+  pickRomFolder,
   pickAndScanRomFolder,
   folderPickerSupported,
   dirSupportsWriteBack,
@@ -286,6 +287,9 @@ class LibraryStore {
   error = $state<string | null>(null);
   // A remembered folder location from a prior visit that needs a permission re-grant before use.
   pendingHandle = $state<RomDirHandle | null>(null);
+  // A remembered folder whose handle cannot be restored (the Firefox webkitdirectory fallback).
+  // Reconnecting this row re-runs the picker and keeps its id, label, and associations.
+  pendingFolderId = $state<string | null>(null);
 
   setScanInteraction(reason: string, active: boolean): void {
     if (active) {
@@ -715,36 +719,37 @@ class LibraryStore {
     await this.sync();
   }
 
-  /** Prompt for a folder, scan it, store the result + remember the location. No-op on cancel. */
+  /** Prompt for a folder, register it + rebuild the library. No-op on cancel. */
   async pickFolder(): Promise<void> {
     this.folderScanning = true;
     this.error = null;
     try {
-      const r = await pickAndScanRomFolder("gnw-roms", nativeArchiveRulesFor(coreRegistry.current));
-      if (r) {
+      const dir = await pickRomFolder("gnw-roms");
+      if (dir) {
         // Register the pick in `localFolders` (the multi-folder list is the source of truth
         // now) and then re-merge EVERY ROM folder, so a second pick adds to the library
         // instead of replacing it. `migrateLegacyRomDir` is the idempotent add: it no-ops
         // when this exact directory is already registered.
         await localFolders.load();
-        await migrateLegacyRomDir(r.dir, localFolders, defaultLibraryScanDeps);
+        await migrateLegacyRomDir(dir, localFolders, defaultLibraryScanDeps);
         this.pendingHandle = null;
+        this.pendingFolderId = null;
         // Only persist native FSAA handles — InputDirHandle shims aren't structured-cloneable
         // "romDir" is an IndexedDB STORAGE KEY, not a name: it identifies data already
         // persisted in real users' browsers. It was deliberately left alone when the store
         // was renamed roms -> library, because renaming it would silently orphan every
         // existing user's remembered folder.
-        if (dirSupportsWriteBack(r.dir)) void saveDir("romDir", r.dir);
+        if (dirSupportsWriteBack(dir)) void saveDir("romDir", dir);
         this.folderScanning = false;
-        // Never adopt `r` directly — the pick is now registered, so the library rebuilds from
-        // the registry like every other change to it.
+        // Never scan eagerly before registration — the pick is now registered, so the library
+        // rebuilds once from the registry via sync().
         this.syncedSignature = null;
         await this.sync();
       }
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       // `library.error` is write-only: NO component reads it, so this was the quietest failure
-      // in the app. `pickAndScanRomFolder` returns null on a cancel rather than throwing, so
+      // in the app. `pickRomFolder` returns null on a cancel rather than throwing, so
       // anything arriving here is a real read failure and not the user closing the picker.
       auditLog.add("error", "sources", msg((t) => t.shared.auditLog.foldersFailed, this.error));
     } finally {
@@ -766,8 +771,8 @@ class LibraryStore {
   }
 
   /** Silently re-adopt every registered ROM folder if permission is still granted (no prompt).
-   *  If the legacy single folder needs a re-grant, stash it in `pendingHandle` so the UI can
-   *  offer a reconnect button. */
+   *  If a remembered folder needs a re-grant, or Firefox can only restore its metadata, stash
+   *  the recovery target so the UI can offer a reconnect button. */
   /** @deprecated Kept as a thin alias for `sync()`; there is only one entry point now. */
   async restoreLast(): Promise<void> {
     await this.sync();
@@ -786,6 +791,8 @@ class LibraryStore {
     this.folderScanning = true;
     dbg(`[library memory] scan start jsHeapMiB=${jsHeapMiB()}`);
     this.error = null;
+    this.pendingHandle = null;
+    this.pendingFolderId = null;
     this.progress = { stage: "Preparing library scan", done: 0, total: 0, current: "", folder: "" };
     let lipClaimed = false;
     try {
@@ -812,6 +819,9 @@ class LibraryStore {
         this.sourceFileCache.delete(sourceId);
         this.sourceMetadataCache.delete(sourceId);
       }
+      const pendingSource = sources.find((s) => s.status !== "ready");
+      this.pendingFolderId = pendingSource?.id ?? null;
+      if (pendingSource?.handle) this.pendingHandle = pendingSource.handle as RomDirHandle;
       // WHERE A FOLDER'S LOOSE FILES ARE GOING, per folder, before a byte is read. A BIOS that
       // is in a marked folder and still reported missing fails somewhere between the marking and
       // the placement, and none of those steps says anything today. Prints the decision INPUTS
@@ -836,12 +846,9 @@ class LibraryStore {
       }));
       this.progress = { stage: "Preparing library scan", done: 0, total: 0, current: "", folder: "" };
 
-      // Nothing readable, but we do hold the legacy handle: offer the re-grant affordance
+      // Nothing readable, but we do hold a remembered folder: offer the recovery affordance
       // rather than showing an empty library.
       if (!sources.some((s) => s.status === "ready")) {
-        if (legacy && !(await handlePermission(legacy, "readwrite", false))) {
-          this.pendingHandle = legacy;
-        }
         if (sources.length === 0) return;
       }
 
@@ -1024,7 +1031,9 @@ class LibraryStore {
   }
 
   /**
-   * Re-grant the remembered folder (call from a user gesture) and rebuild.
+   * Reconnect the remembered folder (call from a user gesture) and rebuild. Native handles get a
+   * permission re-grant; Firefox's read-only picker fallback re-picks the folder into the
+   * existing row.
    *
    * This used to call `adoptHandle()`, which scanned that ONE directory and assigned the result
    * straight to `this.scan` — a second, registry-bypassing way for games to enter the Library,
@@ -1034,16 +1043,28 @@ class LibraryStore {
    */
   async reconnect(): Promise<void> {
     const handle = this.pendingHandle;
-    if (!handle) return;
-    if (!(await handlePermission(handle, "readwrite", true))) return;
-    this.pendingHandle = null;
-    for (const f of localFolders.folders) {
-      if (!f.handle) continue;
-      if (await defaultLibraryScanDeps.isSameEntry(f.handle, handle)) {
-        await localFolders.grant(f.id);
-        break;
+    const folderId = this.pendingFolderId;
+    if (!handle && !folderId) return;
+    if (handle && dirSupportsWriteBack(handle)) {
+      if (!(await handlePermission(handle, "readwrite", true))) return;
+      for (const f of localFolders.folders) {
+        if (!f.handle) continue;
+        if (await defaultLibraryScanDeps.isSameEntry(f.handle, handle)) {
+          await localFolders.grant(f.id);
+          break;
+        }
       }
+    } else {
+      // Firefox's webkitdirectory fallback returns an in-memory, read-only tree. There is no
+      // permission to re-grant and no native handle to restore, but the persisted row still
+      // gives us a stable recovery target. Re-pick it rather than creating a second row.
+      const picked = await pickRomFolder(`gnw-reconnect-${folderId}`);
+      if (!picked) return;
+      if (!folderId) throw new Error("Cannot reconnect a folder without an id.");
+      await localFolders.repoint(folderId, picked);
     }
+    this.pendingHandle = null;
+    this.pendingFolderId = null;
     this.syncedSignature = null;
     await this.sync();
   }
@@ -1062,6 +1083,7 @@ class LibraryStore {
     this.clearDirty();
     this.error = null;
     this.pendingHandle = null;
+    this.pendingFolderId = null;
   }
 
   /** Ensure the required folders are available. Resolves immediately if already satisfied;

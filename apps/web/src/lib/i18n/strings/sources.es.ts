@@ -169,6 +169,7 @@ export const sourcesEs: SourcesStrings = {
     nameOptional: "(opcional)",
     noFolderChosen: "Ninguna carpeta elegida",
     choose: "Elegir\u2026",
+    chooseAgain: "Conceder permiso eligiendo la carpeta de nuevo",
     subtitleDirectories: "Carpetas con tus archivos de juego y de homebrew.",
     configureDirectoryTitle: "Configurar directorio",
     save: "Guardar",
