@@ -38,6 +38,11 @@
   // for the dangerous Zelda-firmware-onto-Mario-hardware case (Mario hardware lacks two buttons).
 
   const supported = backupPickerSupported();
+  // The warning is about whether the selected device connection can work in this browser.
+  // Firefox can expose WebUSB through AwawaUSB, so detect the actual API instead of inferring
+  // capability from the browser brand or the separate folder-picker implementation.
+  const webusbSupported = typeof navigator !== "undefined" && !!navigator.usb;
+  const showChromiumWarning = $derived(!webusbSupported && device.adapterType === "usb");
 
   // Recovery mode can make the internal-bank scan inconclusive. The device store also
   // probes GnWManager's model-specific ITCM signature in that case; use it before the
@@ -635,7 +640,7 @@
         <h4 class="steph">{locale.t.officialFirmware.step1Title}</h4>
         {#if backupValid}<span class="found-chip">{locale.t.officialFirmware.foundChip}</span>{/if}
       </div>
-    {#if !supported}
+    {#if showChromiumWarning}
       <p class="notice">{locale.t.officialFirmware.chromiumRequired}</p>
     {/if}
     <!-- BackupPatch.dc.html goes straight from the step-1 heading to the folder line: the two
