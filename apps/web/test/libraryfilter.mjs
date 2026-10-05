@@ -226,13 +226,11 @@ check("BIOS has left the games list", () => {
   ok(!/\.star-gap\s*[,{]/.test(TAB), "and the rule that styled it is gone with it");
 });
 
-check("the options modal has exactly ONE trigger", () => {
-  // The dock's disclosure was removed because two controls opening one thing is the duplication
-  // this redesign exists to remove. A second `optionsOpen = true` anywhere is that coming back.
-  const opens = TAB.match(/optionsOpen = true/g) ?? [];
-  eq(opens.length, 1, "exactly one place opens the options modal");
+check("the options modal opens only through the three widgets", () => {
+  const widgetOpeners = TAB.match(/onclick=\{\(\) => openWidget\("(?:covers|saves|cheats)"\)\}/g) ?? [];
+  eq(widgetOpeners.length, 3, "expected one opener for each widget");
   ok(!/class="opts-toggle"/.test(TAB), "the dock's Additional options disclosure is gone");
-  ok(/class="opts-btn"/.test(TAB), "and the info pane's button is the one that remains");
+  ok(!/class="opts-btn"/.test(TAB), "the removed Additional options button returned");
 });
 
 check("the body region can scroll under the pinned dock", () => {

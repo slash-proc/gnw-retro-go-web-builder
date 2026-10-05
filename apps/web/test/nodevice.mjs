@@ -128,9 +128,9 @@ check("THE DISTINCTION: waiting and cannot-ever are not the same message", () =>
 });
 
 check("and an unsupported browser is NOT offered an action that cannot succeed", () => {
-  // The browser branch runs from its own `{#if !webusbSupported}` to the first `{:else`.
-  const bIdx = noDeviceMarkup.indexOf("{#if !webusbSupported}");
-  ok(bIdx >= 0, "no `{#if !webusbSupported}` branch");
+  // The direct-USB browser branch is skipped when Remote gnwmanager is selected.
+  const bIdx = noDeviceMarkup.indexOf('{#if !webusbSupported && device.adapterType === "usb"}');
+  ok(bIdx >= 0, "no unsupported-browser branch scoped to direct USB");
   const rest = noDeviceMarkup.slice(bIdx);
   const branch = rest.slice(0, rest.indexOf("{:else"));
   ok(branch.length > 0, "the browser branch has no {:else} after it -- fix this guard");

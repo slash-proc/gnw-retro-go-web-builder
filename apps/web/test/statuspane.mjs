@@ -25,6 +25,7 @@ import { gnwResolveFor } from "./gnwResolve.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (p) => readFileSync(join(here, p), "utf8");
 const pane = read("../src/lib/ui/StatusPane.svelte");
+const header = read("../src/lib/ui/DeviceHeader.svelte");
 const tab = read("../src/lib/views/OverviewTab.svelte");
 // The overview rail moved three of this suite's subjects out of OverviewTab:
 // StatusPane and ActivityPane are mounted by the rail, and the external-flash
@@ -46,6 +47,12 @@ const ok = (cond, label) => {
   checks++;
   if (!cond) failures.push(label);
 };
+
+ok(/<span class="val">\{retroGoStatus\}<\/span>/.test(header),
+  "the Retro-Go version should keep the same UI font during and after scanning");
+ok(!/class:mono=/.test(header), "the Retro-Go status must not switch to monospace after scanning");
+ok(/<dd>\{firmwareValue\}<\/dd>/.test(pane),
+  "the installed Retro-Go version should use the Status pane's regular UI font");
 const eq = (got, want, label) => ok(got === want, `${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
 
 // --- 1. The layout row, from real bank shapes -------------------------------------------------
@@ -392,6 +399,9 @@ await backupPresence.connect();
 eq(backupPresence.state.kind, "none", "cancelling the folder picker changes nothing");
 
 // --- 9. The folder walk finds the app's own later backups --------------------------------------
+// OFW's localized size errors import the scalar Svelte locale store; this Node probe only needs
+// its initial value, not reactive tracking.
+globalThis.$state ??= (initial) => initial;
 // `writeBackup` puts the pair in the picked folder when it is EMPTY and in a `backups-<stamp>/`
 // subfolder when it is not, while the scan only ever read the top level. A user who picked a
 // folder that already had anything in it had their first backup written where nothing could

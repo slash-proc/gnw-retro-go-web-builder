@@ -53,6 +53,9 @@ function bytesEq(a, b, msg) {
 // --- Browser shims the engine module graph needs -----------------------------------------
 globalThis.window = { LZMA: { compress: (d) => [...new Uint8Array(13), ...Uint8Array.from(d)] } };
 globalThis.document = { createElement: () => ({}), head: { appendChild() {} } };
+// OFW error copy now uses util.formatNumber(), which imports the Svelte locale store.
+// This plain-esbuild harness only needs its initial scalar value, not Svelte reactivity.
+globalThis.$state ??= (initial) => initial;
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
 /** Bytes the fetch shim hands back for the bootloader `?url` asset. */

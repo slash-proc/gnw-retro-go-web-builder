@@ -42,6 +42,9 @@ function eq(a, b, msg) {
 }
 
 // --- Compile the module under test ------------------------------------------------------
+// addr.ts formats grouped values with the active locale. Its store uses one scalar Svelte
+// $state rune; plain esbuild tests only need the initial value, not reactive tracking.
+globalThis.$state ??= (initial) => initial;
 const here = dirname(fileURLToPath(import.meta.url));
 const out = mkdtempSync(join(tmpdir(), "gnw-addr-"));
 const esbuild = await import("esbuild");

@@ -76,15 +76,15 @@ const { formatSize, formatSizePair, locale } = await import(pathToFileURL(join(o
 
 // --- tier boundaries -----------------------------------------------------------------------
 check("0 bytes", () => eq(formatSize(0), "0 B", "zero"));
-check("below the KB tier", () => eq(formatSize(1023), "1023 B", "1023 B stays bytes"));
+check("below the KB tier", () => eq(formatSize(1023), "1,023 B", "1023 B stays bytes"));
 check("exactly 1 KB", () => eq(formatSize(1024), "1 KB", "1024 B is the KB boundary"));
-check("1 MB minus a byte", () => eq(formatSize(1048575), "1024 KB", "just under 1 MB stays KB"));
+check("1 MB minus a byte", () => eq(formatSize(1048575), "1,024 KB", "just under 1 MB stays KB"));
 check("exactly 1 MB", () => eq(formatSize(1048576), "1 MB", "MB boundary"));
-check("1 GB minus a byte", () => eq(formatSize(1073741823), "1024 MB", "just under 1 GB stays MB"));
+check("1 GB minus a byte", () => eq(formatSize(1073741823), "1,024 MB", "just under 1 GB stays MB"));
 check("exactly 1 GB", () => eq(formatSize(1073741824), "1 GB", "GB boundary"));
 check("a real storage quota", () => eq(formatSize(2252341248), "2.1 GB", "2.1 GB, not 2148 MB"));
 
-// --- numeric formatting (must NOT have changed) --------------------------------------------
+// --- numeric formatting follows the active locale ------------------------------------------
 check("no dead decimals", () => eq(formatSize(2 * 1048576), "2 MB", "whole numbers are bare"));
 check("trailing zero trimmed", () => eq(formatSize(1536), "1.5 KB", "1.50 KB is wrong"));
 check("two decimals max", () => eq(formatSize(5368709), "5.12 MB", "at most 2 dp"));
@@ -114,11 +114,19 @@ check("back to English", () => {
   locale.set("en");
   eq(formatSize(1048576), "1 MB", "English suffix restored");
 });
-check("the numeric part is locale-independent", () => {
-  for (const l of ["en", "fr", "ja", "ko", "de", "es", "pl"]) {
+check("the numeric part uses locale-specific decimal separators", () => {
+  const expected = {
+    en: "1.5 KB",
+    fr: "1,5 Ko",
+    ja: "1.5KB",
+    ko: "1.5 KB",
+    de: "1,5 KB",
+    es: "1,5 KB",
+    pl: "1,5 KB",
+  };
+  for (const [l, want] of Object.entries(expected)) {
     locale.set(l);
-    const s = formatSize(1536);
-    if (!s.startsWith("1.5")) throw new Error(`${l}: expected the number "1.5", got ${JSON.stringify(s)}`);
+    eq(formatSize(1536), want, `${l} decimal separator`);
   }
   locale.set("en");
 });
@@ -139,7 +147,7 @@ check("the pair is scaled off the total, not each half", () => {
 });
 check("tiers", () => {
   locale.set("en");
-  eq(formatSizePair(900, 1023), "900/1023 B", "sub-KB is whole bytes");
+  eq(formatSizePair(900, 1023), "900/1,023 B", "sub-KB is whole bytes with English grouping");
   eq(formatSizePair(1024, 2048), "1/2 KB", "KB tier");
   eq(formatSizePair(536870912, 1073741824), "0.5/1 GB", "GB tier");
 });
@@ -154,7 +162,7 @@ check("the separator is the caller's", () => {
 });
 check("French counters are in octets", () => {
   locale.set("fr");
-  eq(formatSizePair(1677722, 3565158), "1.6/3.4 Mo", "Mo, not MB");
+  eq(formatSizePair(1677722, 3565158), "1,6/3,4 Mo", "French decimals and Mo units");
   eq(formatSizePair(1024, 2048), "1/2 Ko", "Ko, not KB");
   eq(formatSizePair(1024, 2048, " / "), "1 / 2 Ko", "ConfirmModal's counter too");
   eq(formatSizePair(100, 900), "100/900 o", "o, not B");

@@ -170,7 +170,7 @@ await check("ANTI-VACUITY: the same assertions fail on the old shape", () => {
     .replace(/doneFiles \+= count/g, "doneFiles++")
     .replace(/total: totalFiles/g, "total: sources.length")
     .replace(/sourcesResolving/g, "gone")
-    .replace(/pickRomFolder\(\)/g, "pickAndScanRomFolder()");
+    .replace(/await pickRomFolder\(/g, "await pickAndScanRomFolder(");
   const problems = audit(before, tab.replace(/sourcesResolving/g, "gone"));
   assert(problems.length === 5,
     `the old shape should fail all five, ${problems.length} did: ${problems.join("; ") || "(none)"}`);

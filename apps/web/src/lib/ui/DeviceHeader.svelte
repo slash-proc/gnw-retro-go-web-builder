@@ -271,7 +271,7 @@
 
         <span class="slot" class:dim={scanned && !isRetroGo}>
           <img class="logo-key" src={logoRgo} alt={locale.t.deviceHeader.logoRgoAlt} />
-          <span class="val" class:mono={scanned && !device.scanning && isRetroGo}>{retroGoStatus}</span>
+          <span class="val">{retroGoStatus}</span>
         </span>
       {/if}
     </div>
@@ -465,14 +465,6 @@
   }
   .dim {
     opacity: 0.42;
-  }
-
-  /* HeaderBusy.dc.html draws the Retro-Go version as `13px/600 ui-monospace`. Applied only when
-     the slot actually holds a version string — the artboard never draws the placeholder states
-     ("Scanning…", "—", "Not installed"), which stay in the sans face. */
-  .mono {
-    font-family: var(--font-mono);
-    font-size: var(--fs-btn-sm);
   }
 
   /* Home/change-installation-method button.

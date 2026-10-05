@@ -25,6 +25,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gnwResolveFor } from "./gnwResolve.mjs";
 
+// The engine's localized error sizes import the scalar Svelte locale store; the Node harness
+// only needs its initial value, not reactive tracking.
+globalThis.$state ??= (initial) => initial;
+
 let passed = 0, failed = 0;
 async function check(name, fn) {
   try { await fn(); passed++; } catch (e) { failed++; console.log(`  FAIL ${name}: ${e.message}`); }

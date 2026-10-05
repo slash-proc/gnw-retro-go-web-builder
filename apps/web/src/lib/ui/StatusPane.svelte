@@ -232,7 +232,7 @@
     </div>
     <div class="row row-last">
       <dt><span class="dot"></span>{s.installedFirmware}</dt>
-      <dd class="mono">{firmwareValue}</dd>
+      <dd>{firmwareValue}</dd>
     </div>
   </dl>
 
@@ -241,7 +241,7 @@
       <dl class="rows bare">
         <div class="row row-last">
           <dt>{s.latestLabel}</dt>
-          <dd class="mono">{versions[0]?.gitTag}</dd>
+          <dd>{versions[0]?.gitTag}</dd>
         </div>
       </dl>
       <button class="upgrade-btn" onclick={() => go("firmware/install")}>{s.upgradeAction}</button>
@@ -347,9 +347,6 @@
     margin: -1px;
     clip-path: inset(50%);
     white-space: nowrap;
-  }
-  .mono {
-    font-family: var(--font-mono);
   }
   .upgrade {
     margin-top: 12px;

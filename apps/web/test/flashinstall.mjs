@@ -72,6 +72,9 @@ async function throwsWith(fn, re, msg) {
 }
 
 // --- Compile the module under test -------------------------------------------------------
+// Localized size formatting imports the scalar Svelte locale store; this plain Node harness
+// needs its initial value, not reactive tracking.
+globalThis.$state ??= (initial) => initial;
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../../..");
 const LITTLEFS_WASM = join(repoRoot, "packages/fs-builders/vendor/littlefs-wasm/littlefs.wasm");

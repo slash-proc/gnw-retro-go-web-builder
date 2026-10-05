@@ -43,6 +43,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
 import { gnwResolve, gnwResolveFor } from "./gnwResolve.mjs";
 
+// Localized format errors import the scalar Svelte locale store; this Node harness only needs
+// its initial value, not reactive tracking.
+globalThis.$state ??= (initial) => initial;
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../../..");
 const LITTLEFS_WASM = join(repoRoot, "packages/fs-builders/vendor/littlefs-wasm/littlefs.wasm");

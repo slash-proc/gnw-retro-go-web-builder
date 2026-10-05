@@ -1,4 +1,4 @@
-import { createSHA1, createSHA256 } from "hash-wasm";
+import { createSHA1, createSHA256 } from "hash-wasm/dist/index.esm.js";
 
 /** Hash bytes in secure and insecure browser contexts. WebCrypto is preferred when present;
  * hash-wasm keeps local HTTP installs working where crypto.subtle is unavailable. */

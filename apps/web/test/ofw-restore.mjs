@@ -65,6 +65,9 @@ async function throwsWith(re, fn) {
 // lines fire-and-forget. Neither is under test; both must simply not explode in node.
 globalThis.window = { LZMA: { compress: (d) => [...new Uint8Array(13), ...Uint8Array.from(d)] } };
 globalThis.document = { createElement: () => ({}), head: { appendChild() {} } };
+// OFW error copy now uses util.formatNumber(), which imports the Svelte locale store.
+// This plain-esbuild harness only needs its initial scalar value, not Svelte reactivity.
+globalThis.$state ??= (initial) => initial;
 globalThis.fetch = async () => {
   throw new Error("fetch() is not available offline — nothing under test should call it");
 };

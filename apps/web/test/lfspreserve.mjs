@@ -26,6 +26,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes, createHash } from "node:crypto";
 import { gnwImport, gnwResolveFor } from "./gnwResolve.mjs";
 
+// The bundled install engine imports the locale store; Node tests use its initial value only.
+globalThis.$state ??= (initial) => initial;
+
 // A real device: 4096-byte erase sector, a 2 MiB filesystem at the TOP of a 4 MiB flash.
 // The partition ending exactly at the top of extflash is what the firmware assumes
 // (`lfs_cfg.context = gw_layout_littlefs_top()`), so the fixture must not fake it.

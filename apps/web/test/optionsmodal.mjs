@@ -28,7 +28,7 @@ check("each widget opens its own category in the modal", () => {
   ok(tab.includes("widget={activeWidget}"), "the active widget is not passed into GameDetailsPanel");
   ok(tab.includes("activeWidget === \"covers\" ? \"48rem\""), "Covers does not size to its content");
   ok(tab.includes("activeWidget === \"saves\" ? \"46rem\""), "Saves does not size to its content");
-  ok(tab.includes("activeWidget === \"cheats\" ? \"54rem\""), "Cheats does not size to its content");
+  ok(tab.includes('maxWidth={activeWidget === "covers" ? "48rem" : activeWidget === "saves" ? "46rem" : "54rem"}'), "widget modal does not size each category to its content");
 });
 
 check("Covers has Cover art and ScreenScraper tabs using existing settings", () => {
@@ -55,7 +55,9 @@ check("widget controls remain accessible", () => {
   ok(tab.includes("scrollWidgetsUpAriaLabel") && tab.includes("scrollWidgetsDownAriaLabel"), "overflow scroll controls are missing accessible labels");
   ok(tab.includes("M16.5 4.8a8 8 0 0 1 0 14.4"), "Cover art does not use icon 3 from the selection board");
   ok(tab.includes("M8 3v6h9V3"), "Saves does not use icon 2 from the selection board");
-  ok(tab.includes("circle cx=\"12\" cy=\"4.5\" r=\"2.2\""), "Cheats is missing the key above the gamepad");
+  ok(tab.includes('class="widget-cheats-icon" viewBox="0 0 64 64"'), "Cheats is missing its supplied lock-and-key icon");
+  ok(tab.includes('fill-rule="evenodd" d="M9.1 28.5'), "Cheats icon is missing the key bow");
+  ok(tab.includes('d="M35.8 33.3h2.4'), "Cheats icon is missing the lock keyhole");
 });
 
 check("the modal keeps its own title and selected-game context", () => {
