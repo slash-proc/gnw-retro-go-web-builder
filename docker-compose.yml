@@ -24,12 +24,11 @@ services:
     # Three processes: tsc -b --watch keeps package dist fresh (Vite + Express
     # consume it); the Express backend (legacy /dev, /packages, /api) on :3001;
     # the Vite dev server (the real app, HMR) on :3000 in the foreground.
-    # PROXY_TLS tells Vite its HMR websocket is reached through the https nginx proxy
-    # (wss on :443) instead of ws on :3000 — otherwise HMR mixed-content-fails on the
-    # https origin. Direct http://localhost:3000 still serves; only its live-reload needs
-    # a manual refresh while this is set.
+    # Set PROXY_TLS=1 when using the HTTPS nginx proxy. Leave it unset for direct
+    # http://localhost:3000 so Vite's HMR websocket uses ws://localhost:3000.
     environment:
-      - PROXY_TLS=1
+      - PROXY_TLS=${PROXY_TLS:-}
+      - TSC_WATCHFILE=UseFsEventsWithFallbackDynamicPolling
     command: >
       sh -c "npx tsc -b packages/builder-core packages/fs-builders packages/gnw-flasher packages/gnw-patch packages/swd-transport packages/thumb-asm --watch --preserveWatchOutput &
              PORT=3001 npm run dev --workspace backend &
