@@ -332,7 +332,7 @@ export function parseManifest(doc: unknown, manifestUrl: string): FirmwareManife
     buildOf(b, manifestUrl, i),
   );
   const updates = obj(o.updates, "manifest.json.updates");
-  const bank1 = asset(updates.bank1, manifestUrl, "updates.bank1");
+  const bank1 = updates.bank1 === undefined ? undefined : asset(updates.bank1, manifestUrl, "updates.bank1");
   const bank2 = asset(updates.bank2, manifestUrl, "updates.bank2");
   if (builds.length === 0) {
     throw new FirmwareDistError("malformed", "manifest.json.builds: empty");

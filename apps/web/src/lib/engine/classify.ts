@@ -11,7 +11,7 @@ import { EXTBASE } from "./addr.js";
 import { locale } from "../i18n/locale.svelte.js";
 import { formatSize } from "../util.js";
 
-export type DeviceKind = "stock" | "retrogo-sd" | "retrogo-old" | "unknown" | "locked";
+export type DeviceKind = "stock" | "retrogo-sd" | "retrogo-old" | "bootloader" | "unknown" | "locked";
 
 export interface DeviceClass {
   kind: DeviceKind;
@@ -21,11 +21,13 @@ export interface DeviceClass {
   /** Official firmware on the device (model + stock/patched), or null if none. */
   ofw?: { model: "mario" | "zelda"; patched: boolean } | null;
   retroGoVersion?: string;
+  /** Verified Sylverb bootloader placement in bank 1. */
+  bootloader?: "standalone" | "dualboot";
   /** FrogFS present (games). */
   hasGames: boolean;
   /** LittleFS present (saves/screenshots). */
   hasSaves: boolean;
-  /** Banks an install may target for this class (Unknown/non-stock = bank 1 only). */
+  /** Retro-Go release images are installed only in bank 2. */
   installBanks: (1 | 2)[];
   /** Which of THIS tool's install paths produced the retro-go image here, if any: a real
    *  LittleFS superblock only ever comes from the Flash-mode path; gnw-patch's own layout
@@ -44,21 +46,6 @@ export function classifyDevice(
     return { kind: "locked", label: "Locked — unlock to read", ofw: null, hasGames: false, hasSaves: false, installBanks: [] };
 
   const bank1 = banks.find((b) => b.index === 1);
-  const isPristineStock = bank1?.ofw && !bank1.ofw.patched;
-
-  if (isPristineStock) {
-    const model = bank1.ofw!.model;
-    return {
-      kind: "stock",
-      model,
-      ofw: { model, patched: false },
-      label: `Stock ${model === "mario" ? "Mario" : "Zelda"} firmware`,
-      hasGames: false,
-      hasSaves: false,
-      installBanks: [1, 2], // stock present → bank2 (keep stock) is possible
-    };
-  }
-
   const frogfs = parts.some((p) => p.fs === "frogfs");
   const littlefs = parts.some((p) => p.fs === "littlefs");
   const versionBank = banks.find((b) => b.retroGoVersion);
@@ -67,6 +54,7 @@ export function classifyDevice(
   // yield "unknown data", and bank 2 may contain unrelated residue. Older Retro-Go is only
   // identified when the internal image itself carries the Retro-Go marker.
   const hasRetroGoMarker = banks.some((b) => b.type === "Retro-Go" || !!b.retroGoVersion);
+  const bootloader = banks.find((b) => b.index === 1)?.bootloader;
 
   // Official firmware (model + stock/patched) detected by the bank scan, if any.
   const ofw = banks.map((b) => b.ofw).find(Boolean) ?? null;
@@ -109,31 +97,52 @@ export function classifyDevice(
       return {
         kind: "retrogo-sd",
         label: versionLabel ?? "Retro-Go (SD)",
-        ofw: ofw ? { ...ofw, patched: true } : null,
+        ofw,
         retroGoVersion: version,
         hasGames: frogfs,
         hasSaves: littlefs,
-        installBanks: [1],
+        installBanks: [2],
+        bank: versionBank?.index,
+        bootloader,
         installOrigin,
       };
 
     return {
       kind: "retrogo-old",
       label: `Retro-Go ${locale.t.deviceHeader.retroGoOlderSuffix}`,
-      ofw: ofw ? { ...ofw, patched: true } : null,
+      ofw,
       retroGoVersion: undefined,
       hasGames: false,
       hasSaves: littlefs,
-      installBanks: [1],
+      installBanks: [2],
+      bank: banks.find((b) => b.type === "Retro-Go")?.index,
+      bootloader,
       installOrigin,
     };
   }
 
-  if (ofw && ofw.patched) {
-    return { kind: "unknown", label: `Patched ${ofw.model === "mario" ? "Mario" : "Zelda"}`, ofw, hasGames: false, hasSaves: false, installBanks: [1] };
+  if (bootloader === "standalone") {
+    return {
+      kind: "bootloader", label: "Sylverb bootloader", bank: 1, bootloader,
+      ofw: ofw ? { ...ofw } : null, hasGames: false, hasSaves: littlefs, installBanks: [2],
+    };
   }
 
-  return { kind: "unknown", label: "Unrecognized device", ofw, hasGames: false, hasSaves: false, installBanks: [1] };
+  const isPristineStock = bank1?.ofw && !bank1.ofw.patched;
+  if (isPristineStock) {
+    const model = bank1.ofw!.model;
+    return {
+      kind: "stock", model, ofw: { model, patched: false },
+      label: `Stock ${model === "mario" ? "Mario" : "Zelda"} firmware`,
+      hasGames: false, hasSaves: false, installBanks: [2],
+    };
+  }
+
+  if (ofw && ofw.patched) {
+    return { kind: "unknown", label: `Patched ${ofw.model === "mario" ? "Mario" : "Zelda"}`, ofw, hasGames: false, hasSaves: false, installBanks: [2] };
+  }
+
+  return { kind: "unknown", label: "Unrecognized device", ofw, hasGames: false, hasSaves: false, installBanks: [2] };
 }
 
 // ── geometry-bar segments ────────────────────────────────────────────────────

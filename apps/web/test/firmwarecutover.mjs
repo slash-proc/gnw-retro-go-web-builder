@@ -3,7 +3,7 @@
  * Offline coverage for `src/lib/artifacts.ts` AFTER the cutover onto the firmware
  * distribution format — the adapter that keeps `listVersions()` / `fetchBundle()` /
  * `FirmwareBundle` working for their four consumers while everything underneath moved to
- * `dist/versions.json` on GitHub Pages, four per-build bundle zips, and real published
+ * `dist/versions.json` on GitHub Pages, bank-2-only per-build bundle zips, and real published
  * sha256s.
  *
  *   docker compose exec dev sh -c 'cd /app/apps/web && node test/firmwarecutover.mjs'
@@ -20,7 +20,7 @@
  *
  * What is pinned:
  *   - the version list comes from `versions.json`, in the file's own newest-first order
- *   - all four bank/storage combinations resolve to their own build's image and content
+ *   - flash-bank2 and sd-bank2 resolve to their own build's image and content
  *   - `contentFor()` THROWS for a combination the release does not publish (never falls back)
  *   - a bundle whose bytes fail their published sha256 is refused, and never unzipped
  *   - the bundle cache is keyed by the PUBLISHED hash, so a warm fetch makes no network call
@@ -149,12 +149,12 @@ function zip(entries) {
   return buf;
 }
 
-// --- A synthetic four-build release, declared exactly as the format requires -----------------
+// --- A synthetic bank-2-only release, declared exactly as the format requires ----------------
 
 const IMAGE_PATH = "gw_retro_go_intflash.bin";
 
 /** Build one release: four bundle zips plus the manifest that declares them. */
-function makeRelease(combos = ["flash-bank1", "flash-bank2", "sd-bank1", "sd-bank2"]) {
+function makeRelease(combos = ["flash-bank2", "sd-bank2"]) {
   const zips = new Map(); // url -> bytes
   const builds = [];
   for (const id of combos) {
@@ -209,6 +209,7 @@ function makeRelease(combos = ["flash-bank1", "flash-bank2", "sd-bank1", "sd-ban
     paths: { cores: "/cores", data: "/data" },
     languages: ["de_de", "en_us"],
     builds,
+    updates: { bank2: { bytes: 1, sha256: sha256(Uint8Array.of(0)), url: "retro-go_update.bin" } },
     builtAt: "2026-09-08T19:33:37Z",
   };
   const versions = {
@@ -299,9 +300,9 @@ await check("versions: the order is the file's own, newest first, never re-sorte
   eq(got.map((v) => v.tag).join(","), "v2.1.0,v3.0.0-rc1,v2.0.0", "published order preserved verbatim");
 });
 
-// --- 2. The four bank/storage combinations ----------------------------------------------------
+// --- 2. The two bank-2 storage combinations ---------------------------------------------------
 
-await check("bundle: every bank/storage combination resolves to its OWN build", async () => {
+await check("bundle: each bank-2 storage combination resolves to its OWN build", async () => {
   const rel = makeRelease();
   const net = makeNet(rel);
   const { cache } = makeCache();
@@ -311,14 +312,14 @@ await check("bundle: every bank/storage combination resolves to its OWN build", 
     const build = rel.manifest.builds.find((x) => x.id === id);
     return { bytes: build.image.bytes, sha: build.image.sha256 };
   };
-  for (const [got, id] of [[b.blobs[1], "flash-bank1"], [b.blobs[2], "flash-bank2"], [b.blobs.sd_1, "sd-bank1"], [b.blobs.sd_2, "sd-bank2"]]) {
+  for (const [got, id] of [[b.blobs[2], "flash-bank2"], [b.blobs.sd_2, "sd-bank2"]]) {
     const want = imageOf(id);
     eq(sha256(got), want.sha, `blob for ${id} is that build's own image`);
   }
-  // Four distinct images — a wrong mapping that happened to compile would collapse these.
-  eq(new Set([b.blobs[1], b.blobs[2], b.blobs.sd_1, b.blobs.sd_2].map(sha256)).size, 4, "four distinct blobs");
+  eq(b.blobs[1].length, 0, "bank-1 compatibility slot is empty");
+  eq(new Set([b.blobs[2], b.blobs.sd_2].map(sha256)).size, 2, "two distinct bank-2 blobs");
 
-  for (const [bank, sd, id] of [[1, false, "flash-bank1"], [2, false, "flash-bank2"], [1, true, "sd-bank1"], [2, true, "sd-bank2"]]) {
+  for (const [bank, sd, id] of [[2, false, "flash-bank2"], [2, true, "sd-bank2"]]) {
     const tree = b.contentFor(bank, sd);
     eq(tree.size, 2, `content tree for ${id} has both entries`);
     // Keyed by `install` (the device path), not by the zip entry name.
@@ -330,26 +331,26 @@ await check("bundle: every bank/storage combination resolves to its OWN build", 
   eq(b.manifest.capabilities.join(","), "coverflow,sdCard", "capabilities are the union across builds");
 });
 
-await check("bundle: contentFor() THROWS for a combination the release does not publish", async () => {
-  const rel = makeRelease(["flash-bank1", "flash-bank2"]);
+await check("bundle: contentFor() THROWS for bank 1 and unpublished storage", async () => {
+  const rel = makeRelease(["flash-bank2"]);
   const net = makeNet(rel);
   const { cache } = makeCache();
   const b = await fetchBundle("v9.9.9", undefined, deps(net, cache));
   eq(b.blobs.sd_1, undefined, "no sd_1 blob");
   eq(b.blobs.sd_2, undefined, "no sd_2 blob");
-  ok(b.contentFor(1, false).size === 2, "the published combination still resolves");
-  for (const bank of [1, 2]) {
+  ok(b.contentFor(2, false).size === 2, "the published bank-2 combination resolves");
+  for (const [bank, sd] of [[1, false], [1, true], [2, true]]) {
     let threw = false;
-    try { b.contentFor(bank, true); } catch { threw = true; }
-    ok(threw, `contentFor(${bank}, true) refuses rather than falling back to a flash tree`);
+    try { b.contentFor(bank, sd); } catch { threw = true; }
+    ok(threw, `contentFor(${bank}, ${sd}) refuses rather than falling back`);
   }
 });
 
-await check("bundle: a release without both flash banks is refused outright", async () => {
-  const rel = makeRelease(["flash-bank2", "sd-bank2"]);
+await check("bundle: a release without flash-bank2 is refused outright", async () => {
+  const rel = makeRelease(["sd-bank2"]);
   const net = makeNet(rel);
   const { cache } = makeCache();
-  await rejects(() => fetchBundle("v9.9.9", undefined, deps(net, cache)), "missing bank1");
+  await rejects(() => fetchBundle("v9.9.9", undefined, deps(net, cache)), "missing flash-bank2");
 });
 
 await check("bundle: an unknown tag is refused, not silently served the newest", async () => {
@@ -383,17 +384,17 @@ await check("bundle: the cache is keyed by the published hash — a warm fetch t
   const cold = makeNet(rel);
   await fetchBundle("v9.9.9", undefined, deps(cold, cache));
   const stored = [...files.keys()].sort();
-  eq(stored.length, 4, "one cache entry per build bundle");
+  eq(stored.length, 2, "one cache entry per bank-2 build bundle");
   for (const build of rel.manifest.builds) {
     ok(stored.includes(`firmware.${build.bundle.sha256}`), `${build.id} filed under its PUBLISHED sha256`);
   }
   const warm = makeNet(rel);
   const b = await fetchBundle("v9.9.9", undefined, deps(warm, cache));
   eq(warm.urls.filter((u) => u.endsWith(".zip")).length, 0, "no zip was downloaded a second time");
-  eq(sha256(b.blobs[1]), rel.manifest.builds[0].image.sha256, "and the blobs still came out right");
+  eq(sha256(b.blobs[2]), rel.manifest.builds[0].image.sha256, "and the bank-2 blob still came out right");
 });
 
-await check("bundle: the progress counter runs to the manifest's total across all four bundles", async () => {
+await check("bundle: the progress counter runs to the manifest's total across both bundles", async () => {
   const rel = makeRelease();
   const net = makeNet(rel);
   const { cache } = makeCache();

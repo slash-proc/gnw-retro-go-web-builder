@@ -31,6 +31,7 @@ function bankAt(address: number, banks: readonly IntflashBank[]): IntflashBank |
 
 function classifyBank(bank: IntflashBank | undefined): RuntimeKind {
   if (!bank) return "unknown";
+  if (bank.bootloader === "standalone") return "bootloader";
   if (bank.retroGoVersion) return "retro-go";
   if (bank.ofw) return "stock-ofw";
   return "unknown";

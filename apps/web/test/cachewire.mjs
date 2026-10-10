@@ -285,17 +285,17 @@ const ZIP = zip([
 ]);
 const sha = (b) => createHash("sha256").update(b).digest("hex");
 const ZIP_HASH = sha(ZIP);
-const BUNDLE_URL = "https://example.invalid/dist/v9.9.9/retro-go-sd-flash-bank1.zip";
+const BUNDLE_URL = "https://example.invalid/dist/v9.9.9/retro-go-sd-flash-bank2.zip";
 const VERSIONS_URL = "https://example.invalid/dist/versions.json";
 
 /**
- * A one-build-per-combination release. Every build serves the SAME zip, so the four cache keys
+ * A one-build-per-combination release. Every build serves the SAME zip, so the two cache keys
  * collapse to one — the point here is the cache wiring, not the per-build mapping (that lives
  * in `test/firmwarecutover.mjs`).
  */
 function release() {
   const builds = [];
-  for (const id of ["flash-bank1", "flash-bank2", "sd-bank1", "sd-bank2"]) {
+  for (const id of ["flash-bank2", "sd-bank2"]) {
     const [storage, bankTag] = id.split("-");
     const bank = Number(bankTag.slice(4));
     const build = {
@@ -303,13 +303,13 @@ function release() {
       capabilities: [],
       littlefsBlockSize: 4096,
       buildFlags: "make",
-      bundle: { bytes: ZIP.length, sha256: ZIP_HASH, url: "retro-go-sd-flash-bank1.zip" },
-      debug: { bytes: ZIP.length, sha256: ZIP_HASH, url: "retro-go-sd-flash-bank1-debug.zip" },
+      bundle: { bytes: ZIP.length, sha256: ZIP_HASH, url: "retro-go-sd-flash-bank2.zip" },
+      debug: { bytes: ZIP.length, sha256: ZIP_HASH, url: "retro-go-sd-flash-bank2-debug.zip" },
       image: { path: "gw_retro_go_intflash.bin", bytes: IMAGE.length, sha256: sha(IMAGE) },
       content: [{ path: "fonts/cp1252_serif.bin", install: "fonts/cp1252_serif.bin", bytes: FONT.length, sha256: sha(FONT) }],
     };
     if (storage === "sd") {
-      build.sdUpdate = { path: "gw_retro_go_intflash.bin", bytes: IMAGE.length, sha256: sha(IMAGE), filename: `update_bank${bank}.bin` };
+      build.sdUpdate = { path: "gw_retro_go_intflash.bin", bytes: IMAGE.length, sha256: sha(IMAGE), filename: "retro-go_update.bin" };
     }
     builds.push(build);
   }
@@ -357,11 +357,10 @@ await check("bundle: a cold fetch downloads and caches under the PUBLISHED sha25
   const { cache, files } = makeCache();
   const net = countingZipFetch();
   const b = await fetchBundle("v9.9.9", undefined, bundleDeps(cache, net));
-  bytesEq(b.blobs[1], IMAGE, "unzipped the bank1 image");
-  // All four builds declare the same sha256 here, so the first download satisfies the
-  // other three straight out of the cache — content addressing, working as intended.
+  bytesEq(b.blobs[2], IMAGE, "unzipped the bank2 image");
+  // Both builds declare the same sha256 here, so one download satisfies both cache reads.
   eq(net.calls, 1, "the shared zip was downloaded exactly once");
-  eq(names(files).length, 1, "the four builds share one zip here, so one entry");
+  eq(names(files).length, 1, "the two builds share one zip here, so one entry");
   eq(names(files)[0], `firmware.${ZIP_HASH}`, "filed under `firmware`, keyed by the manifest's own sha256");
 });
 
@@ -379,7 +378,7 @@ await check("bundle: a warm fetch still finishes the progress counter", async ()
   await cache.put(ZIP_HASH, ZIP, "firmware");
   const seen = [];
   await fetchBundle("v9.9.9", (d, t) => seen.push([d, t]), bundleDeps(cache, countingZipFetch()));
-  const total = ZIP.length * 4;
+  const total = ZIP.length * 2;
   eq(seen[0][0], 0, "the counter starts at a real 0%");
   eq(JSON.stringify(seen[seen.length - 1]), JSON.stringify([total, total]), "counter reaches 100%");
 });
@@ -390,7 +389,7 @@ await check("bundle: an evicted entry falls back to the network", async () => {
   files.clear(); // eviction: the browser may do this at any time, without asking
   const net = countingZipFetch();
   const b = await fetchBundle("v9.9.9", undefined, bundleDeps(cache, net));
-  bytesEq(b.blobs[1], IMAGE, "still got the bundle");
+  bytesEq(b.blobs[2], IMAGE, "still got the bundle");
   ok(net.calls > 0, "refetched");
 });
 
@@ -400,7 +399,7 @@ await check("bundle: a corrupted cached zip is refetched, never unzipped", async
   files.set(`firmware.${ZIP_HASH}`, filler(ZIP.length, 66));
   const net = countingZipFetch();
   const b = await fetchBundle("v9.9.9", undefined, bundleDeps(cache, net));
-  bytesEq(b.blobs[1], IMAGE, "good bundle returned");
+  bytesEq(b.blobs[2], IMAGE, "good bundle returned");
   ok(net.calls > 0, "the corrupt entry did not satisfy the read");
 });
 
@@ -408,7 +407,7 @@ await check("bundle: a refused put does not fail the download", async () => {
   const { cache, refuse, files } = makeCache();
   refuse.all = true;
   const b = await fetchBundle("v9.9.9", undefined, bundleDeps(cache, countingZipFetch()));
-  bytesEq(b.blobs[1], IMAGE, "the download succeeded regardless");
+  bytesEq(b.blobs[2], IMAGE, "the download succeeded regardless");
   eq(files.size, 0, "nothing stored");
 });
 

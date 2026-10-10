@@ -29,9 +29,8 @@
  *     the device if it is locked!" Unlocking belongs to `engine/unlockGate.ts`, which runs inside
  *     the Backup phase; the chooser has no opinion about it;
  *   - the preview column exists beside a card and collapses when there is none;
- *   - the preview follows the hovered card, and shows FOUR steps for Only Retro-Go on pristine
- *     stock with no backup recorded, THREE otherwise -- the one thing the right-hand column can
- *     say that the old chooser could not;
+ *   - the preview follows the hovered card, and shows a backup step for Only Retro-Go on stock
+ *     when no verified backup exists, then drops it once a backup is present;
  *   - the preview is inert: it carries no controls, because every control in the real spine acts
  *     on a path that has not been chosen yet.
  */
@@ -97,6 +96,15 @@ function sveltePlugin() {
     setup(b) {
       b.onResolve({ filter: /device\.svelte\.js$/ }, () => ({ path: "device", namespace: "stub" }));
       b.onLoad({ filter: /.*/, namespace: "stub" }, () => ({ contents: DEVICE_STUB, loader: "js" }));
+      b.onResolve({ filter: /backupPresence\.svelte\.js$/ }, () => ({ path: "backup-presence", namespace: "backup" }));
+      b.onLoad({ filter: /.*/, namespace: "backup" }, () => ({ contents: `
+        const d = () => globalThis.__CHOOSER_DEVICE__ ?? {};
+        export const backupPresence = {
+          forModel: () => ({ complete: !!d().backupTaken, partial: false }),
+          refresh: async () => {}, scanDirectories: async () => [],
+          directories: async () => [],
+        };
+      `, loader: "js" }));
       // Vite's `?url` imports (wasm and firmware blobs) and the webstlink shim: neither is
       // reachable from the chooser, and both are unresolvable outside Vite.
       b.onResolve({ filter: /\?url$/ }, (a) => ({ path: a.path, namespace: "urlstub" }));
@@ -304,16 +312,16 @@ check("the preview column stands beside a card and collapses when there is none"
     "the stage still claims a preview with no card to preview, so the note is drawn against an empty column");
 });
 
-check("THE PLAN THE OLD CHOOSER COULD NOT SHOW: Only Retro-Go keeps its backup stage with or without a recorded backup", () => {
+check("Only Retro-Go backs up stock firmware when no verified backup exists", () => {
   // Row 2: pristine stock at 8 MB, so `rgo` is the only card and the preview follows it.
   const needsBackup = previewTitles(draw({ deviceClass: STOCK, extSizeMB: 8, backupTaken: false }));
   eq(needsBackup.length, 4,
     "Only Retro-Go on pristine stock with no recorded backup previewed a plan with no backup step");
   const recorded = previewTitles(draw({ deviceClass: STOCK, extSizeMB: 8, backupTaken: true }));
-  eq(recorded.length, 4,
-    "Only Retro-Go keeps the backup stage available for a recorded backup");
-  ok(needsBackup[0] === recorded[0],
-    "both plans retain the backup stage");
+  eq(recorded.length, 3,
+    "Only Retro-Go omits the backup stage once a verified backup is present");
+  ok(needsBackup[0] !== recorded[0],
+    "the backup step is the first step only when needed");
 });
 
 check("the preview is inert: it carries no controls", () => {

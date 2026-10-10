@@ -10,6 +10,8 @@ import { BANK_BASE } from "./addr.js";
 import type { MemReadFn as IntReadFn } from "./addr.js";
 import { locateSuperblock, readSuperblock, FLAG_LITTLEFS_LENGTH } from "@gnw/gnw-patch";
 import { parseFirmwareAbi, type FirmwareAbi } from "./firmwareAbi.js";
+import { hashHex } from "../cryptoHash.js";
+import { DUAL_BOOTLOADERS, STANDALONE_BOOTLOADERS } from "./bootloaderHashes.js";
 export type { IntReadFn };
 
 export const INT_BANK_BASES = [BANK_BASE[1], BANK_BASE[2]] as const;
@@ -29,6 +31,8 @@ export interface IntflashBank {
   type: string;
   /** Retro-Go version token ("v1.2.3…") if the signature is present. */
   retroGoVersion?: string;
+  /** Verified Sylverb bootloader placement in bank 1. */
+  bootloader?: "standalone" | "dualboot";
   /** True iff the GIT_TAG string said "Retro-Go SD" (the fork name — supports SD-card use,
    *  doesn't mean THIS build is one; see installOrigin in classify.ts for that). */
   retroGoIsSdFork?: boolean;
@@ -206,13 +210,15 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
     let layoutSuperblockPresent = false;
     let layoutSuperblockHasLittlefs = false;
     let abi: FirmwareAbi | undefined;
+    let bootloader: IntflashBank["bootloader"];
+    let data: Uint8Array | undefined;
 
     // Orchestration optimization: If this bank is already confirmed to be Mario/Zelda OFW,
     // we absolutely do not need to download its payload to do a deep search for Retro-Go strings.
     if (model === null) {
       try {
         const len = Math.min((size + 3) & ~3, maxTop);
-        const data = await read(base, len);
+        data = await read(base, len);
         const rg = retroGoInfo(data);
         hasRetroGo = rg.present;
         retroGoVersion = rg.version;
@@ -235,6 +241,32 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
       }
     }
 
+    if (index === 1) {
+      // Standalone bootloader vector table begins at 0x08000000. Require both an exact
+      // release digest and a reset vector into the matched image before classifying it.
+      if (model === null && data && appValid(sp, pc) && (pc & ~1) < base + 0x32000) {
+        for (const signature of STANDALONE_BOOTLOADERS) {
+          if (data.length < signature.bytes) continue;
+          const digest = await hashHex("SHA-256", data.subarray(0, signature.bytes));
+          if (digest === signature.sha256) {
+            bootloader = "standalone";
+            break;
+          }
+        }
+      }
+      try {
+        const candidate = await read(base + 0x32000, Math.max(...DUAL_BOOTLOADERS.map((x) => x.bytes)));
+        for (const signature of DUAL_BOOTLOADERS) {
+          if (candidate.length < signature.bytes) continue;
+          const digest = await hashHex("SHA-256", candidate.subarray(0, signature.bytes));
+          if (digest === signature.sha256) {
+            bootloader = "dualboot";
+            break;
+          }
+        }
+      } catch { /* a short or unreadable candidate is not a match */ }
+    }
+
     const ofw = model
       ? { model: model.toLowerCase() as "mario" | "zelda", patched: ofwLast !== undefined && ofwLast !== 0xff }
       : undefined;
@@ -243,9 +275,10 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
       index,
       base,
       dataSize: size,
-      type: classify(sp, pc, hasRetroGo, ofwLast),
+      type: bootloader === "standalone" && !hasRetroGo ? "Sylverb bootloader" : classify(sp, pc, hasRetroGo, ofwLast),
       retroGoVersion,
       retroGoIsSdFork,
+      bootloader,
       ofw,
       layoutSuperblockPresent,
       layoutSuperblockHasLittlefs,

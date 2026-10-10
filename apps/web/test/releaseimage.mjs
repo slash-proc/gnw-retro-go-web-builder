@@ -196,11 +196,11 @@ const KNOWN_UNREADABLE_IN_FROGFS = new Map([]);
 const MB = 1048576;
 const BLOCK = 4096;
 
-/** Build one flash-only install for bank 1 and read both images back. */
+/** Build one flash-only install for bank 2 and read both images back. */
 async function buildAndParse(userRoms) {
   const built = await buildFlashInstall({
     bundle,
-    bank: 1,
+    bank: 2,
     extflashSize: 64 * MB,
     blockSize: BLOCK,
     userRoms,
@@ -294,7 +294,7 @@ await check("3. no file is packed into both partitions, and none is dropped", ()
 
   // Every entry the release publishes for this build must be somewhere. A content file silently
   // dropped by the planner is exactly as invisible on the device as one in the wrong partition.
-  const shipped = [...bundle.contentFor(1, false).keys()];
+  const shipped = [...bundle.contentFor(2, false).keys()];
   const packed = new Set([...B.frogPaths, ...B.lfsPaths]);
   const lost = shipped.filter((p) => !packed.has(p));
   assert(lost.length === 0, `the release ships ${shipped.length} content files, ${lost.length} reached neither partition: ${lost.slice(0, 8).join(", ")}`);
@@ -324,7 +324,7 @@ await check("4. a core lands in LittleFS byte-identical, a ROM and a BIOS land i
 // was not obvious whether that was correct. It is, for this input, and pinning it here means the
 // day it changes is a reported change rather than a surprise on a device.
 await check("5. the release alone puts no CORES in LittleFS, because it ships none", () => {
-  const shipped = [...bundle.contentFor(1, false).keys()];
+  const shipped = [...bundle.contentFor(2, false).keys()];
   assert(!shipped.some((p) => p.startsWith("cores/")),
     `the release now ships core files (${shipped.filter((p) => p.startsWith("cores/")).join(", ")}), so an empty cores tree is no longer expected`);
   // Cores, not "nothing". The release's own language blobs belong in this partition (check 2

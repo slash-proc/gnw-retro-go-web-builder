@@ -191,7 +191,7 @@
   // --- Bank inference (req. 0/1) ---------------------------------------------------
   const bank1 = $derived(device.banks.find((b) => b.index === 1));
   const bank2 = $derived(device.banks.find((b) => b.index === 2));
-  const retroGoBank = $derived(device.banks.find((b) => b.retroGoVersion));
+  const retroGoBank = $derived(device.banks.find((b) => b.retroGoVersion || b.type === "Retro-Go"));
   const installedVersion = $derived(retroGoBank?.retroGoVersion);
   const retroGoBankIndex = $derived(retroGoBank?.index);
   const bank1StockOfw = $derived(bank1?.ofw && !bank1.ofw.patched ? bank1.ofw : undefined);
@@ -210,16 +210,8 @@
   const hasRetroGoAnywhere = $derived(retroGoBankIndex !== undefined);
   const deviceHasRetroGoInstalled = $derived(hasRetroGoAnywhere);
 
-  let bankUserOverride = $state<1 | 2 | null>(null); // set only via the "change bank" picker
-  const inferredBank = $derived.by((): 1 | 2 => {
-    if (retroGoBankIndex === 1 || retroGoBankIndex === 2) return retroGoBankIndex; // follow retro-go
-    // Any OFW in bank 1, stock or patched. Patched means dual-boot, which is a statement that
-    // bank 2 is where Retro-Go lives -- it is not a reason to treat bank 1 as free.
-    if (bank1AnyOfw) return 2;
-    return 1; // bank1 has no official firmware at all (empty/unknown) → retro-go-only install
-  });
-  const bank = $derived(bankUserOverride ?? inferredBank);
-  const retroGoOnlyInstall = $derived(inferredBank === 1 && !bank1StockOfw && !hasRetroGoAnywhere);
+  const bank = 2 as const;
+  const retroGoOnlyInstall = $derived(!bank1AnyOfw && !hasRetroGoAnywhere);
 
   // Migration-detection basis (classify.ts's installOrigin): a soft, non-blocking heads-up when
   // the device's ACTUAL installed build (Flash vs SD, from the LittleFS/layout-superblock probe)
@@ -1060,22 +1052,10 @@
       </div>
     {/if}
 
-    <!-- Bank selector — same bank visualization as the Overview tab (BankCard.svelte), made
-         clickable: the selected bank is highlighted, the other dims, so the choice reads
-         clearly at a glance instead of a plain <select>. Front-and-center, right after the
-         version — this is the main decision an install makes. -->
-    <!-- Firmware.dc.html:119-141 — a `Target` label over the two cards, and each card carries
-         its own sub-caption (`Replaces stock` / `Dual boot`) instead of one composed sentence
-         below both. -->
     <div class="targetgroup">
     <span class="field-label">{locale.t.romSection.bankTargetLabel}</span>
     <div class="bank-picker">
-      <BankCard bankNum={1} segs={bank1Segs} selectable selected={bank === 1} onSelect={() => (bankUserOverride = 1)}>
-        {#snippet footer()}<span class="bank-sub">{locale.t.romSection.bankReplacesStock}</span>{/snippet}
-      </BankCard>
-      <BankCard bankNum={2} segs={bank2Segs} selectable selected={bank === 2} onSelect={() => (bankUserOverride = 2)}>
-        {#snippet footer()}<span class="bank-sub">{locale.t.romSection.bankDualBoot}</span>{/snippet}
-      </BankCard>
+      <BankCard bankNum={2} segs={bank2Segs} selected />
     </div>
     <!-- These three notices annotate the target choice directly above them. No artboard draws
          them, so they are not a group in the artboard's 32px body rhythm; they live INSIDE the
@@ -1084,7 +1064,7 @@
       <p class="notice">
         {locale.t.romSection.retroGoOnlyNotice}
       </p>
-    {:else if bank === 2 && bank1StockOfw}
+    {:else if bank1AnyOfw}
       <p class="notice warn">
         {locale.t.romSection.bank1StockOfwNotice}
       </p>

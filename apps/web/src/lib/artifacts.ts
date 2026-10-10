@@ -70,9 +70,7 @@ type ContentKey = "bank1" | "bank2" | "sd_bank1" | "sd_bank2";
 
 /** The four (storage, bank) pairs, in the order they appear on `FirmwareBundle.blobs`. */
 const COMBOS: { key: ContentKey; storage: "flash" | "sd"; bank: 1 | 2 }[] = [
-  { key: "bank1", storage: "flash", bank: 1 },
   { key: "bank2", storage: "flash", bank: 2 },
-  { key: "sd_bank1", storage: "sd", bank: 1 },
   { key: "sd_bank2", storage: "sd", bank: 2 },
 ];
 
@@ -161,7 +159,8 @@ export async function fetchUpdateArchive(tag: string, bank: 1 | 2, deps?: Bundle
   const entry = findVersion(versions, tag);
   if (!entry) throw new Error(`no published firmware release tagged "${tag}"`);
   const manifest = await manifestOnce(entry, deps?.fetchImpl);
-  const asset = manifest.updates[`bank${bank}`];
+  if (bank !== 2) throw new Error("Retro-Go firmware updates are only published for bank 2");
+  const asset = manifest.updates.bank2;
   const response = await (deps?.fetchZip ?? ((u: string) => fetch(u)))(asset.url);
   if (!response.ok) throw new Error(`firmware update download failed (${response.status})`);
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -344,8 +343,8 @@ export async function fetchBundle(
     const b = findBuild(manifest, c.storage, c.bank);
     if (b) builds.set(c.key, b);
   }
-  if (!builds.has("bank1") || !builds.has("bank2")) {
-    throw new Error(`"${tag}" does not publish both internal-flash bank builds — pick another build.`);
+  if (!builds.has("bank2")) {
+    throw new Error(`"${tag}" does not publish a bank-2 firmware build — pick another build.`);
   }
 
   const total = [...builds.values()].reduce((s, b) => s + b.bundle.bytes, 0);
@@ -368,10 +367,8 @@ export async function fetchBundle(
     const got = await extractBundle(build, buf);
     if (!got.ok) throw refusalError(got);
 
-    if (key === "bank1") blobs[1] = got.image.bytes;
-    else if (key === "bank2") blobs[2] = got.image.bytes;
-    else if (key === "sd_bank1") blobs.sd_1 = got.image.bytes;
-    else blobs.sd_2 = got.image.bytes;
+    if (key === "bank2") blobs[2] = got.image.bytes;
+    else if (key === "sd_bank2") blobs.sd_2 = got.image.bytes;
 
     const tree = new Map<string, Uint8Array>();
     // `install` (where it lands on the device), never `path` (where it sat in the zip) — the

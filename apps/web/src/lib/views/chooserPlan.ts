@@ -91,9 +91,7 @@ export type SpineId =
   | "sources"
   | "roms"
   | "select-backup"
-  | "restore"
-  | "remove-rgo"
-  | "remove-bank2";
+  | "restore";
 
 /**
  * The steps a path produces.
@@ -104,12 +102,11 @@ export type SpineId =
  * underneath them. The preview column is the one place it IS derived live, because nobody is
  * standing on a plan they have not chosen yet.
  */
-export function spineFor(path: ChooserCard, showBackupStep: boolean, removeBank2 = false): SpineId[] {
-  if (path === "stock") return ["select-backup", "restore", "remove-rgo"];
+export function spineFor(path: ChooserCard, showBackupStep: boolean): SpineId[] {
+  if (path === "stock") return ["select-backup", "restore"];
   return [
     ...(showBackupStep ? (path === "dual" ? (["backup", "patch"] as SpineId[]) : (["backup"] as SpineId[])) : []),
     "install",
-    ...(removeBank2 ? (["remove-bank2"] as SpineId[]) : []),
     "sources",
     "roms",
   ];
@@ -119,9 +116,9 @@ export function spineFor(path: ChooserCard, showBackupStep: boolean, removeBank2
  * Whether the plan for `path` includes a backup stage.
  *
  * The dual-boot path can NEVER drop it: the patch is computed FROM the dumped stock image, so
- * there is nothing to patch without the dump. Retro-Go always shows the backup stage, where it
- * is optional because the user may knowingly proceed without a recoverable stock copy.
+ * there is nothing to patch without the dump. Retro-Go shows the backup stage only when it is
+ * replacing stock firmware and no verified backup exists.
  */
-export function includesBackupStage(path: ChooserCard): boolean {
-  return path === "dual" || path === "rgo";
+export function includesBackupStage(path: ChooserCard, rgoNeedsBackup = true): boolean {
+  return path === "dual" || (path === "rgo" && rgoNeedsBackup);
 }

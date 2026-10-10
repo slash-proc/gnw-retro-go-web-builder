@@ -199,7 +199,8 @@ export interface FirmwareManifest {
   languages: string[];
   builds: FirmwareBuild[];
   /** Bank-specific complete SD updater archives. Required by the current manifest contract. */
-  updates: { bank1: RemoteAsset; bank2: RemoteAsset };
+  /** Older custom feeds may retain a bank1 updater; official releases publish bank2 only. */
+  updates: { bank1?: RemoteAsset; bank2: RemoteAsset };
   builtAt: string;
   /** The curated core/homebrew list, published beside this manifest. */
   projects?: RemoteAsset;

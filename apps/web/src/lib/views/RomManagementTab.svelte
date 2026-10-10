@@ -99,7 +99,6 @@ import { buildLogicalInstallPlan } from "../sources/logicalInstallPlan.js";
   import { dbg, dbgLog } from "../debug.js";
   import { auditLog } from "../auditLog.svelte.js";
   import { literal } from "../logEntry.js";
-  import { readInstallMarker } from "../firmwareDist/installMarker.js";
   import { diffFrogfs, movedCategories } from "../frogfsDiff.js";
   import type { FlashAssemblyPlan } from "@gnw/fs-builders";
   import { listVersions, fetchBundle, fetchUpdateArchive, type FirmwareVersion } from "../artifacts.js";
@@ -2967,30 +2966,10 @@ import { navigate } from "../nav.js";
       });
   });
 
-  // Only relevant for bank2 installs (OFW in bank1, Retro-Go in bank2).
-  const isBank2Install = $derived(device.banks.some((b) => b.index === 2 && !!b.retroGoVersion));
-  // Which bank's content tree to pull cores/homebrew from. Cores call back into firmware
-  // at bank-specific absolute addresses, so this must track where Retro-Go actually lives
-  // — the wrong tree hardfaults on the first core callback, it doesn't merely degrade.
-  const installBank = $derived<1 | 2>(isBank2Install ? 2 : 1);
-  // SD cards without a valid /data/INSTALL marker need an explicit target bank.
-  let selectedSdBank = $state<1 | 2>(1);
-  let installedSdBank = $state<1 | 2 | null>(null);
-  $effect(() => {
-    const handle = device.sdHandle;
-    if (!handle || device.targetMedia !== "sd") { installedSdBank = null; return; }
-    (async () => {
-      try {
-        let dir: any = handle;
-        for (const part of ["data"]) dir = await dir.getDirectoryHandle(part);
-        const file = await (await dir.getFileHandle("INSTALL")).getFile();
-        const marker = readInstallMarker(new Uint8Array(await file.arrayBuffer()));
-        installedSdBank = marker?.bank ?? null;
-        if (marker) selectedSdBank = marker.bank;
-      } catch { installedSdBank = null; }
-    })();
-  });
-  const syncBank = $derived<1 | 2>(device.targetMedia === "sd" ? selectedSdBank : installBank);
+  // Release firmware and its cores are linked for bank 2. Legacy bank-1 installs are detected
+  // separately and migrate through Guided Setup; they do not change this target.
+  const installBank = 2 as const;
+  const syncBank = 2 as const;
 
   // Sub-steps for the two system-level items (Cores, Firmware Update) only appear in the
   // checklist at all when their corresponding checkbox is actually on — otherwise they're
@@ -4513,7 +4492,7 @@ import { navigate } from "../nav.js";
         report.subStart("write", "fw-update");
         if (sdUpdateArchive) {
           report.log("write", msg((t) => t.roms.sdSync.logWritingFwUpdate, sdUpdateArchive.length), "fw-update");
-          await saveFileToDirOrDownload(sdHandle, `retro-go_update-bank${syncBank}.bin`, sdUpdateArchive);
+          await saveFileToDirOrDownload(sdHandle, "retro-go_update.bin", sdUpdateArchive);
         } else {
           report.log("write", msg((t) => t.roms.sdSync.logFwUpdateSkipped), "fw-update");
         }
@@ -4526,7 +4505,7 @@ import { navigate } from "../nav.js";
       for (const [path, data] of sdContent) zip.file(path, data);
       for (const [key, data] of [...changedGames, ...changedCovers, ...changedCheats]) zip.file(toSdPath(key), data);
       if (syncCores && sdUpdateArchive) {
-        zip.file(`retro-go_update-bank${syncBank}.bin`, sdUpdateArchive);
+        zip.file("retro-go_update.bin", sdUpdateArchive);
       }
       // Phase-level (no substepId): this Firefox branch writes no per-file substeps at all,
       // and InstallProgressModal draws the phase bar unconditionally. JSZip's percent is
@@ -5605,13 +5584,7 @@ import { navigate } from "../nav.js";
                               <span>{locale.t.roms.sdSync.upgradeLabelPre}</span>
                             </label>
                             <div class="upgrade-card-options">
-                              <label class="upgrade-option">
-                                <span class="upgrade-option-label">Target bank</span>
-                                <select class="mono core-version-select" aria-label="SD bank" bind:value={selectedSdBank}>
-                                <option value={1}>Bank 1{installedSdBank === 1 ? " (installed)" : ""}</option>
-                                <option value={2}>Bank 2{installedSdBank === 2 ? " (installed)" : ""}</option>
-                                </select>
-                              </label>
+                              <span class="upgrade-option-label">Target: bank 2</span>
                               {#if coreVersions.length > 0}
                                 <label class="upgrade-option">
                                   <span class="upgrade-option-label">Release</span>

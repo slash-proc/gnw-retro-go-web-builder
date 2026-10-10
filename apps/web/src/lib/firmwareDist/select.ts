@@ -1,8 +1,8 @@
 /**
- * Choosing one of a release's four builds — and refusing rather than guessing.
+ * Choosing a release build. Retro-Go firmware is only supported in bank 2.
  *
- * Contract: `docs/FIRMWARE_DIST.md` in game-and-watch-retro-go-sd, sections "Choosing a
- * build" and "Compatibility". The two axes are `storage` (`sd`/`flash`) and `bank` (`1`/`2`);
+ * Contract: `docs/FIRMWARE_DIST.md` in game-and-watch-retro-go-sd. The axes are `storage`
+ * (`sd`/`flash`) and `bank`; current official firmware publishes bank 2 only.
  * `findBuild()` in `parse.ts` does the lookup and returns `undefined` rather than guessing.
  * This module is the layer above it: it turns "no answer" into a NAMED outcome the UI can
  * branch on, and it adds the two checks the doc says an installer must make before it is
@@ -50,7 +50,7 @@ import type {
 export type BuildRefusalReason =
   | "storage-unavailable"
   | "bank-unavailable"
-  | "bank1-dual-boot"
+  | "bank1-unsupported"
   | "abi-offset-unsupported"
   | "abi-mismatch";
 
@@ -74,10 +74,10 @@ export interface BankUnavailableRefusal extends RefusalBase {
 }
 
 export interface Bank1DualBootRefusal extends RefusalBase {
-  reason: "bank1-dual-boot";
-  /** The build that WOULD have been installed, so a caller can name it. */
-  build: FirmwareBuild;
-  /** The safe alternative, when the release publishes one. */
+  reason: "bank1-unsupported";
+  /** Legacy releases may still contain this build. */
+  build: FirmwareBuild | undefined;
+  /** The only supported target, when the release publishes one. */
   bank2Build: FirmwareBuild | undefined;
 }
 
@@ -177,6 +177,16 @@ export function verifyImageAbi(
 export function selectBuild(manifest: FirmwareManifest, ctx: DeviceBuildContext): BuildSelection {
   const requested = { storage: ctx.storage, bank: ctx.bank };
 
+  if (ctx.bank === 1) {
+    return {
+      ok: false,
+      reason: "bank1-unsupported",
+      requested,
+      build: findBuild(manifest, ctx.storage, 1),
+      bank2Build: findBuild(manifest, ctx.storage, 2),
+    };
+  }
+
   const build = findBuild(manifest, ctx.storage, ctx.bank);
   if (!build) {
     const banks = banksFor(manifest, ctx.storage);
@@ -184,16 +194,6 @@ export function selectBuild(manifest: FirmwareManifest, ctx: DeviceBuildContext)
       return { ok: false, reason: "storage-unavailable", requested, availableStorage: availableStorage(manifest) };
     }
     return { ok: false, reason: "bank-unavailable", requested, availableBanks: banks };
-  }
-
-  if (ctx.bank === 1 && ctx.dualBootBootloader) {
-    return {
-      ok: false,
-      reason: "bank1-dual-boot",
-      requested,
-      build,
-      bank2Build: findBuild(manifest, ctx.storage, 2),
-    };
   }
 
   if (ctx.image) {

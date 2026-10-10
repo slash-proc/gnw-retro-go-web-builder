@@ -16,8 +16,8 @@ device.model = model;
 // this harness (screenshotting only, not shipped) still renders the requested firmware.
 device.deviceClass =
   fw === "retro-go"
-    ? { kind: "retrogo-sd", label: "Retro-Go", ofw: null, hasGames: true, hasSaves: true, installBanks: [1] }
-    : { kind: "stock", model, label: `Stock ${model}`, ofw: { model, patched: false }, hasGames: false, hasSaves: false, installBanks: [1, 2] };
+    ? { kind: "retrogo-sd", label: "Retro-Go", ofw: null, hasGames: true, hasSaves: true, installBanks: [2] }
+    : { kind: "stock", model, label: `Stock ${model}`, ofw: { model, patched: false }, hasGames: false, hasSaves: false, installBanks: [2] };
 device.locked = false;
 device.extSizeMB = model === "zelda" ? 4 : 1;
 device.probeName = "ST-Link/V2J37";

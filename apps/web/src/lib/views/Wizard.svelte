@@ -22,6 +22,7 @@
   import { curatedProjects } from "../firmwareDist/curated.js";
   import { dbgLog } from "../debug.js";
   import { isStubAlive, dumpRegion, flashImage } from "../engine/flasher.js";
+  import { flashStandaloneBootloader } from "../engine/bootloader.js";
   import { raceWithFallback } from "../engine/timeout.js";
   import { saveFileToDirOrDownload, nativeFolderPickerSupported, pickSdCardFolder } from "../romScan.js";
   import { download, formatNumber } from "../util.js";
@@ -133,13 +134,12 @@
   // example, a FrogFS/LittleFS partition left behind after an incomplete flash).
   // That is not evidence that a bootable Retro-Go image is installed.  Guided Setup
   // must only offer Reinstall after the internal-flash scan found the Retro-Go
-  // signature *and* a version in a sane bank record; unknown-data banks deliberately
-  // remain eligible for Install.
+  // signature in either bank; a version is optional for legacy images. Unknown-data
+  // banks deliberately remain eligible for Install.
   const isInstalled = $derived(
     !!device.deviceClass &&
       (device.deviceClass.kind === "retrogo-sd" || device.deviceClass.kind === "retrogo-old") &&
-      device.banks.some((b) => b.index === (path === "dual" ? 2 : 1) &&
-        b.type === "Retro-Go" && /^v\d/.test(b.retroGoVersion ?? "")),
+      device.banks.some((b) => b.type === "Retro-Go"),
   );
 
   const isBroken = $derived(
@@ -230,10 +230,8 @@
   // The Retro-Go-only half is LATCHED when the path is chosen, so a live file rescan cannot
   // delete the step the user is standing on and renumber the spine underneath them.
   let rgoNeedsBackup = $state(false);
-  let rgoNeedsBank2Cleanup = $state(false);
-  let bank2CleanupDone = $state(false);
   const showBackupStep = $derived(path === "dual" || (path === "rgo" && rgoNeedsBackup));
-  const canSkipBackup = $derived(path === "rgo");
+  const canSkipBackup = $derived(false);
   let skipExpanded = $state(false);
   let backupSourceChoices = $state<Array<{ id: string; dir: BackupDir; backup: FoundBackup }>>([]);
   let backupSourceChoiceId = $state("");
@@ -791,7 +789,7 @@
   );
 
   // Step 2: Install Retro-Go
-  let step2Active = $derived((path === "dual" ? patchStepDone : step1Skipped || backupStepDone) && !isInstalled);
+  let step2Active = $derived((path === "dual" ? patchStepDone : (!rgoNeedsBackup || backupStepDone)) && !isInstalled);
   let step2Done = $derived(isInstalled);
 
   // The whole index, not just the newest tag: `versionRelation` orders by POSITION in this
@@ -1014,7 +1012,10 @@
       // The intflash write is NOT unreported for it: its bytes go to the PHASE-level counter
       // instead (see runStep2's flash callback), which is what draws the phase row's own
       // percent and bar in docs/design/mockups/GuidedFlashing.dc.html.
-      substeps: flashRegionsForPhase.filter((r) => r !== "intflash").map((r) => ({ id: r, label: REGION_LABELS[r] })),
+      substeps: [
+        ...flashRegionsForPhase.filter((r) => r !== "intflash").map((r) => ({ id: r, label: REGION_LABELS[r] })),
+        ...(path === "rgo" ? [{ id: "bootloader", label: locale.t.firmwareSetup.installBootloaderLabel }] : []),
+      ],
     },
     { id: "rescan", label: locale.t.wizard.step2.phaseRescan },
     ...(device.targetMedia === "sd" ? [{ id: "sd-sync", label: locale.t.wizard.step2.phaseSyncSdCores }] : []),
@@ -1027,7 +1028,7 @@
     // case buildFlashInstall falls back to its own cores+headroom sizing.
     // Retro-Go Only overwrites stock firmware and therefore owns extflash from offset 0.
     // Dual Boot must preserve the scanned OFW/assets reservation.
-    const reservedOffset = path === "rgo" ? 0 : chosenReserved;
+    const reservedOffset = chosenReserved;
 
     const userRoms = new Map<string, Uint8Array>();
     const lfsData = new Map<string, Uint8Array>();
@@ -1161,7 +1162,7 @@
     report.subStart("build", device.targetMedia === "sd" ? "sdcache" : "frogfs");
     const install = await buildFlashInstall({
       bundle,
-      bank: path === "rgo" ? 1 : 2,
+      bank: 2,
       extflashSize: device.extFlashBytes,
       blockSize,
       reservedOffset,
@@ -1221,8 +1222,8 @@
         // recover from a stall must never re-prompt, but this is invoked per chunk so it must
         // still reuse the live cached stub whenever possible rather than resetting the device
         // on every call.
-        (progressReport, signal) =>
-          flashInstallToDevice(
+        async (progressReport, signal) => {
+          await flashInstallToDevice(
             (force) => device.ensureStub(undefined, force, true, force),
             install,
             progressReport as any,
@@ -1233,7 +1234,21 @@
               else report.subFinish("flash", region);
             },
             signal,
-          ),
+          );
+          if (path === "rgo") {
+            report.subStart("flash", "bootloader");
+            await flashStandaloneBootloader(
+              (force) => device.ensureStub(undefined, force, true, force),
+              (done, total) => {
+                progressReport("bootloader", done, total);
+                report.progress("flash", done, total, "bootloader", "bytes");
+              },
+              dbgLog("flash-bootloader", (line) => report.log("flash", line)),
+              signal,
+            );
+            report.subFinish("flash", "bootloader");
+          }
+        },
         // Matches the sibling withTimeout call above (already bumped to 120000) and the
         // flasher's own internal no-progress watchdog — this was left at 30000 and would have
         // fired BEFORE the inner watchdog ever got a chance, on any transfer slower than 30s.
@@ -1242,7 +1257,7 @@
           // intflash has no sub-step row (see step2Phases) — report it at phase level, which
           // the modal draws as the phase's own percent + bar. Every other region reports into
           // its own declared sub-step row.
-          const region = phase as FlashRegion;
+          const region = phase as FlashRegion | "bootloader";
           report.progress("flash", d, t, region === "intflash" ? undefined : region, "bytes");
         }
       );
@@ -1287,61 +1302,12 @@
     }
   }
 
-  const bank2CleanupPhases: PhaseDef[] = [
-    { id: "erase-bank2", label: locale.t.eraseSection.phaseErase },
-    { id: "rescan-bank2", label: locale.t.eraseSection.phaseRescan },
-  ];
-
-  async function runBank2Cleanup(report: PhaseReporter) {
-    await device.ensureUnlocked();
-    await device.ensureStub();
-    const data = new Uint8Array(0x40000).fill(0xff);
-    report.start("erase-bank2");
-    device.suspendPoll();
-    try {
-      await flashImage(
-        (force) => device.ensureStub(undefined, force, true),
-        2,
-        0,
-        data,
-        (done, total) => report.progress("erase-bank2", done, total, undefined, "bytes"),
-        dbgLog("guided-bank2-erase", (line) => report.log("erase-bank2", line)),
-        { compress: true, verify: false, abortSignal: report.signal },
-      );
-    } finally {
-      device.resumePoll();
-    }
-    report.finish("erase-bank2");
-    report.start("rescan-bank2");
-    await device.runScan("guided bank 2 cleanup", { forceGeometry: true });
-    report.finish("rescan-bank2");
-  }
-
-  function openBank2Cleanup() {
-    void installProgress.run({
-      title: w.spine.removeRetroGo,
-      body: locale.t.eraseSection.modalBody(false),
-      danger: true,
-      confirmText: locale.t.eraseSection.modalConfirmText,
-      phases: bank2CleanupPhases,
-      exec: async (report) => {
-        await runBank2Cleanup(report);
-        bank2CleanupDone = true;
-      },
-    });
-  }
-
   // Step 3: Install ROMs
   let step3Active = $derived(isInstalled);
 
   // ── "Return to Stock" spine ───────────────────────────────────────────────
-  // Two steps, not three: pick a backup, then write it back. "Remove Retro-Go" is NOT a
-  // separate step because the restore already is its removal — writing the stock 128 KiB
-  // image to bank 1 offset 0 puts the original reset vector back at 0x08000000, which is
-  // the thing that makes Retro-Go run. Erasing the rest of a (possibly 16 MB) external chip
-  // afterwards would add a long second destructive write pass that changes nothing the stock
-  // firmware can observe, so we don't offer it. See engine/ofw.ts's restoreStock() for the
-  // full list of what is deliberately left in place.
+  // Pick a backup, restore stock OFW, then erase Retro-Go from bank 2. The bootloader can stay
+  // in bank 1 because stock OFW at 0x08000000 takes precedence and the loader is unnecessary.
   let restoreBackup = $state<FoundBackup | null>(null);
   let restoreBackups = $state<FoundBackup[]>([]);
   let restoreModelChoice = $state<"mario" | "zelda">("zelda");
@@ -1420,11 +1386,11 @@
     restoreBackups.filter((backup) => backup.internalOk && backup.externalOk).length > 1,
   );
 
-  // Only the two writes plus a rescan: unlike the patch flow there is nothing to compute, so
-  // there is no "patch" phase to advertise.
+  // Restore stock, clear the bank-2 Retro-Go image, then rescan.
   const restorePhases: PhaseDef[] = [
     { id: "flash-internal", label: locale.t.wizard.step1.phaseFlashInternal },
     { id: "flash-external", label: locale.t.wizard.step1.phaseFlashExternal },
+    { id: "erase-bank2", label: locale.t.eraseSection.phaseErase },
     { id: "rescan", label: locale.t.wizard.step1.phaseRescan },
   ];
 
@@ -1501,7 +1467,22 @@
           progressReport as any,
           signal,
           device.extFlashBytes,
-        ),
+        ).then(async () => {
+          if (signal?.aborted) throw new Error("Operation aborted");
+          report.start("erase-bank2");
+          const erased = new Uint8Array(0x40000).fill(0xff);
+          await flashImage(
+            (force) => device.ensureStub(undefined, force, true),
+            2, 0, erased,
+            (done, total) => {
+              progressReport(done, total, { value: done, max: total, label: "erase Retro-Go → bank 2" });
+              report.progress("erase-bank2", done, total, undefined, "bytes");
+            },
+            dbgLog("guided-restore-bank2-erase", (line) => report.log("erase-bank2", line)),
+            { compress: true, verify: false, abortSignal: signal },
+          );
+          report.finish("erase-bank2");
+        }),
         // Must stay >= engine/flasher.ts's own 120s no-progress watchdog, or this outer guard
         // fires first and false-aborts a slow but healthy transfer.
         120000,
@@ -1516,6 +1497,8 @@
               report.start("flash-external");
             }
             report.progress("flash-external", sub.value, sub.max);
+          } else if (sub?.label === "erase Retro-Go → bank 2") {
+            report.progress("erase-bank2", sub.value, sub.max, undefined, "bytes");
           }
         },
       );
@@ -1533,7 +1516,7 @@
 
   // ── Spine composition ─────────────────────────────────────────────────────
   const spine = $derived<SpineId[]>(
-    path === null ? [] : spineFor(path, showBackupStep, path === "rgo" && rgoNeedsBank2Cleanup),
+    path === null ? [] : spineFor(path, showBackupStep),
   );
 
   // ── The preview column ────────────────────────────────────────────────────
@@ -1565,8 +1548,9 @@
       ? []
       : spineFor(
           previewPath,
-          includesBackupStage(previewPath),
-          previewPath === "rgo" && device.banks.some((b) => b.index === 2 && b.retroGoVersion),
+          includesBackupStage(previewPath,
+          (device.deviceClass?.kind === "stock" || !!device.banks.find((b) => b.index === 1)?.ofw ||
+            device.deviceClass?.kind === "locked") && !backupPresent),
         ),
   );
 
@@ -1595,10 +1579,6 @@
         return w.spine.selectBackup;
       case "restore":
         return w.spine.restoreOriginal;
-      case "remove-rgo":
-        return w.spine.removeRetroGo;
-      case "remove-bank2":
-        return w.spine.removeRetroGo;
     }
   }
 
@@ -1607,12 +1587,12 @@
     backupModelOverride = null;
     step1Skipped = false;
     skipExpanded = false;
-    // Latch here (see `rgoNeedsBackup`): the Retro-Go-only backup step is always present and
-    // optional. Taking a backup must not remove the step while the user is interacting with it.
-    rgoNeedsBackup = p === "rgo" && includesBackupStage(p);
+    // Only back up when replacing stock OFW in bank 1 and no verified backup exists.
+    // A legacy Retro-Go image in bank 1 remains recognized; upgrades write the new image to bank 2.
+    rgoNeedsBackup = p === "rgo" &&
+      (!!device.banks.find((b) => b.index === 1)?.ofw || device.deviceClass?.kind === "locked") &&
+      !backupPresent;
     skipBackupAcknowledged = false;
-    rgoNeedsBank2Cleanup = p === "rgo" && device.banks.some((b) => b.index === 2 && b.retroGoVersion);
-    bank2CleanupDone = false;
     // The wizard can stay mounted while another tab is active. Rescan on entry to the guided
     // flow so a file deleted since the previous visit cannot leave a stale green status.
     void (async () => {
@@ -1739,8 +1719,7 @@
               {@const stepDone =
                 (id === "backup" && backupStepDone) || (id === "patch" && patchStepDone) ||
                 (id === "install" && step2Done) || (id === "restore" && restoreDone) ||
-                (id === "sources" && curatedReady) || (id === "select-backup" && restoreValid) ||
-                (id === "remove-bank2" && bank2CleanupDone)}
+                (id === "sources" && curatedReady) || (id === "select-backup" && restoreValid)}
               {@const stepActive =
                 !stepDone &&
                 ((id === "backup" && backupStepActive) ||
@@ -1748,10 +1727,9 @@
                   (id === "install" && step2Active) ||
                   (id === "roms" && step3Active) ||
                   id === "sources" ||
-                  (id === "remove-bank2" && !bank2CleanupDone) ||
                   (id === "select-backup" && !restoreDone) ||
                   (id === "restore" && restoreValid && !restoreDone))}
-              {@const stepOptional = id === "sources" || id === "remove-rgo" || (id === "backup" && path === "rgo")}
+              {@const stepOptional = id === "sources"}
               <div class="wizard-step" class:active={stepActive} class:done={stepDone}>
                 <div class="rail">
                   <span class="step-num">
@@ -1867,15 +1845,6 @@
                         {#if latestVersion}<span class="version">{cleanTag(latestVersion)} {w.step2.versionLatest}</span>{/if}
                       </div>
                     {/if}
-
-              {:else if id === "remove-bank2"}
-                {#if bank2CleanupDone}
-                  <Button variant="quiet" disabled>Erase Bank 2</Button>
-                {:else}
-                  <Button variant="action" disabled={!device.isConnected} onclick={openBank2Cleanup}>
-                    Erase Bank 2
-                  </Button>
-                {/if}
 
               {:else if id === "sources"}
                     <Button variant="quiet" onclick={() => (sourcesModalOpen = true)}>{w.spine.sourcesButtonLabel}</Button>

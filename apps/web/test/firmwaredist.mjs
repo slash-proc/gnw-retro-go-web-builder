@@ -108,6 +108,7 @@ const readFixture = (name) => JSON.parse(readFileSync(join(fixtures, name), "utf
 const rawVersions = readFixture("versions.json");
 const rawManifest = readFixture("manifest.json");
 const rawProjects = readFixture("projects.json");
+const sylverbManifestFixture = readFixture("sylverb-rc1-manifest.json");
 rawManifest.updates = { bank1: { bytes: 1, sha256: "a".repeat(64), url: "retro-go_update-bank1.bin" }, bank2: { bytes: 1, sha256: "b".repeat(64), url: "retro-go_update-bank2.bin" } };
 
 // The real published locations. `manifest.json` lives in a `v<tag>/` SUBDIRECTORY of the one
@@ -118,6 +119,17 @@ const VERSIONS_URL =
 // --- versions.json --------------------------------------------------------------------
 
 const versions = fd.parseVersions(rawVersions, VERSIONS_URL);
+
+check("Sylverb's currently published RC manifest is bank-2-only", () => {
+  const parsed = fd.parseManifest(
+    sylverbManifestFixture,
+    "https://sylverb.github.io/game-and-watch-retro-go-sd/dist/v2.0.0-rc1/manifest.json",
+  );
+  eq(parsed.builds.length, 2, "two storage builds");
+  ok(parsed.builds.every((b) => b.bank === 2), "no bank-1 firmware build is published");
+  eq(parsed.updates.bank1, undefined, "no bank-1 updater");
+  eq(parsed.updates.bank2.url, "https://sylverb.github.io/game-and-watch-retro-go-sd/dist/v2.0.0-rc1/retro-go_update.bin", "bank-2 updater URL");
+});
 
 check("versions.json parses against the real fixture", () => {
   eq(versions.schemaVersion, 1, "schemaVersion");
@@ -507,10 +519,15 @@ function synthImage(abi, { offset = 0x400, pointers = true } = {}) {
 
 const noBootloader = { dualBootBootloader: false };
 
-check("each of the four published builds is selectable by its storage+bank", () => {
+check("bank-2 builds are selectable and every bank-1 build is refused", () => {
   eq(manifest.builds.length, 4, "the fixture is the four-build run");
   for (const b of manifest.builds) {
     const sel = fd.selectBuild(manifest, { storage: b.storage, bank: b.bank, ...noBootloader });
+    if (b.bank === 1) {
+      eq(sel.ok, false, `${b.id}: bank 1 is never an install target`);
+      eq(sel.reason, "bank1-unsupported", `${b.id}: refusal reason`);
+      continue;
+    }
     ok(sel.ok, `${b.id}: refused (${sel.reason})`);
     eq(sel.build.id, b.id, `${b.id}: wrong build chosen`);
     eq(sel.build.storage, b.storage, `${b.id}: storage`);
@@ -519,7 +536,7 @@ check("each of the four published builds is selectable by its storage+bank", () 
     eq(sel.abiVerified, false, `${b.id}: nothing was verified without image bytes`);
     eq(sel.abi.version, MANIFEST_ABI.version, `${b.id}: advisory abi version`);
   }
-  eq(new Set(manifest.builds.map((b) => b.id)).size, 4, "the four ids are distinct");
+  eq(new Set(manifest.builds.map((b) => b.id)).size, 4, "the ids are distinct");
 });
 
 check("a storage with no published build refuses distinguishably", () => {
@@ -533,19 +550,17 @@ check("a storage with no published build refuses distinguishably", () => {
   ok(!sel.availableStorage.includes("flash"), "…and does not claim flash");
   // Distinguishable: a missing BANK is a different outcome, not the same refusal.
   const bank = fd.selectBuild(
-    { ...manifest, builds: manifest.builds.filter((b) => b.bank === 2) },
-    { storage: "sd", bank: 1, ...noBootloader },
+    { ...manifest, builds: manifest.builds.filter((b) => b.bank === 1) },
+    { storage: "sd", bank: 2, ...noBootloader },
   );
   eq(bank.reason, "bank-unavailable", "a missing bank is its own reason");
-  ok(bank.availableBanks.includes(2), "…and names the bank that exists");
+  ok(bank.availableBanks.includes(1), "…and names the bank that exists");
 });
 
-check("bank 1 under the dual-boot bootloader refuses; bank 2 does not", () => {
-  // boot_bank2() spins forever when bank 2 holds no valid reset vector
-  // (external/firmware_update/Core/Src/firmware_update.c:97-114).
+check("bank 1 is refused regardless of the bank-1 image; bank 2 remains available", () => {
   const one = fd.selectBuild(manifest, { storage: "sd", bank: 1, dualBootBootloader: true });
-  eq(one.ok, false, "bank 1 under the dual-boot bootloader must refuse");
-  eq(one.reason, "bank1-dual-boot", "reason");
+  eq(one.ok, false, "bank 1 must refuse");
+  eq(one.reason, "bank1-unsupported", "reason");
   eq(one.build.id, "sd-bank1", "it names the build it refused to install");
   eq(one.bank2Build?.bank, 2, "…and points at the safe alternative");
 
@@ -553,9 +568,10 @@ check("bank 1 under the dual-boot bootloader refuses; bank 2 does not", () => {
   ok(two.ok, "bank 2 is the normal choice under that bootloader");
   eq(two.build.id, "sd-bank2", "bank 2 build");
 
-  // Without the bootloader, bank 1 is a legitimate (stock-replacing) install.
+  // A legacy manifest may still advertise bank 1, but the app must not offer it.
   const stock = fd.selectBuild(manifest, { storage: "sd", bank: 1, ...noBootloader });
-  ok(stock.ok, "bank 1 on a device with no dual-boot bootloader is allowed");
+  eq(stock.ok, false, "bank 1 on a device without a bootloader is also refused");
+  eq(stock.reason, "bank1-unsupported", "same policy for all device states");
 });
 
 check("the image's own ABI words are what count, not the manifest's", () => {

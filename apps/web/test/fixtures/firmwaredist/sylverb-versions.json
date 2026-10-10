@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "project": "retro-go-sd",
+  "title": "Retro-Go SD",
+  "repo": "sylverb/game-and-watch-retro-go-sd",
+  "releasesUrl": "https://github.com/sylverb/game-and-watch-retro-go-sd/releases",
+  "retained": 5,
+  "versions": [
+    {
+      "tag": "v2.0.0-rc1",
+      "manifest": "v2.0.0-rc1/manifest.json",
+      "publishedAt": "2026-10-07T08:30:38Z",
+      "prerelease": true,
+      "gitTag": "Retro-Go SD v2.0.0-rc1",
+      "providesAbi": {
+        "version": 2,
+        "size": 908
+      },
+      "coreMetaVersion": 3
+    }
+  ]
+}

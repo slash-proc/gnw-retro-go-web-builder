@@ -39,6 +39,13 @@
   flash to the device. To bump it: download the new asset here and update the
   version + hash above.
 
+- **`gnw_bootloader.bin`** — SylverB's standalone SD bootloader, release **v1.0.8**
+  of `sylverb/game-and-watch-bootloader`, asset `gnw_bootloader.bin` (50,232 bytes,
+  sha256 `fe171fad5160c9a02edab5c435f64fc4ee19e97fcf684abe2fe72a54903d005b`).
+  Linked for bank 1 base (`0x08000000`); used by the Guided Setup Retro-Go-only path.
+  The full set of release-asset hashes used by device scans lives in
+  `apps/web/src/lib/engine/bootloaderHashes.ts`.
+
 Regenerate the symbol tables with `tools/extract_symbols.py` (pure stdlib; use
 `--verify` to confirm it still reproduces an existing file exactly).
 
