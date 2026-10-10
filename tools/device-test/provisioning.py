@@ -39,7 +39,9 @@ def provision_device(config, preset, workspace, log):
                 raise RuntimeError(f'gwprov provisioning failed; see {log}') from error
 
     if preset in ('stock-locked', 'stock-unlocked'):
-        args = ['profile', 'stock', instance]
+        # Current gwprov creates stock profiles through `profile create --stock`.
+        # Older harness versions called the removed `profile stock` subcommand.
+        args = ['profile', 'create', instance, '--stock']
         backups = config.get('ofw_backups', [])
         if not backups:
             raise ValueError('Stock provisioning requires configured ofw_backups')
@@ -47,6 +49,7 @@ def provision_device(config, preset, workspace, log):
             args += ['--backup-dir', local_input(folder)]
         if preset == 'stock-locked':
             args += ['--locked']
+        args += ['--extflash-mib', 64]
         invoke(*args)
     elif preset == 'retro-go':
         recipe = config.get('gwemu_presets', {}).get('retro-go', {})

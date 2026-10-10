@@ -1,4 +1,6 @@
 import { expect } from "../fixtures.mjs";
+import { appendFile } from "node:fs/promises";
+import path from "node:path";
 import { goToGuidedSetup } from "./navigation.mjs";
 
 const pathLabels = {
@@ -24,6 +26,42 @@ export async function chooseGuidedPath(page, path) {
     await expect(page.getByRole("heading", { name: /Back Up the Original Firmware/i })).toBeVisible();
   }
   return page.locator(".wizard-container");
+}
+
+/** Walk every Guided Setup choice and pin the visible plan for each intent. */
+export async function verifyGuidedSetupPlans(page) {
+  const progressFile = process.env.GNW_TEST_REPORT_DIR
+    ? path.join(process.env.GNW_TEST_REPORT_DIR, "native-session-progress.log") : null;
+  const mark = async (label) => {
+    if (progressFile) await appendFile(progressFile, `${new Date().toISOString()} guided setup ${label}\n`);
+  };
+  const connect = page.getByRole("button", { name: /^connect$/i });
+  if (await connect.isVisible().catch(() => false)) await connect.click();
+  await expect.poll(() => page.locator("body").innerText(), { timeout: 90_000 })
+    .toMatch(/Connected \((?:Stock|Retro-Go)\)/i);
+  await goToGuidedSetup(page);
+  await mark("opened");
+  const chooser = page.locator(".chooser");
+  const choiceNames = ["Dual Boot", "Only Retro-Go", "Return to Stock"];
+  await expect(chooser.locator(".choice")).toHaveCount(choiceNames.length);
+  for (const name of choiceNames) await expect(chooser.getByRole("button", { name })).toBeVisible();
+
+  const cases = [
+    ["Dual Boot", [/Back Up the Original Firmware/i, /Install Retro-Go/i]],
+    ["Only Retro-Go", [/Install Retro-Go/i, /Add Software Sources/i, /Add to Library/i]],
+    ["Return to Stock", [/Select Backup of Original Firmware/i, /Restore Original Firmware/i]],
+  ];
+  for (const [name, expectedSteps] of cases) {
+    await mark(`select ${name} started`);
+    const choice = chooser.getByRole("button", { name });
+    await choice.click();
+    await expect(choice).toHaveAttribute("aria-pressed", "true");
+    const headings = page.locator(".plan-col .wizard-step h3");
+    const content = (await headings.allInnerTexts()).join("\n");
+    for (const expected of expectedSteps) expect(content, `${name} plan should include ${expected}`).toMatch(expected);
+    if (name === "Only Retro-Go") expect(content, "Retro-Go-only setup must not offer a stock-patching stage").not.toMatch(/Patch/i);
+    await mark(`select ${name} verified`);
+  }
 }
 
 export async function openGuidedBackupDialog(page) {

@@ -102,6 +102,12 @@ export async function installPublishedRetroGo({ page, device, testInfo, io, chec
   await emulatorCheckpoint?.(device, testInfo, "retro-go-install-complete");
   await dialog.getByRole("button", { name: /^close$/i }).click();
   await expect(page.getByRole("button", { name: /Continue to Library/i })).toBeEnabled({ timeout: 60_000 });
+  await expect(page.locator("body")).toContainText(/v\d+\.\d+\.\d+[^\s]*-flash/i);
+  await expect(page.locator(".wizard-step").filter({ hasText: /Install Retro-Go/i })).toHaveClass(/done/);
+  const bankState = JSON.stringify({ expectedInstallTarget: "Bank 2", result: "Retro-Go release shown in device banner" }, null, 2) + "\n";
+  if (process.env.GNW_TEST_REPORT_DIR)
+    await writeFile(path.join(process.env.GNW_TEST_REPORT_DIR, "retro-go-bank-layout.json"), bankState);
+  await testInfo.attach("retro-go-bank-layout.json", Buffer.from(bankState), { contentType: "application/json" });
   await checkpoint(page, testInfo, "retro-go-installed");
   return { progress: history, terminalText };
 }

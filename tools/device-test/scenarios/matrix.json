@@ -53,19 +53,19 @@
     },
     "locked-backup-patch": {
       "priority": "critical",
-      "runner": "python3 tools/device-test/run.py --browser-profile roms-bios --browser-preset roms-bios --gwemu-profile stock-locked --gwemu-preset stock-locked --suite locked-backup-patch --virtual-desktop",
+      "runner": "python3 tools/device-test/run.py --browser-profile no-backups-check --gwemu-profile stock-locked-playwright --gwemu-preset stock-locked --suite locked-backup-patch --virtual-desktop",
       "status": "available",
       "scope": "Assert locked Status, add an isolated run-local OFW backup directory, create and verify a pristine backup, patch and unlock stock firmware, press B to return to stock, and assert unlocked Status. The backup workflow requires a directory with no existing OFW backup source."
     },
     "dualboot-install": {
       "priority": "critical",
-      "runner": "python3 tools/device-test/run.py --browser-profile directories-ci --gwemu-profile stock-unlocked --suite dualboot-install",
+      "runner": "python3 tools/device-test/run.py --browser-profile directories-ci --gwemu-profile stock-unlocked-playwright --gwemu-preset stock-unlocked --suite dualboot-install",
       "status": "available",
-      "scope": "Use the configured OFW backup, patch stock firmware, flash the bootloader, and install the published Retro-Go release. The native modular test ends after Retro-Go installation; Tetris library sync is a separate scenario."
+      "scope": "Use the configured OFW backup, patch stock firmware, flash the dual-boot loader, install Retro-Go in bank 2, then restore stock and verify Retro-Go is removed. Tetris library sync is a separate scenario."
     },
     "library-sync": {
       "priority": "critical",
-      "runner": "python3 tools/device-test/run.py --browser-profile roms-bios --gwemu-profile retro-go-gwprov --gwemu-preset retro-go --suite library-sync",
+      "runner": "python3 tools/device-test/run.py --browser-profile roms-only --gwemu-profile retro-go-gwprov --gwemu-preset retro-go --suite library-sync",
       "status": "available",
       "test": "library/sync-tetris",
       "scope": "Assert Retro-Go and unlocked state on Status, then install Tetris through the Library UI on independent copies of a gwprov-provisioned seed."
@@ -78,13 +78,13 @@
     },
     "guided-setup-navigation": {
       "priority": "medium",
-      "runner": "python3 tools/device-test/run.py --browser-profile clean --browser-preset clean --test firmware/guided-setup",
+      "runner": "python3 tools/device-test/run.py --browser-profile clean --browser-preset clean --gwemu-profile retro-go-gwprov --gwemu-preset retro-go --test firmware/guided-setup",
       "status": "available",
-      "scope": "Open Guided Setup from the clean browser profile and verify the setup choice and plan UI without performing device writes."
+      "scope": "Connect to a prepared Retro-Go device, verify Dual Boot, Only Retro-Go, and Return to Stock plans, and confirm the UI walkthrough performs no device writes."
     },
     "advanced-pane-navigation": {
       "priority": "low",
-      "runner": "python3 tools/device-test/run.py --browser-profile clean --browser-preset clean --gwemu-profile stock-unlocked --test firmware/advanced-panes",
+      "runner": "python3 tools/device-test/run.py --browser-profile clean --browser-preset clean --gwemu-profile stock-unlocked-playwright --gwemu-preset stock-unlocked --test firmware/advanced-panes",
       "status": "available",
       "scope": "Connect to a prepared stock device, open every Advanced firmware pane, validate headings, and capture screenshots without starting write, dump, or erase operations."
     },
@@ -102,7 +102,7 @@
     },
     "retro-go-ready": {
       "priority": "critical",
-      "runner": "python3 tools/device-test/run.py --browser-profile roms-bios --gwemu-profile retro-go-gwprov --gwemu-preset retro-go --suite retro-go-ready",
+      "runner": "python3 tools/device-test/run.py --browser-profile clean --browser-preset clean --gwemu-profile retro-go-gwprov --gwemu-preset retro-go --suite retro-go-ready",
       "status": "available",
       "scope": "Assert unlocked protection and Retro-Go connection on Status; capture browser and emulator output and confirm seeds remain unchanged."
     },

@@ -131,6 +131,15 @@ def run_session(config,profile,plan,*,gwemu=None,headed=False,desktop=False,view
                     except Exception as error:
                         (report/'media-inventory-error.txt').write_text(str(error)+'\n')
                         if not browser_failed:raise
+            if 'firmware/return-to-stock' in plan:
+                after=json.loads((report/'media-after.json').read_text())
+                bank2=after.get('images',{}).get('bank2',{})
+                erased_hash=hashlib.sha256(b'\xff'*(256*1024)).hexdigest()
+                check={'bank2Sha256':bank2.get('sha256'),'expectedErasedSha256':erased_hash,
+                       'passed':bank2.get('sha256')==erased_hash}
+                (report/'return-to-stock-bank2-check.json').write_text(json.dumps(check,indent=2)+'\n')
+                if not check['passed']:
+                    raise RuntimeError('Return to Stock did not erase Retro-Go from bank 2; see return-to-stock-bank2-check.json')
             if expect_media:compare(config,expect_media,report/'media-after.json',report/'media-comparison.json',compare_mode)
         backup_output=workspace/'fresh-ofw-backup'
         if backup_output.is_dir():

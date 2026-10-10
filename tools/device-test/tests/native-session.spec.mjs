@@ -6,7 +6,9 @@ import {inspectNativeSources} from '../native-seed.mjs';
 import {goToTab,goToOverviewPane,goToFirmwarePane,goToGuidedSetup} from '../workflows/navigation.mjs';
 import {openDirectorySources,addRunLocalBackupSource} from '../workflows/sources.mjs';
 import {waitForLibrarySettled,assertFullLibrary,findGameBoyTetris} from '../workflows/library.mjs';
-import {chooseGuidedPath} from '../workflows/guided-setup.mjs';
+import {chooseGuidedPath,verifyGuidedSetupPlans} from '../workflows/guided-setup.mjs';
+import {assertBank2OnlyInstallTarget} from '../workflows/firmware-assertions.mjs';
+import {returnToStockAndAssertVisibleState} from '../workflows/return-to-stock.mjs';
 import {backupLockedStock} from '../workflows/backup.mjs';
 import {patchStockFirmware} from '../workflows/patch.mjs';
 import {returnToStockAndAssertUnlocked} from '../workflows/status.mjs';
@@ -17,6 +19,8 @@ const fullBrowserInstrumentation=process.env.GNW_TEST_BROWSER_INSTRUMENTATION===
 test('run ordered feature building blocks in one native browser/device session',async({page,device},testInfo)=>{
   test.setTimeout(30*60_000);
   const report=process.env.GNW_TEST_REPORT_DIR;
+  const progressFile=report?path.join(report,'native-session-progress.log'):null;
+  const mark=async(label)=>{if(progressFile)await fs.appendFile(progressFile,`${new Date().toISOString()} ${label}\n`);};
   const history=[],browserLog=[],io={rendererMemory:[]};
   const screenshotEntries=[];
   let screenshotSequence=0;
@@ -70,12 +74,16 @@ test('run ordered feature building blocks in one native browser/device session',
       void window.__nativeTestTelemetry(sample).catch(()=>{});
     },1000);
   },{fullBrowserInstrumentation,workflowProgressNeeded:plan.some(name=>['firmware/dualboot-install','library/sync-tetris'].includes(name))});
+  await mark('browser hooks ready');
   await page.goto('/#sources/local-directories');
+  await mark('first app navigation complete');
   const flash=page.getByRole('button',{name:/Flash Memory.*internal flash chip/i});
   if(await flash.isVisible())await flash.click();
   const manage=page.getByRole('button',{name:/^Manage Device Backup/i});
   if(await manage.isVisible())await manage.click();
+  await mark('landing setup complete');
   await page.goto('/#sources/local-directories');
+  await mark('second app navigation complete');
   const expected=JSON.parse(process.env.GNW_TEST_DIRECTORY_MAP||'[]');
   const milestones={stockReconnectSamples:[],milestones:[]};
   let returnedToStock=false;
@@ -127,13 +135,23 @@ test('run ordered feature building blocks in one native browser/device session',
     'overview/status-page-locked':()=>status(true),
     'overview/status-page-unlocked':()=>status(false),
     'overview/status':()=>goToOverviewPane(page,'Status'),
-    'firmware/guided-setup':()=>goToGuidedSetup(page),
+    'firmware/guided-setup':()=>verifyGuidedSetupPlans(page),
     'firmware/device-backup':async()=>{await chooseGuidedPath(page,'dual');await backupLockedStock(args);},
     'firmware/device-patch-unlock':async()=>{await chooseGuidedPath(page,'dual');await patchStockFirmware(args);},
+    'firmware/return-to-stock':()=>returnToStockAndAssertVisibleState({page,testInfo}),
     'firmware/advanced-panes':async()=>{
-      for(const pane of ['OFW Backup & Patch','Install','File Browser','Write image','Dump','Erase'])await goToFirmwarePane(page,pane);
+      for(const pane of ['OFW Backup & Patch','Install','File Browser','Write image','Dump','Erase']){
+        await goToFirmwarePane(page,pane);
+      }
     },
-    'firmware/dualboot-install':async()=>{await chooseGuidedPath(page,'dual');await patchStockFirmware(args);await installPublishedRetroGo(args);},
+    'firmware/dualboot-install':async()=>{
+      await chooseGuidedPath(page,'dual');
+      await patchStockFirmware(args);
+      await goToFirmwarePane(page,'Install');
+      await assertBank2OnlyInstallTarget(page);
+      await goToGuidedSetup(page);
+      await installPublishedRetroGo(args);
+    },
     'library/sync-tetris':async()=>{
       await syncLibraryItem({...args,searchTerm:'Tetris (USA) (Rev-A)',rowText:'Tetris (USA) (Rev-A)',
                             romSummary:{system:'gb',filename:'Tetris (USA) (Rev-A).gb'},continueToLibrary:true});
@@ -144,7 +162,9 @@ test('run ordered feature building blocks in one native browser/device session',
     for(const name of plan){
       if(!actions[name])throw new Error(`No native workflow for ${name}`);
       const started=Date.now();
+      await mark(`action ${name} started`);
       await test.step(name,async()=>{await actions[name]();await checkpoint(page,testInfo,name.replaceAll('/','-'));});
+      await mark(`action ${name} completed`);
       history.push({name,status:'passed',elapsedMs:Date.now()-started});
     }
   }catch(error){
@@ -158,5 +178,6 @@ test('run ordered feature building blocks in one native browser/device session',
     for(const name of ['steps.json','screenshot-index.json','operation-telemetry.jsonl','full-library.json']){
       const file=path.join(report,name);if(await fs.stat(file).catch(()=>null))await testInfo.attach(name,{path:file,contentType:name.endsWith('.json')?'application/json':'text/plain'});
     }
+    if(progressFile&&await fs.stat(progressFile).catch(()=>null))await testInfo.attach('native-session-progress.log',{path:progressFile,contentType:'text/plain'});
   }
 });
