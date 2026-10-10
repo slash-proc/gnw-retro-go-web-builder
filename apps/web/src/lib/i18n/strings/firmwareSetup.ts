@@ -206,7 +206,7 @@ export const romSectionEn = {
   bankReplacesStock: "Replaces stock",
   bankDualBoot: "Dual boot",
   retroGoOnlyNotice:
-    "Bank 1 has no stock firmware detected, so the inferred target is bank 1; this will be a Retro-Go-only install (no dual-boot).",
+    "Bank 1 has no recognized boot path for Retro-Go in bank 2. Install Sylverb’s bootloader or patch the stock firmware.",
   bank1StockOfwNotice:
     'Bank 1 has stock, unpatched firmware; you won\'t be able to reach Retro-Go until it\'s patched (see "Backup & Patch" above).',
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>
