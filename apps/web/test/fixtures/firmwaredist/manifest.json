@@ -1121,5 +1121,12 @@
     "bytes": 4012,
     "sha256": "3f8d6fe72053c7d03b4a4fca1ff683a5f02daab7db661a83ca9d69b9a4c09334",
     "url": "projects.json"
+  },
+  "updates": {
+    "bank2": {
+      "bytes": 1,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "url": "retro-go_update.bin"
+    }
   }
 }

@@ -305,7 +305,7 @@ export const romSectionDe: RomSectionStrings = {
   bankReplacesStock: "Ersetzt Original",
   bankDualBoot: "Dual-Boot",
   retroGoOnlyNotice:
-    "Auf Bank 1 wurde keine Original-Firmware erkannt, daher ist das ermittelte Ziel Bank 1; dies wird eine reine Retro-Go-Installation ohne Dual-Boot.",
+    "Bank 1 hat keinen erkannten Startpfad für Retro-Go in Bank 2. Installiere Sylverbs Bootloader oder patche die Original-Firmware.",
   bank1StockOfwNotice:
     'Bank 1 enthält ungepatchte Original-Firmware; Retro-Go ist erst erreichbar, nachdem sie gepatcht wurde (siehe „Backup & Patch“ oben).',
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>

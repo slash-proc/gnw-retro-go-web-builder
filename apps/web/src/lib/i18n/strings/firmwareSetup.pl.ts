@@ -188,7 +188,7 @@ export const romSectionPl: RomSectionStrings = {
   bankReplacesStock: "Zastępuje oryginał",
   bankDualBoot: "Podwójny rozruch",
   retroGoOnlyNotice:
-    "Na banku 1 nie wykryto fabrycznego firmware'u, więc wywnioskowanym celem jest bank 1; będzie to instalacja wyłącznie Retro-Go (bez dual-boot).",
+    "Bank 1 nie ma rozpoznanej ścieżki uruchamiania Retro-Go z banku 2. Zainstaluj program rozruchowy Sylverba lub spatchuj oryginalne oprogramowanie.",
   bank1StockOfwNotice:
     'Bank 1 zawiera niespatchowany fabryczny firmware; Retro-Go nie będzie dostępne, dopóki nie zostanie spatchowany (zobacz „Kopia zapasowa i patch” powyżej).',
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>

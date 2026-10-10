@@ -195,7 +195,7 @@ export const romSectionPt: RomSectionStrings = {
   bankReplacesStock: "Substitui o original",
   bankDualBoot: "Arranque duplo",
   retroGoOnlyNotice:
-    "Não foi detetado firmware original no banco 1, por isso o destino inferido é o banco 1; será uma instalação só com Retro-Go (sem arranque duplo).",
+    "O banco 1 não tem um caminho de arranque reconhecido para o Retro-Go no banco 2. Instale o bootloader do Sylverb ou aplique o patch ao firmware original.",
   bank1StockOfwNotice:
     "O banco 1 tem firmware original sem patch; não conseguirá chegar ao Retro-Go enquanto não lhe for aplicado o patch (ver “Backup e patch” acima).",
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>

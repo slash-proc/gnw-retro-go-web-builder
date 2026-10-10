@@ -191,7 +191,7 @@ export const romSectionZhHans: RomSectionStrings = {
   bankReplacesStock: "替换原厂",
   bankDualBoot: "双启动",
   retroGoOnlyNotice:
-    "Bank 1 上未检测到原厂固件，因此推断目标为 Bank 1；这将是一次仅 Retro-Go 的安装（无双启动）。",
+    "Bank 1 上没有已识别的启动路径来启动 Bank 2 中的 Retro-Go。请安装 Sylverb 引导程序或为原厂固件打补丁。",
   bank1StockOfwNotice:
     "Bank 1 上是未打补丁的原厂固件；在为它打补丁之前无法进入 Retro-Go（见上方「备份并打补丁」）。",
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>

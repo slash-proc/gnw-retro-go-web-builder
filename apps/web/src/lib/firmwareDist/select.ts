@@ -35,11 +35,8 @@ import type {
  *
  *   - `storage-unavailable`    the device's detected storage matches no published build
  *   - `bank-unavailable`       that storage is published, but not for the requested bank
- *   - `bank1-dual-boot`        bank 1 asked for on a device that already has the dual-boot
- *                              bootloader. `boot_bank2()` spins forever when bank 2 holds no
- *                              valid reset vector (`external/firmware_update/Core/Src/
- *                              firmware_update.c:97-114`), so a bank-1-only install under
- *                              that bootloader can leave a device that does not boot
+ *   - `bank1-unsupported`      bank 1 is never an install target; all released Retro-Go images
+ *                              are installed in bank 2
  *   - `abi-offset-unsupported` the manifest puts the ABI struct somewhere this build of the
  *                              tool cannot read (we only know `0x400`)
  *   - `abi-mismatch`           the image's own ABI words disagree with (or are absent from)
@@ -73,7 +70,7 @@ export interface BankUnavailableRefusal extends RefusalBase {
   availableBanks: FirmwareBank[];
 }
 
-export interface Bank1DualBootRefusal extends RefusalBase {
+export interface Bank1UnsupportedRefusal extends RefusalBase {
   reason: "bank1-unsupported";
   /** Legacy releases may still contain this build. */
   build: FirmwareBuild | undefined;
@@ -102,7 +99,7 @@ export interface AbiMismatchRefusal extends RefusalBase {
 export type BuildRefusal =
   | StorageUnavailableRefusal
   | BankUnavailableRefusal
-  | Bank1DualBootRefusal
+  | Bank1UnsupportedRefusal
   | AbiOffsetRefusal
   | AbiMismatchRefusal;
 

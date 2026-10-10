@@ -11,4 +11,5 @@ const wizard = readFileSync(join(here, "../src/lib/views/Wizard.svelte"), "utf8"
 assert(/const bank = 2 as const;/.test(src), "Advanced installer must target bank 2");
 assert(/bank: 2,/.test(wizard), "Guided Setup must build for bank 2");
 assert(/b\.type === "Retro-Go"/.test(wizard), "legacy Retro-Go banks must remain detectable");
-console.log("bankinfer: 3 passed, 0 failed");
+assert(/bank1NeedsBootPath/.test(src), "Advanced UI must identify when bank 1 cannot start bank 2");
+console.log("bankinfer: 4 passed, 0 failed");

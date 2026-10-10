@@ -5,7 +5,7 @@
  * per GitHub release, discovered through the GitHub Releases API and downloaded through a CORS
  * proxy worker. That format is gone. Discovery is now `dist/versions.json` on GitHub Pages
  * (`FIRMWARE_VERSIONS_URL`), and a release publishes a `manifest.json` plus one bundle zip per
- * build — `flash-bank1`, `flash-bank2`, `sd-bank1`, `sd-bank2`. The contract is
+ * build — currently `flash-bank2` and `sd-bank2`. The contract is
  * `docs/FIRMWARE_DIST.md` in game-and-watch-retro-go-sd; the client for it is
  * `src/lib/firmwareDist/`, and everything below is a thin ADAPTER onto it.
  *
@@ -14,8 +14,8 @@
  * use: `listVersions()`, `fetchBundle(tag, onProgress?)`, and a bundle exposing
  * `blobs {1,2,sd_1,sd_2}` / `contentFor(bank, sdCard)` / `manifest`. What changed underneath:
  *
- *   - The four blobs come from FOUR separate bundle zips, not one. `fetchBundle` fetches every
- *     build the release publishes, because `blobs` is read synchronously by its callers.
+ *   - Supported bank-2 blobs come from separate per-build bundle zips. `fetchBundle` fetches
+ *     every supported build the release publishes, because `blobs` is read synchronously.
  *   - Every zip has a PUBLISHED `bundle.sha256`, and every file inside it has its own. Bytes go
  *     through `firmwareDist/extract.ts`, which refuses a bundle before opening it if its hash is
  *     wrong, and refuses any member whose hash is wrong after unzipping.
@@ -53,7 +53,7 @@ import { hashHex } from "./cryptoHash.js";
 /** Repo that publishes the firmware distribution (the owner's fork for now). */
 export const ARTIFACT_REPO = "slash-proc/game-and-watch-retro-go-sd";
 
-// FOUR content trees, one per (SD_CARD, INTFLASH_BANK) pair — never one shared tree.
+// Separate content trees for each published storage/build pair — never one shared tree.
 // Every core/homebrew .bin is objcopy'd out of whichever ELF was built, so it carries
 // that build's absolute addresses on BOTH axes:
 //   SD_CARD - overlay entry points land at different RAM addresses between SD_CARD=0
@@ -68,7 +68,7 @@ export const ARTIFACT_REPO = "slash-proc/game-and-watch-retro-go-sd";
 // refuses rather than substituting, because the language blobs have the same property.
 type ContentKey = "bank1" | "bank2" | "sd_bank1" | "sd_bank2";
 
-/** The four (storage, bank) pairs, in the order they appear on `FirmwareBundle.blobs`. */
+/** The supported (storage, bank) pairs, in the order they appear on `FirmwareBundle.blobs`. */
 const COMBOS: { key: ContentKey; storage: "flash" | "sd"; bank: 1 | 2 }[] = [
   { key: "bank2", storage: "flash", bank: 2 },
   { key: "sd_bank2", storage: "sd", bank: 2 },
@@ -312,13 +312,12 @@ function refusalError(refusal: ExtractRefusal): Error {
 }
 
 /**
- * Fetch a release's four build bundles and present them as one `FirmwareBundle`.
+ * Fetch supported build bundles and present them as one `FirmwareBundle`.
  *
  * Every bundle the release publishes is fetched, because `blobs` is read synchronously by its
- * callers (`bundle.blobs[1].length` in `Wizard.svelte`, `bundle.blobs.sd_2` in
- * `RomManagementTab.svelte`). `flash-bank1` and `flash-bank2` are required — a release without
- * them cannot satisfy the non-optional `blobs[1]`/`blobs[2]`; the SD pair is optional exactly as
- * `sd_1`/`sd_2` always were.
+ * callers (`bundle.blobs[2]` in `Wizard.svelte`, `bundle.blobs.sd_2` in
+ * `RomManagementTab.svelte`). `flash-bank2` is required; an empty bank-1 compatibility slot
+ * remains for callers that still index the legacy blob tuple.
  *
  * `onProgress` counts bytes across ALL the bundles against the total the manifest publishes, so
  * the denominator is known before the first byte arrives rather than being a per-response

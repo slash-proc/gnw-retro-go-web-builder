@@ -190,7 +190,7 @@ export const romSectionNo: RomSectionStrings = {
   bankReplacesStock: "Erstatter original",
   bankDualBoot: "Dobbel oppstart",
   retroGoOnlyNotice:
-    "Bank 1 har ingen original firmware, så det utledede målet er bank 1; dette blir en installasjon med bare Retro-Go (ingen dobbel oppstart).",
+    "Bank 1 har ingen kjent oppstartsvei for Retro-Go i bank 2. Installer Sylverbs oppstartslaster eller patche originalfastvaren.",
   bank1StockOfwNotice:
     "Bank 1 har original, upatchet firmware; du når ikke Retro-Go før den er patchet (se «Sikkerhetskopi og patch» over).",
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>

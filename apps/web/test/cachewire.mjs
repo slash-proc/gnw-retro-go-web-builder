@@ -58,6 +58,7 @@ await esbuild.build({
   splitting: true,
   format: "esm",
   platform: "neutral",
+  mainFields: ["module", "main"],
   target: "es2022",
   logLevel: "warning",
 });
@@ -308,9 +309,6 @@ function release() {
       image: { path: "gw_retro_go_intflash.bin", bytes: IMAGE.length, sha256: sha(IMAGE) },
       content: [{ path: "fonts/cp1252_serif.bin", install: "fonts/cp1252_serif.bin", bytes: FONT.length, sha256: sha(FONT) }],
     };
-    if (storage === "sd") {
-      build.sdUpdate = { path: "gw_retro_go_intflash.bin", bytes: IMAGE.length, sha256: sha(IMAGE), filename: "retro-go_update.bin" };
-    }
     builds.push(build);
   }
   return {
@@ -323,7 +321,9 @@ function release() {
       superblock: { magic: "GWLB", version: 2, structSize: 36 },
       installFile: { path: "data/INSTALL", magic: "RGIN", version: 1 },
     },
-    paths: { data: "/data" }, languages: ["en_us"], builds, builtAt: "2026-09-08T19:33:37Z",
+    paths: { data: "/data" }, languages: ["en_us"], builds,
+    updates: { bank2: { bytes: 1, sha256: sha(Uint8Array.of(0)), url: "retro-go_update.bin" } },
+    builtAt: "2026-09-08T19:33:37Z",
   };
 }
 const VERSIONS_DOC = {

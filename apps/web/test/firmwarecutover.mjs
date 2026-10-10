@@ -16,7 +16,7 @@
  * `test/fixtures/firmwaredist/versions.json` is a VERBATIM copy of the firmware repo's
  * published example (see SOURCE.md there) and is served unmodified by the discovery tests.
  * The bundle tests need zips that do not exist on disk, so they synthesize a manifest and its
- * four archives IN MEMORY — nothing in the fixture directory is ever written or edited.
+ * two archives IN MEMORY — nothing in the fixture directory is ever written or edited.
  *
  * What is pinned:
  *   - the version list comes from `versions.json`, in the file's own newest-first order
@@ -74,6 +74,7 @@ await esbuild.build({
   splitting: true,
   format: "esm",
   platform: "neutral",
+  mainFields: ["module", "main"],
   target: "es2022",
   logLevel: "warning",
 });
@@ -153,7 +154,7 @@ function zip(entries) {
 
 const IMAGE_PATH = "gw_retro_go_intflash.bin";
 
-/** Build one release: four bundle zips plus the manifest that declares them. */
+/** Build one release: two bundle zips plus the manifest that declares them. */
 function makeRelease(combos = ["flash-bank2", "sd-bank2"]) {
   const zips = new Map(); // url -> bytes
   const builds = [];
@@ -188,9 +189,6 @@ function makeRelease(combos = ["flash-bank2", "sd-bank2"]) {
       image: { path: IMAGE_PATH, bytes: image.length, sha256: sha256(image) },
       content,
     };
-    if (storage === "sd") {
-      build.sdUpdate = { path: IMAGE_PATH, bytes: image.length, sha256: sha256(image), filename: `update_bank${bank}.bin` };
-    }
     builds.push(build);
   }
   const manifest = {
@@ -414,7 +412,7 @@ await check("no code path calls the CORS worker or the Releases API", async () =
   const net = makeNet(rel);
   const { cache } = makeCache();
   await fetchBundle("v9.9.9", undefined, deps(net, cache));
-  ok(net.urls.length >= 6, "the run actually made requests to inspect");
+  ok(net.urls.length >= 4, "the run actually made requests to inspect");
   for (const u of net.urls) {
     ok(!u.includes("workers.dev"), `request went through the CORS worker: ${u}`);
     ok(!u.includes("api.github.com"), `request went to the Releases API: ${u}`);

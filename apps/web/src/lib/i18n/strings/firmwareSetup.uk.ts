@@ -236,7 +236,7 @@ export const romSectionUk: RomSectionStrings = {
   bankReplacesStock: "Замінює оригінальну",
   bankDualBoot: "Подвійне завантаження",
   retroGoOnlyNotice:
-    "У банку 1 не виявлено оригінальної прошивки, тому визначена ціль це банк 1; встановлення буде лише з Retro-Go (без подвійного завантаження).",
+    "У банку 1 немає розпізнаного способу запуску Retro-Go з банку 2. Установіть завантажувач Sylverb або пропатчте оригінальну прошивку.",
   bank1StockOfwNotice:
     "У банку 1 оригінальна непропатчена прошивка; ви не зможете дістатися до Retro-Go, доки її не пропатчено (див. «Копія та патч» вище).",
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>

@@ -211,7 +211,10 @@
   const deviceHasRetroGoInstalled = $derived(hasRetroGoAnywhere);
 
   const bank = 2 as const;
-  const retroGoOnlyInstall = $derived(!bank1AnyOfw && !hasRetroGoAnywhere);
+  const bank1NeedsBootPath = $derived(
+    !(bank1?.bootloader === "standalone" ||
+      (bank1AnyOfw?.patched && bank1?.bootloader === "dualboot")),
+  );
 
   // Migration-detection basis (classify.ts's installOrigin): a soft, non-blocking heads-up when
   // the device's ACTUAL installed build (Flash vs SD, from the LittleFS/layout-superblock probe)
@@ -1060,11 +1063,11 @@
     <!-- These three notices annotate the target choice directly above them. No artboard draws
          them, so they are not a group in the artboard's 32px body rhythm; they live INSIDE the
          target group at its own 12px so they stay attached to the picker they qualify. -->
-    {#if retroGoOnlyInstall}
+    {#if bank1NeedsBootPath}
       <p class="notice">
         {locale.t.romSection.retroGoOnlyNotice}
       </p>
-    {:else if bank1AnyOfw}
+    {:else if bank1AnyOfw && !bank1AnyOfw.patched}
       <p class="notice warn">
         {locale.t.romSection.bank1StockOfwNotice}
       </p>
@@ -1374,12 +1377,10 @@
     outline: 2px solid var(--zelda-green);
     outline-offset: 3px;
   }
-  /* Firmware.dc.html:121 — the two Target cards are a two-up grid, not a flex row:
-     `grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; max-width: 460px`.
-     The cap is what keeps the pair from stretching across the full pane width. */
+  /* Keep the fixed bank-2 target at a readable width without stretching across the pane. */
   .bank-picker {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 14px;
     max-width: 460px;
     min-width: 0;
@@ -1389,11 +1390,6 @@
   .field-label {
     font-size: var(--fs-btn-sm);
     font-weight: 500;
-    color: var(--ink-soft);
-  }
-  /* Firmware.dc.html:129/139 — the per-card sub-caption, 12px --ink-soft. */
-  .bank-sub {
-    font-size: var(--fs-micro);
     color: var(--ink-soft);
   }
   .sub-body {

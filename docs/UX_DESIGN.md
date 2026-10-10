@@ -29,13 +29,15 @@ Implemented in `Wizard.svelte`. This is a guided, linear process designed for sa
 1. **Step 1: Backup & Patch Official Firmware (`patch`)**
    - Prompts the user to save a backup of the original firmware.
    - Patches the device to dual-boot into Retro-Go.
-   - **Restore-to-Stock** is offered as a peer option in the intent chooser (`engine/ofw.ts`'s
-     `restoreStock()`): flashes the backed-up internal image to bank 1 and the backed-up
-     external image to bank 0. This is a two-phase write, not three — restoring the stock
-     reset vector to bank 1 IS the Retro-Go removal, so there is no separate uninstall step.
+   - **Restore-to-Stock** is offered as a peer option in the intent chooser: restores the
+     backed-up internal image to bank 1 and external image to bank 0, then erases Retro-Go
+     from bank 2. A bootloader left in bank 1 is harmless beneath restored stock OFW.
      **Never yet run on real hardware.**
 2. **Step 2: Install Retro-Go (`retrogo`)**
-   - Installs the Retro-Go base system. For Flash mode: flashes intflash + extflash (FrogFS/LittleFS). For SD Card mode: flashes only intflash (SD blob) and writes `sdContent` to the user's SD card directory.
+   - Installs the Retro-Go base system in bank 2. Retro-Go-only setup also installs Sylverb's
+     standalone bootloader in bank 1. For Flash mode: flashes intflash + extflash
+     (FrogFS/LittleFS). For SD Card mode: flashes only intflash and writes `sdContent` to the
+     user's SD card directory.
 3. **Step 3: Install ROMs (`roms`)**
    - Renders the ROM Management UI to select games and pack/flash them.
 

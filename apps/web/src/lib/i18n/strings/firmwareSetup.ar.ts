@@ -221,7 +221,7 @@ export const romSectionAr: RomSectionStrings = {
   bankReplacesStock: "يحل محل الأصلي",
   bankDualBoot: "إقلاع مزدوج",
   retroGoOnlyNotice:
-    "لم يُكتشف برنامج ثابت أصلي في البنك 1، فالوجهة المستنتجة هي البنك 1؛ سيكون هذا تثبيتًا لـ Retro-Go وحده (دون إقلاع مزدوج).",
+    "لا يوجد في البنك 1 مسار إقلاع معروف لتشغيل Retro-Go من البنك 2. ثبّت محمّل Sylverb أو رقّع البرنامج الأصلي.",
   bank1StockOfwNotice:
     "يحتوي البنك 1 على برنامج ثابت أصلي غير مُرقَّع؛ لن تصل إلى Retro-Go حتى يُرقَّع (انظر «نسخ وترقيع» أعلاه).",
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>

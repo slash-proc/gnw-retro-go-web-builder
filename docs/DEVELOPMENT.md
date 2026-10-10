@@ -140,12 +140,12 @@ One hard-coded URL (`FIRMWARE_VERSIONS_URL`, `firmwareDist/types.ts`):
 https://slash-proc.github.io/game-and-watch-retro-go-sd/dist/versions.json
 ```
 
-It lists releases newest-first, each pointing at a `manifest.json`. A release
-publishes **four bundle zips** — one per `<storage>-bank<n>` combination:
-`flash-bank1`, `flash-bank2`, `sd-bank1`, `sd-bank2`. The bank axis exists
-because link addresses (`0x08000000` / `0x08100000`) cannot be runtime-patched;
-geometry is still host-set through the layout superblock, so one binary serves
-any extflash size.
+It lists releases newest-first, each pointing at a `manifest.json`. Releases
+publish bundles for supported storage combinations. Retro-Go is installed only
+in bank 2 (`0x08100000`); there are no bank-1 Retro-Go builds. The bank axis
+exists because link addresses (`0x08000000` / `0x08100000`) cannot be
+runtime-patched; geometry is still host-set through the layout superblock, so
+one binary serves any extflash size.
 
 ### Verification is mandatory and ordered
 

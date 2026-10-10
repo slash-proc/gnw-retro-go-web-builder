@@ -233,7 +233,7 @@ check("paths are absolute storage-root roles, kept open-ended", () => {
   eq(manifest.paths.homebrew, "/homebrews", "the role name and the directory differ on purpose");
 });
 
-check("all four builds are present and addressable by storage x bank", () => {
+check("legacy four-build manifests remain parseable, but bank 1 is not selectable", () => {
   eq(manifest.builds.length, 4, "build count");
   for (const storage of ["sd", "flash"]) {
     for (const bank of [1, 2]) {

@@ -34,7 +34,8 @@
  *   - the preview is inert: it carries no controls, because every control in the real spine acts
  *     on a path that has not been chosen yet.
  */
-import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
@@ -43,10 +44,9 @@ import { render } from "svelte/server";
 
 const here = new URL(".", import.meta.url).pathname;
 const web = join(here, "..");
-// CI installs from the repo root, so `apps/web/node_modules` may not exist; node still
-// resolves the bundle's imports by walking up to the root install.
-mkdirSync(join(web, "node_modules"), { recursive: true });
-const out = mkdtempSync(join(web, "node_modules/.chooserstates-"));
+// Keep the rendered bundle in the OS temp directory; the test must work when workspace
+// node_modules is read-only (or the app has no local node_modules directory).
+const out = mkdtempSync(join(tmpdir(), "gnw-chooserstates-"));
 const failures = [];
 let passed = 0;
 
@@ -145,7 +145,6 @@ const { RETRO_GO_FLOOR_MB, DUAL_BOOT_FLOOR_MB } = await (async () => {
 await esbuild.build({
   entryPoints: [SRC],
   outdir: out, bundle: true, format: "esm", platform: "node", target: "es2022",
-  external: ["svelte", "svelte/*"],
   loader: { ".png": "dataurl", ".svg": "dataurl" },
   plugins: [gnwResolve(join(here, ".")), sveltePlugin()],
   logLevel: "error",

@@ -245,9 +245,18 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
       // Standalone bootloader vector table begins at 0x08000000. Require both an exact
       // release digest and a reset vector into the matched image before classifying it.
       if (model === null && data && appValid(sp, pc) && (pc & ~1) < base + 0x32000) {
+        const maxStandaloneBytes = Math.max(...STANDALONE_BOOTLOADERS.map((x) => x.bytes));
+        // The bank-size probe is intentionally coarse and can stop one 8 KiB step before the
+        // actual end. Read the fixed maximum release size so a valid bootloader is not missed
+        // just because `dataSize` rounded down below its exact asset length.
+        let candidate = data;
+        if (candidate.length < maxStandaloneBytes) {
+          try { candidate = await read(base, maxStandaloneBytes); }
+          catch { candidate = data; }
+        }
         for (const signature of STANDALONE_BOOTLOADERS) {
-          if (data.length < signature.bytes) continue;
-          const digest = await hashHex("SHA-256", data.subarray(0, signature.bytes));
+          if (candidate.length < signature.bytes) continue;
+          const digest = await hashHex("SHA-256", candidate.subarray(0, signature.bytes));
           if (digest === signature.sha256) {
             bootloader = "standalone";
             break;

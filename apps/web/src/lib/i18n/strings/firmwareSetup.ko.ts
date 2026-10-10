@@ -188,7 +188,7 @@ export const romSectionKo: RomSectionStrings = {
   bankReplacesStock: "정품 펌웨어 대체",
   bankDualBoot: "듀얼 부팅",
   retroGoOnlyNotice:
-    "뱅크 1에서 순정 펌웨어가 감지되지 않아서 추정 대상이 뱅크 1이 됐어요. 이번 설치는 듀얼 부팅 없이 Retro-Go만 설치돼요.",
+    "뱅크 1에 뱅크 2의 Retro-Go를 시작할 수 있는 부팅 경로가 없습니다. Sylverb 부트로더를 설치하거나 순정 펌웨어에 패치를 적용하세요.",
   bank1StockOfwNotice:
     '뱅크 1에 패치되지 않은 순정 펌웨어가 있어요. 패치하기 전까지는 Retro-Go에 접근할 수 없어요 (위의 "백업 & 패치" 참고).',
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>

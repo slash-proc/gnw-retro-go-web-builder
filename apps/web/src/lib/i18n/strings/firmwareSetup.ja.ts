@@ -191,7 +191,7 @@ export const romSectionJa: RomSectionStrings = {
   bankReplacesStock: "純正を置き換え",
   bankDualBoot: "デュアルブート",
   retroGoOnlyNotice:
-    "バンク1に純正ファームウェアが検出されなかったため、推定されるインストール先はバンク1です、これはデュアルブートなしのRetro-Go専用インストールになります。",
+    "バンク1には、バンク2のRetro-Goを起動する既知の方法がありません。Sylverbのブートローダーをインストールするか、純正ファームウェアにパッチを適用してください。",
   bank1StockOfwNotice:
     "バンク1には未パッチの純正ファームウェアがあります、パッチするまでRetro-Goには到達できません（上の「バックアップ＆パッチ」を参照）。",
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>

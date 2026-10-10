@@ -189,17 +189,19 @@ for (const loc of LOCALES) {
   ok();
 }
 
-// --- 4b. and the chooser does not branch on `locked` ----------------------
-// The strings are the symptom; this is the thing itself. A `kind === "locked"` test in the
-// chooser is how the wall gets rebuilt, with or without new copy.
+// --- 4b. locked devices are not refused by the chooser --------------------
+// The chooser may use `locked` to require a backup before flashing. It must not replace the
+// Guided Setup choices with a refusal wall; unlocking remains part of the Backup phase.
 {
   const rel = "src/lib/views/Wizard.svelte";
   const src = read(rel)
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
-  if (/"locked"/.test(src))
-    fail(`${rel} tests for the "locked" device kind: unlocking belongs to engine/unlockGate.ts, inside the Backup phase, and the chooser has no opinion about it`);
+  if (/\{#if[^}]*deviceClass\?\.kind\s*===\s*"locked"/.test(src))
+    fail(`${rel} renders a locked-device refusal branch instead of the Guided Setup choices`);
+  if (!/rgoNeedsBackup\s*=\s*p\s*===\s*"rgo"[\s\S]*?deviceClass\?\.kind\s*===\s*"locked"/.test(src))
+    fail(`${rel} no longer requires a backup for a locked device before Retro-Go installation`);
   ok();
 }
 

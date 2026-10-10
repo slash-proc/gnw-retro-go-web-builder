@@ -192,7 +192,7 @@ export const romSectionZhHant: RomSectionStrings = {
   bankReplacesStock: "取代原廠",
   bankDualBoot: "雙系統開機",
   retroGoOnlyNotice:
-    "Bank 1 沒有偵測到原廠韌體，因此推斷目標為 bank 1；這會是純 Retro-Go 安裝（沒有雙系統開機）。",
+    "Bank 1 沒有已識別的啟動方式可啟動 Bank 2 的 Retro-Go。請安裝 Sylverb 開機載入程式，或為原廠韌體修補。",
   bank1StockOfwNotice:
     "Bank 1 是原廠未修補的韌體；在修補之前你無法進入 Retro-Go（見上方的「備份與修補」）。",
   installOriginMismatchNotice: (deviceBuild: string, viewingMode: string) =>
