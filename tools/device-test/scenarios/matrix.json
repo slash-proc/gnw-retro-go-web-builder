@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 2,
+  "frequency": {
+    "every-change": [
+      "fast-core-workflows"
+    ],
+    "once-per-session": [
+      "full-library"
+    ],
+    "when-device-write-code-changes": [
+      "locked-backup-patch",
+      "dualboot-install"
+    ],
+    "when-library-sync-changes": [
+      "library-sync"
+    ],
+    "when-source-library-changes": [
+      "directory-source-resume",
+      "full-library"
+    ],
+    "periodic-or-feature-change": [
+      "navigation-smoke",
+      "guided-setup-navigation",
+      "advanced-pane-navigation",
+      "advanced-firmware-operations",
+      "browser-compatibility"
+    ]
+  },
+  "scenarios": {
+    "fast-core-workflows": {
+      "priority": "critical",
+      "runner": "npm --prefix apps/web run check:core-workflows",
+      "status": "available",
+      "scope": "Fast logic checks for backup, patch, unlock, flash, install, and Library behavior. The native composed runner does not run this command automatically."
+    },
+    "directory-source-seed": {
+      "priority": "high",
+      "runner": "python3 tools/device-test/run.py --browser-profile directories-ci --prepare-browser-profile directories --view-desktop",
+      "status": "available",
+      "scope": "Create the three configured native directory sources in Chromium, grant persistent access, reload, restart, validate the seed headlessly, and publish it. The initial seed setup requires visible interaction."
+    },
+    "directory-source-resume": {
+      "priority": "high",
+      "runner": "python3 tools/device-test/run.py --browser-profile directories-ci --suite directory-source-resume",
+      "status": "available",
+      "scope": "Open a published native HTTPS seed in a new Chromium process and assert all saved directory handles are granted and readable."
+    },
+    "full-library": {
+      "priority": "critical",
+      "runner": "python3 tools/device-test/run.py --browser-profile full-library-native --browser-preset full-library --suite full-library",
+      "status": "available",
+      "scope": "Register/verify the configured ROM, BIOS, and backup sources; settle the real collection; verify supported systems and Game Boy Tetris; wait for cover, atlas, and decode work to drain. Run at least once per development session. Prepare a full-library profile separately before using this command."
+    },
+    "locked-backup-patch": {
+      "priority": "critical",
+      "runner": "python3 tools/device-test/run.py --browser-profile roms-bios --browser-preset roms-bios --gwemu-profile stock-locked --gwemu-preset stock-locked --suite locked-backup-patch --virtual-desktop",
+      "status": "available",
+      "scope": "Assert locked Status, add an isolated run-local OFW backup directory, create and verify a pristine backup, patch and unlock stock firmware, press B to return to stock, and assert unlocked Status. The backup workflow requires a directory with no existing OFW backup source."
+    },
+    "dualboot-install": {
+      "priority": "critical",
+      "runner": "python3 tools/device-test/run.py --browser-profile directories-ci --gwemu-profile stock-unlocked --suite dualboot-install",
+      "status": "available",
+      "scope": "Use the configured OFW backup, patch stock firmware, flash the bootloader, and install the published Retro-Go release. The native modular test ends after Retro-Go installation; Tetris library sync is a separate scenario."
+    },
+    "library-sync": {
+      "priority": "critical",
+      "runner": "python3 tools/device-test/run.py --browser-profile roms-bios --gwemu-profile retro-go-gwprov --gwemu-preset retro-go --suite library-sync",
+      "status": "available",
+      "test": "library/sync-tetris",
+      "scope": "Assert Retro-Go and unlocked state on Status, then install Tetris through the Library UI on independent copies of a gwprov-provisioned seed."
+    },
+    "navigation-smoke": {
+      "priority": "medium",
+      "runner": "python3 tools/device-test/run.py --browser-profile clean --browser-preset clean --suite navigation",
+      "status": "available",
+      "scope": "Navigate primary tabs and dependent Overview panes without a device; confirm Advanced mode presents its device-wait state."
+    },
+    "guided-setup-navigation": {
+      "priority": "medium",
+      "runner": "python3 tools/device-test/run.py --browser-profile clean --browser-preset clean --test firmware/guided-setup",
+      "status": "available",
+      "scope": "Open Guided Setup from the clean browser profile and verify the setup choice and plan UI without performing device writes."
+    },
+    "advanced-pane-navigation": {
+      "priority": "low",
+      "runner": "python3 tools/device-test/run.py --browser-profile clean --browser-preset clean --gwemu-profile stock-unlocked --test firmware/advanced-panes",
+      "status": "available",
+      "scope": "Connect to a prepared stock device, open every Advanced firmware pane, validate headings, and capture screenshots without starting write, dump, or erase operations."
+    },
+    "advanced-firmware-operations": {
+      "priority": "low",
+      "runner": null,
+      "status": "planned",
+      "scope": "Browser-level file browser, image write, dump, and erase coverage on prepared emulator profiles. Run when the feature changes or periodically; avoid redundant long write matrices."
+    },
+    "browser-compatibility": {
+      "priority": "low",
+      "runner": null,
+      "status": "planned",
+      "scope": "Exercise app navigation on Firefox or WebKit. The current named-profile CLI supports distribution Chromium only."
+    },
+    "retro-go-ready": {
+      "priority": "critical",
+      "runner": "python3 tools/device-test/run.py --browser-profile roms-bios --gwemu-profile retro-go-gwprov --gwemu-preset retro-go --suite retro-go-ready",
+      "status": "available",
+      "scope": "Assert unlocked protection and Retro-Go connection on Status; capture browser and emulator output and confirm seeds remain unchanged."
+    },
+    "media-state-resume": {
+      "priority": "high",
+      "status": "available",
+      "runner": "python3 tools/device-test/run.py --browser-profile roms-bios --gwemu-profile retro-go-gwprov --device-state daily --suite retro-go-ready",
+      "scope": "Reuse local device media, retain deterministic filesystem/hash records and verify the seed remains unchanged."
+    }
+  }
+}

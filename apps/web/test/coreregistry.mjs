@@ -273,6 +273,27 @@ await check("classify: the folder match is case-folded (FAT cannot tell DOOM fro
   eq(classifyForRegistry(reg, "DOOM", ".WAD").role, "ingestable", "either spelling, either case");
 });
 
+await check("classify: common ROM-set folder aliases map to declared built-in systems", async () => {
+  const manifest = {
+    schemaVersion: 1, project: "systems", title: "Systems", tools: [],
+    targets: [{
+      id: "gnw-retro-go", platform: "game-and-watch", kind: "core", requiresAbi: { version: 2, minSize: 832 }, artifacts: [],
+      systems: [
+        { id: "a2600", longName: "Atari 2600", shortName: "A2600", extensions: [".a26"] },
+        { id: "col", longName: "Colecovision", shortName: "CV", extensions: [".col"] },
+        { id: "msx", longName: "MSX", shortName: "MSX", extensions: [".rom"] },
+        { id: "mini", longName: "Pokémon Mini", shortName: "Mini", extensions: [".min"] },
+      ],
+    }],
+  };
+  const reg = buildCoreRegistry([row("slash-proc/systems", manifest)]);
+  eq(classifyForRegistry(reg, "2600", ".a26")?.system.id, "a2600", "2600 ROM folder");
+  eq(classifyForRegistry(reg, "Coleco", ".col")?.system.id, "col", "Coleco ROM folder");
+  eq(classifyForRegistry(reg, "MSX2", ".rom")?.system.id, "msx", "MSX2 ROM folder");
+  eq(classifyForRegistry(reg, "Pokemon Mini", ".min")?.system.id, "mini", "unaccented Pokémon Mini folder");
+  eq(classifyForRegistry(reg, "N64", ".z64"), null, "aliases do not make unsupported systems appear");
+});
+
 // --- 5. Both folder layouts --------------------------------------------------------------------
 
 await check("layout: a folder dedicated to a single-system core files its loose ROMs there", async () => {

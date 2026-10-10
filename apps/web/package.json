@@ -14,6 +14,7 @@
     "check:fsscan": "node test/fsscan.mjs",
     "check:safety": "node test/safety.mjs",
     "check:targetreconnect": "node test/targetreconnect.mjs && node test/stlinkattach.mjs",
+    "check:core-workflows": "node test/ofw-restore.mjs && node test/ofw-patch.mjs && node test/unlockgate.mjs && node test/flashinstall.mjs && node test/simflash.mjs && node test/libraryscan.mjs && node test/librarymodel.mjs && node test/libraryprogress.mjs && node test/carouselatlas.mjs && node test/carouselwindow.mjs",
     "check:flashinstall": "node test/flashinstall.mjs",
     "check:autodownload": "node test/autodownload.mjs",
     "check:localfolders": "node test/localfolders.mjs",

@@ -169,6 +169,57 @@ export interface AuditEntry {
   restored: boolean;
 }
 
+type TestAuditRecord = {
+  id: number;
+  session: number;
+  time: string;
+  severity: AuditSeverity;
+  source: AuditSource;
+  subject: string | null;
+  text: string;
+};
+
+type TestAuditWindow = Window & {
+  __gnwTestAuditSink?: (entries: TestAuditRecord[]) => Promise<void>;
+  __gnwTestFlushAuditLog?: () => Promise<void>;
+};
+
+// This bridge exists only when the Playwright harness exposes the binding. It batches records
+// outside the bounded UI ring, so a long-running workflow cannot evict evidence before teardown.
+let testAuditQueue: TestAuditRecord[] = [];
+let testAuditTimer: ReturnType<typeof setTimeout> | null = null;
+let testAuditWrite = Promise.resolve();
+
+function flushTestAudit(): Promise<void> {
+  if (testAuditTimer !== null) {
+    clearTimeout(testAuditTimer);
+    testAuditTimer = null;
+  }
+  if (typeof window === "undefined") return Promise.resolve();
+  const sink = (window as TestAuditWindow).__gnwTestAuditSink;
+  if (!sink || testAuditQueue.length === 0) return testAuditWrite;
+  const batch = testAuditQueue;
+  testAuditQueue = [];
+  testAuditWrite = testAuditWrite.then(() => sink(batch)).catch(() => {});
+  return testAuditWrite;
+}
+
+function captureTestAudit(entry: AuditEntry): void {
+  if (typeof window === "undefined") return;
+  const bridge = window as TestAuditWindow;
+  if (typeof bridge.__gnwTestAuditSink !== "function") return;
+  testAuditQueue.push({
+    id: entry.id,
+    session: entry.session,
+    time: entry.time,
+    severity: entry.severity,
+    source: entry.source,
+    subject: entry.subject ?? null,
+    text: auditLog.line(entry).slice(entry.time.length).trim(),
+  });
+  if (testAuditTimer === null) testAuditTimer = setTimeout(() => { void flushTestAudit(); }, 250);
+}
+
 /**
  * Bounded so a long session cannot grow it without limit — preparing a shelf of ROMs one row at
  * a time emits a handful of entries per game, and nothing else trims it. 500 is far more than a
@@ -315,6 +366,7 @@ class AuditLog {
       restored: false,
     };
     this.entries = AuditLog.trim([...this.entries, entry]);
+    captureTestAudit(entry);
     this.scheduleSave();
   }
 
@@ -736,6 +788,14 @@ setDbgSink((line) => auditLog.add("debug", "device", literal(line)));
 auditLog.restoreEntries();
 
 if (typeof window !== "undefined") {
+  const bridge = window as TestAuditWindow;
+  if (typeof bridge.__gnwTestAuditSink === "function") {
+    bridge.__gnwTestFlushAuditLog = flushTestAudit;
+    // Include entries emitted earlier in this page load, before the test binding was observed.
+    for (const entry of auditLog.entries) {
+      if (entry.session === auditLog.currentSession) captureTestAudit(entry);
+    }
+  }
   // `pagehide` and not `beforeunload`: the latter is unreliable when a page is discarded and, on
   // some browsers, invites a confirmation dialog. Neither is a substitute for the debounce -- a
   // wedged main thread runs neither handler, which is precisely the case this exists for.

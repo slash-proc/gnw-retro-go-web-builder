@@ -646,10 +646,9 @@
     folderEditId !== null ? t.folders.configureDirectoryTitle : t.folders.addDirectoryTitle,
   );
   /** Close the add/configure page, whichever mode it was in. */
-  function closeFolderPage(refresh = false): void {
+  function closeFolderPage(): void {
     folderAddOpen = false;
     folderEditId = null;
-    if (refresh) void library.refresh();
   }
   // Every pane but the cache states a subtitle, and each is its artboard's line verbatim —
   // a plausible-sounding sentence written here would be invented UI. Remote Cores stated none
@@ -949,7 +948,7 @@
           bind:this={folderAddRef}
           bind:canAdd={folderCanAdd}
           editId={folderEditId}
-          onDone={() => closeFolderPage(true)}
+          onDone={closeFolderPage}
         />
       {/key}
       </div>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { device } from "../device.svelte.js";
+  import { device, explainConnectionFailure } from "../device.svelte.js";
   import { navigate, onRoute } from "../nav.js";
   import { locale } from "../i18n/locale.svelte.js";
   import OverviewTab from "./OverviewTab.svelte";
@@ -10,11 +10,13 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
   import Sources from "./Sources.svelte";
   import Wizard from "./Wizard.svelte";
   import Button from "../ui/Button.svelte";
+  import type { OfwModel } from "../engine/ofw.js";
 
   // The Advanced shell (§2): tab strip + multi-open accordion. Persistent
   // DeviceHeader + DeviceOverview stay mounted in App.svelte above this.
 
   type Tab = "info" | "device" | "sources" | "roms";
+  type WizardPath = "dual" | "rgo" | "stock";
 
   // `initialTab` is set ONLY when the user just connected from the Connect homepage — we land on
   // Overview then (so a stale persisted hash doesn't reopen Device Management mid-scan).
@@ -23,13 +25,18 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
   let {
     initialTab,
     onInitialApplied,
-  }: { initialTab?: Tab; onInitialApplied?: () => void } = $props();
+    onTabChange,
+  }: { initialTab?: Tab; onInitialApplied?: () => void; onTabChange?: (tab: Tab) => void } = $props();
 
   // The Firmware Setup sub-mode lives on the device store, not here: callers outside this
   // subtree (OverviewTab's setup prompt, App.svelte's post-scan auto-route) need to REQUEST
   // Guided Setup, and a component-local `$state` bound up through App gave them no handle on
   // it. `mode` is just a local alias for readability.
   const mode = $derived(device.firmwareMode);
+  // Guided Setup can be unmounted when the target drops connection during a device
+  // power-cycle. Keep workflow intent and the model detected during backup in the shell.
+  let guidedPath = $state<WizardPath | null>(null);
+  let guidedBackupModel = $state<OfwModel | null>(null);
 
   let tab = $state<Tab>(untrack(() => initialTab) ?? "device"); // one-shot: see the mount effect
   // Open sections per tab (multi-open). All tabs start fully closed — the device tab used to
@@ -82,6 +89,9 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
 
   let recoveryStarting = $state(false);
   let recoveryError = $state<string | null>(null);
+  const connectionAttemptActive = $derived(
+    recoveryStarting || device.connection === "connecting" || device.connection === "lost",
+  );
   async function connectForFirmware() {
     if (recoveryStarting) return;
     recoveryStarting = true;
@@ -89,10 +99,14 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
     try {
       await device.connectAndStartRecoveryMode();
     } catch (e) {
-      recoveryError = e instanceof Error ? e.message : String(e);
+      recoveryError = explainConnectionFailure(e instanceof Error ? e.message : String(e), device.adapterType);
     } finally {
       recoveryStarting = false;
     }
+  }
+  function stopConnecting() {
+    recoveryError = null;
+    void device.disconnect();
   }
 
   // ---- hash deep-link: #<tab>/<sec,sec> (§2.3) ----
@@ -109,12 +123,14 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
     const h = location.hash.replace(/^#/, "");
     if (h === GUIDED_SEGMENT) {
       tab = "device";
+      onTabChange?.(tab);
       device.firmwareMode = "wizard";
       return;
     }
     const m = h.match(/^(info|firmware|sources|roms)(?:\/(.*))?$/);
     if (!m) return;
     tab = (m[1] === "firmware" ? "device" : m[1]) as Tab;
+    onTabChange?.(tab);
     // Arriving by the rail segment selects the rail — "#firmware/ofw" means a specific
     // Advanced section, never the wizard.
     if (tab === "device") device.firmwareMode = "advanced";
@@ -237,6 +253,7 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
 
   function selectTab(t: Tab, push = true) {
     tab = t;
+    onTabChange?.(t);
     syncHash(push);
   }
 
@@ -321,10 +338,20 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
     {:else if tab === "device"}
       {#if !device.isConnected}
         <div class="connecting-placeholder">
-          <p>{locale.t.advanced.waitingForDevice}</p>
-          <Button variant="action" disabled={recoveryStarting} onclick={() => void connectForFirmware()}>
-            {recoveryStarting ? locale.t.shared.common.connecting : locale.t.shared.common.connect}
-          </Button>
+          {#if connectionAttemptActive}
+            <p>{locale.t.overview.waitingForConnection}</p>
+            <div class="connection-actions">
+              <Button variant="action" disabled>{locale.t.shared.common.connecting}</Button>
+              <Button variant="default" onclick={stopConnecting}>
+                {locale.t.shared.deviceControls.disconnectDevice}
+              </Button>
+            </div>
+          {:else}
+            <p>{locale.t.advanced.waitingForDevice}</p>
+            <Button variant="action" onclick={() => void connectForFirmware()}>
+              {locale.t.shared.common.connect}
+            </Button>
+          {/if}
           {#if recoveryError}<p class="recovery-error">{recoveryError}</p>{/if}
         </div>
       {:else}
@@ -332,6 +359,8 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
           <Wizard
             onComplete={() => selectTab("roms")}
             onSources={() => selectTab("sources")}
+            bind:path={guidedPath}
+            bind:backupModelOverride={guidedBackupModel}
           />
         {:else}
           <FirmwareRail selected={railSelected} onSelect={selectRail} {onRunning} />
@@ -354,6 +383,13 @@ import { OVERVIEW_RAIL_IDS, type OverviewRailId } from "./OverviewRail.svelte";
   }
   .connecting-placeholder p {
     margin: 0 0 0.75rem;
+  }
+  .connection-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 0.75rem;
   }
   .recovery-error {
     color: var(--danger);

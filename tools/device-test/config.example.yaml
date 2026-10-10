@@ -1,0 +1,36 @@
+# Optional location for generated local profiles, snapshots, caches and reports.
+dev_local: ./dev-local
+
+# Copy to device-test.yaml and edit these local-only inputs.
+# These are the local directories available to the browser and test harness.
+roms:
+  - ~/Emulation/Roms
+
+firmware_bios:
+  - /path/to/firmware
+
+ofw_backups:
+  - /path/to/ofw-backups
+
+# Executable path or an argument list, e.g. [/path/to/venv/bin/python, -m, gwprov].
+# It must have gwprov plus its dist/media dependencies installed.
+gwprov:
+  command: gwprov
+
+# Recipes control seed provisioning only. Tests run against independent copies.
+gwemu_presets:
+  retro-go:
+    variant: flash
+    repo: sylverb/game-and-watch-retro-go-sd
+    # version: v2.0.0-rc1  # Omit to resolve the newest firmware release.
+    bootloader_version: v1.0.8
+    extflash_mib: 64
+    littlefs_mib: 2
+    projects:
+      - tgb
+      - doom  # Shipped shareware; no user WAD required.
+      # - name: smw
+      #   input_dir: [~/Emulation/Roms/Super Nintendo]
+      # - name: gba
+      #   firmware_dir: [/path/to/firmware]
+      #   game: ["gba=~/Emulation/Roms/Game Boy Advance/Example Game.zip"]

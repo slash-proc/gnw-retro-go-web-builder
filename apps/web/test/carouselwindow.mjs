@@ -44,9 +44,17 @@ eq(carouselCoverReadAllowed("old",new Set(["new"]),""),false,"obsolete completio
 eq(carouselCoverReadAllowed("detail",new Set(["new"]),"detail"),true,"an open details modal may load its own cover");
 
 function functions(path,names) {
- const source=readFileSync(resolve(web,path),"utf8").match(/<script lang="ts">([\s\S]*?)<\/script>/)[1];
+ const componentSource=readFileSync(resolve(web,path),"utf8");
+ const source=componentSource.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1];
  const ast=ts.createSourceFile(path,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
  let code=ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&names.includes(n.name?.text)).map(n=>n.getText(ast)).join("\n");
+ // Extracted Carousel methods retain references to module-script state. Keep that lexical
+ // scope in the VM instead of letting a component refactor turn the behavior check into a
+ // ReferenceError before its assertions run.
+ if(path.includes("Carousel.svelte")) {
+  const moduleScript=componentSource.match(/<script module lang="ts">([\s\S]*?)<\/script>/)?.[1]??"";
+  code=`${moduleScript}\n${code}`;
+ }
  if(mutation==="allow-stale") code=code.replace("coverReadAllowed(job.gameKey) && !job.cache.has", "!job.cache.has");
  if(mutation==="suppress-originals" && path.includes("Carousel.svelte")) code=code.replace("const fullUrl =", "if (getAtlasCell(covers[index]?.id, currentVersion) && index !== visualCenter) return false;\nconst fullUrl =");
  return code;

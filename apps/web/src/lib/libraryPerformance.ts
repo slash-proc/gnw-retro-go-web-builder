@@ -1,6 +1,8 @@
 const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
 const timeline = params?.get("libraryPerf") === "1";
-const enabled = timeline || params?.has("libraryTrace");
+const browserInstrumentation = typeof window !== "undefined"
+  && (window as Window & { __GNW_BROWSER_INSTRUMENTATION__?: boolean }).__GNW_BROWSER_INSTRUMENTATION__ === true;
+const enabled = browserInstrumentation || timeline || params?.has("libraryTrace");
 let sequence = 0;
 const phases = new Map<string, { calls: number; totalMs: number; maxMs: number; items: number | null; active: number }>();
 
@@ -46,6 +48,10 @@ export function measureLibraryPhase<T>(name: string, itemCount: number | null, r
   } finally {
     finish();
   }
+}
+
+export function browserInstrumentationEnabled(): boolean {
+  return browserInstrumentation;
 }
 
 export async function measureLibraryPhaseAsync<T>(name: string, itemCount: number | null, run: () => Promise<T>): Promise<T> {

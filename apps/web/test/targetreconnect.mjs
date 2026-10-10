@@ -16,13 +16,17 @@ const store = ast.statements.find((node) => ts.isClassDeclaration(node) && node.
 assert.ok(store, "DeviceStore must be available to test its actual connection methods");
 const names = ["connect", "_teardownConnection", "stopPoll", "enterStockMonitor", "enterRecoveryMode",
   "isConnected", "markTargetUnresponsive", "scheduleTargetReconnect", "retryTargetConnection", "RETRY_POLL_INTERVAL_MS",
-  "connectSilent", "chooseAdapter", "REMOTE_RECONNECT_NOTIFY_AFTER", "remoteReconnectFailures"];
+  "connectSilent", "chooseAdapter", "MAX_CONNECT_FAILURE_NOTIFICATIONS", "connectFailureCount"];
 const methods = names.map((name) => {
   const node = store.members.find((member) => member.name?.getText(ast) === name);
   assert.ok(node, `Missing method ${name}`);
   return node.getText(ast);
 });
-const compiled = ts.transpileModule(`class DeviceStore { ${methods.join("\n")} }
+const connectFailureExplainer = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "explainConnectionFailure");
+assert.ok(connectFailureExplainer, "Connection failure explanations must be available to test");
+const explainerSource = connectFailureExplainer.getText(ast).replace(/^export\s+/, "");
+const compiled = ts.transpileModule(`${explainerSource}
+class DeviceStore { ${methods.join("\n")} }
 globalThis.DeviceStore = DeviceStore;`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 
 const header = readFileSync(new URL("../src/lib/ui/DeviceHeader.svelte", import.meta.url), "utf8");
@@ -260,18 +264,18 @@ function fixture({ recovery = false, booting = false, attachGate, attachFailures
   const {device,calls}=fixture({remote:true,attachFailures:7,attachError:"Could not connect to ws://localhost:8765/gdb"});
   for(let i=1;i<=7;i++) {
     await device.retryTargetConnection();
-    assert.equal(calls.notifications.length,i<4?0:1,"Remote reconnect must notify once after four failures");
+    assert.equal(calls.notifications.length,Math.min(i,3),"Remote reconnect should report at most three failures");
     assert.ok(device.targetReconnectTimer,"Notification must not stop reconnection");
   }
   await device.retryTargetConnection();
-  assert.equal(device.remoteReconnectFailures,0,"Successful connection must reset the outage counter");
+  assert.equal(device.connectFailureCount,0,"Successful connection must reset the outage counter");
   device.connection="lost";device.targetUnresponsive=true;
   for(let i=0;i<4;i++) {
     const fail=async()=>{throw new Error("remote outage");};
     device.refreshItcmOfwHint=fail;
     await device.retryTargetConnection();
   }
-  assert.equal(calls.notifications.length,2,"A later outage should get its own single notification");
+  assert.equal(calls.notifications.length,6,"A later outage should get its own three-notification allowance");
 }
 {
   const {device,calls}=fixture({remote:true,attachFailures:1,attachError:"Could not connect to ws://localhost:8765/gdb"});

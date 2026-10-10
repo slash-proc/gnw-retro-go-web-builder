@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 2,
+  "browser": {
+    "directories": {
+      "description": "Native Chromium directory sources with persistent permission",
+      "sourceScope": "full",
+      "nativeDirectories": true
+    },
+    "clean": {
+      "description": "Empty app for isolated navigation",
+      "sourceScope": "app-only"
+    },
+    "roms-only": {
+      "description": "ROM directories without BIOS or OFW backup sources",
+      "sourceScope": "roms"
+    },
+    "roms-bios": {
+      "description": "ROM and BIOS directories without OFW backup sources",
+      "sourceScope": "roms-bios"
+    },
+    "no-backups": {
+      "description": "All configured sources except OFW backups",
+      "sourceScope": "without-ofw-backups"
+    },
+    "full-library": {
+      "description": "Full configured ROM/BIOS/backup sources; Library coverage runs in the suite",
+      "sourceScope": "full"
+    },
+    "full-library-atlas": {
+      "description": "Full configured sources with persistent carousel atlas pages precomputed",
+      "sourceScope": "full",
+      "nativeDirectories": true,
+      "precomputedAtlas": true
+    }
+  },
+  "gwemu": {
+    "stock-locked": {
+      "firmware": "stock",
+      "deviceLocked": true
+    },
+    "stock-unlocked": {
+      "firmware": "stock",
+      "deviceLocked": false
+    },
+    "retro-go": {
+      "firmware": "retro-go",
+      "variant": "flash",
+      "deviceLocked": false,
+      "provisioner": "gwprov",
+      "projects": [
+        "tgb",
+        "doom"
+      ],
+      "extflashMiB": 64,
+      "bootloaderVersion": "v1.0.8"
+    }
+  }
+}

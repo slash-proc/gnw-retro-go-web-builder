@@ -85,7 +85,7 @@ import {
 } from "../sources/coverPlan.js";
 import { buildLogicalInstallPlan } from "../sources/logicalInstallPlan.js";
   import { carouselAtlasCacheSignature, carouselAtlasContentFingerprint, carouselAtlasSignature, carouselAtlasFiles, patchCarouselAtlasCover, type CarouselAtlas } from "../sources/carouselAtlas.js";
-  import { measureLibraryPhase, measureLibraryPhaseAsync } from "../libraryPerformance.js";
+  import { browserInstrumentationEnabled, measureLibraryPhase, measureLibraryPhaseAsync } from "../libraryPerformance.js";
   import { prepareCarouselAtlases, setCarouselAtlasInteraction } from "../sources/carouselAtlasWorker.js";
   import { writeCarouselAtlas } from "../sources/carouselAtlas.js";
   import { localFolders, displayName } from "../sources/localFolders.svelte.js";
@@ -479,8 +479,14 @@ import { navigate } from "../nav.js";
       if (!device.utilLoaded || !frogfsPart) return;
       const frogfs = device.installedFrogfs;
       if (!frogfs) return;
-      const flasher = await device.ensureStub(undefined, false, true); // already loaded — silent, cached
-      if (gen !== cheatsBaselineGen) return;
+      // This is a passive baseline read. Calling ensureStub() here is unsafe even with
+      // utilLoaded already true: if its cached-flasher liveness check decides to reboot,
+      // ensureStub() flips utilLoaded false and back to true. Both transitions retrigger this
+      // effect, which can start another reset/boot before the first one settles. During a
+      // device problem that becomes an unbounded chain of stub boots and safety holds. Use
+      // only the flasher that the readiness gate above already established.
+      const flasher = device.flasher;
+      if (!flasher) return;
       const read = (off: number, len: number) => dumpRegion(flasher, 0, off, len);
       // Read legacy FrogFS copies first so LittleFS is authoritative if a prior version
       // stored the same cheat in both places.
@@ -1632,6 +1638,12 @@ import { navigate } from "../nav.js";
   let atlasAbort: AbortController | null = null;
   let atlasWork: Promise<void> = Promise.resolve();
   let atlasTaskId = 0;
+  // Filter and carousel-window changes still prepare a bounded atlas for the newly visible
+  // neighborhood, but they are routine navigation rather than a library-wide background task.
+  // Keep the global progress lip for initial preparation and actual scan/cover revisions.
+  let atlasProgressReady = atlasDataBySource.size > 0;
+  let atlasProgressScan = library.scan;
+  let atlasProgressRevision = coverAtlasRevision;
   let coverIndexMap: Map<string, LibraryFile> | null = null;
   let coverIndexSize = -1;
   let coverIndex = new Map<string, string>();
@@ -1939,6 +1951,10 @@ import { navigate } from "../nav.js";
   // source changes, the old build is cancelled and can never replace the new one.
   $effect(() => {
     if (coverAtlasPausedForImport) return;
+    // Directory scans can replace the library more than once while the user is still adding
+    // sources. Do not decode full-size cover images alongside that scan; the last scan's state
+    // will retrigger this effect when folderScanning becomes false.
+    if (library.folderScanning) return;
     const signature = carouselAtlasInputSignature;
     if (signature === appliedAtlasInputSignature) {
       atlasFallbackReady = true;
@@ -1958,10 +1974,15 @@ import { navigate } from "../nav.js";
     const controller = new AbortController();
     atlasAbort = controller;
     const taskId = ++atlasTaskId;
+    const reportProgress = !atlasProgressReady
+      || atlasProgressScan !== scan
+      || atlasProgressRevision !== coverAtlasRevision;
     let lastAtlasProgressAt = 0;
     const runAtlas = (): Promise<void> => {
       if (controller.signal.aborted) return Promise.resolve();
-      library.backgroundTask = { id: taskId, stage: "Checking browser cover cache", done: 0, total: entries.length, detail: locale.t.roms.backgroundProgress.originalCovers(entries.length) };
+      if (reportProgress) {
+        library.backgroundTask = { id: taskId, stage: "Checking browser cover cache", done: 0, total: entries.length, detail: locale.t.roms.backgroundProgress.originalCovers(entries.length) };
+      }
       const yieldForAtlasUi = async () => {
         await library.waitForUiIdle();
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -2036,12 +2057,14 @@ import { navigate } from "../nav.js";
           const previousUrls = atlasPageUrls;
           const nextUrls = [...nextPageUrlsBySource.values()].flat();
           const nextDecoded = [...nextPageImagesBySource.values()].flat();
-          const encodedPageBytes = [...atlases.values()].reduce(
-            (bytes, atlas) => bytes + atlas.pages.reduce((pageBytes, page) => pageBytes + page.blob.size, 0),
-            0,
-          );
-          const jsHeap = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory?.usedJSHeapSize;
-          dbg(`[carousel-atlas] resident pages=${nextDecoded.length} eagerDecodedPages=0 encodedMiB=${(encodedPageBytes / 1048576).toFixed(1)} jsHeapMiB=${jsHeap === undefined ? "unavailable" : (jsHeap / 1048576).toFixed(1)}`);
+          if (browserInstrumentationEnabled()) {
+            const encodedPageBytes = [...atlases.values()].reduce(
+              (bytes, atlas) => bytes + atlas.pages.reduce((pageBytes, page) => pageBytes + page.blob.size, 0),
+              0,
+            );
+            const jsHeap = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory?.usedJSHeapSize;
+            dbg(`[carousel-atlas] resident pages=${nextDecoded.length} eagerDecodedPages=0 encodedMiB=${(encodedPageBytes / 1048576).toFixed(1)} jsHeapMiB=${jsHeap === undefined ? "unavailable" : (jsHeap / 1048576).toFixed(1)}`);
+          }
           const retainedUrls = new Set(nextUrls);
           atlasPageUrls = nextUrls;
           atlasDecodedPages = nextDecoded;
@@ -2051,6 +2074,9 @@ import { navigate } from "../nav.js";
           atlasOwnerBySourcePath = buildAtlasOwnerIndex();
           atlasCells = nextCells;
           appliedAtlasInputSignature = signature;
+          atlasProgressReady = true;
+          atlasProgressScan = scan;
+          atlasProgressRevision = coverAtlasRevision;
           atlasFallbackReady = true;
           retainAtlas();
           for (const url of previousUrls) if (!retainedUrls.has(url)) URL.revokeObjectURL(url);
@@ -2062,6 +2088,11 @@ import { navigate } from "../nav.js";
       }).catch((error) => {
         // A missing/failed derived atlas leaves the existing lazy cover path in place.
         if (!controller.signal.aborted) dbg("[carousel-atlas] preparation failed", error);
+        if (!controller.signal.aborted) {
+          atlasProgressReady = true;
+          atlasProgressScan = scan;
+          atlasProgressRevision = coverAtlasRevision;
+        }
         if (!controller.signal.aborted) atlasFallbackReady = true;
         if (library.backgroundTask?.id === taskId) library.backgroundTask = null;
       });
@@ -2085,7 +2116,6 @@ import { navigate } from "../nav.js";
     // cover is named after the ROM, and on the card there is only one of that name.
     const gameKey = basePath(key);
     if (lowResolution) return "";
-    if (!atlasFallbackReady) return "";
     const cache = lowResolution ? coverLodUrls : coverUrls;
     const owner = visibleGameByKey.get(key)?.rom?.id ?? homebrew.find(gameKey)?.key;
     const selectedCover = owner ? selectedOriginalCovers.get(owner) : undefined;

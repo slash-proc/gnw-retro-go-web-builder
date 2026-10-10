@@ -175,9 +175,10 @@ ok(dirSupportsWriteBack(shimRoot) === false,
 // --- 4. The root rule, unchanged -----------------------------------------------------------------
 // A registry that declares `nes` accepts the folder through its `roms/` child; an empty registry
 // with no core sources falls back to the legacy table, which also knows `nes`.
+const nesSystem = { id: "nes", folder: "nes", longName: "Nintendo Entertainment System", shortName: "NES" };
 const reg = {
-  systems: [{ folder: "nes" }],
-  byFolder: new Map([["nes", { folder: "nes" }]]),
+  systems: [nesSystem],
+  byFolder: new Map([["nes", nesSystem]]),
   declaredFolders: new Set(["nes"]),
   hasCoreSources: true,
 };

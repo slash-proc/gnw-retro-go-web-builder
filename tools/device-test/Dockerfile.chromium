@@ -1,0 +1,11 @@
+FROM node:22-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends chromium xvfb x11vnc xdotool openbox x11-utils imagemagick tesseract-ocr && rm -rf /var/lib/apt/lists/*
+ENV GNW_TEST_CHROMIUM_EXECUTABLE=/usr/bin/chromium
+WORKDIR /runner
+COPY package.json ./
+RUN npm install --ignore-scripts --no-audit --no-fund
+COPY playwright.config.mjs fixtures.mjs device.mjs native-seed.mjs desktop-picker.mjs desktop.sh ./
+COPY tests ./tests
+COPY workflows ./workflows
+COPY scenarios ./scenarios
+ENTRYPOINT ["npm", "test"]

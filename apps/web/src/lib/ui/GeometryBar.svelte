@@ -44,13 +44,18 @@
   // raw-hex left/right legend for callers that supply either.
   const headed = $derived(note !== "" || sizeLabel !== "");
 
-  let hovered = $state<GeoSegment | null>(null);
+  // Keep selection state as primitive keys. GeoSegments can be deeply proxied by Svelte
+  // when they pass through reactive owners, so comparing a stored object with the original
+  // segment using === emits state_proxy_equality_mismatch and may fail to match.
+  const segmentKey = (s: GeoSegment) => `${s.kind}|${s.bank ?? ""}|${s.offset ?? ""}|${s.size ?? ""}|${s.label}`;
+  let hoveredKey = $state<string | null>(null);
   // Click a segment to PIN its detail so it persists (and the text can be selected/copied);
   // hover just previews. The detail shows the hovered segment, falling back to the pinned one.
-  let pinned = $state<GeoSegment | null>(null);
-  const shown = $derived(hovered ?? pinned);
+  let pinnedKey = $state<string | null>(null);
+  const shown = $derived(segments.find((s) => segmentKey(s) === (hoveredKey ?? pinnedKey)) ?? null);
   function togglePin(s: GeoSegment, e: MouseEvent | KeyboardEvent | undefined = undefined) {
-    pinned = pinned === s ? null : s;
+    const key = segmentKey(s);
+    pinnedKey = pinnedKey === key ? null : key;
     if (onClick) onClick(s, e);
   }
 </script>
@@ -66,7 +71,7 @@
     {#each segments as s, i (i)}
       <div
         class="gseg {s.kind}"
-        class:pinned={!isSelected && pinned === s}
+        class:pinned={!isSelected && pinnedKey === segmentKey(s)}
         class:sel={isSelected?.(s)}
         aria-pressed={isSelected ? isSelected(s) : undefined}
         style="width:{s.pct}%"
@@ -74,10 +79,10 @@
         tabindex="0"
         aria-label={s.label}
         style:background={s.color}
-        onmouseenter={() => (hovered = s)}
-        onmouseleave={() => (hovered = null)}
-        onfocus={() => (hovered = s)}
-        onblur={() => (hovered = null)}
+        onmouseenter={() => (hoveredKey = segmentKey(s))}
+        onmouseleave={() => (hoveredKey = null)}
+        onfocus={() => (hoveredKey = segmentKey(s))}
+        onblur={() => (hoveredKey = null)}
         onclick={(e) => togglePin(s, e)}
         ondblclick={() => onDblClick?.(s)}
         onkeydown={(e) => {

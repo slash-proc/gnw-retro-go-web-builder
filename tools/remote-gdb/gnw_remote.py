@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 from pathlib import Path
+import re
 import socket
 import ssl
 import subprocess
@@ -171,12 +172,42 @@ class HardwareSession:
         raise ValueError("Unsupported remote adapter operation")
 
 
-async def relay_gdb(ws, host, port):
+def rsp_packet(body):
+    payload = body.encode("ascii")
+    return b"$" + payload + b"#" + f"{sum(payload) & 0xff:02x}".encode("ascii")
+
+
+def rsp_summary(data):
+    if data == b"\x03":
+        return "interrupt"
+    start = data.find(b"$")
+    end = data.find(b"#", start + 1) if start >= 0 else -1
+    if start < 0 or end < 0:
+        return f"control bytes={len(data)}"
+    body = data[start + 1:end].decode("ascii", "replace")
+    match = re.match(r"^([mM])([0-9a-fA-F]+),([0-9a-fA-F]+)(?::.*)?$", body)
+    if match:
+        op = "read" if match.group(1) == "m" else "write"
+        return f"{op} address=0x{int(match.group(2), 16):08x} bytes={int(match.group(3), 16)}"
+    if body.startswith("p") or body.startswith("P"):
+        return "register"
+    if body == "c":
+        return "continue"
+    return f"rsp op={body[:24]}"
+
+
+async def relay_gdb(ws, host, port, emulate_interrupt=False, trace_rsp=False):
     reader, writer = await asyncio.open_connection(host, port)
     writer.get_extra_info("socket").setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    request_count = 0
+    response_count = 0
 
     async def from_gdb():
+        nonlocal response_count
         while data := await reader.read(MAX_MEMORY):
+            response_count += 1
+            if trace_rsp:
+                LOG.info("RSP rx #%d bytes=%d", response_count, len(data))
             await ws.send(data)
         await ws.close()
 
@@ -185,6 +216,17 @@ async def relay_gdb(ws, host, port):
         async for message in ws:
             if not isinstance(message, bytes):
                 raise ValueError("GDB forwarding expects binary WebSocket frames")
+            request_count += 1
+            if trace_rsp:
+                LOG.info("RSP tx #%d %s frame_bytes=%d", request_count, rsp_summary(message), len(message))
+            if message == b"\x03" and emulate_interrupt:
+                # The Playwright fixture pauses GWemu through its existing QMP session just
+                # before the stub-reset operation. Convert GDB's Ctrl-C into the matching
+                # stop reply because QEMU can omit that reply when the guest is in WFI.
+                await ws.send(rsp_packet("T02thread:01;"))
+                if trace_rsp:
+                    LOG.info("RSP rx synthetic stop reply")
+                continue
             writer.write(message)
             await writer.drain()
     finally:
@@ -238,7 +280,7 @@ async def run(args):
         active = True
         try:
             if args.gdb_host:
-                await relay_gdb(ws, args.gdb_host, args.gdb_port)
+                await relay_gdb(ws, args.gdb_host, args.gdb_port, args.emulate_interrupt, args.trace_rsp)
             else:
                 await hardware(ws, args.frequency)
         except Exception:
@@ -264,6 +306,10 @@ def main():
     parser.add_argument("--frequency", type=int, default=1000000)
     parser.add_argument("--gdb-host", help="Forward raw GDB to this host instead of using Raspberry Pi GPIO")
     parser.add_argument("--gdb-port", type=int, default=1234)
+    parser.add_argument("--emulate-interrupt", action="store_true",
+                        help="synthesize a stop reply for a target paused externally by the test harness")
+    parser.add_argument("--trace-rsp", action="store_true",
+                        help="log GDB operation summaries and response frame sizes without payload data")
     parser.add_argument("--cert", help="TLS certificate for wss://")
     parser.add_argument("--key", help="TLS private key")
     parser.add_argument("--origin", action="append", help="Allowed browser origin; repeat for multiple sites")

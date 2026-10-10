@@ -432,6 +432,7 @@ await check("a target ping miss does not reconnect a still-attached adapter", as
   await device.connectSilent();
   eq(fake.connectCalls, attaches, "silent connect preserves the selected session");
   fake.pingOkay = true;
+  fake.vtor = 0x08000000; // a responding target must provide corroborating in-image evidence
   await device.pollTick();
   eq(device.connection, "lost", "one lucky ping does not flap the UI back to connected");
   device.firstRecoveryAnswerAt = Date.now() - 3_001;
@@ -439,6 +440,7 @@ await check("a target ping miss does not reconnect a still-attached adapter", as
   eq(device.connection, "connected", "the original session recovers on a good ping");
   eq(fake.connectCalls, attaches, "recovery needs no new adapter connection");
   await device.disconnect();
+  fake.vtor = 0;
 });
 
 await check("an unreadable target does not start an expensive flash scan", async () => {
@@ -450,11 +452,13 @@ await check("an unreadable target does not start an expensive flash scan", async
   eq(device.connection, "attention", "an unreadable target retains the adapter for Recovery");
   eq(device._scanSeq, beforeScans, "invalid target reads do not launch a bank scan");
   fake.pingOkay = true;
+  fake.vtor = 0x08000000; // model a live target after the test restores debug access
   await device.pollTick();
   device.firstRecoveryAnswerAt = Date.now() - 3_001;
   await device.pollTick();
   eq(device.connection, "connected", "the retained probe recovers when target reads work");
   await device.disconnect();
+  fake.vtor = 0;
 });
 
 await check("a real USB disconnect still tears down an unresponsive target session", async () => {

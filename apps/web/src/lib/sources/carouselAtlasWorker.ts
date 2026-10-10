@@ -41,7 +41,11 @@ export function setCarouselAtlasInteraction(reason: string, active: boolean): vo
 }
 
 export function getCarouselAtlasConcurrency(): number {
-  return typeof navigator !== "undefined" && navigator.hardwareConcurrency >= 8 ? 4 : 2;
+  // Cover sources can contain very large originals even though every atlas cell is small.
+  // Decoding several full-size images at once caused the browser to exceed its memory budget
+  // on large libraries. Keep one decode/encode pipeline active; the bounded batches still
+  // transfer work to a worker and release each source image as soon as it is consumed.
+  return 1;
 }
 
 function createCarouselAtlasWorker(signal?: AbortSignal) {
@@ -197,7 +201,9 @@ export async function prepareCarouselAtlases(
     const columns = options.columns ?? CAROUSEL_ATLAS_DEFAULTS.columns;
     const rows = options.rows ?? CAROUSEL_ATLAS_DEFAULTS.rows;
     const batchSize = columns * rows;
-    const maxBatchBytes = 24 * 1024 * 1024;
+    // Only a few originals should be resident while the worker decodes them. Large source
+    // collections can total gigabytes even though each atlas cell is tiny.
+    const maxBatchBytes = 4 * 1024 * 1024;
     const workerPoolSize = Math.min(getCarouselAtlasConcurrency(), Math.ceil(sourceEntries.length / batchSize));
     const placements: CarouselAtlas["placements"] = [];
     const pages: CarouselAtlas["pages"] = [];
@@ -245,7 +251,10 @@ export async function prepareCarouselAtlases(
           if (!file) continue;
           try {
             const bytes = file instanceof Uint8Array ? file : await file.bytes();
-            inputs.push({ key: entry.key, bytes: bytes.slice() });
+            // LazyRom owns this buffer only until release below, so transfer it directly instead
+            // of briefly holding both the source bytes and a second full-size copy. Plain byte
+            // arrays may be shared by callers, so those still need an owned copy.
+            inputs.push({ key: entry.key, bytes: file instanceof Uint8Array ? bytes.slice() : bytes });
           } finally {
             if (!(file instanceof Uint8Array)) file.release();
             entry.file = null;

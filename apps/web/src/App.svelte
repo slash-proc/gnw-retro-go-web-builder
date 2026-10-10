@@ -104,6 +104,9 @@
     // The landing chooser is the first-run wizard (Flash vs SD, Firmware vs Library). It must
     // not trigger a library walk before the user has chosen a destination.
     if (showLanding) return;
+    // Registering ROM, BIOS and firmware sources is one setup operation. Wait until the user
+    // leaves Sources so each registration does not trigger another full library walk.
+    if (sourcesTabActive) return;
     // Guided Setup owns the device while it is open; defer the library walk until the wizard
     // switches back to the normal device/library UI. Reading firmwareMode keeps this effect
     // subscribed so closing the wizard starts the deferred scan automatically.
@@ -128,6 +131,7 @@
   let resetLandingToMedia = $state(false);
   // Set when the user connects FROM the landing homepage
   let entryTab = $state<"info" | "device" | "roms" | undefined>(undefined);
+  let sourcesTabActive = $state(typeof window !== "undefined" && /^#sources(?:\/|$)/.test(window.location.hash));
 
   // true only for "Manage Device" navigations (not "Advanced") — enables firmware-based auto-route.
   let autoRouteEnabled = $state(false);
@@ -279,7 +283,11 @@
         <Landing onNavigate={handleNavigate} resetToMedia={resetLandingToMedia} />
       </div>
     {:else}
-      <Advanced initialTab={entryTab} onInitialApplied={() => (entryTab = undefined)} />
+      <Advanced
+        initialTab={entryTab}
+        onInitialApplied={() => (entryTab = undefined)}
+        onTabChange={(tab) => (sourcesTabActive = tab === "sources")}
+      />
     {/if}
   </main>
 </div>

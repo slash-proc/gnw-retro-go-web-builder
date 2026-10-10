@@ -36,6 +36,11 @@ lzmatest/
 # Locally-built retro-go firmware blobs (rebuildable from references/, see DEVELOPMENT.md)
 blobs/
 
+# Local GWemu / browser integration-test configuration and generated reports
+device-test.yaml
+dev-local/
+device-test-reports
+
 # Patch oracle output: reference patched images + liblzma vectors are derived
 # from copyrighted stock firmware — local validation artifacts, never committed.
 packages/gnw-patch/test/ref/

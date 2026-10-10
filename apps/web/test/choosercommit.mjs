@@ -22,10 +22,9 @@
  * way `optionsmodal.mjs` does -- Svelte's `:where()` scoping carries zero specificity and reading
  * source has produced wrong answers about this file before.
  *
- * HOW A CHOSEN PATH IS RENDERED. `path` is component-internal, SSR renders initial state, and no
- * DOM library is available here to mount and click. So the one `path` initializer is rewritten in
- * a copy of the real source, exactly as `landingshift.mjs` reaches its step 2. Two armed guards
- * keep that honest: the rewrite must match exactly once, and the two renders must differ.
+ * HOW A CHOSEN PATH IS RENDERED. `path` is now a bindable component prop. SSR lets this suite
+ * render both states directly without a DOM library: it passes null, then "rgo", to the real
+ * component. The two-render guard ensures the chosen state actually changes the output.
  */
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -52,22 +51,8 @@ const eq = (a, b, msg) => {
 const SRC = join(web, "src/lib/views/Wizard.svelte");
 const source = readFileSync(SRC, "utf8");
 
-// ── The chosen-path rewrite ──────────────────────────────────────────────────────────────
-// Narrow on purpose: the ONE initializer and nothing else.
-const PATH_INIT = 'let path = $state<WizardPath | null>(null);';
-const PATH_CHOSEN = 'let path = $state<WizardPath | null>("rgo");';
-if (source.split(PATH_INIT).length - 1 !== 1) {
-  console.error(
-    "chooser commit: could not find the path initializer exactly once; the rewrite that renders a " +
-    "chosen path is broken, so this suite cannot test what it claims to",
-  );
-  process.exit(1);
-}
-const chosenSource = source.replace(PATH_INIT, PATH_CHOSEN);
-
-// `rgoNeedsBackup` is latched by `choose()`, which the rewrite never runs. The spine's shape is
-// `chooserstates.mjs`'s business; this suite is about the page not being replaced, so the default
-// latch value is fine and is not asserted on here.
+// `rgoNeedsBackup` is latched by `choose()`, which SSR does not run. The spine's shape is
+// `chooserstates.mjs`'s business; this suite checks that the page stays in place after choosing.
 
 const DEVICE_STUB = `
 const d = () => globalThis.__CHOOSER_DEVICE__ ?? {};
@@ -138,19 +123,19 @@ const RETROGO = { kind: "retrogo-sd", ofw: { patched: true } };
 const STATE = { deviceClass: RETROGO, extSizeMB: 32 };
 
 const Unchosen = await buildWith(null, "unchosen");
-const Chosen = await buildWith(chosenSource, "chosen");
+const Chosen = await buildWith(source, "chosen");
 
-function draw(Component) {
+function draw(Component, path = null) {
   globalThis.__CHOOSER_DEVICE__ = STATE;
-  return render(Component, { props: {} }).body;
+  return render(Component, { props: { path } }).body;
 }
 
 const before = draw(Unchosen);
-const after = draw(Chosen);
+const after = draw(Chosen, "rgo");
 
-// ARMED: if the rewrite did not change what rendered, every "after" check below is vacuous.
+// ARMED: if the selected path did not change what rendered, every "after" check below is vacuous.
 if (before === after) {
-  console.error("chooser commit: the unchosen and chosen renders are identical, so the rewrite did not take");
+  console.error("chooser commit: the unchosen and chosen renders are identical");
   process.exit(1);
 }
 

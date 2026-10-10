@@ -48,7 +48,7 @@ import { dedicatedFolderPlacement, isLibrarySource, nativeArchiveRulesFor } from
 import { coverBlobStore } from "./screenscraper/coverStore.js";
 import { libraryCoverCacheKey, libraryFileMetaFromScan, sameLibraryFileMeta, type LibraryFileMeta, type LibraryRom } from "./sources/libraryModel.js";
 import { zipExtractOne, type ZipEntry } from "./unzip.js";
-import { measureLibraryPhase, measureLibraryPhaseAsync } from "./libraryPerformance.js";
+import { browserInstrumentationEnabled, measureLibraryPhase, measureLibraryPhaseAsync } from "./libraryPerformance.js";
 
 const COVER_IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp", ".bmp"]);
 const ZIP_SCAN_CACHE_KEY = "library-zip-scan-cache.v1";
@@ -789,7 +789,7 @@ class LibraryStore {
    */
   async scanAllFolders(validateCachedNames = false): Promise<void> {
     this.folderScanning = true;
-    dbg(`[library memory] scan start jsHeapMiB=${jsHeapMiB()}`);
+    if (browserInstrumentationEnabled()) dbg(`[library memory] scan start jsHeapMiB=${jsHeapMiB()}`);
     this.error = null;
     this.pendingHandle = null;
     this.pendingFolderId = null;
@@ -931,7 +931,7 @@ class LibraryStore {
         },
       });
       dbg(`[library perf] source scans and folder merge complete sources=${merged.scanned.length} files=${merged.files.size} elapsed=${Math.round(performance.now() - scanMergeStarted)}ms`);
-      dbg(`[library memory] scan merged files=${merged.files.size} jsHeapMiB=${jsHeapMiB()}`);
+      if (browserInstrumentationEnabled()) dbg(`[library memory] scan merged files=${merged.files.size} jsHeapMiB=${jsHeapMiB()}`);
 
       if (this.progress) this.progress = { ...this.progress, stage: "Reconciling duplicates" };
       this.scanCollisions = merged.collisions;

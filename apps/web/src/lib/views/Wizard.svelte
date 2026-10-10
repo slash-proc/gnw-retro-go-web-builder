@@ -46,17 +46,25 @@
     type SpineId,
   } from "./chooserPlan.js";
 
+  type WizardPath = "dual" | "rgo" | "stock";
+
   let {
     onComplete,
     onSources,
+    path = $bindable<WizardPath | null>(null),
+    backupModelOverride = $bindable<OfwModel | null>(null),
   }: {
     onComplete?: () => void;
     /**
      * Leave the wizard for the full Sources tab. No longer what the spine's "Add Sources"
      * button does — that opens AddSourcesModal, which handles the common case in place; this
      * is the modal's way out for everything else.
-     */
+    */
     onSources?: () => void;
+    /** Keep the selected flow through connection driven component remounts. */
+    path?: WizardPath | null;
+    /** Retain the hardware model identified while taking a backup. */
+    backupModelOverride?: OfwModel | null;
   } = $props();
 
   /** The "Add Software Sources" spine step's modal (ModalSources artboard). */
@@ -108,9 +116,6 @@
   // ── Step 1: "What do you want on the device?" ─────────────────────────────
   // The whole view is a two-step wizard: pick an intent, then walk a spine
   // specialised to that intent. `path === null` IS step 1.
-  type WizardPath = "dual" | "rgo" | "stock";
-  let path = $state<WizardPath | null>(null);
-
   const MiB = (n: number) => formatNumber(n / 1048576, 2, 2);
 
   const hasAssets = $derived(
@@ -193,7 +198,6 @@
   // The backup step describes what is on disk now, like Overview. A historical "backup taken"
   // flag must never keep this green after the files have been deleted. Prefer the connected
   // device's detected model; an unknown model cannot establish a matching backup.
-  let backupModelOverride = $state<OfwModel | null>(null);
   const backupModel = $derived(device.model !== "unknown" ? device.model
     : device.itcmOfwModel !== "unknown" ? device.itcmOfwModel
     : backupModelOverride ?? "unknown");

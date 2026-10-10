@@ -13,6 +13,16 @@ nothing forces it. It runs the same production checks as the Pages workflow:
 On success the last line is `== push gate: PASSED`. **Do not push a change if the gate fails**
 (any test or `tsc` error aborts the run, so the `PASSED` line is never printed).
 
+For additional guidance on which device/browser scenarios a change may affect, run the
+advisory recommender before choosing the validation set:
+
+```sh
+python3 tools/device-test/run.py recommend --base origin/main
+```
+
+The recommender reports changed files and best-effort changed symbols, then suggests modular
+tests and suites. It does not run, suppress, or replace the push gate.
+
 ## Running the gate
 
 ### Preferred: inside the `dev` container (docker compose)

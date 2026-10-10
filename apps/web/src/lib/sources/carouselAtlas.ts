@@ -311,6 +311,56 @@ function canvasBlob(canvas: AtlasCanvas, quality: number): Promise<Blob> {
   });
 }
 
+/** Read common cover dimensions from headers so the decoder can downsample before allocating a
+ * full-resolution bitmap. Atlas cells are thumbnails; the original file remains untouched. */
+export function carouselImageDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  const u16le = (offset: number) => offset + 2 <= bytes.length ? bytes[offset] | (bytes[offset + 1] << 8) : 0;
+  const u24le = (offset: number) => offset + 3 <= bytes.length
+    ? bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) : 0;
+  const u32le = (offset: number) => offset + 4 <= bytes.length
+    ? (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0 : 0;
+  const u32be = (offset: number) => offset + 4 <= bytes.length
+    ? ((bytes[offset] * 0x1000000) + (bytes[offset + 1] << 16) + (bytes[offset + 2] << 8) + bytes[offset + 3]) >>> 0 : 0;
+  const valid = (width: number, height: number) => width > 0 && height > 0 ? { width, height } : null;
+
+  if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return valid(u32be(16), u32be(20));
+  }
+  if (bytes.length >= 26 && bytes[0] === 0x42 && bytes[1] === 0x4d) {
+    const dibSize = u32le(14);
+    if (dibSize >= 40) return valid(u32le(18), Math.abs(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt32(22, true)));
+    if (dibSize === 12) return valid(u16le(18), u16le(20));
+  }
+  if (bytes.length >= 30 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+    && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+    const chunk = String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15]);
+    if (chunk === "VP8X") return valid(u24le(24) + 1, u24le(27) + 1);
+    if (chunk === "VP8L" && bytes[20] === 0x2f) {
+      const b1 = bytes[21], b2 = bytes[22], b3 = bytes[23], b4 = bytes[24];
+      return valid(1 + b1 + ((b2 & 0x3f) << 8), 1 + (b2 >> 6) + (b3 << 2) + ((b4 & 0x0f) << 10));
+    }
+    if (chunk === "VP8 " && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+      return valid(u16le(26) & 0x3fff, u16le(28) & 0x3fff);
+    }
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    const sof = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+    let offset = 2;
+    while (offset + 4 <= bytes.length) {
+      if (bytes[offset] !== 0xff) { offset++; continue; }
+      while (bytes[offset] === 0xff) offset++;
+      const marker = bytes[offset++];
+      if (marker === 0xd9 || marker === 0xda) break;
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+      const length = (bytes[offset] << 8) | bytes[offset + 1];
+      if (length < 2 || offset + length > bytes.length) break;
+      if (sof.has(marker) && length >= 7) return valid((bytes[offset + 5] << 8) | bytes[offset + 6], (bytes[offset + 3] << 8) | bytes[offset + 4]);
+      offset += length;
+    }
+  }
+  return null;
+}
+
 /** Build atlas pages, decoding each input exactly once during cache construction. */
 export async function buildCarouselAtlas(
   inputs: readonly CarouselAtlasInput[],
@@ -345,7 +395,16 @@ export async function buildCarouselAtlas(
       const input = slice[i];
       // `.img` is an extension, not a MIME declaration. Leave the type empty when the caller
       // does not know whether the payload is PNG or JPEG so the browser can sniff the bytes.
-      const bitmap = await createImageBitmap(new Blob([input.bytes as BlobPart], { type: input.mime || "" }));
+      const source = new Blob([input.bytes as BlobPart], { type: input.mime || "" });
+      const dimensions = carouselImageDimensions(input.bytes);
+      const scale = dimensions ? Math.min(1, cellWidth / dimensions.width, cellHeight / dimensions.height) : 1;
+      const bitmap = dimensions && scale < 1
+        ? await createImageBitmap(source, {
+          resizeWidth: Math.max(1, Math.round(dimensions.width * scale)),
+          resizeHeight: Math.max(1, Math.round(dimensions.height * scale)),
+          resizeQuality: "high",
+        })
+        : await createImageBitmap(source);
       try {
         const col = i % columns;
         const row = Math.floor(i / columns);
@@ -370,7 +429,12 @@ export async function buildCarouselAtlas(
       onProgress?.(start + i + 1, inputs.length);
       if ((i + 1) % 8 === 0 || i + 1 === slice.length) await yieldControl?.();
     }
-    pages.push({ index: page, blob: await canvasBlob(canvas, quality), width: pageWidth, height: pageHeight });
+    const blob = await canvasBlob(canvas, quality);
+    // Encoding produces an independent Blob. Drop the canvas backing store immediately so the
+    // next page doesn't overlap its RGBA surface with the previous page's graphics allocation.
+    canvas.width = 0;
+    canvas.height = 0;
+    pages.push({ index: page, blob, width: pageWidth, height: pageHeight });
   }
 
   return { sourceSignature: options.sourceSignature ?? "", cellWidth, cellHeight, columns, rows, placements, pages };

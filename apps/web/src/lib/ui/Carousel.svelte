@@ -1,5 +1,6 @@
 <script module lang="ts">
   const decodedUrlSession = new Set<string>();
+  const decodedUrlDimensions = new Map<string, { width: number; height: number }>();
 </script>
 
 <script lang="ts">
@@ -132,6 +133,7 @@
     queueDepth: preloadQueue.length,
     activeDecodes: activePreloads,
     decodedUrls: decodedUrls.size,
+    decodedImageBytes: [...decodedUrlDimensions.values()].reduce((sum, image) => sum + image.width * image.height * 4, 0),
     window: { behind: fullCoverWindow.behind, ahead: fullCoverWindow.ahead, retained: fullCoverWindow.retain.length, read: fullCoverWindow.read.length },
     elapsedMs: Math.round(performance.now() - debugStarted),
   });
@@ -161,7 +163,12 @@
         .then(() => {
           if (image.src !== next.url) return;
           decodedUrls.add(next.url);
-          if (decodedUrls.size > 256) decodedUrls.delete(decodedUrls.values().next().value!);
+          decodedUrlDimensions.set(next.url, { width: image.naturalWidth, height: image.naturalHeight });
+          if (decodedUrls.size > 256) {
+            const evicted = decodedUrls.values().next().value!;
+            decodedUrls.delete(evicted);
+            decodedUrlDimensions.delete(evicted);
+          }
           debugDecodeDone++;
         })
         .catch(() => { debugDecodeFailed++; })
@@ -189,6 +196,7 @@
     for (const url of fullPreloadUrls) {
       if (keep.has(url)) continue;
       decodedUrls.delete(url);
+      decodedUrlDimensions.delete(url);
       fullPreloadUrls.delete(url);
     }
     for (let i = preloadQueue.length - 1; i >= 0; i--) {
@@ -216,7 +224,10 @@
     if (preloadRefreshTimer) clearTimeout(preloadRefreshTimer);
     for (const image of pendingImages.values()) image.src = "";
     pendingImages.clear();
-    for (const url of fullPreloadUrls) decodedUrls.delete(url);
+    for (const url of fullPreloadUrls) {
+      decodedUrls.delete(url);
+      decodedUrlDimensions.delete(url);
+    }
     fullPreloadUrls.clear();
     pendingDecodes.clear();
     pendingLodUrls.clear();

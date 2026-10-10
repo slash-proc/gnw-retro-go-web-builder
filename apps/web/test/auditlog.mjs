@@ -331,10 +331,16 @@ check("a Library row carries NO verdict text at all", () => {
   }
 });
 
-check("the Library does not reach the activity log at all", () => {
-  // The strongest form of the rule: not a quieter message, not an icon, not a link. If the row
-  // cannot see the log it cannot report from it.
-  ok(!rowSrc.includes("auditLog"), "RomManagementTab.svelte does not import or call `auditLog`");
+check("Library cover conflicts reach Activity without row verdict copy", () => {
+  // Duplicate covers are source diagnostics and belong in Activity. The old guard rejected
+  // every auditLog reference, including this intended global warning, instead of guarding the
+  // actual regression: putting verdict text back into each game row.
+  ok(rowSrc.includes("queueMicrotask(() => auditLog.add("), "cover conflicts are recorded asynchronously");
+  ok(rowSrc.includes('"warning",\n            "sources",'), "cover conflicts use the sources warning tier");
+  ok(rowSrc.includes("t.sources.multipleCoversFound"), "the warning uses its localized message");
+  for (const needle of ["auditLog.open", "auditLog.show", "row-verdict", "rowFailure(", "rowNotices("]) {
+    ok(!rowSrc.includes(needle), `no \`${needle}\` in Library row presentation`);
+  }
 });
 
 check("the Activity MODAL is gone, with no stand-in", () => {

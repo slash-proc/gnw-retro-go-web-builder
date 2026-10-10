@@ -49,6 +49,23 @@ function isPickerDismissal(e: unknown): boolean {
   return e instanceof ProbePickerDismissed;
 }
 
+/** Replace low-level transport/DAP wording with the part the user can diagnose. */
+export function explainConnectionFailure(reason: string, adapterType: AdapterType): string {
+  if (/outside the bounds of the DataView|Error connecting DP|cannot read IDR|Transfer count mismatch|target is not responding/i.test(reason)) {
+    return "The adapter connected, but could not get a valid response from the device over SWD. Check that the device is powered and the SWD wiring is correct.";
+  }
+  if (adapterType === "remote" && /Could not connect(?: to)? ws:|Remote adapter connection closed/i.test(reason)) {
+    return "Could not reach the remote gnwmanager adapter. Check its host, port, and network connection.";
+  }
+  if (adapterType === "remote" && /No device detected|Unable to autodetect/i.test(reason)) {
+    return "Remote gnwmanager is reachable, but it cannot find a debug adapter. Check the adapter's USB connection on that host.";
+  }
+  if (/Adapter connection timed out|No device detected|Unable to autodetect|WebUSB.*unavailable|device was disconnected|transfer.*(timed out|failed|error)/i.test(reason)) {
+    return "The debug adapter is not responding. Check its USB connection, then reconnect the adapter.";
+  }
+  return reason;
+}
+
 /** Thrown by `ensureUnlocked()` when the user declined the one prompt that survives — the
  *  device is locked and has no backup, so unlocking would destroy the original firmware for
  *  good. Distinct from a hardware failure so a caller can stay silent about a deliberate
@@ -203,8 +220,11 @@ class DeviceStore {
   private pinging = false;
   private targetUnresponsive = false;
   private targetReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private remoteReconnectFailures = 0;
-  private static readonly REMOTE_RECONNECT_NOTIFY_AFTER = 4;
+  private lastTargetReconnectWaitReason = "";
+  private lastTargetReconnectAttemptDiagnosticAt = 0;
+  private lastPassiveLivenessDiagnosticAt = 0;
+  private connectFailureCount = 0;
+  private static readonly MAX_CONNECT_FAILURE_NOTIFICATIONS = 3;
   private powerCycleReconnectMode = false;
   private powerCycleReconnectPromise: Promise<void> | null = null;
   private targetPingStalled = false;
@@ -534,6 +554,10 @@ class DeviceStore {
             if (this.probe) await this._teardownConnection();
             const attached = await connectRemoteProbe(this.remoteHost, this.remotePort,
               (available) => { this.adapterAvailable = available; });
+            if (this._suppressAutoRetry) {
+              await attached.dispose();
+              throw new Error("Connection attempt stopped.");
+            }
             this.probe = attached;
             attached.onLost(() => {
               if (this.probe !== attached) return;
@@ -565,11 +589,16 @@ class DeviceStore {
         // safe mailbox RAM read to detect an already-running RAM util, raced against a short
         // timeout so a stalled read can never hang us. If the util's up, reuse it (no re-boot,
         // no modal) and scan; otherwise attach only and load it on demand via ensureStub().
-        this.probe = await connectProbe({
+        const attached = await connectProbe({
           forcePicker: false,
           device: selectedDevice ?? this.selectedAdapter ?? undefined,
           swdClockHz: opts?.swdClockHz ?? this.adapterFrequencyHz,
         });
+        if (this._suppressAutoRetry) {
+          await attached.dispose();
+          throw new Error("Connection attempt stopped.");
+        }
+        this.probe = attached;
         this.selectedAdapter = this.probe.device ?? null;
         this.adapterAvailable = true;
         this.probeName = this.probe.probeName;
@@ -738,30 +767,30 @@ class DeviceStore {
         // trace anywhere the user or a bug report could reach. A dismissed chooser is not a
         // failure and goes to the debug channel instead, where it costs nothing and cannot
         // ring the bell.
-        if (isPickerDismissal(e)) dbg(`[connect] the device chooser was dismissed`);
+        if (this._suppressAutoRetry) dbg("[connect] attempt stopped by user");
+        else if (isPickerDismissal(e)) dbg(`[connect] the device chooser was dismissed`);
         else {
+          const userReason = explainConnectionFailure(this.error, this.adapterType);
+          if (userReason !== this.error) dbg(`[connect] ${userReason} (detail: ${this.error})`);
           // A probe can remain enumerated while the console is powered off. The first
           // transaction then reports "Transfer count mismatch"; that is an expected
           // unavailable-device state, not failed work and must not raise an error notification.
-          const unavailable = /Transfer count mismatch|No device detected|unable to connect to the target|Error connecting DP/i.test(this.error);
+          const unavailable = /Transfer count mismatch|No device detected|unable to connect to the target|Error connecting DP|outside the bounds of the DataView/i.test(this.error);
           const expectedLockedBackupPowerCycle = unavailable &&
             this.lockedBackupPrompt !== null && this.powerCycleReconnectMode;
-          if (this.adapterType === "remote" && opts?.backgroundRetry) {
-            // Notify once per outage after four failed attempts; polling keeps retrying.
-            this.remoteReconnectFailures++;
-            if (this.remoteReconnectFailures === DeviceStore.REMOTE_RECONNECT_NOTIFY_AFTER) {
-              auditLog.add("error", "device", msg((t) => t.shared.auditLog.connectFailed, this.error));
-            }
-            dbg(`[connect] remote reconnect attempt ${this.remoteReconnectFailures} failed: ${this.error}`);
-          } else if (expectedLockedBackupPowerCycle || (unavailable && opts?.backgroundRetry)) {
+          if (expectedLockedBackupPowerCycle) {
             // The adapter stays connected while the user removes console power. Reattach
-            // attempts during this prompt are expected to fail until the blue screen returns;
-            // recording each retry as a warning currently raises a notification per attempt.
-            dbg(opts?.backgroundRetry
-              ? "[connect] target unavailable during automatic reconnect"
-              : "[connect] expected target disconnect during locked-backup power-cycle");
-          } else {
-            auditLog.add(unavailable ? "warning" : "error", "device", msg((t) => t.shared.auditLog.connectFailed, this.error));
+            // attempts during this prompt are expected until the blue screen returns.
+            dbg("[connect] expected target disconnect during locked-backup power-cycle");
+          } else if (this.connectFailureCount < DeviceStore.MAX_CONNECT_FAILURE_NOTIFICATIONS) {
+            this.connectFailureCount++;
+            auditLog.add(unavailable ? "warning" : "error", "device", msg((t) => t.shared.auditLog.connectFailed, userReason));
+            if (this.connectFailureCount === DeviceStore.MAX_CONNECT_FAILURE_NOTIFICATIONS) {
+              dbg(`[connect] further connection failure notifications muted after ${DeviceStore.MAX_CONNECT_FAILURE_NOTIFICATIONS} attempts; reconnecting`);
+            }
+          } else if (this.connectFailureCount === DeviceStore.MAX_CONNECT_FAILURE_NOTIFICATIONS) {
+            // Keep retrying silently after three notifications, regardless of adapter type.
+            this.connectFailureCount++;
           }
         }
         // Plain teardown — NOT the public disconnect(): a failed connect attempt (bad probe,
@@ -788,7 +817,7 @@ class DeviceStore {
         }
         throw e;
       } finally {
-        if (this.error === null) this.remoteReconnectFailures = 0;
+        if (this.error === null) this.connectFailureCount = 0;
         this._connectPromise = null;
       }
     })();
@@ -991,16 +1020,17 @@ class DeviceStore {
     }
   }
 
-  /** First-wave liveness evidence: a recognizable/active ITCM image or a VTOR in MCU
-   *  executable memory. A successful read of zero/erased bus data by itself is not enough. */
+  /** First-wave liveness evidence: a known stock ITCM signature or a VTOR in a real
+   *  firmware/utility image. Merely receiving bytes from ITCM is not evidence: ST-Link can
+   *  return stale/arbitrary bus data after target power loss. */
   private hasPassiveTargetEvidence(
     itcm: { model: "mario" | "zelda" | null; readable: boolean; cleared: boolean },
     vtor: number | null,
   ): boolean {
-    if (itcm.model || (itcm.readable && !itcm.cleared)) return true;
+    if (itcm.model) return true;
     if (vtor === null || vtor === 0 || vtor === 0xffffffff) return false;
     return (vtor >= 0x08000000 && vtor < 0x08200000) ||
-      (vtor >= 0x20000000 && vtor < 0x30000000);
+      (vtor >= 0x24000000 && vtor < 0x24100000);
   }
 
   /** Keep passive USB reads bounded too: a disconnected target may leave a read pending
@@ -1092,7 +1122,7 @@ class DeviceStore {
         ? this.selectedAdapter : known[0];
       this.probeName = this.selectedAdapter.productName || "CMSIS-DAP";
       this.adapterAvailable = true;
-      await this.connect();
+      await this.connect(undefined, { backgroundRetry: true });
     } catch {
       // auto-connect failure is non-fatal
     }
@@ -2321,6 +2351,14 @@ class DeviceStore {
     this.scheduleTargetReconnect();
   }
 
+  /** Keep periodic ping failures diagnosable without flooding the audit/debug stream. */
+  private logPassiveLiveness(detail: string): void {
+    const now = Date.now();
+    if (now - this.lastPassiveLivenessDiagnosticAt < 5_000) return;
+    this.lastPassiveLivenessDiagnosticAt = now;
+    dbg(`[poll] passive liveness ${detail}`);
+  }
+
   /** Reopen an absent target's SWD session independently of its possibly stalled queue. */
   private scheduleTargetReconnect(): void {
     if (this.targetReconnectTimer || this._suppressAutoRetry) return;
@@ -2332,16 +2370,32 @@ class DeviceStore {
 
   private async retryTargetConnection(): Promise<void> {
     if (this._suppressAutoRetry || (this.isConnected && !this.targetUnresponsive)) return;
-    if (this._connectPromise || this._stubBootDepth > 0 || this.scanning ||
-        this.pollSuspendDepth > 0 || this.pinging ||
-        (this.transport?.busy() && (this.adapterType === "remote" || !this.targetPingStalled))) {
+    const waitReason = this._connectPromise ? "connect attempt active"
+      : this._stubBootDepth > 0 ? "Recovery Mode boot active"
+      : this.scanning ? "device scan active"
+      : this.pollSuspendDepth > 0 ? "device poll suspended"
+      : this.pinging ? "device liveness probe active"
+      : this.transport?.busy() && (this.adapterType === "remote" || !this.targetPingStalled) ? "device transport busy"
+      : "";
+    if (waitReason) {
+      if (waitReason !== this.lastTargetReconnectWaitReason) {
+        dbg(`[poll] target reconnect waiting: ${waitReason}`);
+        this.lastTargetReconnectWaitReason = waitReason;
+      }
       this.scheduleTargetReconnect();
       return;
+    }
+    this.lastTargetReconnectWaitReason = "";
+    const now = Date.now();
+    if (now - this.lastTargetReconnectAttemptDiagnosticAt >= 5_000) {
+      this.lastTargetReconnectAttemptDiagnosticAt = now;
+      dbg(`[poll] target reconnect attempt started adapter=${this.adapterType} adapterAvailable=${this.adapterAvailable} probeOpen=${this.probe?.isOpen?.() ?? false}`);
     }
     lipProgress.setQuiet(true);
     try {
       if (this.adapterType === "remote") {
         await this.connect(undefined, { reconnect: true, backgroundRetry: true });
+        dbg(`[poll] target reconnect completed connection=${this.connection} runtime=${this.runtimeKind}`);
         return;
       }
       // The selected adapter may itself have disappeared. Never open a picker from polling.
@@ -2354,11 +2408,13 @@ class DeviceStore {
         this.adapterAvailable = false;
         this.targetUnresponsive = false;
         this.connection = "lost";
+        dbg("[poll] target reconnect waiting: selected USB adapter is not currently enumerated");
         return;
       }
       this.selectedAdapter = adapter;
       this.adapterAvailable = true;
       await this.connect(undefined, { reconnect: true, backgroundRetry: true });
+      dbg(`[poll] target reconnect completed connection=${this.connection} runtime=${this.runtimeKind}`);
     } catch (error) {
       if (!this._suppressAutoRetry) {
         this.targetUnresponsive = this.adapterAvailable;
@@ -2555,6 +2611,7 @@ class DeviceStore {
             const passive = await this.probePassiveTarget(this.transport);
             if (!passive) {
               this.targetPingStalled = this.transport.busy();
+              this.logPassiveLiveness(`result=timeout runtime=${this.runtimeKind} busy=${this.transport.busy()} silenceMs=${Date.now() - this.lastTargetAnswerAt}`);
               if (Date.now() - this.lastTargetAnswerAt >= DeviceStore.TARGET_SILENCE_MS) {
                 this.markTargetUnresponsive();
                 return;
@@ -2567,9 +2624,11 @@ class DeviceStore {
             }
             this.targetPingStalled = false;
             const { itcm, runtime } = passive;
+            const passiveEvidence = this.hasPassiveTargetEvidence(itcm, runtime.vtor);
+            this.logPassiveLiveness(`result=read runtime=${this.runtimeKind} itcmReadable=${itcm.readable} itcmCleared=${itcm.cleared} model=${itcm.model ?? "unknown"} vtor=${runtime.vtor === null ? "unreadable" : `0x${runtime.vtor.toString(16)}`} evidence=${passiveEvidence} silenceMs=${Date.now() - this.lastTargetAnswerAt}`);
             const vtorInBank1 = runtime.vtor !== null &&
               runtime.vtor >= 0x08000000 && runtime.vtor < 0x08100000;
-            if (this.hasPassiveTargetEvidence(itcm, runtime.vtor)) {
+            if (passiveEvidence) {
               this.lastTargetAnswerAt = Date.now();
             }
             if (itcm.model && vtorInBank1) {
@@ -2597,9 +2656,24 @@ class DeviceStore {
         return;
       }
 
+      const wasDebuggingDisabled = this.debuggingDisabled;
+      // CPUID is a constant register and some ST-Link failures return stale data that still
+      // looks like a valid Cortex-M7. Before treating a returning ping as a live target (and
+      // starting a potentially destructive/full scan), corroborate it with a plausible VTOR
+      // or the exact known stock ITCM signature. The Recovery mailbox is checked above.
+      if (wasDebuggingDisabled || this.targetUnresponsive) {
+        const passive = await this.probePassiveTarget(this.transport);
+        const credible = !!passive && this.hasPassiveTargetEvidence(passive.itcm, passive.runtime.vtor);
+        this.logPassiveLiveness(`ping-candidate accepted=${credible} runtime=${this.runtimeKind} vtor=${passive?.runtime.vtor === null || !passive ? "unreadable" : `0x${passive.runtime.vtor.toString(16)}`} model=${passive?.itcm.model ?? "unknown"}`);
+        if (!credible) {
+          this.firstRecoveryAnswerAt = 0;
+          this.debuggingDisabled = true;
+          if (!this.targetUnresponsive) this.connection = "attention";
+          return;
+        }
+      }
       this.targetPingStalled = false;
       this.lastTargetAnswerAt = Date.now();
-      const wasDebuggingDisabled = this.debuggingDisabled;
       if (wasDebuggingDisabled) {
         if (!this.firstRecoveryAnswerAt) this.firstRecoveryAnswerAt = Date.now();
         if (Date.now() - this.firstRecoveryAnswerAt < DeviceStore.TARGET_RECOVERY_MS) return;
@@ -2852,7 +2926,7 @@ class DeviceStore {
       await new Promise((r) => setTimeout(r, i < 10 ? 200 : 1000));
       if (this._suppressAutoRetry || this._gen !== gen) return; // manual disconnect, or superseded
       try {
-        await this.connect();
+        await this.connect(undefined, { backgroundRetry: true });
         return;
       } catch {
         if (this._gen !== gen || this._suppressAutoRetry) return;
@@ -2924,7 +2998,8 @@ class DeviceStore {
    *  flight) until the user explicitly reconnects (which re-enables it — see connect()). */
   async disconnect(): Promise<void> {
     this._suppressAutoRetry = true;
-    this.remoteReconnectFailures = 0;
+    this._gen++; // invalidate any in-flight reconnect loop before releasing its adapter
+    this.connectFailureCount = 0;
     if (this.targetReconnectTimer) clearTimeout(this.targetReconnectTimer);
     this.targetReconnectTimer = null;
     if (this.stubPrompt) {
@@ -3118,7 +3193,7 @@ class DeviceStore {
     if (!this._suppressAutoRetry) {
       try {
         const known = await getKnownProbes();
-        if (known.length === 1) await this.connect();
+        if (known.length === 1) await this.connect(undefined, { backgroundRetry: true });
       } catch (e) {
         // The adapter may still be plugged in while the console is powered off.
         // Do not immediately open a chooser in Overview for that expected state;

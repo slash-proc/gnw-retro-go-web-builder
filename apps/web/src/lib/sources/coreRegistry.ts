@@ -410,6 +410,24 @@ export const LEGACY_CONSOLE_DIRS: ReadonlySet<string> = new Set([
   "a2600", "a7800", "amstrad", "col", "msx", "tama", "videopac", "wsv",
 ]);
 
+// Common ROM-set directory names that do not exactly match the core's declared id/name.
+// Keep aliases keyed to a declared system id so they can never create a console on their own.
+const SYSTEM_FOLDER_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  a2600: ["2600", "Atari - 2600"],
+  col: ["Coleco"],
+  msx: ["MSX2"],
+};
+
+function normaliseSystemFolder(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+function systemFolderMatches(sys: RegisteredSystem, folder: string): boolean {
+  const candidate = normaliseSystemFolder(folder);
+  return [sys.folder, sys.longName, sys.shortName, ...(SYSTEM_FOLDER_ALIASES[sys.id] ?? [])]
+    .some((name) => normaliseSystemFolder(name) === candidate);
+}
+
 /**
  * Is `name` a console directory — i.e. does its presence make a folder a card/ROM root?
  *
@@ -423,14 +441,11 @@ export const LEGACY_CONSOLE_DIRS: ReadonlySet<string> = new Set([
  * `byFolder`, so a deactivated core still shows no console.
  */
 export function isKnownConsoleDir(name: string, reg: CoreRegistry): boolean {
-  const lower = name.toLowerCase();
+  const lower = normaliseSystemFolder(name);
   if (reg.byFolder.has(lower) || reg.declaredFolders.has(lower)) return true;
-  // Accept human-readable system names as folder aliases (for example `Game Boy Color`
-  // alongside the canonical `gbc` folder). Matching is case-insensitive and remains limited
-  // to names declared by a source.
-  if ([...reg.byFolder.values()].some((sys) =>
-    (sys.longName || "").toLowerCase() === lower || (sys.shortName || "").toLowerCase() === lower
-  )) return true;
+  // Accept human-readable and common ROM-set folder aliases, but only for systems declared
+  // by a source. Diacritic folding lets `Pokemon Mini` match `Pokémon Mini`.
+  if ([...reg.byFolder.values()].some((sys) => systemFolderMatches(sys, name))) return true;
   if ([...reg.declaredFolders].some((folder) => folder === lower)) return true;
   // Only before anything has resolved: we cannot yet tell "the user has no cores" from "the
   // sources have not loaded", and a card that stopped being recognised mid-load is worse.
@@ -466,10 +481,8 @@ export function classifyForRegistry(
   folder: string,
   extension: string,
 ): { system: RegisteredSystem; role: FileRole } | null {
-  const lower = folder.toLowerCase();
-  const sys = reg.byFolder.get(lower) ?? [...reg.byFolder.values()].find((candidate) =>
-    (candidate.longName || "").toLowerCase() === lower || (candidate.shortName || "").toLowerCase() === lower
-  );
+  const lower = normaliseSystemFolder(folder);
+  const sys = reg.byFolder.get(lower) ?? [...reg.byFolder.values()].find((candidate) => systemFolderMatches(candidate, folder));
   if (!sys) return null;
   const ext = extension.toLowerCase();
   // Cached cards can precede their full manifest. An overlapping input extension remains

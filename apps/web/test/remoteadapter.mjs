@@ -93,18 +93,19 @@ try {
  });
  await new Promise(r=>server.close(r));
  const rawServer=new WebSocketServer({port:0});await new Promise(r=>rawServer.once("listening",r));
- let rawCalls=[];
+ let rawCalls=[], coreHalted=false;
  rawServer.on("connection",ws=>ws.on("message",data=>{
   const command=data.toString();rawCalls.push(command);
   if(command==="+")return;
   if(command==="\x03"){ws.send(Buffer.from(packet("S05")));return;}
   if(command===packet("c")){ws.send(Buffer.from("+"));return;}
   const body=command.slice(1,command.lastIndexOf("#"));
-  const reply=body === "m0,8" ? "0*," : body.startsWith("m")?"12345678":body.startsWith("p")?"78563412":body==="qSupported"?"PacketSize=10000":"OK";
+  const reply=body === "m0,8" ? "0*," : body==="me000edf0,4"?(coreHalted?"00000200":"00000000"):body.startsWith("m")?"12345678":body.startsWith("p")?"78563412":body==="qSupported"?"PacketSize=10000":"OK";
   // Packet fragments arrive independently, as they can through a TCP relay.
   const out="+"+packet(reply);ws.send(Buffer.from(out.slice(0,3)));ws.send(Buffer.from(out.slice(3)));
  }));
  await check("raw gwmeu GDB framing, register access and explicit control",async()=>{
+  coreHalted=false;
   const client=new GdbRemoteClient(`ws://127.0.0.1:${rawServer.address().port}/gdb`);await client.connect();
   assert.deepEqual([...await client.readMemory(0,4)],[0x12,0x34,0x56,0x78]);
   assert.equal(await client.readRegister("pc"),0x12345678);
@@ -113,6 +114,14 @@ try {
   assert.ok(rawCalls.includes(packet("Pd=00000220")));
   assert.ok(!rawCalls.includes("\x03")&&!rawCalls.includes(packet("c")),"attach and register reads must not auto halt/resume");
   await client.halt();await client.resume();client.close();
+ });
+ await check("raw GDB halt skips Ctrl-C when Cortex-M DHCSR already reports S_HALT",async()=>{
+  coreHalted=true;rawCalls=[];
+  const client=new GdbRemoteClient(`ws://127.0.0.1:${rawServer.address().port}/gdb`);await client.connect();
+  await client.halt();
+  assert.ok(rawCalls.includes(packet("me000edf0,4")),"halt should passively inspect DHCSR first");
+  assert.ok(!rawCalls.includes("\x03"),"an already halted QEMU target should not need an interrupt");
+  client.close();coreHalted=false;
  });
  await new Promise(r=>rawServer.close(r));
  console.log(`remoteadapter: ${checks} checks passed`);

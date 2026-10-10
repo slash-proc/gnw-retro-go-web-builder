@@ -87,6 +87,16 @@ export class GdbRemoteClient  {
   usesGdbControl = false;
   get isManaged(): boolean { return this.managed; }
   private seq = 0;
+  private rspStats = {
+    commands: 0,
+    reads: 0,
+    readBytes: 0,
+    writes: 0,
+    writtenBytes: 0,
+    failures: 0,
+    last: null as null | { op: string; address: number | null; bytes: number; elapsedMs: number; ok: boolean; error?: string },
+    recent: [] as Array<{ op: string; address: number | null; bytes: number; elapsedMs: number; ok: boolean; error?: string }>,
+  };
   private pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   available = false;
   private lostCbs: (() => void)[] = [];
@@ -157,9 +167,29 @@ export class GdbRemoteClient  {
     if (!this.explicitlyClosed) this.fireLost();
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.explicitlyClosed = true;
+    const ws = this.ws;
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      this.fail(new GdbError("Remote adapter closed"));
+      return;
+    }
+    // The remote bridge allows one active WebSocket session. A target power-cycle can
+    // require replacing this connection while the bridge is still unwinding the previous
+    // session. Wait for the close handshake before connect() opens the replacement, or the
+    // bridge rejects it with 1013 "Remote adapter already in use" and the recovery write
+    // fails even though its automatic reconnect succeeds moments later.
+    let onClosed: (() => void) | undefined;
+    const closed = new Promise<void>((resolve) => {
+      onClosed = resolve;
+      ws.addEventListener("close", resolve, { once: true });
+    });
     this.fail(new GdbError("Remote adapter closed"));
+    await Promise.race([
+      closed,
+      new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+    if (onClosed) ws.removeEventListener("close", onClosed);
   }
 
   private async rpc(method: string, args: unknown[] = []): Promise<unknown> {
@@ -185,6 +215,22 @@ export class GdbRemoteClient  {
   }
 
   private command(cmd: string): Promise<string> { return this.deadline(this.sendCommand(cmd)); }
+
+  /** Compact, payload-free RSP telemetry for the browser device-test harness. */
+  debugSnapshot() {
+    return {
+      available: this.available,
+      managed: this.managed,
+      commands: this.rspStats.commands,
+      reads: this.rspStats.reads,
+      readBytes: this.rspStats.readBytes,
+      writes: this.rspStats.writes,
+      writtenBytes: this.rspStats.writtenBytes,
+      failures: this.rspStats.failures,
+      last: this.rspStats.last,
+      recent: [...this.rspStats.recent],
+    };
+  }
 
   private send(bytes: Uint8Array): void {
     if (!this.available || !this.ws) throw new GdbError("Socket is not open");
@@ -225,6 +271,34 @@ export class GdbRemoteClient  {
   }
 
   private async sendCommand(cmd: string): Promise<string> {
+    const started = performance.now();
+    const read = cmd.match(/^m([0-9a-f]+),([0-9a-f]+)$/i);
+    const write = cmd.match(/^M([0-9a-f]+),([0-9a-f]+):/i);
+    const op = read ? "read" : write ? "write" : /^[pP]/.test(cmd) ? "register" : cmd === "c" ? "continue" : "rsp";
+    const address = read || write ? Number.parseInt((read || write)![1], 16) : null;
+    const bytes = read || write ? Number.parseInt((read || write)![2], 16) : 0;
+    const record = (ok: boolean, error?: unknown) => {
+      const row = { op, address, bytes, elapsedMs: Math.round(performance.now() - started), ok,
+        ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}) };
+      this.rspStats.commands++;
+      if (op === "read") { this.rspStats.reads++; this.rspStats.readBytes += bytes; }
+      if (op === "write") { this.rspStats.writes++; this.rspStats.writtenBytes += bytes; }
+      if (!ok) this.rspStats.failures++;
+      this.rspStats.last = row;
+      this.rspStats.recent.push(row);
+      if (this.rspStats.recent.length > 64) this.rspStats.recent.shift();
+    };
+    try {
+      const reply = await this.sendCommandRouted(cmd);
+      record(true);
+      return reply;
+    } catch (error) {
+      record(false, error);
+      throw error;
+    }
+  }
+
+  private async sendCommandRouted(cmd: string): Promise<string> {
     const cmdBytes = new TextEncoder().encode(cmd);
     const packet = new Uint8Array(cmdBytes.length + 4);
     packet[0] = 0x24; // '$'
@@ -284,6 +358,23 @@ export class GdbRemoteClient  {
   }
   async halt(): Promise<void> {
     if (this.managed) { await this.rpc("halt"); return; }
+    // QEMU's gdbstub can already have the Cortex-M stopped when a client attaches. Sending
+    // the asynchronous Ctrl-C byte in that state does not always produce a second stop reply,
+    // so waitForPacket() times out and tears down an otherwise healthy connection. Check the
+    // architectural S_HALT bit first; this is a passive SWD/GDB memory read. If the target is
+    // running, keep the existing Ctrl-C interrupt path below.
+    try {
+      const dhcsr = await this.readMemory(0xe000edf0, 4);
+      const status = dhcsr.length === 4 ? new DataView(dhcsr.buffer, dhcsr.byteOffset, 4).getUint32(0, true) : 0;
+      console.debug(`[remote-gdb] halt status S_HALT=${Boolean(status & (1 << 17))}`);
+      if (status & (1 << 17)) {
+        return;
+      }
+    } catch (error) {
+      // Some targets restrict debug-register reads; Ctrl-C remains the fallback.
+      console.debug(`[remote-gdb] halt status unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    console.debug("[remote-gdb] sending Ctrl-C to halt target");
     this.send(new Uint8Array([3]));
     await this.deadline(this.waitForPacket());
   }

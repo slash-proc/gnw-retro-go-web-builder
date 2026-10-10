@@ -39,6 +39,7 @@
   // Read once: a browser does not grow WebUSB mid-session, and this decides which of the
   // disconnected state for direct USB. Remote GNW Manager connections use WebSocket instead.
   const webusbSupported = typeof navigator !== "undefined" && !!navigator.usb;
+  const connectionAttemptActive = $derived(device.connection === "connecting" || device.connection === "lost");
 
   // Overview is passive. It must not open the shared connection gate merely because
   // navigation landed here; device actions and explicit feature requests own that prompt.
@@ -193,13 +194,21 @@
       <p class="nodev-title">{locale.t.overview.noDevice.browserTitle}</p>
       <p class="nodev-body">{locale.t.overview.noDevice.browserBody}</p>
     </div>
-  {:else if device.connection === "connecting"}
-    <p class="placeholder">{locale.t.overview.waitingForConnection}</p>
   {:else}
     <div class="nodev">
       <p class="nodev-title">{locale.t.overview.noDevice.title}</p>
       <p class="nodev-body">{locale.t.overview.noDevice.body}</p>
-      <button class="btn" onclick={() => void device.connect()}>{locale.t.shared.common.connect}</button>
+      {#if connectionAttemptActive}
+        <p class="connection-status" role="status">{locale.t.overview.waitingForConnection}</p>
+        <div class="connection-actions">
+          <button class="btn" disabled>{locale.t.shared.common.connecting}</button>
+          <button class="btn stop" onclick={() => void device.disconnect()}>
+            {locale.t.shared.deviceControls.disconnectDevice}
+          </button>
+        </div>
+      {:else}
+        <button class="btn" onclick={() => void device.connect()}>{locale.t.shared.common.connect}</button>
+      {/if}
     </div>
   {/if}
 {/snippet}
@@ -326,6 +335,16 @@
     font-size: var(--fs-caption);
     color: var(--ink-soft);
   }
+  .connection-status {
+    margin: 2px 0 0;
+    color: var(--ink-soft);
+    font-size: var(--fs-caption);
+  }
+  .connection-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
   .btn {
     font: inherit;
     font-size: var(--fs-btn-sm);
@@ -336,6 +355,11 @@
     border-radius: var(--r-control);
     padding: 8px 16px;
     cursor: pointer;
+  }
+  .btn.stop {
+    color: var(--ink-soft);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
   }
   .placeholder {
     margin: 0;
