@@ -331,8 +331,8 @@ await check("a partially prepared title counts exactly what has been built", asy
 
 // --- 4. The budget cannot under-count ------------------------------------------------------------
 //
-// `currentEstSize` and `validateFit` spend this number against the flash gap, so it must equal
-// every byte the title is holding -- not a subset chosen by name.
+// The preview builder uses the prepared bytes, so this accessor must equal every byte the title
+// is holding -- not a subset chosen by name.
 
 await check("the total is every byte the title produced, so a budget cannot under-count", async () => {
   reset();

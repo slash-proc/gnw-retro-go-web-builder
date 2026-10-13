@@ -68,7 +68,7 @@
   import { device } from "../device.svelte.js";
   import { locale } from "../i18n/locale.svelte.js";
   import { romSelection, type Game, classifyContentPath, type ContentCategory, pressAddsBytes } from "../romSelection.svelte.js";
-  import { buildFrogfsImage, flashFrogfsRegion } from "../engine/flashInstall.js";
+  import { buildFrogfsImage, flashFrogfsRegion, BudgetError } from "../engine/flashInstall.js";
   import { buildCoresLittlefs } from "@gnw/fs-builders";
   import littlefsWasmUrl from "@gnw/fs-builders/vendor/littlefs-wasm/littlefs.wasm?url";
   import { flashImage } from "../engine/flasher.js";
@@ -2775,9 +2775,12 @@ import { navigate } from "../nav.js";
   });
 
   // Device-flash gap check — meaningless in SD mode (a connected device's flash geometry
-  // has nothing to do with SD-card capacity), so always "fits" there.
+  // has nothing to do with SD-card capacity), so always "fits" there. A preview is only
+  // authoritative when its signature matches the current selection and geometry; while a
+  // rebuild is pending, keep the control available and let the next exact image decide.
+  const previewIsCurrent = $derived(newFrogfsLen !== null && builtFor === selSig);
   const fitsGap = $derived(
-    device.targetMedia === "sd" || newFrogfsLen === null || ceilingOffset === null
+    device.targetMedia === "sd" || !previewIsCurrent || ceilingOffset === null
       ? true
       : frogfsOffset + newFrogfsLen <= ceilingOffset,
   );
@@ -2795,16 +2798,18 @@ import { navigate } from "../nav.js";
 
   let spaceAlertMessage = $state<string | null>(null);
 
-  function validateFit(extraBytes: number): boolean {
-    // Flash-only check: it compares the selection against a CONNECTED DEVICE's flash gap,
-    // which is irrelevant when the write target is the SD card (that has its own, separate
-    // capacity — see sdUsedBytes below). Without this, a device merely being connected while
-    // the user manages SD content would wrongly block selections with a device-space error.
+  function validateFit(_extraBytes: number): boolean {
+    // Flash-only check: it compares the exact packed preview against the connected device's
+    // FrogFS gap. Raw source-file totals are deliberately not used here: ROMs may be replaced
+    // by smaller LZMA sidecars, and the old estimate could reject a selection that the preview
+    // visibly showed as fitting (for example, 52.36 MB required versus a 40.76 MB image).
+    // When no current preview exists, the asynchronous preview plus the install-time exact
+    // check are the authorities; blocking on a stale or unbuilt estimate is unsafe.
     if (device.targetMedia === "sd") return true;
-    if (ceilingOffset === null || frogfsOffset === null) return true;
+    if (!previewIsCurrent || ceilingOffset === null || newFrogfsLen === null) return true;
     const gap = ceilingOffset - frogfsOffset;
-    if (currentEstSize + extraBytes > gap) {
-      spaceAlertMessage = locale.t.roms.spaceAlert.notEnoughSpace(MiB(currentEstSize + extraBytes), MiB(gap));
+    if (newFrogfsLen > gap) {
+      spaceAlertMessage = locale.t.roms.spaceAlert.notEnoughSpace(MiB(newFrogfsLen), MiB(gap));
       return false;
     }
     return true;
@@ -4658,11 +4663,15 @@ import { navigate } from "../nav.js";
     // Raw byte counts, not formatted sizes: these are the numbers you compare against a
     // manifest or an offset when a budget check goes wrong. "?" when the ceiling is unknown.
     const gapBytes = ceilingOffset !== null ? String(ceilingOffset - frogfsOffset) : "?";
-    if (!fitsGap) {
-      report.log("budget", msg((t) => t.roms.install.logBudgetBlocked, currentEstSize, gapBytes));
+    if (previewIsCurrent && !fitsGap) {
+      report.log("budget", msg((t) => t.roms.install.logBudgetBlocked, newFrogfsLen!, gapBytes));
       throw new Error(locale.t.roms.install.errBudgetBlocked);
     }
-    report.log("budget", msg((t) => t.roms.install.logBudgetFits, currentEstSize, gapBytes));
+    // If the preview is stale or still building, the exact image check below is the first
+    // trustworthy budget result. Do not log the old raw-file estimate as if it were the image.
+    if (previewIsCurrent && newFrogfsLen !== null) {
+      report.log("budget", msg((t) => t.roms.install.logBudgetFits, newFrogfsLen, gapBytes));
+    }
     report.finish("budget");
 
     report.start("build");
@@ -4889,6 +4898,15 @@ import { navigate } from "../nav.js";
     // device-only files. Keep the displayed projection synchronized with what we will flash;
     // the post-install scan then replaces the old baseline and reduces a completed no-op to 0.
     newFrogfsLen = frogfs.length;
+    if (ceilingOffset !== null && frogfsOffset + frogfs.length > ceilingOffset) {
+      const available = ceilingOffset - frogfsOffset;
+      report.log("build", msg((t) => t.roms.install.logBudgetBlocked, frogfs.length, String(available)));
+      throw new BudgetError(
+        `ROMs don't fit the FrogFS gap: image ${formatSize(frogfs.length)} exceeds the ` +
+          `${formatSize(available)} before LittleFS. Remove some ROMs.`,
+      );
+    }
+    report.log("build", msg((t) => t.roms.install.logBudgetFits, frogfs.length, String(ceilingOffset === null ? "?" : ceilingOffset - frogfsOffset)));
     // What this install is NOT doing, said out loud. A core whose every ROM was deselected is
     // gone from the image above, but only its MAPPED half actually leaves the device: FrogFS is
     // rebuilt, the LittleFS partition is not, and there is no delete path into it at all (see

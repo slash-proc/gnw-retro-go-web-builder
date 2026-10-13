@@ -74,6 +74,15 @@ check("the total is last, and is the aggregate rather than a peer", () => {
     "the total row must carry `total: true`, which is what renders it under a divider instead of as another category");
 });
 
+check("flash space checks use the exact packed preview", () => {
+  ok(/const previewIsCurrent = \$derived\(newFrogfsLen !== null && builtFor === selSig\)/.test(SRC),
+    "the space guard must know whether the preview matches the current selection");
+  ok(/if \(!previewIsCurrent \|\| ceilingOffset === null \|\| newFrogfsLen === null\) return true;/.test(SRC),
+    "a stale raw-size estimate must not block a selection");
+  ok(/spaceAlertMessage = locale\.t\.roms\.spaceAlert\.notEnoughSpace\(MiB\(newFrogfsLen\), MiB\(gap\)\)/.test(SRC),
+    "the alert must report the packed image size shown by the projection");
+});
+
 check("a row the caller omits is dropped, not emitted as a hole", () => {
   const rows = { games: "g", homebrew: "h", cores: "c", bios: undefined, covers: "v", cheats: "x", total: "t" };
   eq(composeSummaryRows({ media: "flash", syncCores: false, hasBios: true }, rows),
