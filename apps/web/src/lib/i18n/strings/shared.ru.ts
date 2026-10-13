@@ -107,6 +107,9 @@ export const sharedRu: SharedStrings = {
     cheatsFailed: (reason: string) => `Не удалось загрузить читы: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "Прошло",
+    speed: "Скорость",
+    averageSpeed: "Средняя скорость",
     logLabel: (count: number) => `Журнал (${count})`,
     saveLog: "Сохранить журнал",
     copyLog: "Копировать журнал",

@@ -1,5 +1,5 @@
 // Boot the gnwmanager RAM stub and run flash/dump over the live transport.
-import { GnwFlasher, FlashVerifyError, MAILBOX_ADDR, STATUS_IDLE, type DeviceInfo, type LogFn, type ProgressFn } from "@gnw/gnw-flasher";
+import { GnwFlasher, FlashVerifyError, MAILBOX_ADDR, STATUS_IDLE, type DeviceInfo, type FlashProgressFn, type LogFn, type ProgressFn } from "@gnw/gnw-flasher";
 import { isDeadHandleError } from "@gnw/swd-transport";
 import type { SwdTransport } from "@gnw/swd-transport";
 import { lzmaCompress, preloadLzma } from "./lzma.js";
@@ -106,7 +106,7 @@ export async function flashImage(
   bank: number,
   offset: number,
   data: Uint8Array,
-  onProgress?: ProgressFn,
+  onProgress?: FlashProgressFn,
   log?: LogFn,
   opts: {
     compress?: boolean;
@@ -154,9 +154,9 @@ export async function flashImage(
   let forceFreshStub = false;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let lastProgressTime = Date.now();
-    const progressWrapper = (done: number, total: number) => {
+    const progressWrapper = (done: number, total: number, writtenDone?: number, writtenTotal?: number) => {
       lastProgressTime = Date.now();
-      onProgress?.(done, total);
+      onProgress?.(done, total, writtenDone, writtenTotal);
     };
 
     try {
@@ -195,6 +195,10 @@ export async function flashImage(
           return res;
         } : undefined,
         verify,
+        // Keep erase-ahead available in the flasher API for controlled experiments, but do
+        // not use it in the production path: large coalesced NOR erases can reset this target
+        // out of the RAM stub before programming begins.
+        eraseAhead: false,
         onProgress: progressWrapper,
         abortSignal: opts.abortSignal,
         log: flashLog,

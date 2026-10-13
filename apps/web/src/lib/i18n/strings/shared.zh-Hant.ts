@@ -97,6 +97,9 @@ export const sharedZhHant: SharedStrings = {
     cheatsFailed: (reason: string) => `無法載入金手指：${reason}`,
   },
   installProgressModal: {
+    elapsed: "經過時間",
+    speed: "速度",
+    averageSpeed: "平均速度",
     logLabel: (count: number) => `紀錄（${count}）`,
     saveLog: "儲存紀錄",
     copyLog: "複製紀錄",

@@ -74,15 +74,15 @@
 
   function flashPhases(regions: readonly FlashRegion[]): PhaseDef[] {
     return [
-      { id: "prepare", label: locale.t.romSection.phasePrepare },
-      { id: "download", label: locale.t.romSection.phaseDownload },
+      { id: "prepare", label: () => locale.t.romSection.phasePrepare },
+      { id: "download", label: () => locale.t.romSection.phaseDownload },
       {
         id: "migrate-scan",
-        label: locale.t.romSection.phaseMigrateScan,
+        label: () => locale.t.romSection.phaseMigrateScan,
         substeps: [
-          { id: "frogfs-state", label: locale.t.romSection.subFrogfsState },
-          { id: "lfs-extract", label: locale.t.romSection.subLfsExtract },
-          { id: "games-migrate", label: locale.t.romSection.subGamesMigrate },
+          { id: "frogfs-state", label: () => locale.t.romSection.subFrogfsState },
+          { id: "lfs-extract", label: () => locale.t.romSection.subLfsExtract },
+          { id: "games-migrate", label: () => locale.t.romSection.subGamesMigrate },
         ],
       },
       // SD mode doesn't build a FrogFS/LittleFS image at all (that content lives on the SD
@@ -91,28 +91,28 @@
       installMode === "sd"
         ? {
             id: "build",
-            label: locale.t.romSection.phasePrepareInstallImage,
-            substeps: [{ id: "sdcache", label: locale.t.romSection.subSdCache }],
+            label: () => locale.t.romSection.phasePrepareInstallImage,
+            substeps: [{ id: "sdcache", label: () => locale.t.romSection.subSdCache }],
           }
         : {
             id: "build",
-            label: locale.t.romSection.phaseBuildInstallImage,
+            label: () => locale.t.romSection.phaseBuildInstallImage,
             substeps: [
-              { id: "frogfs", label: locale.t.romSection.subBuildFrogfs },
-              { id: "littlefs", label: locale.t.romSection.subBuildLittlefs },
-              { id: "superblock", label: locale.t.romSection.subPatchSuperblock },
+              { id: "frogfs", label: () => locale.t.romSection.subBuildFrogfs },
+              { id: "littlefs", label: () => locale.t.romSection.subBuildLittlefs },
+              { id: "superblock", label: () => locale.t.romSection.subPatchSuperblock },
             ],
           },
       {
         id: "flash",
-        label: locale.t.romSection.phaseFlashingToDevice,
-        substeps: regions.map((r) => ({ id: r, label: REGION_LABELS[r] })),
+        label: () => locale.t.romSection.phaseFlashingToDevice,
+        substeps: regions.map((r) => ({ id: r, label: () => REGION_LABELS[r] })),
       },
-      { id: "rescan", label: locale.t.romSection.phaseRescan },
+      { id: "rescan", label: () => locale.t.romSection.phaseRescan },
       // SD mode also writes the bundle's cores/bios/fonts content to the SD card itself —
       // mirrors Wizard.svelte's step 2 exactly (same per-bank SD content tree, same
       // saveFileToDirOrDownload/ZIP-fallback pair).
-      ...(installMode === "sd" ? [{ id: "sd-sync", label: locale.t.romSection.phaseSyncSdCores } as PhaseDef] : []),
+      ...(installMode === "sd" ? [{ id: "sd-sync", label: () => locale.t.romSection.phaseSyncSdCores } as PhaseDef] : []),
     ];
   }
 
@@ -126,10 +126,24 @@
     flashTarget = regions;
     const phaseRegions = installMode === "sd" ? flashTarget.filter((r) => r === "intflash") : flashTarget;
     void installProgress.run({
-      title: flashTitle,
-      body: flashBody,
+      title: () => phaseRegions.length === FLASH_REGIONS.length
+        ? locale.t.romSection.flashThisInstall
+        : locale.t.romSection.flashRegions(phaseRegions.map((r) => ({
+            intflash: locale.t.romSection.regionInternalFirmware,
+            frogfs: locale.t.romSection.regionGamesBiosLanguages,
+            littlefs: locale.t.romSection.regionCoresSaves,
+          })[r]).join(" + ")),
+      body: () => {
+        if (!install) return "";
+        const names: Record<FlashRegion, string> = {
+          intflash: locale.t.romSection.nameInternalFirmware(install.bank),
+          frogfs: locale.t.romSection.nameGamesBiosLanguages(hex(EXTBASE + install.layout.frogfsOffset)),
+          littlefs: locale.t.romSection.nameCoresSaves(hex(EXTBASE + install.layout.littlefsOffset)),
+        };
+        return locale.t.romSection.flashBody(phaseRegions.map((r) => names[r]).join(", "));
+      },
       danger: true,
-      confirmText: locale.t.romSection.flashConfirmText,
+      confirmText: () => locale.t.romSection.flashConfirmText,
       phases: flashPhases(phaseRegions),
       // Same SD-card folder gate as Wizard.svelte's step 2 (reuses the exact same picker) —
       // belt-and-suspenders here since the trigger button below already only offers "Flash
@@ -138,7 +152,7 @@
       // phase's ZIP-fallback handles that case instead, same as Wizard.
       confirmGate:
         installMode === "sd" && nativeFolderPickerSupported()
-          ? { label: locale.t.romSection.selectSdCard, ready: () => !!device.sdHandle, onClick: pickSdCardFolder }
+          ? { label: () => locale.t.romSection.selectSdCard, ready: () => !!device.sdHandle, onClick: pickSdCardFolder }
           : undefined,
       exec: async (report) => {
         flashing = true;
@@ -844,8 +858,8 @@
         // live cached stub whenever possible rather than resetting the device on every call.
         (force) => device.ensureStub(undefined, force, true, force),
         inst,
-        (phase, d, t) => {
-          report.progress("flash", d, t, phase, "bytes");
+        (phase, d, t, writtenDone) => {
+          report.progress("flash", d, t, phase, "bytes", writtenDone);
         },
         (line: string) => {
           dbgLog(line);
@@ -894,33 +908,6 @@
     }
   }
 
-  // Confirm-modal copy adapts to the ACTUAL write scope, not the pre-SD-filter selection —
-  // SD mode only ever writes intflash regardless of `flashTarget` (see `run()`'s
-  // `actualFlashTarget`), so the copy must reflect that same restriction or it misleadingly
-  // shows regions (e.g. FrogFS) that will never actually be written.
-  const displayFlashTarget = $derived(
-    installMode === "sd" ? flashTarget.filter((r) => r === "intflash") : flashTarget,
-  );
-  const DISPLAY_REGION_NAMES: Record<FlashRegion, string> = {
-    intflash: locale.t.romSection.regionInternalFirmware,
-    frogfs: locale.t.romSection.regionGamesBiosLanguages,
-    littlefs: locale.t.romSection.regionCoresSaves,
-  };
-  const flashTitle = $derived(
-    displayFlashTarget.length === FLASH_REGIONS.length
-      ? locale.t.romSection.flashThisInstall
-      : locale.t.romSection.flashRegions(displayFlashTarget.map((r) => DISPLAY_REGION_NAMES[r]).join(" + ")),
-  );
-  const flashBody = $derived.by(() => {
-    if (!install) return "";
-    const names: Record<FlashRegion, string> = {
-      intflash: locale.t.romSection.nameInternalFirmware(install.bank),
-      frogfs: locale.t.romSection.nameGamesBiosLanguages(hex(EXTBASE + install.layout.frogfsOffset)),
-      littlefs: locale.t.romSection.nameCoresSaves(hex(EXTBASE + install.layout.littlefsOffset)),
-    };
-    return locale.t.romSection.flashBody(displayFlashTarget.map((r) => names[r]).join(", "));
-  });
-
   // Debug: read the superblock back from flash and compare to the patched blob.
   let sbCheck = $state<string | null>(null);
   async function checkSuperblock() {
@@ -952,7 +939,7 @@
     starting = true;
     startResult = null;
     try {
-      await (await device.ensureStub()).startBank(b);
+      await device.startBank(b as 1 | 2);
       startResult = locale.t.romSection.startedBankResult(b);
     } catch (e) {
       startResult = e instanceof Error ? e.message : String(e);

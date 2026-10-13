@@ -475,6 +475,23 @@ ok(mapPlan.mappedDests.length === 1 && mapPlan.mappedDests[0].key === "cores/gba
    mapPlan.mappedDests[0].dest === "cores/gba.xip",
   `mappedDests carries key->dest (got ${JSON.stringify(mapPlan.mappedDests)})`);
 
+// A mapped homebrew artifact is selected by the source/install plan, not by the ordinary
+// homebrew picker. The unselected-bundled-homebrew pruning pass must not remove it.
+const mappedHomebrewPlan = planFlashImage({
+  defaultContent: new Map(),
+  userRoms: new Map([["homebrew/dkc1.xip", enc("mapped-homebrew")]]),
+  lzmaRaw,
+  compress: false,
+  paths: LIVE_PATHS,
+  mappedKeys: new Set(["homebrew/dkc1.xip"]),
+  opts: {
+    selectedHomebrew: new Set(),
+    homebrewTitles: [{ key: "dkc1", deviceFiles: ["dkc1.xip"] }],
+  },
+});
+ok(mappedHomebrewPlan.frogfsFiles.some((f) => f.path === "homebrews/dkc1.xip"),
+  "mapped homebrew survives ordinary homebrew pruning");
+
 const mapImage = buildFrogfsFromPlan(mapPlan);
 const FROGFS_OFFSET = 0x00300000;
 const LOOKUP_KEY = "cold:pico8:b13aeac5:107512";

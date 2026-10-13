@@ -94,6 +94,9 @@ export const sharedDe: SharedStrings = {
     cheatsFailed: (reason: string) => `Cheats konnten nicht geladen werden: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "Dauer",
+    speed: "Geschwindigkeit",
+    averageSpeed: "Durchschnittliche Geschwindigkeit",
     logLabel: (count: number) => `Protokoll (${count})`,
     saveLog: "Protokoll speichern",
     copyLog: "Protokoll kopieren",

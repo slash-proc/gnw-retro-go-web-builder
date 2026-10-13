@@ -10,12 +10,13 @@
     type PhaseStatus,
     type SubstepProgress,
     type SubstepStatus,
+    textValue,
   } from "../installProgress.svelte.js";
   import ModalShell from "./ModalShell.svelte";
   import Button from "./Button.svelte";
   import RefreshButton from "./RefreshButton.svelte";
   import { locale } from "../i18n/locale.svelte.js";
-  import { formatSizePair } from "../util.js";
+  import { formatNumber, formatSizePair } from "../util.js";
   import { device } from "../device.svelte.js";
   import { extflashSegments, intflashSegments, regionLabelForBlock } from "../engine/classify.js";
 
@@ -36,10 +37,23 @@
     const id = setInterval(() => (clock = Date.now()), 1000);
     return () => clearInterval(id);
   });
-  const elapsed = $derived(installProgress.startedAt ? Math.max(0, clock - installProgress.startedAt) : 0);
+  const elapsed = $derived(
+    installProgress.startedAt === null
+      ? 0
+      : Math.max(0, (installProgress.endedAt ?? clock) - installProgress.startedAt),
+  );
+  const speedBytesPerSecond = $derived(
+    elapsed > 0 ? installProgress.bytesTransferred / (elapsed / 1000) : 0,
+  );
   function elapsedText(ms: number): string {
     const total = Math.floor(ms / 1000);
     return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  }
+
+  function speedText(bytesPerSecond: number): string {
+    if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "—";
+    const units = locale.t.shared.units;
+    return `${formatNumber(bytesPerSecond / 1024, 1)} ${units.kb}/s`;
   }
 
   // The failed blocks are named against the SAME GeoSegment[] the geometry bars draw, so the
@@ -134,14 +148,14 @@
            failure boards (FlashingCancel.dc.html:85, FlashFailure.dc.html:84) both draw the
            same head at `gap: 6px`. Keyed on the phase rather than picking one, since the two
            readings belong to two different states of this one dialog. -->
-      <h3 class:head-6={modalPhase !== "confirm"}>{prompt.title}</h3>
+      <h3 class:head-6={modalPhase !== "confirm"}>{textValue(prompt.title)}</h3>
       <!-- FlashFailure.dc.html:84 puts the failure sentence in the head band directly under
            the title, 14px regular in the soft ink — the state's red is carried by the shell's
            danger lip, not by this line. -->
       {#if modalPhase === "error"}<p class="muted">{headline}</p>{/if}
 
       {#if modalPhase === "confirm"}
-        {#if prompt.body}<p class="muted">{prompt.body}</p>{/if}
+        {#if textValue(prompt.body)}<p class="muted">{textValue(prompt.body)}</p>{/if}
         <!-- Above the checkboxes on purpose: the version is WHAT is being installed and the
              checkboxes are what survives it, so the page reads target then terms. The refresh
              sits immediately after the picker because it acts on the picker's list, not on the
@@ -149,7 +163,7 @@
         {#if prompt.versionPicker}
           {@const vp = prompt.versionPicker}
           <div class="confirm-version">
-            <label for="install-version">{vp.label}</label>
+            <label for="install-version">{textValue(vp.label)}</label>
             <select
               id="install-version"
               value={vp.selected()}
@@ -159,13 +173,13 @@
                 <option value={o.value}>{o.label}</option>
               {/each}
             </select>
-            <RefreshButton onRefresh={vp.onRefresh} label={vp.refreshLabel} />
+            <RefreshButton onRefresh={vp.onRefresh} label={textValue(vp.refreshLabel)} />
           </div>
         {/if}
         {#if prompt.choicePicker}
           {@const cp = prompt.choicePicker}
           <div class="confirm-version">
-            <label for="install-choice">{cp.label}</label>
+            <label for="install-choice">{textValue(cp.label)}</label>
             <select id="install-choice" value={cp.selected()} onchange={(e) => cp.onSelect(e.currentTarget.value)}>
               {#each cp.options() as o (o.value)}
                 <option value={o.value}>{o.label}</option>
@@ -182,7 +196,7 @@
                   checked={installProgress.checkboxValues[cb.id]}
                   onchange={(e) => installProgress.setCheckbox(cb.id, e.currentTarget.checked)}
                 />
-                {cb.label}
+                {textValue(cb.label)}
               </label>
             {/each}
           </div>
@@ -191,21 +205,30 @@
           <Button variant="cancel" onclick={() => installProgress.cancel()}>{locale.t.shared.common.cancel}</Button>
           {#if prompt.confirmGate && !prompt.confirmGate.ready()}
             <Button variant="action" onclick={() => prompt.confirmGate?.onClick()}>
-              {prompt.confirmGate.label}
+              {textValue(prompt.confirmGate.label)}
             </Button>
           {:else}
             <Button variant={prompt.danger ? "destructive" : "action"} onclick={() => installProgress.confirm()}>
-              {typeof prompt.confirmText === "function" ? prompt.confirmText() : prompt.confirmText}
+              {textValue(prompt.confirmText)}
             </Button>
           {/if}
         </div>
       {:else}
-        {#if modalPhase === "running"}
-          <div class="running-meta">
+        <div class="running-meta">
+          {#if modalPhase === "running"}
             <p class="muted">{locale.t.shared.common.workingNotePre}<strong>{locale.t.shared.common.workingNoteBold}</strong>{locale.t.shared.common.workingNotePost}</p>
-            <span class="elapsed mono" aria-label="Elapsed time">{elapsedText(elapsed)}</span>
+          {/if}
+          <div class="metrics" aria-live="polite">
+            <div class="metric">
+              <span class="metric-label">{locale.t.shared.installProgressModal.elapsed}</span>
+              <strong class="metric-value mono" aria-label={locale.t.shared.installProgressModal.elapsed}>{elapsedText(elapsed)}</strong>
+            </div>
+            <div class="metric">
+              <span class="metric-label">{modalPhase === "running" ? locale.t.shared.installProgressModal.speed : locale.t.shared.installProgressModal.averageSpeed}</span>
+              <strong class="metric-value mono">{speedText(speedBytesPerSecond)}</strong>
+            </div>
           </div>
-        {/if}
+        </div>
         <!-- Flat, always-visible checklist — every phase and every declared sub-step is a row
              at all times (done ✓ / active ● / pending ○), with its counter inline on the row.
              There is deliberately no expand/collapse: docs/design/mockups/GuidedFlashing.dc.html
@@ -224,7 +247,7 @@
                      phase marked active (it neither finished nor failed, and saying either
                      would be a lie), and a spinner on a frozen checklist reads as still working. -->
                 <span class="icon" class:spin={s.status === "active" && modalPhase === "running"} aria-hidden="true">{icon(s.status)}</span>
-                <span class="label">{p.label}</span>
+                <span class="label">{textValue(p.label)}</span>
                 {#if pct !== null}<span class="count mono">{pct}%</span>{/if}
               </div>
               {#if s.status === "active" && pct !== null}
@@ -235,7 +258,7 @@
                 {@const subProgress = s.substepProgress[sub.id]}
                 <div class="row substep status-{subStatus}">
                   <span class="icon" class:spin={subStatus === "active" && modalPhase === "running"} aria-hidden="true">{icon(subStatus)}</span>
-                  <span class="label">{sub.label}</span>
+                  <span class="label">{textValue(sub.label)}</span>
                   {#if subProgress}<span class="count mono">{counter(subProgress)}</span>{/if}
                 </div>
                 {@const subPct = subStatus === "active" ? progressPct(subProgress) : null}
@@ -693,15 +716,53 @@
   }
   .running-meta {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.7rem;
+    margin-top: 0.35rem;
+    padding-block: 0.7rem;
+    border-block: 1px solid var(--rule);
   }
-  .running-meta .muted { margin: 0; }
-  .elapsed {
+  .running-meta .muted {
+    margin: 0;
+    padding-inline-start: 0.7rem;
+    border-inline-start: 2px solid var(--band-busy-ink);
+    line-height: 1.35;
+  }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    width: 100%;
+  }
+  .metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .metric + .metric {
+    padding-inline-start: 0.9rem;
+    border-inline-start: 1px solid var(--hairline);
+  }
+  .metric-label {
     color: var(--ink-dim);
-    font-size: var(--fs-micro);
+    font-size: var(--fs-label);
+    letter-spacing: var(--label-track);
+    text-transform: uppercase;
+  }
+  .metric-value {
+    color: var(--ink);
+    font-size: var(--fs-caption);
     white-space: nowrap;
+  }
+  @media (max-width: 32rem) {
+    .metrics {
+      justify-content: space-between;
+    }
+    .metric {
+      flex: 1;
+    }
   }
   /* Board: 12px `#9a9aa0`. That is `--ink-dim` (#9a9a9a, "de-emphasised captions"), NOT
      `--ink-faint`, whose own token comment says it is "NOT for anything that must be read" --

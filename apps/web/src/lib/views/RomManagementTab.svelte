@@ -70,6 +70,7 @@
   import { romSelection, type Game, classifyContentPath, type ContentCategory, pressAddsBytes } from "../romSelection.svelte.js";
   import { buildFrogfsImage, flashFrogfsRegion } from "../engine/flashInstall.js";
   import { buildCoresLittlefs } from "@gnw/fs-builders";
+  import littlefsWasmUrl from "@gnw/fs-builders/vendor/littlefs-wasm/littlefs.wasm?url";
   import { flashImage } from "../engine/flasher.js";
   import type { MappedSpec } from "@gnw/fs-builders";
   import { readGameData, type InstalledGame } from "../engine/frogfsDevice.js";
@@ -365,10 +366,10 @@ import { navigate } from "../nav.js";
     // `exec` runs only on confirm, so this is how a decline is told apart from a completed run.
     let confirmed = false;
     await installProgress.run({
-      title: t().title,
-      body: t().body(plan.length),
-      confirmText: t().confirm,
-      phases: [{ id: "move", label: t().phaseMove }],
+      title: () => t().title,
+      body: () => t().body(plan.length),
+      confirmText: () => t().confirm,
+      phases: [{ id: "move", label: () => t().phaseMove }],
       exec: async (report: PhaseReporter) => {
         confirmed = true;
         report.start("move");
@@ -1338,11 +1339,12 @@ import { navigate } from "../nav.js";
     return fetchedAny;
   }
 
-  const selectedAssets = $derived.by(() =>
+  const selectedAssets = $derived.by(() => {
     // Library Sync is additive for cores: preserve every prepared/device core and only add
-    // missing ones. Keep `unusedCoreKeys` computed for the future small-NOR space policy, but
-    // do not apply that removal policy until the user explicitly opts into it.
-    selectedPreparedAssets({
+    // missing ones. Homebrew artifacts are different: their title selection owns them, just
+    // like their converted outputs. Keeping every artifact unconditionally would re-add a
+    // removed mapped sidecar such as homebrew/dkc1.xip on the next FrogFS rebuild.
+    const selected = selectedPreparedAssets({
       assets: extractedAssets,
       sourceOf: (k) => prepareState.assetSourceOf(k),
       producedBy: (k) => prepareState.producedKeys(k),
@@ -1350,8 +1352,14 @@ import { navigate } from "../nav.js";
       selectedRowKeys: romSelection.selectedKeys,
       selectedTitleKeys: romSelection.selectedHomebrewKeys,
       shippedGameKeys: shippedGameKeys(),
-    }),
-  );
+    });
+    for (const [key] of selected) {
+      if (!key.startsWith("homebrew/") || prepareState.assetSourceOf(key) !== "artifact") continue;
+      const owner = homebrew.owning(key.slice("homebrew/".length));
+      if (owner && !romSelection.selectedHomebrewKeys.has(owner.key)) selected.delete(key);
+    }
+    return selected;
+  });
 
   /**
    * The relocation facts for the MAPPED artifacts inside `selectedAssets`, keyed the same way,
@@ -2835,9 +2843,9 @@ import { navigate } from "../nav.js";
   // --- Install ROMs -----------------------------------------------------------------------
   function openInstall() {
     void installProgress.run({
-      title: locale.t.roms.install.installTitle,
-      body: confirmBody,
-      confirmText: locale.t.shared.confirmModal.defaultConfirmText,
+      title: () => locale.t.roms.install.installTitle,
+      body: () => device.targetMedia === "sd" ? locale.t.roms.sdSync.syncBody : locale.t.roms.install.installBody,
+      confirmText: () => locale.t.shared.confirmModal.defaultConfirmText,
       phases: flashPhases,
       exec: async (report) => {
         onRunning("install-roms", true);
@@ -2855,9 +2863,9 @@ import { navigate } from "../nav.js";
 
   function openSdSync() {
     void installProgress.run({
-      title: locale.t.roms.sdSync.syncTitle,
-      body: confirmBody,
-      confirmText: locale.t.shared.confirmModal.defaultConfirmText,
+      title: () => locale.t.roms.sdSync.syncTitle,
+      body: () => device.targetMedia === "sd" ? locale.t.roms.sdSync.syncBody : locale.t.roms.install.installBody,
+      confirmText: () => locale.t.shared.confirmModal.defaultConfirmText,
       phases: sdPhases,
       exec: async (report) => {
         onRunning("install-roms", true);
@@ -2874,19 +2882,19 @@ import { navigate } from "../nav.js";
   }
 
   const flashPhases: PhaseDef[] = [
-    { id: "prepare", label: locale.t.roms.install.phasePrepare },
-    { id: "budget", label: locale.t.roms.install.phaseBudget },
+    { id: "prepare", label: () => locale.t.roms.install.phasePrepare },
+    { id: "budget", label: () => locale.t.roms.install.phaseBudget },
     {
       id: "build",
-      label: locale.t.roms.install.phaseBuild,
+      label: () => locale.t.roms.install.phaseBuild,
       substeps: [
-        { id: "retain", label: locale.t.roms.install.subRetain },
-        { id: "pack", label: locale.t.roms.install.subPack },
+        { id: "retain", label: () => locale.t.roms.install.subRetain },
+        { id: "pack", label: () => locale.t.roms.install.subPack },
       ],
     },
     {
       id: "flash",
-      label: locale.t.roms.install.phaseFlash,
+      label: () => locale.t.roms.install.phaseFlash,
       // TWO writes, so two substeps. This phase used to declare none, on the grounds that its
       // label already named the single write -- but the LittleFS write (cores, and the language
       // blobs that moved there) runs after the FrogFS flash inside the same phase. With no
@@ -2895,11 +2903,11 @@ import { navigate } from "../nav.js";
       // finished. Declared unconditionally: an install with no cores to write still shows the
       // step, completing immediately, rather than the checklist changing shape per run.
       substeps: [
-        { id: "frogfs", label: locale.t.roms.install.subFlashImage },
-        { id: "cores", label: locale.t.roms.install.subFlashCores },
+        { id: "frogfs", label: () => locale.t.roms.install.subFlashImage },
+        { id: "cores", label: () => locale.t.roms.install.subFlashCores },
       ],
     },
-    { id: "rescan", label: locale.t.roms.install.phaseRescan },
+    { id: "rescan", label: () => locale.t.roms.install.phaseRescan },
   ];
   // SD mode only: re-write the cores/bios/fonts bundle (sdContent), AND (on a bank2 install)
   // update_bank2.bin — the two are the same upgrade action from the user's perspective ("Upgrade
@@ -2977,16 +2985,16 @@ import { navigate } from "../nav.js";
   const sdPhases = $derived<PhaseDef[]>([
     {
       id: "scan",
-      label: locale.t.roms.sdSync.phaseScan,
+      label: () => locale.t.roms.sdSync.phaseScan,
       substeps: [
-        { id: "games", label: locale.t.roms.sdSync.subGames },
-        { id: "covers", label: locale.t.roms.sdSync.subCovers },
-        { id: "cheats", label: locale.t.roms.sdSync.subCheats },
+        { id: "games", label: () => locale.t.roms.sdSync.subGames },
+        { id: "covers", label: () => locale.t.roms.sdSync.subCovers },
+        { id: "cheats", label: () => locale.t.roms.sdSync.subCheats },
       ],
     },
     {
       id: "write",
-      label: locale.t.roms.sdSync.phaseWrite,
+      label: () => locale.t.roms.sdSync.phaseWrite,
       // Order matches the owner's mockup: per-game content first (games/covers/cheats/
       // removals), then the two system-level items grouped together at the end (Cores
       // == cores/bios/fonts bundle, Firmware Update — "tied together"). Both are driven by the
@@ -2994,17 +3002,17 @@ import { navigate } from "../nav.js";
       // firmware-update opt-in. "fw-update" only exists on a bank2 install (nothing to write
       // update_bank2.bin for otherwise).
       substeps: [
-        { id: "games", label: locale.t.roms.sdSync.writeSubGames },
-        { id: "covers", label: locale.t.roms.sdSync.writeSubCovers },
-        { id: "cheats", label: locale.t.roms.sdSync.writeSubCheats },
-        { id: "remove", label: locale.t.roms.sdSync.writeSubRemove },
-        ...(favorites.dirty ? [{ id: "favorites", label: locale.t.roms.sdSync.writeSubFavorites }] : []),
-        ...(syncCores || freshSdTarget ? [{ id: "cores", label: locale.t.roms.sdSync.writeSubCores }] : []),
-        ...(syncCores && isBank2Install ? [{ id: "fw-update", label: locale.t.roms.sdSync.writeSubFwUpdate }] : []),
+        { id: "games", label: () => locale.t.roms.sdSync.writeSubGames },
+        { id: "covers", label: () => locale.t.roms.sdSync.writeSubCovers },
+        { id: "cheats", label: () => locale.t.roms.sdSync.writeSubCheats },
+        { id: "remove", label: () => locale.t.roms.sdSync.writeSubRemove },
+        ...(favorites.dirty ? [{ id: "favorites", label: () => locale.t.roms.sdSync.writeSubFavorites }] : []),
+        ...(syncCores || freshSdTarget ? [{ id: "cores", label: () => locale.t.roms.sdSync.writeSubCores }] : []),
+        ...(syncCores && isBank2Install ? [{ id: "fw-update", label: () => locale.t.roms.sdSync.writeSubFwUpdate }] : []),
       ],
     },
-    { id: "rescan", label: locale.t.roms.sdSync.phaseRescan },
-    { id: "done", label: locale.t.roms.sdSync.phaseDone },
+    { id: "rescan", label: () => locale.t.roms.sdSync.phaseRescan },
+    { id: "done", label: () => locale.t.roms.sdSync.phaseDone },
   ]);
 
   // Sticky-scroll log: auto-scroll to bottom unless the user has manually scrolled up.
@@ -3769,11 +3777,6 @@ import { navigate } from "../nav.js";
     const hb = unknownHomebrew.find((x) => x.name === selectedCarouselId);
     return hb ? hb.name.replace(/\.[^/.]+$/, "") : "";
   });
-
-  /** Install/sync confirmation sentence — names the device or the SD card per the install target. */
-  const confirmBody = $derived(
-    device.targetMedia === "sd" ? locale.t.roms.sdSync.syncBody : locale.t.roms.install.installBody,
-  );
 
   /** Convert a userRoms key to its SD card path.
    *  The directories are the FIRMWARE's (manifest `paths`, engine/devicePaths.ts's
@@ -4785,14 +4788,14 @@ import { navigate } from "../nav.js";
       const readTracked = (off: number, len: number) =>
         dumpRegion(flasher, 0, off, len, (d) => {
           if (totalBytes > 0)
-            report.progress("build", Math.min(base + d, totalBytes), totalBytes, "retain", "bytes");
+            report.progress("build", Math.min(base + d, totalBytes), totalBytes, "retain", "bytes", Math.min(base + d, totalBytes));
         });
       for (const r of toRead) {
         const bytes = await readGameData(readTracked, frogfsOffset, r.dev);
         dbg("[frogfs-debug] retained-read", r.path, bytes.length, await sha256Hex(bytes));
         userRoms.set(r.path, bytes);
         base = Math.min(base + r.dev.size, totalBytes);
-        report.progress("build", base, totalBytes, "retain", "bytes");
+        report.progress("build", base, totalBytes, "retain", "bytes", base);
       }
     }
     report.log("build", msg((t) => t.roms.install.logRetainedGames, retained.length, deviceHomebrew.length, retainBytes), "retain");
@@ -4958,7 +4961,7 @@ import { navigate } from "../nav.js";
         // DECLARED `substeps` array. The result was a flash phase with no progress bar at all.
         // No label is passed: the phase row already names this write, and the old hardcoded
         // English label would become newly-visible untranslated copy.
-        (d, t) => report.progress("flash", d, t, "frogfs", "bytes"),
+        (d, t, writtenDone) => report.progress("flash", d, t, "frogfs", "bytes", writtenDone),
         log,
         report.signal,
       );
@@ -5018,11 +5021,11 @@ import { navigate } from "../nav.js";
       (device.coreVersionCheck?.mismatches.length ?? 0) > 0;
     if (littleFsCoreWriteNeeded || littleFsCheatWriteNeeded || littleFsMappedIndexWriteNeeded) {
       report.subStart("flash", "cores");
-      const lfsImage = await buildCoresLittlefs(lfsFiles, { blockSize: lfsBlockSize, blockCount: lfsBlockCount, moduleOpts: {} }, ["cores", "data", "cheats"]);
+      const lfsImage = await buildCoresLittlefs(lfsFiles, { blockSize: lfsBlockSize, blockCount: lfsBlockCount, moduleOpts: { locateFile: () => littlefsWasmUrl } }, ["cores", "data", "cheats"]);
       report.progress("flash", 0, lfsImage.length, "cores", "bytes");
       device.suspendPoll();
       try {
-        await flashImage((force) => device.ensureStub(undefined, force, true, force), 0, littlefsPart.offset, lfsImage, (done, total) => report.progress("flash", done, total, "cores", "bytes"), dbgLog("flash", (m) => report.log("flash", m, "cores")), { compress: true, verify: false, abortSignal: report.signal });
+        await flashImage((force) => device.ensureStub(undefined, force, true, force), 0, littlefsPart.offset, lfsImage, (done, total, writtenDone) => report.progress("flash", done, total, "cores", "bytes", writtenDone), dbgLog("flash", (m) => report.log("flash", m, "cores")), { compress: true, verify: false, abortSignal: report.signal });
       } finally {
         device.resumePoll();
       }

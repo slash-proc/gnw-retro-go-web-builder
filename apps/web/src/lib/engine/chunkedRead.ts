@@ -14,12 +14,13 @@ export async function readMemoryPaced(
   transport: SwdTransport,
   addr: number,
   len: number,
-  opts: { chunkSize?: number; delayMs?: number } = {},
+  opts: { chunkSize?: number; delayMs?: number; isCancelled?: () => boolean } = {},
 ): Promise<Uint8Array> {
   const chunkSize = opts.chunkSize ?? 1024;
   const delayMs = opts.delayMs ?? 0;
   const out = new Uint8Array(len);
   for (let off = 0; off < len; off += chunkSize) {
+    if (opts.isCancelled?.()) throw new Error("Filesystem scan superseded");
     const n = Math.min(chunkSize, len - off);
     out.set(await transport.readMemory(addr + off, n), off);
     if (delayMs > 0 && off + n < len) await new Promise((r) => setTimeout(r, delayMs));

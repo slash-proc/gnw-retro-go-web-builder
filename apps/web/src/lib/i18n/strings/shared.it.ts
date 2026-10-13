@@ -94,6 +94,9 @@ export const sharedIt: SharedStrings = {
     cheatsFailed: (reason: string) => `Impossibile caricare i cheat: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "Tempo trascorso",
+    speed: "Velocità",
+    averageSpeed: "Velocità media",
     logLabel: (count: number) => `Log (${count})`,
     saveLog: "Salva log",
     copyLog: "Copia log",

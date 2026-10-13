@@ -92,7 +92,7 @@ await esbuild.build({
   format: "esm",
   platform: "neutral",
   target: "es2022",
-  external: ["@gnw/*", "jszip"], // pulled in transitively (sources/bundle.ts); never reached here
+  external: ["@gnw/fs-builders", "@gnw/swd-transport", "@gnw/gnw-flasher", "jszip"], // package APIs, not browser asset URLs
   define: { $state: "__rune" },
   banner: { js: "const __rune = (v) => v;" },
   logLevel: "warning",
@@ -102,6 +102,8 @@ await esbuild.build({
       name: "hw-stubs",
       setup(b) {
         const filter = new RegExp(`^(${Object.keys(STUBS).map((k) => k.replace(/[.$/]/g, "\\$&")).join("|")})$`);
+        b.onResolve({ filter: /\.wasm\?url$/ }, (a) => ({ path: a.path, namespace: "asset-url" }));
+        b.onLoad({ filter: /.*/, namespace: "asset-url" }, () => ({ contents: 'export default "/assets/test.wasm";', loader: "js" }));
         b.onResolve({ filter }, (a) => ({ path: a.path, namespace: "hw" }));
         b.onLoad({ filter: /.*/, namespace: "hw" }, (a) => ({ contents: STUBS[a.path], loader: "js" }));
       },
@@ -645,6 +647,78 @@ await check("ANTI-VACUITY: the superseded transport really is dead, so reusing i
   fake.bootImpl = bootReturningFlasher();
   const got = await device.ensureStub(undefined, false, true);
   await got.transport.writeMemory(0x20000000, new Uint8Array(4)); // throws if the gate handed back the corpse
+});
+
+await check("recovery invalidates background readers and drains issued reads before reset", async () => {
+  await freshConnect();
+  const gen = device._gen;
+  let finishRead;
+  const pending = new Promise(resolve => { finishRead = resolve; });
+  device._backgroundFsReads.add(pending);
+  let boots = 0;
+  fake.bootImpl = async t => { boots++; return bootReturningFlasher()(t); };
+  const boot = device.ensureStub(undefined, true);
+  await tick(10);
+  assert(device._gen !== gen, "old background generation must be cancelled first");
+  eq(boots, 0, "reset must wait for the already-issued external-flash read");
+  finishRead();
+  await boot;
+  device._backgroundFsReads.delete(pending);
+  eq(boots, 1, "boot proceeds once the read drains");
+});
+
+await check("cached flasher reuse drains filesystem reads before programming can begin", async () => {
+  await freshConnect();
+  fake.bootImpl = bootReturningFlasher();
+  fake.stubAlive = true;
+  const cached = await device.ensureStub(undefined, true);
+  const gen = device._gen;
+  let finishRead;
+  const pending = new Promise(resolve => { finishRead = resolve; });
+  device._backgroundFsReads.add(pending);
+  let returned = false;
+  const reuse = device.ensureStub(undefined, false, true).then(f => { returned = true; return f; });
+  await tick(150);
+  assert(device._gen !== gen, "cached reuse must cancel old readers too");
+  eq(returned, false, "cannot hand the flasher to a writer until the read drains");
+  finishRead();
+  eq(await reuse, cached, "draining must not force a healthy stub reboot");
+  device._backgroundFsReads.delete(pending);
+});
+
+await check("bank boot waits for background reads and suppresses polling", async () => {
+  await freshConnect();
+  let finishRead;
+  const pending = new Promise(resolve => { finishRead = resolve; });
+  device._backgroundFsReads.add(pending);
+  let boots = 0;
+  device.flasher = { async startBank(bank) {
+    eq(bank, 1);
+    assert(device.pollSuspendDepth > 0, "poll must remain suspended during reset and vector reads");
+    boots++;
+  }};
+  const boot = device.startBank(1);
+  await tick(10);
+  eq(boots, 0, "bank reset must not race the outstanding read");
+  finishRead();
+  await boot;
+  device._backgroundFsReads.delete(pending);
+  eq(boots, 1);
+  eq(device.utilLoaded, false, "bank boot retires the recovery mailbox");
+  eq(device.pollSuspendDepth, 0, "poll suspension must be balanced");
+});
+
+await check("paced filesystem reads stop before the next block after cancellation", async () => {
+  const outfile = join(out, "chunked-read.mjs");
+  await esbuild.build({entryPoints:[join(here,"../src/lib/engine/chunkedRead.ts")],outfile,bundle:true,platform:"node",format:"esm"});
+  const {readMemoryPaced} = await import(pathToFileURL(outfile).href);
+  let cancelled = false, reads = 0;
+  let error;
+  try {
+    await readMemoryPaced({async readMemory(_addr,len){reads++;cancelled=true;return new Uint8Array(len);}},0x90000000,4096,{chunkSize:1024,isCancelled:()=>cancelled});
+  } catch (e) { error=e; }
+  eq(reads,1,"only the already-issued block may complete");
+  assert(error && /superseded/.test(error.message),"cancelled reader must terminate");
 });
 
 // --- Report ------------------------------------------------------------------------------

@@ -28,7 +28,7 @@ import {
   type MappedResult,
 } from "@gnw/fs-builders";
 import { patchSuperblock } from "@gnw/gnw-patch";
-import type { GnwFlasher, LogFn, ProgressFn } from "@gnw/gnw-flasher";
+import type { FlashProgressFn, GnwFlasher, LogFn } from "@gnw/gnw-flasher";
 import littlefsWasmUrl from "@gnw/fs-builders/vendor/littlefs-wasm/littlefs.wasm?url";
 import { loadLiblzma } from "./patch.js";
 import { flashImage } from "./flasher.js";
@@ -359,7 +359,7 @@ export async function flashFrogfsRegion(
   flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
   frogfs: Uint8Array,
   geom: { frogfsOffset: number; ceilingOffset: number },
-  onProgress?: ProgressFn,
+  onProgress?: FlashProgressFn,
   log?: LogFn,
   /** Stops the write at the next 256 KiB block boundary. See PhaseReporter.signal. */
   abortSignal?: AbortSignal,
@@ -391,7 +391,7 @@ async function flashRegion(
   flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
   install: FlashInstall,
   region: FlashRegion,
-  onProgress?: (phase: FlashRegion, done: number, total: number) => void,
+  onProgress?: (phase: FlashRegion, done: number, total: number, writtenDone?: number, writtenTotal?: number) => void,
   log?: LogFn,
   abortSignal?: AbortSignal,
 ): Promise<void> {
@@ -404,12 +404,19 @@ async function flashRegion(
   // flasher auto-skips compression per buffer when it doesn't shrink (e.g. already-compressed
   // ROMs).
   const opts = { compress: true, verify: false, abortSignal };
-  const report: ProgressFn = (done, total) => onProgress?.(region, done, total);
+  const report: FlashProgressFn = (done, total, writtenDone, writtenTotal) =>
+    onProgress?.(region, done, total, writtenDone, writtenTotal);
   if (region === "intflash") {
     const CHUNK_SIZE = 262144;
     for (let offset = 0; offset < install.intflash.length; offset += CHUNK_SIZE) {
       const chunk = install.intflash.subarray(offset, offset + CHUNK_SIZE);
-      const chunkReport: ProgressFn = (done) => report(offset + done, install.intflash.length);
+      const chunkReport: FlashProgressFn = (done, _total, writtenDone, _writtenTotal) =>
+        report(
+          offset + done,
+          install.intflash.length,
+          offset + (writtenDone ?? done),
+          install.intflash.length,
+        );
       await flashImage(flasherOrGetter, install.bank, offset, chunk, chunkReport, log, opts);
       // Checked between chunks as well as inside flashImage: otherwise a stop confirmed during
       // the last chunk would still sit through this settle before anything noticed.
@@ -430,7 +437,7 @@ async function flashRegion(
 export async function flashInstallToDevice(
   flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
   install: FlashInstall,
-  onProgress?: (phase: FlashRegion, done: number, total: number) => void,
+  onProgress?: (phase: FlashRegion, done: number, total: number, writtenDone?: number, writtenTotal?: number) => void,
   log?: LogFn,
   regions: readonly FlashRegion[] = FLASH_REGIONS,
   /** Fired right before/after each region's bytes are written — lets callers drive a named

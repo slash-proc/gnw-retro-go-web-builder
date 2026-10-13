@@ -94,6 +94,9 @@ export const sharedNo: SharedStrings = {
     cheatsFailed: (reason: string) => `Kunne ikke laste juksekoder: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "Forløpt tid",
+    speed: "Hastighet",
+    averageSpeed: "Gjennomsnittshastighet",
     logLabel: (count: number) => `Logg (${count})`,
     saveLog: "Lagre logg",
     copyLog: "Kopier logg",

@@ -120,6 +120,7 @@ export type LockedBackupProgress = (
   done?: number,
   total?: number,
   outcome?: "error",
+  writtenDone?: number,
 ) => void;
 
 /** The GnWManager unlock payload paints the display blue before its cold-boot copy is done.
@@ -235,17 +236,17 @@ async function findSavedItcm(dir: BackupDir, expectedModel?: OfwModel): Promise<
 export async function dumpBackup(
   flasher: GnwFlasher,
   extSize: number,
-  report?: (done: number, total: number, label: string) => void,
+  report?: (done: number, total: number, label: string, speedDone?: number) => void,
   abortSignal?: AbortSignal,
 ): Promise<BackupDumps> {
   const total = INTERNAL_STOCK_LEN + extSize;
   if (abortSignal?.aborted) throw new Error("Operation aborted");
   const internal = await dumpRegion(flasher, 1, 0, INTERNAL_STOCK_LEN, (d) =>
-    report?.(d, total, "internal flash"),
+    report?.(d, total, "internal flash", d),
   );
   if (abortSignal?.aborted) throw new Error("Operation aborted");
   const external = await dumpRegionInChunks(flasher, 0, 0, extSize, GNWMANAGER_EXTERNAL_READ_CHUNK, (d) =>
-    report?.(INTERNAL_STOCK_LEN + d, total, "external flash"), abortSignal,
+    report?.(INTERNAL_STOCK_LEN + d, total, "external flash", INTERNAL_STOCK_LEN + d), abortSignal,
   );
   return { internal, external };
 }
@@ -365,7 +366,7 @@ export async function dumpLockedBackup(
     if (!flasher) flasher = await deps.ensureStub();
     progress?.("read-external", 0, extSize);
     external = await dumpRegionInChunks(flasher, 0, 0, extSize, GNWMANAGER_EXTERNAL_READ_CHUNK,
-      (d, t) => progress?.("read-external", d, t), abortSignal);
+      (d, t) => progress?.("read-external", d, t, undefined, d), abortSignal);
     if (abortSignal?.aborted) throw new Error("Operation aborted");
     if (await sha1Hex(dev.externalSlice(external)) !== dev.externalSha1)
       throw new Error("External stock firmware hash mismatch; device was not changed.");
@@ -404,7 +405,7 @@ export async function dumpLockedBackup(
       // skipping the cold boot that produces the blue screen and internal read.
       await flashImage(
         (forceReboot) => deps.ensureStub(forceReboot), 0, 0, modifiedExternal!,
-        (done, total) => progress?.("flash-payload", done, total),
+        (done, total, writtenDone) => progress?.("flash-payload", done, total, undefined, writtenDone),
         dbgLog("locked-backup-payload"),
         { abortSignal },
       );
@@ -435,7 +436,7 @@ export async function dumpLockedBackup(
         try {
           await deps.transport().halt();
           const data = await deps.transport().readMemory(0x24000000, INTERNAL_STOCK_LEN,
-            (d, t) => progress?.("read-internal", d, t), true, GNWMANAGER_INTERNAL_READ_CHUNK);
+            (d, t) => progress?.("read-internal", d, t, undefined, d), true, GNWMANAGER_INTERNAL_READ_CHUNK);
           if (abortSignal?.aborted) throw new Error("Operation aborted");
           internal = data;
           actualInternalHash = await sha1Hex(data);
@@ -586,7 +587,7 @@ export async function dumpLockedBackup(
       await deps.reconnect();
       await flashImage(
         () => deps.ensureStub(), 0, 0, external,
-        (done, total) => progress?.("restore-external", done, total),
+        (done, total, writtenDone) => progress?.("restore-external", done, total, undefined, writtenDone),
         dbgLog("locked-backup-restore"),
       );
       // flashImage waits for the device to hash-check every programmed 256 KiB block and
@@ -603,7 +604,7 @@ export async function dumpLockedBackup(
   progress?.("restore-external");
   await flashImage(
     () => deps.ensureStub(), 0, 0, external,
-    (done, total) => progress?.("restore-external", done, total),
+    (done, total, writtenDone) => progress?.("restore-external", done, total, undefined, writtenDone),
     dbgLog("locked-backup-restore"),
   );
   // flashImage returns after the device has hash-verified every block and reached IDLE.
@@ -618,7 +619,7 @@ export async function restoreSavedExternal(
   dir: BackupDir,
   model: OfwModel,
   flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
-  progress?: (done: number, total: number) => void,
+  progress?: (done: number, total: number, writtenDone?: number) => void,
 ): Promise<void> {
   const backup = (await scanBackupFolder(dir)).find((b) => b.model === model && b.externalOk);
   if (!backup) throw new Error(`No hash-verified ${model} external firmware dump was found in the selected folder.`);
@@ -635,6 +636,7 @@ export type ProgressReport = (
   done: number,
   total: number,
   sub?: { value: number; max: number; label: string },
+  writtenDone?: number,
 ) => void;
 
 /** Patch validated stock dumps into a dual-boot image and flash internal→bank1 +
@@ -700,8 +702,8 @@ export async function patchAndFlash(
 
   const intLen = bank1.length;
   const total = intLen + res.external.length;
-  await flashImage(flasherOrGetter, 1, 0, bank1, (d, t) =>
-    report(d, total, { value: d, max: t, label: "internal → bank 1" }),
+  await flashImage(flasherOrGetter, 1, 0, bank1, (d, t, writtenDone) =>
+    report(d, total, { value: d, max: t, label: "internal → bank 1" }, writtenDone),
     // Was `undefined`: this flow discarded the flasher's own status-transition log
     // (`status: ERASE/PROGRAM/...`), which is exactly what identifies where a stall
     // happens. flashRegion() has always passed its log through; this one never did.
@@ -712,8 +714,8 @@ export async function patchAndFlash(
   // followed by starting the external one.
   if (abortSignal?.aborted) throw new Error("Operation aborted");
   if (res.external.length) {
-    await flashImage(flasherOrGetter, 0, 0, res.external, (d, t) =>
-      report(intLen + d, total, { value: d, max: t, label: "external → bank 0" }),
+    await flashImage(flasherOrGetter, 0, 0, res.external, (d, t, writtenDone) =>
+      report(intLen + d, total, { value: d, max: t, label: "external → bank 0" }, writtenDone),
       // Was `undefined`: this flow discarded the flasher's own status-transition log
       // (`status: ERASE/PROGRAM/...`), which is exactly what identifies where a stall
       // happens. flashRegion() has always passed its log through; this one never did.
@@ -954,8 +956,8 @@ export async function restoreStock(
   if (abortSignal?.aborted) throw new Error("Operation aborted");
 
   const total = internal.length + external.length;
-  await flashImage(flasherOrGetter, 1, 0, internal, (d, t) =>
-    report(d, total, { value: d, max: t, label: "internal → bank 1" }),
+  await flashImage(flasherOrGetter, 1, 0, internal, (d, t, writtenDone) =>
+    report(d, total, { value: d, max: t, label: "internal → bank 1" }, writtenDone),
     dbgLog("ofw-restore"),
     { abortSignal },
   );
@@ -963,8 +965,8 @@ export async function restoreStock(
   // followed by starting the external one.
   if (abortSignal?.aborted) throw new Error("Operation aborted");
   if (external.length) {
-    await flashImage(flasherOrGetter, 0, 0, external, (d, t) =>
-      report(internal.length + d, total, { value: d, max: t, label: "external → bank 0" }),
+    await flashImage(flasherOrGetter, 0, 0, external, (d, t, writtenDone) =>
+      report(internal.length + d, total, { value: d, max: t, label: "external → bank 0" }, writtenDone),
       dbgLog("ofw-restore"),
       { abortSignal },
     );

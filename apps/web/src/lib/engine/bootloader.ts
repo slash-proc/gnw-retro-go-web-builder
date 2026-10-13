@@ -1,5 +1,5 @@
 /** Install Sylverb's standalone bank-1 bootloader with a pinned, verified release image. */
-import type { GnwFlasher, LogFn } from "@gnw/gnw-flasher";
+import type { FlashProgressFn, GnwFlasher, LogFn } from "@gnw/gnw-flasher";
 import standaloneBootloaderUrl from "@gnw/gnw-patch/vendor/gnw_bootloader.bin?url";
 import { hashHex } from "../cryptoHash.js";
 import { flashImage } from "./flasher.js";
@@ -29,7 +29,7 @@ export async function loadStandaloneBootloader(fetchImpl: typeof fetch = fetch):
 
 export async function flashStandaloneBootloader(
   flasherOrGetter: GnwFlasher | ((force?: boolean) => Promise<GnwFlasher>),
-  onProgress?: (done: number, total: number) => void,
+  onProgress?: FlashProgressFn,
   log?: LogFn,
   abortSignal?: AbortSignal,
 ): Promise<void> {

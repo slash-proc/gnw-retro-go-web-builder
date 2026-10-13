@@ -288,7 +288,7 @@
 
   function backupSourcePicker() {
     return backupSourceChoices.length > 1 ? {
-      label: locale.t.wizard.spine.selectBackup,
+      label: () => locale.t.wizard.spine.selectBackup,
       options: () => backupSourceChoices.map(({ id, backup }) => ({
         value: id,
         label: modelLabel(backup.model),
@@ -308,9 +308,9 @@
   async function openBackupStep() {
     await refreshBackupSourceChoices();
     void installProgress.run({
-      title: locale.t.wizard.step1.titleBackupOnly,
-      body: locale.t.wizard.step1.bodyBackupBeforePatch,
-      confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
+      title: () => locale.t.wizard.step1.titleBackupOnly,
+      body: () => locale.t.wizard.step1.bodyBackupBeforePatch,
+      confirmText: () => locale.t.wizard.step1.confirmSelectFolderAndStart,
       phases: backupOnlyPhases,
       choicePicker: backupSourcePicker(),
       onClose: () => { void backupPresence.refresh(); void backupPresence.scanDirectories(); },
@@ -328,9 +328,9 @@
       if (matchingChoice) backupSourceChoiceId = matchingChoice.id;
     }
     void installProgress.run({
-      title: locale.t.wizard.step1.titlePatch,
-      body: isBroken ? locale.t.wizard.step1.bodyBroken : locale.t.wizard.step1.bodyPatch,
-      confirmText: locale.t.wizard.step1.confirmPatch,
+      title: () => locale.t.wizard.step1.titlePatch,
+      body: () => isBroken ? locale.t.wizard.step1.bodyBroken : locale.t.wizard.step1.bodyPatch,
+      confirmText: () => locale.t.wizard.step1.confirmPatch,
       phases: patchPhases,
       choicePicker: backupSourcePicker(),
       exec: runPatchStep,
@@ -345,9 +345,9 @@
   async function openBackupOnly() {
     await refreshBackupSourceChoices();
     void installProgress.run({
-      title: locale.t.wizard.step1.titleBackupOnly,
-      body: locale.t.wizard.step1.bodyBackupOnly,
-      confirmText: locale.t.wizard.step1.confirmSelectFolderAndStart,
+      title: () => locale.t.wizard.step1.titleBackupOnly,
+      body: () => locale.t.wizard.step1.bodyBackupOnly,
+      confirmText: () => locale.t.wizard.step1.confirmSelectFolderAndStart,
       phases: backupOnlyPhases,
       choicePicker: backupSourcePicker(),
       onClose: () => { void backupPresence.refresh(); void backupPresence.scanDirectories(); },
@@ -357,26 +357,26 @@
 
   // The backup run stops after "read-device"; patching has its own progress modal and phase list.
   const lockedBackupStages = [
-    { id: "identify", label: locale.t.officialFirmware.lockedBackupStageIdentify },
-    { id: "read-external", label: locale.t.officialFirmware.lockedBackupStageReadExternal },
-    { id: "save-external", label: locale.t.officialFirmware.lockedBackupStageSaveExternal },
-    { id: "reuse-external", label: locale.t.officialFirmware.lockedBackupStageReuseExternal },
-    { id: "flash-payload", label: locale.t.officialFirmware.lockedBackupStagePrepareRead },
-    { id: "power-cycle", label: locale.t.officialFirmware.lockedBackupStagePowerCycle },
-    { id: "read-internal", label: locale.t.officialFirmware.lockedBackupStageReadInternal },
-    { id: "verify-backups", label: locale.t.officialFirmware.lockedBackupStageVerify },
-    { id: "restore-external", label: locale.t.officialFirmware.lockedBackupStageRestore },
+    { id: "identify", label: () => locale.t.officialFirmware.lockedBackupStageIdentify },
+    { id: "read-external", label: () => locale.t.officialFirmware.lockedBackupStageReadExternal },
+    { id: "save-external", label: () => locale.t.officialFirmware.lockedBackupStageSaveExternal },
+    { id: "reuse-external", label: () => locale.t.officialFirmware.lockedBackupStageReuseExternal },
+    { id: "flash-payload", label: () => locale.t.officialFirmware.lockedBackupStagePrepareRead },
+    { id: "power-cycle", label: () => locale.t.officialFirmware.lockedBackupStagePowerCycle },
+    { id: "read-internal", label: () => locale.t.officialFirmware.lockedBackupStageReadInternal },
+    { id: "verify-backups", label: () => locale.t.officialFirmware.lockedBackupStageVerify },
+    { id: "restore-external", label: () => locale.t.officialFirmware.lockedBackupStageRestore },
   ];
   const backupOnlyPhases: PhaseDef[] = [
-    { id: "locate-backup", label: locale.t.wizard.step1.phaseLocateBackup },
-    { id: "read-device", label: locale.t.wizard.step1.phaseReadDevice, substeps: lockedBackupStages },
+    { id: "locate-backup", label: () => locale.t.wizard.step1.phaseLocateBackup },
+    { id: "read-device", label: () => locale.t.wizard.step1.phaseReadDevice, substeps: lockedBackupStages },
   ];
   const patchPhases: PhaseDef[] = [
-    { id: "locate-backup", label: locale.t.wizard.step1.phaseLocateBackup },
-    { id: "patch", label: locale.t.wizard.step1.phasePatch },
-    { id: "flash-internal", label: locale.t.wizard.step1.phaseFlashInternal },
-    { id: "flash-external", label: locale.t.wizard.step1.phaseFlashExternal },
-    { id: "rescan", label: locale.t.wizard.step1.phaseRescan },
+    { id: "locate-backup", label: () => locale.t.wizard.step1.phaseLocateBackup },
+    { id: "patch", label: () => locale.t.wizard.step1.phasePatch },
+    { id: "flash-internal", label: () => locale.t.wizard.step1.phaseFlashInternal },
+    { id: "flash-external", label: () => locale.t.wizard.step1.phaseFlashExternal },
+    { id: "rescan", label: () => locale.t.wizard.step1.phaseRescan },
   ];
   // patchAndFlash (engine/ofw.ts) does its patch work then reports two flash sub-phases via
   // its own progressReport(sub.label) — "internal → bank 1" and "external → bank 0" — which
@@ -548,7 +548,7 @@
               if (signal?.aborted) abort();
             }),
             resumeFromBlueScreen,
-            }, dir, await scanBackupFolder(dir), (stage, done, total, outcome) => {
+            }, dir, await scanBackupFolder(dir), (stage, done, total, outcome, writtenDone) => {
             if (stage === "done") {
               if (activeLockedBackupStage) report.subFinish("read-device", activeLockedBackupStage);
               activeLockedBackupStage = null;
@@ -564,7 +564,7 @@
             activeLockedBackupStage = stage;
             report.subStart("read-device", stage);
             if (done !== undefined && total !== undefined)
-              report.progress("read-device", done, total, stage, "bytes");
+              report.progress("read-device", done, total, stage, "bytes", writtenDone);
             }, report.signal);
           } catch (e) {
             const partials = await scanBackupFolder(dir).catch(() => []);
@@ -577,7 +577,7 @@
         } else {
           dumps = await withTimeout(
             (progressReport, signal) => dumpBackup(flasher!, extSize, progressReport, signal), 30000,
-            (d, t) => report.progress("read-device", d, t),
+            (d, t, _label, speedDone) => report.progress("read-device", d, t, undefined, "bytes", speedDone),
           );
         }
       } finally {
@@ -657,7 +657,7 @@
           device.extFlashBytes
         ),
         120000,
-        (d, t, sub) => {
+        (d, t, sub, writtenDone) => {
           // "bootloader → bank 1" shares the internal phase — both write bank 1.
         if (sub?.label.endsWith("bank 1")) {
             if (!flashInternalStarted) {
@@ -665,14 +665,14 @@
               report.finish("patch");
               report.start("flash-internal");
             }
-            report.progress("flash-internal", sub.value, sub.max);
+            report.progress("flash-internal", sub.value, sub.max, undefined, "bytes", writtenDone);
           } else if (sub?.label === "external → bank 0") {
             if (!flashExternalStarted) {
               flashExternalStarted = true;
               if (flashInternalStarted) report.finish("flash-internal");
               report.start("flash-external");
             }
-            report.progress("flash-external", sub.value, sub.max);
+            report.progress("flash-external", sub.value, sub.max, undefined, "bytes", writtenDone);
           }
         }
       );
@@ -716,7 +716,7 @@
             recovery.dir,
             model,
             (force) => device.ensureStub(undefined, force, true),
-            (done, total) => report.progress("restore", done, total, undefined, "bytes"),
+            (done, total, writtenDone) => report.progress("restore", done, total, undefined, "bytes", writtenDone),
           );
           report.finish("restore");
           lockedExternalRecovery = null;
@@ -917,8 +917,8 @@
   // already offers a ZIP download of the cores at the end when device.sdHandle is unset.
   function openStep2() {
     void installProgress.run({
-      title: locale.t.wizard.step2.title,
-      body: canMigrate
+      title: () => locale.t.wizard.step2.title,
+      body: () => canMigrate
         ? isReinstall
           ? locale.t.wizard.step2.bodyReinstall
           : locale.t.wizard.step2.bodyUpgrade(cleanTag(latestVersion))
@@ -933,23 +933,23 @@
       // just the door to it. Callbacks rather than values, so a refetch inside the dialog
       // re-renders the list (see VersionPicker in installProgress.svelte.ts).
       versionPicker: {
-        label: locale.t.romSection.installVersionLabel,
+        label: () => locale.t.romSection.installVersionLabel,
         options: () => versions.map((v) => ({ value: v.tag, label: cleanTag(v.tag) })),
         selected: () => selectedTag ?? "",
         onSelect: (value) => (selectedTagUserSet = value),
         onRefresh: doRefreshVersions,
-        refreshLabel: locale.t.romSection.refreshVersions,
+        refreshLabel: () => locale.t.romSection.refreshVersions,
       },
       checkboxes: canMigrate
         ? [
-            { id: "migrateGames", label: locale.t.wizard.step2.checkboxMigrateGames, default: false },
-            { id: "migrateSaves", label: locale.t.wizard.step2.checkboxMigrateSaves, default: true },
+            { id: "migrateGames", label: () => locale.t.wizard.step2.checkboxMigrateGames, default: false },
+            { id: "migrateSaves", label: () => locale.t.wizard.step2.checkboxMigrateSaves, default: true },
           ]
         : [],
       confirmGate:
         device.targetMedia === "sd" && nativeFolderPickerSupported()
           ? {
-              label: locale.t.wizard.step2.confirmGateSelectSdCard,
+              label: () => locale.t.wizard.step2.confirmGateSelectSdCard,
               ready: () => !!device.sdHandle,
               onClick: pickSdCardFolder,
             }
@@ -974,16 +974,16 @@
       ? [
           {
             id: "migrate-scan",
-            label: locale.t.wizard.step2.phaseReadExistingState,
+            label: () => locale.t.wizard.step2.phaseReadExistingState,
             substeps: [
-              { id: "frogfs-state", label: locale.t.wizard.step2.subReadPreviousGameState },
-              { id: "lfs-extract", label: locale.t.wizard.step2.subExtractCoresSaves },
-              { id: "games-migrate", label: locale.t.wizard.step2.subMigrateInstalledGames },
+              { id: "frogfs-state", label: () => locale.t.wizard.step2.subReadPreviousGameState },
+              { id: "lfs-extract", label: () => locale.t.wizard.step2.subExtractCoresSaves },
+              { id: "games-migrate", label: () => locale.t.wizard.step2.subMigrateInstalledGames },
             ],
           },
         ]
       : []),
-    { id: "download", label: locale.t.wizard.step2.phaseDownloadFirmware },
+    { id: "download", label: () => locale.t.wizard.step2.phaseDownloadFirmware },
     // SD mode's build phase does NOT build a FrogFS/LittleFS image at all (that content lives
     // on the SD card itself, gathered later in the "sd-sync" phase) — it only patches the
     // prebuilt SD blob's round-robin ROM-cache reserved-offset boundary, so it gets exactly
@@ -991,21 +991,21 @@
     device.targetMedia === "sd"
       ? {
           id: "build",
-          label: locale.t.wizard.step2.phasePrepareInstallImage,
-          substeps: [{ id: "sdcache", label: locale.t.wizard.step2.subSetSdCacheBoundary }],
+          label: () => locale.t.wizard.step2.phasePrepareInstallImage,
+          substeps: [{ id: "sdcache", label: () => locale.t.wizard.step2.subSetSdCacheBoundary }],
         }
       : {
           id: "build",
-          label: locale.t.wizard.step2.phaseBuildInstallImage,
+          label: () => locale.t.wizard.step2.phaseBuildInstallImage,
           substeps: [
-            { id: "frogfs", label: locale.t.wizard.step2.subBuildGamesBiosLanguages },
-            { id: "littlefs", label: locale.t.wizard.step2.subBuildCoresSaves },
-            { id: "superblock", label: locale.t.wizard.step2.subPatchSuperblock },
+            { id: "frogfs", label: () => locale.t.wizard.step2.subBuildGamesBiosLanguages },
+            { id: "littlefs", label: () => locale.t.wizard.step2.subBuildCoresSaves },
+            { id: "superblock", label: () => locale.t.wizard.step2.subPatchSuperblock },
           ],
         },
     {
       id: "flash",
-      label: locale.t.wizard.step2.phaseFlashingRetroGo,
+      label: () => locale.t.wizard.step2.phaseFlashingRetroGo,
       // "Flashing Retro-Go" already names the intflash write itself, so an "Internal firmware"
       // sub-step here would be tautological — only list the frogfs/littlefs regions (owner's
       // exact example: "● Games, BIOS, Languages" / "▸ Cores, saves", no 3rd intflash line).
@@ -1013,12 +1013,12 @@
       // instead (see runStep2's flash callback), which is what draws the phase row's own
       // percent and bar in docs/design/mockups/GuidedFlashing.dc.html.
       substeps: [
-        ...flashRegionsForPhase.filter((r) => r !== "intflash").map((r) => ({ id: r, label: REGION_LABELS[r] })),
-        ...(path === "rgo" ? [{ id: "bootloader", label: locale.t.firmwareSetup.installBootloaderLabel }] : []),
+        ...flashRegionsForPhase.filter((r) => r !== "intflash").map((r) => ({ id: r, label: () => REGION_LABELS[r] })),
+        ...(path === "rgo" ? [{ id: "bootloader", label: () => locale.t.firmwareSetup.installBootloaderLabel }] : []),
       ],
     },
-    { id: "rescan", label: locale.t.wizard.step2.phaseRescan },
-    ...(device.targetMedia === "sd" ? [{ id: "sd-sync", label: locale.t.wizard.step2.phaseSyncSdCores }] : []),
+    { id: "rescan", label: () => locale.t.wizard.step2.phaseRescan },
+    ...(device.targetMedia === "sd" ? [{ id: "sd-sync", label: () => locale.t.wizard.step2.phaseSyncSdCores }] : []),
   ]);
 
   async function runStep2(report: PhaseReporter) {
@@ -1104,13 +1104,13 @@
         const readTracked = (off: number, len: number) =>
           dumpRegion(flasher, 0, off, len, (d) => {
             if (totalBytes > 0)
-              report.progress("migrate-scan", Math.min(base + d, totalBytes), totalBytes, "games-migrate", "bytes");
+              report.progress("migrate-scan", Math.min(base + d, totalBytes), totalBytes, "games-migrate", "bytes", Math.min(base + d, totalBytes));
           });
         for (const g of pending) {
           const path = `${g.system}/${g.name}`;
           userRoms.set(path, await readGameData(readTracked, reservedOffset, g));
           base = Math.min(base + g.size, totalBytes);
-          report.progress("migrate-scan", base, totalBytes, "games-migrate", "bytes");
+          report.progress("migrate-scan", base, totalBytes, "games-migrate", "bytes", base);
         }
         report.log("migrate-scan", msg((t) => t.wizard.step2.logMigratedGames, device.installedGames.length, totalBytes), "games-migrate");
       } else {
@@ -1239,9 +1239,9 @@
             report.subStart("flash", "bootloader");
             await flashStandaloneBootloader(
               (force) => device.ensureStub(undefined, force, true, force),
-              (done, total) => {
+              (done, total, writtenDone) => {
                 progressReport("bootloader", done, total);
-                report.progress("flash", done, total, "bootloader", "bytes");
+                report.progress("flash", done, total, "bootloader", "bytes", writtenDone);
               },
               dbgLog("flash-bootloader", (line) => report.log("flash", line)),
               signal,
@@ -1253,12 +1253,12 @@
         // flasher's own internal no-progress watchdog — this was left at 30000 and would have
         // fired BEFORE the inner watchdog ever got a chance, on any transfer slower than 30s.
         120000,
-        (phase, d, t) => {
+        (phase, d, t, writtenDone) => {
           // intflash has no sub-step row (see step2Phases) — report it at phase level, which
           // the modal draws as the phase's own percent + bar. Every other region reports into
           // its own declared sub-step row.
           const region = phase as FlashRegion | "bootloader";
-          report.progress("flash", d, t, region === "intflash" ? undefined : region, "bytes");
+          report.progress("flash", d, t, region === "intflash" ? undefined : region, "bytes", writtenDone);
         }
       );
     } finally {
@@ -1388,22 +1388,22 @@
 
   // Restore stock, clear the bank-2 Retro-Go image, then rescan.
   const restorePhases: PhaseDef[] = [
-    { id: "flash-internal", label: locale.t.wizard.step1.phaseFlashInternal },
-    { id: "flash-external", label: locale.t.wizard.step1.phaseFlashExternal },
-    { id: "erase-bank2", label: locale.t.eraseSection.phaseErase },
-    { id: "rescan", label: locale.t.wizard.step1.phaseRescan },
+    { id: "flash-internal", label: () => locale.t.wizard.step1.phaseFlashInternal },
+    { id: "flash-external", label: () => locale.t.wizard.step1.phaseFlashExternal },
+    { id: "erase-bank2", label: () => locale.t.eraseSection.phaseErase },
+    { id: "rescan", label: () => locale.t.wizard.step1.phaseRescan },
   ];
 
   function openRestore() {
     void installProgress.run({
-      title: w.spine.restoreOriginal,
-      body: w.restore.modalBody,
+      title: () => w.spine.restoreOriginal,
+      body: () => w.restore.modalBody,
       danger: true,
-      confirmText: w.restore.confirm,
+      confirmText: () => w.restore.confirm,
       phases: restorePhases,
       choicePicker: restoreChoiceNeeded
         ? {
-            label: w.spine.selectBackup,
+            label: () => w.spine.selectBackup,
             options: () =>
               restoreBackups
                 .filter((backup) => backup.internalOk && backup.externalOk)
@@ -1474,9 +1474,9 @@
           await flashImage(
             (force) => device.ensureStub(undefined, force, true),
             2, 0, erased,
-            (done, total) => {
+            (done, total, writtenDone) => {
               progressReport(done, total, { value: done, max: total, label: "erase Retro-Go → bank 2" });
-              report.progress("erase-bank2", done, total, undefined, "bytes");
+              report.progress("erase-bank2", done, total, undefined, "bytes", writtenDone);
             },
             dbgLog("guided-restore-bank2-erase", (line) => report.log("erase-bank2", line)),
             { compress: true, verify: false, abortSignal: signal },
@@ -1486,17 +1486,17 @@
         // Must stay >= engine/flasher.ts's own 120s no-progress watchdog, or this outer guard
         // fires first and false-aborts a slow but healthy transfer.
         120000,
-        (d, t, sub) => {
+        (d, t, sub, writtenDone) => {
           if (sub?.label === "internal → bank 1") {
             flashInternalStarted = true;
-            report.progress("flash-internal", sub.value, sub.max);
+            report.progress("flash-internal", sub.value, sub.max, undefined, "bytes", writtenDone);
           } else if (sub?.label === "external → bank 0") {
             if (!flashExternalStarted) {
               flashExternalStarted = true;
               report.finish("flash-internal");
               report.start("flash-external");
             }
-            report.progress("flash-external", sub.value, sub.max);
+            report.progress("flash-external", sub.value, sub.max, undefined, "bytes", writtenDone);
           } else if (sub?.label === "erase Retro-Go → bank 2") {
             report.progress("erase-bank2", sub.value, sub.max, undefined, "bytes");
           }

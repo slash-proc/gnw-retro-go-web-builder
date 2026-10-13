@@ -102,6 +102,9 @@ export const sharedUk: SharedStrings = {
     cheatsFailed: (reason: string) => `Не вдалося завантажити чити: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "Минулий час",
+    speed: "Швидкість",
+    averageSpeed: "Середня швидкість",
     logLabel: (count: number) => `Журнал (${count})`,
     saveLog: "Зберегти журнал",
     copyLog: "Копіювати журнал",

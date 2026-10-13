@@ -94,6 +94,9 @@ export const sharedKo: SharedStrings = {
     cheatsFailed: (reason: string) => `치트를 불러오지 못했습니다: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "경과 시간",
+    speed: "속도",
+    averageSpeed: "평균 속도",
     logLabel: (count: number) => `로그 (${count})`,
     saveLog: "로그 저장",
     copyLog: "로그 복사",

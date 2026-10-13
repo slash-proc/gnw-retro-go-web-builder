@@ -154,6 +154,9 @@ export const sharedEn = {
     cheatsFailed: (reason: string) => `Couldn't load cheats: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "Elapsed",
+    speed: "Speed",
+    averageSpeed: "Average speed",
     logLabel: (count: number) => `Log (${count})`,
     saveLog: "Save log",
     // FlashFailure.dc.html:84 draws `Copy log` beside `Save log`. It always copies ENGLISH,

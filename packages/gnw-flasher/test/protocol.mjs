@@ -18,6 +18,7 @@
  *      safety net that (1)'s no-read-back decision relies on.
  */
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import {
   GnwFlasher,
   MAILBOX_ADDR,
@@ -66,6 +67,7 @@ const C = {
   EXPECTED_SHA256: 0x18,
   BANK: 0x38,
   ACTION: 0x3c,
+  RESPONSE_READY: 0x40,
   COMPRESSED_SHA256: 0x14c,
   READY: 0x16c,
 };
@@ -136,8 +138,13 @@ function makeFake(plan = {}) {
         if (s.t >= XFER_TICKS) {
           writeWordRaw(CTX_HDR(i, C.READY), 0); // ready cleared — but NOT done
           dev.busyAfterReadyCleared = true;
-          setStatus(ST.ERASE);
-          s.phase = "work";
+          if (s.action === Action.HASH) {
+            setStatus(ST.HASH);
+            s.phase = "hash";
+          } else {
+            setStatus(ST.ERASE);
+            s.phase = "work";
+          }
           s.t = 0;
         }
       } else if (s.phase === "stuck") {
@@ -152,6 +159,21 @@ function makeFake(plan = {}) {
           setStatus(ST.PROG);
           s.phase = "xfer";
           s.t = 0;
+        }
+      } else if (s.phase === "hash") {
+        if (s.t >= WORK_TICKS) {
+          const size = readWordRaw(CTX_HDR(i, C.SIZE));
+          const chunks = Math.ceil(size / CONTEXT_BUFFER_SIZE);
+          // The fake need only provide deterministic digests. Zero hashes make every
+          // requested chunk look changed, which exercises the normal write path.
+          for (let chunk = 0; chunk < chunks; chunk++) {
+            const digest = plan.hashes?.[chunk] ?? new Uint8Array(32);
+            for (let k = 0; k < 32; k++) mem.set(CTX_BUF(i) + chunk * 32 + k, digest[k] ?? 0);
+          }
+          writeWordRaw(CTX_HDR(i, C.RESPONSE_READY), 1);
+          setStatus(STATUS_IDLE);
+          dev.busyAfterReadyCleared = false;
+          dev.ctx[i] = null;
         }
       } else if (s.phase === "work") {
         if (s.t === 2) setStatus(ST.HASH);
@@ -189,7 +211,7 @@ function makeFake(plan = {}) {
         continue;
       }
       dev.contextCounter += 1;
-      dev.ctx[i] = { t: 0, phase: "xfer" };
+      dev.ctx[i] = { t: 0, phase: "xfer", action: readWordRaw(CTX_HDR(i, C.ACTION)) };
     }
     if (addr === MAILBOX_ADDR + F.STATUS) dev.status = val >>> 0;
   };
@@ -549,7 +571,7 @@ const progWrites = (log) => log.filter((e) => e[0] === "ww" && (e[1] === CTX_HDR
   // ...and then clears it. gnwmanager leaves the bar where it stopped because its CLI almost
   // always ends with `-- start bank1`, which resets the device; nothing resets ours, so a
   // finished flash left the on-device bar sitting at 100%.
-  check(prog.join() === "26,0", `flash(): drives the bar to 26 and clears it (got ${prog.join()})`);
+  check(prog.join() === "0,26,26", `flash(): starts, completes, and reasserts the device bar (got ${prog.join()})`);
 }
 {
   const f = makeFake();
@@ -561,9 +583,9 @@ const progWrites = (log) => log.filter((e) => e[0] === "ww" && (e[1] === CTX_HDR
     bw1 = bufWrites(f.log, 1).length;
   check(bw0 + bw1 === 3, `flash(): splits ${data.length} bytes into 3 x 256KiB chunks (got ${bw0 + bw1})`);
   const offs = f.log.filter((e) => e[0] === "ww" && (e[1] === CTX_HDR(0, C.OFFSET) || e[1] === CTX_HDR(1, C.OFFSET))).map((e) => e[2]);
-  check(offs.join() === [0, CONTEXT_BUFFER_SIZE, 2 * CONTEXT_BUFFER_SIZE].join(), `flash(): chunk offsets advance by 256KiB (got ${offs.join()})`);
+  check(offs.slice(-3).join() === [0, CONTEXT_BUFFER_SIZE, 2 * CONTEXT_BUFFER_SIZE].join(), `flash(): chunk offsets advance by 256KiB (got ${offs.join()})`);
   const prog = f.log.filter((e) => e[0] === "ww" && e[1] === MAILBOX_ADDR + F.PROGRESS).map((e) => e[2]);
-  check(prog.join() === "8,17,26,0", `flash(): device progress advances across chunks then clears (got ${prog.join()})`);
+  check(prog.join() === "0,8,17,26,26", `flash(): device progress advances across chunks and remains complete (got ${prog.join()})`);
   const last = seen[seen.length - 1];
   check(last[0] === last[1] && last[1] === data.length, `flash(): host progress ends at total (got ${last.join("/")})`);
   check(seen.every(([d, t], k) => d <= t && (k === 0 || d >= seen[k - 1][0])), "flash(): host progress is monotonic and never exceeds the total");
@@ -571,6 +593,20 @@ const progWrites = (log) => log.filter((e) => e[0] === "ww" && (e[1] === CTX_HDR
   // always hands back the first (free) context — the two buffers exist for
   // double-buffering the reference tool does, which this port does not pipeline.
   check(bw0 === 3 && bw1 === 0, `flash(): consecutive chunks reuse context 0 (ctx0=${bw0}, ctx1=${bw1})`);
+}
+{
+  // External-flash hashing can fast-forward unchanged chunks in the visible source-image
+  // progress. The optional write pair must still count only the changed chunk's bytes.
+  const data = payload(CONTEXT_BUFFER_SIZE * 2);
+  const firstHash = new Uint8Array(createHash("sha256").update(data.subarray(0, CONTEXT_BUFFER_SIZE)).digest());
+  const f = makeFake({ hashes: [firstHash, new Uint8Array(32)] });
+  const seen = [];
+  await new GnwFlasher(f.transport).flash(0, 0, data, {
+    onProgress: (done, total, writtenDone, writtenTotal) => seen.push([done, total, writtenDone, writtenTotal]),
+  });
+  const last = seen[seen.length - 1];
+  check(last.join() === `${data.length},${data.length},${CONTEXT_BUFFER_SIZE},${CONTEXT_BUFFER_SIZE}`,
+    `flash(): skipped blocks do not inflate write bytes (got ${last.join("/")})`);
 }
 
 // ==========================================================================
@@ -824,13 +860,11 @@ check(statusName(0x12345678) === "UNKNOWN(0x12345678)", "statusName(): reports u
 // indistinguishable from a dead device.
 {
   const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
-  const call = src.match(/await this\.waitForContextComplete\(i, log, ([^,]+),/);
-  check(!!call, "program() no longer waits on its context");
-  check(call && call[1].trim() === "undefined",
-    `program() must use waitForContextComplete's own budget (passes ${call && call[1].trim()})`);
-  const def = src.match(/waitForContextComplete\(i: number, log: LogFn = \(\) => \{\}, timeoutMs = (\d+)/);
+  const call = src.match(/await this\.waitForContextComplete\(i, log\);/);
+  check(!!call, "program() waits on its context with the default budget");
+  const def = src.match(/waitForContextComplete\([\s\S]*?timeoutMs = (\d+)/);
   check(def && Number(def[1]) === 20000, `the per-context budget must be 20 s (is ${def && def[1]} ms)`);
-  check(/the mailbox is idle, so the device is most likely waiting for a different/.test(src),
+  check(/the mailbox is IDLE while/.test(src),
     "a stall at IDLE does not explain itself");
 }
 

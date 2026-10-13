@@ -98,12 +98,7 @@ async function getBankDataSize(read: IntReadFn, base: number, maxTop: number): P
   // 1. Quick Island Discovery (32K strides)
   for (let top = maxTop; top > 0; top -= STRIDE) {
     const probeLo = Math.max(0, top - PROBE_SIZE);
-    let win: Uint8Array;
-    try {
-      win = await read(base + probeLo, Math.min(PROBE_SIZE, top));
-    } catch {
-      break; 
-    }
+    const win = await read(base + probeLo, Math.min(PROBE_SIZE, top));
     
     if (lastNonFF(win) < 0) {
       // Do not stop after an empty high region. A bank can legitimately contain
@@ -116,7 +111,13 @@ async function getBankDataSize(read: IntReadFn, base: number, maxTop: number): P
     }
   }
 
-  if (roughTop === 0) return 0;
+  if (roughTop === 0) {
+    // Stride probes omit the bank's first 28 KiB. A small or partial image
+    // there is data, even if every high probe is erased.
+    const low = await read(base, PROBE_SIZE);
+    if (lastNonFF(low) < 0) return 0;
+    roughTop = PROBE_SIZE;
+  }
 
   // 2. Circumfix-scan to find the exact border (16K then 8K steps)
   // We know data exists at `roughTop`. The previous 32K stride's probe was empty,
@@ -128,12 +129,7 @@ async function getBankDataSize(read: IntReadFn, base: number, maxTop: number): P
      if (searchBase + step > searchCeil) continue;
      
      const probeLo = searchBase + step - PROBE_SIZE;
-     let win: Uint8Array;
-     try {
-       win = await read(base + probeLo, PROBE_SIZE);
-     } catch { 
-       break; 
-     }
+     const win = await read(base + probeLo, PROBE_SIZE);
      
      if (lastNonFF(win) >= 0) {
        // Data found, boundary is higher up
@@ -198,7 +194,13 @@ export async function scanIntflashBanks(read: IntReadFn): Promise<IntflashBank[]
       }
     }
 
-    const size = await getBankDataSize(read, base, maxTop);
+    let size: number;
+    try {
+      size = await getBankDataSize(read, base, maxTop);
+    } catch (error) {
+      banks.push({ index, base, dataSize: 0, type: `unreadable (${error instanceof Error ? error.message : error})` });
+      continue;
+    }
     if (size === 0) {
       banks.push({ index, base, dataSize: 0, type: "empty" });
       continue;

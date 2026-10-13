@@ -311,6 +311,7 @@ class DeviceStore {
    *  generation they started in and drop their result if it's stale by the time they
    *  resolve (device gone, or a newer scan superseded them) — see [[swd-connection-model]]. */
   private _gen = 0;
+  private _backgroundFsReads = new Set<Promise<unknown>>();
   /** Reference count of ensureStub() stub boots that are CURRENTLY WRITING through
    *  `this.transport` — i.e. that still own the live USBDevice handle underneath it.
    *
@@ -1204,8 +1205,31 @@ class DeviceStore {
     // the cached-flasher probes and readInfo are covered too.
     this.suspendPoll();
     try {
+      // Cached reuse also precedes programming: erase disables OSPI mapping,
+      // so outstanding filesystem reads must finish before handing out the stub.
+      await this.quiesceBackgroundReads();
       return await this._ensureStubInner(log, forceReboot, silent, allowReboot);
     } finally {
+      this.resumePoll();
+    }
+  }
+
+  async quiesceBackgroundReads(): Promise<void> {
+    ++this._gen;
+    await Promise.allSettled([...this._backgroundFsReads]);
+  }
+
+  async startBank(bank: 1 | 2): Promise<void> {
+    if (!this.transport) throw new Error("Not connected.");
+    this.suspendPoll();
+    deviceSafety.hold();
+    try {
+      await this.quiesceBackgroundReads();
+      await (this.flasher ?? attachFlasher(this.transport)).startBank(bank);
+      this.flasher = null;
+      this.noteBankStarted(bank);
+    } finally {
+      deviceSafety.release();
       this.resumePoll();
     }
   }
@@ -1282,6 +1306,9 @@ class DeviceStore {
     // well as in installProgress.confirm() because this path is also reachable straight from
     // the header's device menu ("Start Recovery Mode"), with no progress modal involved.
     // Reference-counted, so a nested call inside an in-flight install is a no-op.
+    // Generation invalidation stops the next background block read; also drain
+    // already-issued reads before resetting external-flash configuration.
+    await Promise.allSettled([...this._backgroundFsReads]);
     deviceSafety.hold();
     // Own the handle for the whole write (see _stubBootDepth): a teardown triggered by this
     // very boot's re-enumeration must not close the USBDevice under us. Transport captured by
@@ -2108,20 +2135,26 @@ class DeviceStore {
     const startedAt = performance.now();
     const started = <T>(pr: Promise<T>): Promise<T> => {
       outstanding++;
-      return pr.finally(() => {
+      const tracked = pr.finally(() => {
+        this._backgroundFsReads.delete(tracked);
         outstanding--;
         if (outstanding === 0) {
           lipProgress.setQuiet(false);
           if (startupId) this.startupTrace("background-filesystem-checks-done", `elapsed=${Math.round(performance.now() - startedAt)}ms`);
         }
       });
+      this._backgroundFsReads.add(tracked);
+      return tracked;
     };
     for (const p of this.partitions) {
       if (p.fs === "fat") {
         void started(
           import("./engine/fsscan.js")
             .then(({ readFatUsedSpace }) =>
-              readFatUsedSpace((off: number, len: number) => dumpRegion(this.flasher!, 0, off, len), p.offset, p.size),
+              readFatUsedSpace((off: number, len: number) => {
+                if (gen !== this._gen) throw new Error("Filesystem scan superseded");
+                return dumpRegion(this.flasher!, 0, off, len);
+              }, p.offset, p.size),
             )
             .then((res) => {
               if (res && gen === this._gen) this.fsStats[p.offset] = res;
@@ -2131,7 +2164,7 @@ class DeviceStore {
       } else if (p.fs === "littlefs") {
         void started(
           import("./engine/lfsBrowser.js")
-            .then(({ getLfsUsedSpace }) => getLfsUsedSpace())
+            .then(({ getLfsUsedSpace }) => getLfsUsedSpace(() => gen !== this._gen))
             .then((res) => {
               if (res && gen === this._gen) this.fsStats[p.offset] = res;
             })

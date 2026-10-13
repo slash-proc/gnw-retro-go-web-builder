@@ -413,7 +413,10 @@ function registerNumber(name: string): number {
  * to gnwmanager. OpenOCD's resume commits cached core register writes to hardware.
  * gwmeu delegates directly to GDB; neither path auto-resumes from a timer. */
 export class RemoteGdbTransport extends MemoryTransport {
-  protected readonly CHUNK = 4096;
+  // gdb-swd-fast accepts 64 KiB memory packets and internally splits them at
+  // the SWD MEM-AP TAR boundary. Keep the host-side request large enough to
+  // avoid paying a GDB round trip for every 4 KiB piece.
+  protected readonly CHUNK = 64 * 1024;
   protected readonly MAX_READ_REQUEST = 65536;
   protected readonly READ_INTER_CHUNK_DELAY_MS = 0;
   constructor(readonly client: GdbRemoteClient) { super(); }
@@ -445,6 +448,10 @@ export class RemoteGdbTransport extends MemoryTransport {
     if (this.client.isManaged && !this.client.usesGdbControl) await super.resume();
   }
   async reset(): Promise<void> {
+    // GDB stopping is a protocol operation, not a guest DHCSR write. QEMU
+    // correctly supports GDB interrupts while leaving Cortex-M debug registers
+    // unimplemented. Use GnWManager's existing reset_and_halt RPC for both
+    // hardware GDB servers and VMs; hardware reset catch belongs in the server.
     if (this.client.isManaged && !this.client.usesGdbControl) await super.halt();
     await this.client.reset();
   }

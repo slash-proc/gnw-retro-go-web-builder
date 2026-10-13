@@ -207,6 +207,7 @@ function pollDevice({ innerThrows = null } = {}) {
     probe: {}, transport: {},
     suspendPoll() { order.push("suspend"); },
     resumePoll() { order.push("resume"); },
+    async quiesceBackgroundReads() { order.push("drain"); },
     async _ensureStubInner() {
       order.push("boot");
       if (innerThrows) throw innerThrows;
@@ -218,7 +219,7 @@ function pollDevice({ innerThrows = null } = {}) {
 await check("THE REPORTED BUG: the stub boot runs with the poll silenced", async () => {
   const d = pollDevice();
   await ensureStubWrapper.call(d, undefined, true, false);
-  eq(d.order, ["suspend", "boot", "resume"],
+  eq(d.order, ["suspend", "drain", "boot", "resume"],
     "the boot must sit strictly between suspendPoll() and resumePoll()");
 });
 
@@ -229,7 +230,7 @@ await check("the poll is resumed even when the boot throws", async () => {
   let threw = null;
   try { await ensureStubWrapper.call(d, undefined, true, false); } catch (e) { threw = e; }
   ok(threw && threw.message === "boom", `the failure must still propagate: ${threw && threw.message}`);
-  eq(d.order, ["suspend", "boot", "resume"], "resumePoll() must run in a finally");
+  eq(d.order, ["suspend", "drain", "boot", "resume"], "resumePoll() must run in a finally");
 });
 
 // --- The attempt says what happened ---------------------------------------------------------

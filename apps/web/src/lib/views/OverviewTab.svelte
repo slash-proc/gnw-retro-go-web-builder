@@ -70,7 +70,7 @@
   // beyond "capturing" with a byte-progress counter (see engine/screenshot.ts's halt / 64KiB
   // chunk / resume sequence, which this must NOT touch).
   const screenshotPhases = $derived<PhaseDef[]>([
-    { id: "capture", label: locale.t.overview.screenshot.phaseCapturing },
+    { id: "capture", label: () => locale.t.overview.screenshot.phaseCapturing },
   ]);
 
   function renderImageDataToUrl(imageData: ImageData): string {
@@ -107,11 +107,11 @@
       return;
     }
     void installProgress.run({
-      title: locale.t.overview.screenshot.modalTitle,
-      body: locale.t.overview.screenshot.modalBody,
-      confirmText: locale.t.overview.screenshot.modalConfirm,
+      title: () => locale.t.overview.screenshot.modalTitle,
+      body: () => locale.t.overview.screenshot.modalBody,
+      confirmText: () => locale.t.overview.screenshot.modalConfirm,
       phases: screenshotPhases,
-      checkboxes: [{ id: "remember", label: locale.t.overview.screenshot.rememberCheckbox }],
+      checkboxes: [{ id: "remember", label: () => locale.t.overview.screenshot.rememberCheckbox }],
       exec: async (report) => {
         if (installProgress.checkboxValues["remember"]) saveSel("skip-screenshot-confirm", true);
         try {

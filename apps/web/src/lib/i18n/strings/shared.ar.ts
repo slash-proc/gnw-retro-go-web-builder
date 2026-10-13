@@ -123,6 +123,9 @@ export const sharedAr: SharedStrings = {
     cheatsFailed: (reason: string) => `تعذر تحميل أكواد الغش: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "الوقت المنقضي",
+    speed: "السرعة",
+    averageSpeed: "متوسط السرعة",
     logLabel: (count: number) => `السجل (${count})`,
     saveLog: "حفظ السجل",
     copyLog: "نسخ السجل",

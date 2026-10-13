@@ -68,7 +68,6 @@
   import ConfirmModal from "./ConfirmModal.svelte";
   import Button from "./Button.svelte";
   import PaneFooter from "../advanced/PaneFooter.svelte";
-  import { attachFlasher } from "../engine/flasher.js";
   import { extflashSegments, intflashSegments } from "../engine/classify.js";
   import type { GeoSegment } from "../engine/classify.js";
   import type { IntflashBank } from "../engine/intflashscan.js";
@@ -296,9 +295,7 @@
 
   async function runBoot() {
     if (!device.transport) throw new Error("Not connected.");
-    const flasher = device.flasher ?? attachFlasher(device.transport);
-    await flasher.startBank(bootBank);
-    device.noteBankStarted(bootBank);
+    await device.startBank(bootBank);
   }
 
   /**

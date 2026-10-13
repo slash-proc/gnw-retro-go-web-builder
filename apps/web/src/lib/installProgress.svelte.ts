@@ -20,13 +20,15 @@ const LOG_OPEN_KEY = "install-log-open";
 
 export type PhaseId = string;
 export type SubstepId = string;
-export type SubstepDef = { id: SubstepId; label: string };
+export type TextValue = string | (() => string);
+export const textValue = (value: TextValue): string => typeof value === "function" ? value() : value;
+export type SubstepDef = { id: SubstepId; label: TextValue };
 /** A phase may pre-declare its fixed, named sub-steps up front (same idea as `phases: PhaseDef[]`
  *  being declared up front by each call site before `run()` starts) so the whole nested checklist
  *  renders immediately in "pending" state, then fills in live as the operation progresses. Only
  *  declare `substeps` where a phase has real, distinguishable internal work — an atomic phase
  *  should omit it. */
-export type PhaseDef = { id: PhaseId; label: string; substeps?: SubstepDef[] };
+export type PhaseDef = { id: PhaseId; label: TextValue; substeps?: SubstepDef[] };
 export type PhaseStatus = "pending" | "active" | "done" | "error";
 export type SubstepStatus = "pending" | "active" | "done" | "error";
 /** `unit: "bytes"` renders the counter as a byte fraction (`[1.6/3.4 MB]`); the default
@@ -77,8 +79,10 @@ export interface PhaseReporter {
    *  string — a path, filename or device-derived line — which is stored verbatim. */
   log(id: PhaseId, line: string | LogEntry, substepId?: SubstepId): void;
   /** Report progress for a phase (or a phase's sub-step, if `substepId` given). `unit` picks
-   *  the counter's rendering — byte fraction vs item fraction. */
-  progress(id: PhaseId, done: number, total: number, substepId?: SubstepId, unit?: "bytes"): void;
+   *  the counter's rendering — byte fraction vs item fraction. `speedDone` is cumulative bytes
+   *  transferred over SWD; omit it for local preparation, downloads, and other byte-shaped work
+   *  that should not affect the throughput meter. */
+  progress(id: PhaseId, done: number, total: number, substepId?: SubstepId, unit?: "bytes", speedDone?: number): void;
 }
 
 /** `cancelled` is terminal like `done`/`error`, and is none of the three: the operation neither
@@ -91,7 +95,7 @@ export type ModalPhase = "confirm" | "running" | "done" | "error" | "cancelled";
  *  `installProgress.checkboxValues[id]` from inside `exec` — checkboxes are rendered inside the
  *  confirm step itself, not by the calling component, so `exec`'s closure can't read local
  *  component state for these; it must read the store's `checkboxValues`. */
-export type CheckboxDef = { id: string; label: string; default?: boolean };
+export type CheckboxDef = { id: string; label: TextValue; default?: boolean };
 
 /** An optional gate on the confirm step's primary action — e.g. "you must pick an SD card
  *  folder before you can Install". While `ready()` is false, the modal renders THIS button
@@ -100,7 +104,7 @@ export type CheckboxDef = { id: string; label: string; default?: boolean };
  *  the normal confirm button takes over. `onClick` should be a fire-and-forget action (e.g.
  *  opening a folder picker) that eventually makes `ready()` true — it does not itself resolve
  *  the confirm step. */
-export type ConfirmGate = { label: string; ready: () => boolean; onClick: () => void | Promise<void> };
+export type ConfirmGate = { label: TextValue; ready: () => boolean; onClick: () => void | Promise<void> };
 
 /** One option in the confirm step's version picker. `value` is the release's `tag`. */
 export type VersionOption = { value: string; label: string };
@@ -121,7 +125,7 @@ export type VersionOption = { value: string; label: string };
  */
 export type VersionPicker = {
   /** Names the control. */
-  label: string;
+  label: TextValue;
   /** Newest first, as the index publishes them. */
   options: () => VersionOption[];
   /** The `value` currently chosen. */
@@ -130,25 +134,25 @@ export type VersionPicker = {
   /** Refetches the index. Awaited, so the control spins for exactly as long as it runs. */
   onRefresh: () => Promise<void>;
   /** Title and accessible name for the refresh beside the picker. */
-  refreshLabel: string;
+  refreshLabel: TextValue;
 };
 
 /** A small choice picker shown in the confirm step when the caller needs an explicit
  *  selection before starting a destructive operation. */
 export type ChoicePicker = {
-  label: string;
+  label: TextValue;
   options: () => { value: string; label: string }[];
   selected: () => string;
   onSelect: (value: string) => void;
 };
 
 interface PromptConfig {
-  title: string;
-  body: string;
+  title: TextValue;
+  body: TextValue;
   /** A plain label, or a function when it depends on live state — a confirm button beside a
    *  `VersionPicker` reads Upgrade, Reinstall or Downgrade depending on what is selected, and a
    *  string captured at `run()` would freeze at whichever face happened to be showing then. */
-  confirmText: string | (() => string);
+  confirmText: TextValue;
   danger: boolean;
   phases: PhaseDef[];
   checkboxes: CheckboxDef[];
@@ -184,6 +188,12 @@ class InstallProgressStore {
   auditLog = $state<LogLine[]>([]);
   /** Wall-clock start of the active flash/sync, set only after confirmation. */
   startedAt = $state<number | null>(null);
+  /** Wall-clock end of the active flash/sync. Kept after completion so the modal can show the
+   *  final elapsed time instead of dropping the timer when the operation settles. */
+  endedAt = $state<number | null>(null);
+  /** Bytes reported by byte-based progress callbacks during this run. */
+  bytesTransferred = $state<number>(0);
+  private progressBytes = new Map<string, number>();
 
   /** Whether the shared audit log is expanded. Sticky across separate operations (unlike the
    *  rest of this store's state, which `run()` resets each time) — persisted via persist.ts,
@@ -223,9 +233,9 @@ class InstallProgressStore {
    *  FlashingCancelConfirm.dc.html; covered by apps/web/test/flashcancel.mjs, which asserts at
    *  the writer rather than at the flag. */
   run(opts: {
-    title: string;
-    body?: string;
-    confirmText?: string | (() => string);
+    title: TextValue;
+    body?: TextValue;
+    confirmText?: TextValue;
     danger?: boolean;
     phases: PhaseDef[];
     checkboxes?: CheckboxDef[];
@@ -239,6 +249,9 @@ class InstallProgressStore {
     return new Promise((resolve, reject) => {
       this.modalPhase = "confirm";
       this.startedAt = null;
+      this.endedAt = null;
+      this.bytesTransferred = 0;
+      this.progressBytes.clear();
       this.phaseState = Object.fromEntries(
         opts.phases.map((p) => [
           p.id,
@@ -293,11 +306,13 @@ class InstallProgressStore {
   }
 
   private phaseLabel(id: PhaseId): string {
-    return this.prompt?.phases.find((p) => p.id === id)?.label ?? id;
+    const label = this.prompt?.phases.find((p) => p.id === id)?.label;
+    return label === undefined ? id : textValue(label);
   }
 
   private substepLabel(id: PhaseId, substepId: SubstepId): string {
-    return this.phaseState[id]?.substeps.find((s) => s.id === substepId)?.label ?? substepId;
+    const label = this.phaseState[id]?.substeps.find((s) => s.id === substepId)?.label;
+    return label === undefined ? substepId : textValue(label);
   }
 
   /** The reporter object passed into an in-flight exec(). Also usable externally (e.g.
@@ -351,7 +366,20 @@ class InstallProgressStore {
       // message body stays unrendered until display.
       this.auditLog = [...this.auditLog, { time: timestamp(), tag, entry: toEntry(line) }];
     },
-    progress: (id, done, total, substepId, unit) => {
+    progress: (id, done, total, substepId, unit, speedDone) => {
+      // Only device-transfer callbacks provide `speedDone`. Other byte-shaped work (packing
+      // FrogFS, building images, downloads, and local SD writes) still needs a byte progress bar
+      // but must not be included in SWD throughput.
+      if (unit === "bytes" && Number.isFinite(speedDone)) {
+        const key = `${id}\u0000${substepId ?? ""}`;
+        // `done` drives the visible bar and may jump over unchanged flash blocks. Flash writers
+        // provide `speedDone` when they know the actual bytes sent; use that for throughput
+        // while preserving the source-image position for the checklist.
+        const value = Math.max(0, speedDone!);
+        const previous = this.progressBytes.get(key);
+        this.bytesTransferred += previous === undefined ? value : Math.max(0, value - previous);
+        this.progressBytes.set(key, value);
+      }
       const s = this.ensure(id);
       if (substepId) {
         s.substepProgress = { ...s.substepProgress, [substepId]: { value: done, max: total, unit } };
@@ -407,6 +435,9 @@ class InstallProgressStore {
     if (!p) return;
     this.modalPhase = "running";
     this.startedAt = Date.now();
+    this.endedAt = null;
+    this.bytesTransferred = 0;
+    this.progressBytes.clear();
     // Per run, and handed to exec through the reporter. Made HERE rather than in run() so that
     // a prompt sitting unconfirmed on screen holds no controller at all.
     this.controller = new AbortController();
@@ -454,6 +485,7 @@ class InstallProgressStore {
       this.auditLog = [...this.auditLog, { time: timestamp(), tag: null, entry: literal(`✗ ${text}`) }];
       this.modalPhase = "error";
     } finally {
+      this.endedAt = Date.now();
       // A failed operation is if anything MORE likely to have left the device mid-write, so
       // the error path releases exactly like the success path — into "settling".
       dbg(`[safety] operation complete title=${p.title}; releasing install hold`);

@@ -94,6 +94,9 @@ export const sharedJa: SharedStrings = {
     cheatsFailed: (reason: string) => `チートを読み込めませんでした: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "経過時間",
+    speed: "速度",
+    averageSpeed: "平均速度",
     logLabel: (count: number) => `ログ（${count}）`,
     saveLog: "ログを保存",
     copyLog: "ログをコピー",

@@ -60,20 +60,6 @@
     ack = false;
   }
 
-  const planBody = $derived(
-    file
-      ? locale.t.flashSection.planBody(
-          bank,
-          hex8(base),
-          hex8(offBytes || 0),
-          file.name,
-          commas(file.size),
-          hex8(padTarget),
-        )
-      : "",
-  );
-
-
   // Write.dc.html:94 — the `Overwrites` row: what currently occupies the destination range.
   // Derived from the same device scan the geometry bars are drawn from, so it is device
   // truth, not a guess: for external flash, every non-free scanned partition the padded
@@ -110,7 +96,7 @@
       overwrites !== locale.t.shared.geometry.empty,
   );
 
-  const flashPhases: PhaseDef[] = [{ id: "flash", label: locale.t.flashSection.phaseFlashingImage }];
+  const flashPhases: PhaseDef[] = [{ id: "flash", label: () => locale.t.flashSection.phaseFlashingImage }];
 
   async function run(report: PhaseReporter) {
     // Automatic unlock: a locked device is unlocked before this write, never after it
@@ -126,7 +112,7 @@
         bank,
         off,
         data,
-        (d, t) => report.progress("flash", d, t),
+        (d, t, writtenDone) => report.progress("flash", d, t, undefined, "bytes", writtenDone),
         undefined,
         { compress, verify },
       );
@@ -138,10 +124,19 @@
 
   function openFlash() {
     void installProgress.run({
-      title: locale.t.flashSection.modalTitle,
-      body: planBody,
+      title: () => locale.t.flashSection.modalTitle,
+      body: () => file
+        ? locale.t.flashSection.planBody(
+            bank,
+            hex8(base),
+            hex8(offBytes || 0),
+            file.name,
+            commas(file.size),
+            hex8(padTarget),
+          )
+        : "",
       danger: true,
-      confirmText: locale.t.flashSection.modalConfirmText,
+      confirmText: () => locale.t.flashSection.modalConfirmText,
       phases: flashPhases,
       exec: async (report) => {
         writing = true;

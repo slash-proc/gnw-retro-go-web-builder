@@ -33,7 +33,7 @@ export async function writeFilesToDeviceLfs(
   files: readonly StagedFile[],
   /** `phase` lets the caller distinguish the two halves: mounting and comparing reads the
    *  device (long, and it was completely silent), then the dirty blocks are written. */
-  onProgress?: (done: number, total: number, phase: "read" | "write") => void,
+  onProgress?: (done: number, total: number, phase: "read" | "write", speedDone?: number) => void,
   log?: LogFn,
   /** Stops the write between blocks. The block in flight finishes: a littlefs block is one
    *  erase unit, and abandoning it half-erased is the one thing this must not do. */
@@ -128,6 +128,7 @@ export async function writeFilesToDeviceLfs(
   stalled.catch(() => {}); // the race below handles it; this stops an unhandled rejection
 
   let result;
+  let readBytes = 0;
   try {
     result = await Promise.race([stalled, writeIntoLittleFs(
     blockSize,
@@ -154,6 +155,8 @@ export async function writeFilesToDeviceLfs(
         chunkSize: blockSize,
       });
       device.lfsBlockCache.set(block, one);
+      readBytes += one.length;
+      onProgress?.(device.lfsBlockCache.size, blockCount, "read", readBytes);
       // Record which device state this block was read against, so a later write can keep it.
       const c = chunkOf(want);
       if (deviceHashes[c] !== undefined) device.lfsChunkHashes.set(c, deviceHashes[c]);
@@ -166,6 +169,7 @@ export async function writeFilesToDeviceLfs(
   }
 
   let written = 0;
+  let writtenBytes = 0;
   for (const { block, data } of result.dirty) {
     const offset = offsetOf(block);
     if (offset % eraseSize !== 0) {
@@ -182,8 +186,9 @@ export async function writeFilesToDeviceLfs(
     // The device now holds what we just wrote; keep the read cache from going stale under it.
     device.lfsBlockCache.set(block, data);
     written++;
+    writtenBytes += data.length;
     touch();
-    onProgress?.(written, result.dirty.length, "write");
+    onProgress?.(written, result.dirty.length, "write", writtenBytes);
   }
   clearInterval(stallTimer);
 

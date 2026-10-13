@@ -280,20 +280,20 @@
   }
 
   const backupStages = [
-    { id: "recovery", label: locale.t.officialFirmware.lockedBackupStageRecovery },
-    { id: "identify", label: locale.t.officialFirmware.lockedBackupStageIdentify },
-    { id: "read-external", label: locale.t.officialFirmware.lockedBackupStageReadExternal },
-    { id: "save-external", label: locale.t.officialFirmware.lockedBackupStageSaveExternal },
-    { id: "reuse-external", label: locale.t.officialFirmware.lockedBackupStageReuseExternal },
-    { id: "flash-payload", label: locale.t.officialFirmware.lockedBackupStagePrepareRead },
-    { id: "power-cycle", label: locale.t.officialFirmware.lockedBackupStagePowerCycle },
-    { id: "read-internal", label: locale.t.officialFirmware.lockedBackupStageReadInternal },
-    { id: "verify-backups", label: locale.t.officialFirmware.lockedBackupStageVerify },
-    { id: "restore-external", label: locale.t.officialFirmware.lockedBackupStageRestore },
+    { id: "recovery", label: () => locale.t.officialFirmware.lockedBackupStageRecovery },
+    { id: "identify", label: () => locale.t.officialFirmware.lockedBackupStageIdentify },
+    { id: "read-external", label: () => locale.t.officialFirmware.lockedBackupStageReadExternal },
+    { id: "save-external", label: () => locale.t.officialFirmware.lockedBackupStageSaveExternal },
+    { id: "reuse-external", label: () => locale.t.officialFirmware.lockedBackupStageReuseExternal },
+    { id: "flash-payload", label: () => locale.t.officialFirmware.lockedBackupStagePrepareRead },
+    { id: "power-cycle", label: () => locale.t.officialFirmware.lockedBackupStagePowerCycle },
+    { id: "read-internal", label: () => locale.t.officialFirmware.lockedBackupStageReadInternal },
+    { id: "verify-backups", label: () => locale.t.officialFirmware.lockedBackupStageVerify },
+    { id: "restore-external", label: () => locale.t.officialFirmware.lockedBackupStageRestore },
   ];
   const backupPhases: PhaseDef[] = [{
     id: "backup",
-    label: locale.t.officialFirmware.step1Title,
+    label: () => locale.t.officialFirmware.step1Title,
     substeps: backupStages,
   }];
 
@@ -304,9 +304,9 @@
     backupBusy = true;
     try {
       await installProgress.run({
-        title: locale.t.officialFirmware.step1Title,
-        body: locale.t.officialFirmware.lockedBackupConfirmBody,
-        confirmText: locale.t.officialFirmware.backUpNow,
+        title: () => locale.t.officialFirmware.step1Title,
+        body: () => locale.t.officialFirmware.lockedBackupConfirmBody,
+        confirmText: () => locale.t.officialFirmware.backUpNow,
         phases: backupPhases,
         // The progress modal lives at App scope and can outlive this section. Bump the shared
         // revision so FirmwareRail destroys and recreates Backup & Patch; its mount path then
@@ -391,7 +391,7 @@
                     if (signal?.aborted) abort();
                   }),
                   resumeFromBlueScreen,
-                }, backupDir, await scanBackupFolder(backupDir), (stage, done, total, outcome) => {
+                }, backupDir, await scanBackupFolder(backupDir), (stage, done, total, outcome, writtenDone) => {
                   if (stage === "done") {
                     if (activeStage) report.subFinish("backup", activeStage);
                     activeStage = null;
@@ -404,7 +404,7 @@
                   }
                   startStage(stage);
                   if (done !== undefined && total !== undefined)
-                    report.progress("backup", done, total, stage, "bytes");
+                    report.progress("backup", done, total, stage, "bytes", writtenDone);
                 }, report.signal);
                 dumps = result.dumps;
                 backupDir = result.directory;
@@ -416,10 +416,10 @@
                 const actualModel = detectedModel;
                 if (actualModel === "mario") extSize = 1048576;
                 else if (actualModel === "zelda") extSize = 4194304;
-                dumps = await dumpBackup(flasher, extSize, (done, total, label) => {
+                dumps = await dumpBackup(flasher, extSize, (done, total, label, speedDone) => {
                   const stage = label === "internal flash" ? "read-internal" : "read-external";
                   startStage(stage);
-                  report.progress("backup", done, total, stage, "bytes");
+                  report.progress("backup", done, total, stage, "bytes", speedDone);
                 }, report.signal);
                 startStage("verify-backups");
               }
@@ -500,7 +500,7 @@
               report.finish("recover");
               report.start("restore");
               await restoreSavedExternal(sourceDir, partial.model, (force) => device.ensureStub(undefined, force, true),
-                (done, total) => report.progress("restore", done, total, undefined, "bytes"));
+                (done, total, writtenDone) => report.progress("restore", done, total, undefined, "bytes", writtenDone));
               report.finish("restore");
             } finally {
               deviceSafety.release();
@@ -526,10 +526,10 @@
   // a rescan. This flow's backup is already selected (step 1 above), so there's no
   // locate-backup/read-device phase here.
   const patchPhases: PhaseDef[] = [
-    { id: "patch", label: locale.t.officialFirmware.phasePatch },
-    { id: "flash-internal", label: locale.t.officialFirmware.phaseFlashInternal },
-    { id: "flash-external", label: locale.t.officialFirmware.phaseFlashExternal },
-    { id: "rescan", label: locale.t.officialFirmware.phaseRescan },
+    { id: "patch", label: () => locale.t.officialFirmware.phasePatch },
+    { id: "flash-internal", label: () => locale.t.officialFirmware.phaseFlashInternal },
+    { id: "flash-external", label: () => locale.t.officialFirmware.phaseFlashExternal },
+    { id: "rescan", label: () => locale.t.officialFirmware.phaseRescan },
   ];
 
   async function run(report: PhaseReporter): Promise<void> {
@@ -551,7 +551,7 @@
         sel.internal,
         sel.external,
         { bootloader },
-        (d, t, sub) => {
+        (d, t, sub, writtenDone) => {
           // "bootloader → bank 1" shares the internal phase — both write bank 1.
           if (sub?.label.endsWith("bank 1")) {
             if (!flashInternalStarted) {
@@ -559,14 +559,14 @@
               report.finish("patch");
               report.start("flash-internal");
             }
-            report.progress("flash-internal", sub.value, sub.max);
+            report.progress("flash-internal", sub.value, sub.max, undefined, "bytes", writtenDone);
           } else if (sub?.label === "external → bank 0") {
             if (!flashExternalStarted) {
               flashExternalStarted = true;
               if (flashInternalStarted) report.finish("flash-internal");
               report.start("flash-external");
             }
-            report.progress("flash-external", sub.value, sub.max);
+            report.progress("flash-external", sub.value, sub.max, undefined, "bytes", writtenDone);
           }
         },
         report.signal,
@@ -594,10 +594,14 @@
     patchErr = null;
     patched = false;
     void installProgress.run({
-      title: locale.t.officialFirmware.modalTitle,
-      body: modalBody,
+      title: () => locale.t.officialFirmware.modalTitle,
+      body: () => {
+        if (!selected) return "";
+        const base = locale.t.officialFirmware.modalBodyBase(modelLabel(selected.model), bootloader);
+        return dangerous ? locale.t.officialFirmware.modalBodyDangerPrefix(base) : base;
+      },
       danger: true,
-      confirmText: locale.t.officialFirmware.modalConfirmText,
+      confirmText: () => locale.t.officialFirmware.modalConfirmText,
       phases: patchPhases,
       exec: async (report) => {
         try {

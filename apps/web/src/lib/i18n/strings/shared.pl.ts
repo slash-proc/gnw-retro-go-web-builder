@@ -94,6 +94,9 @@ export const sharedPl: SharedStrings = {
     cheatsFailed: (reason: string) => `Nie udało się wczytać cheatów: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "Czas",
+    speed: "Prędkość",
+    averageSpeed: "Średnia prędkość",
     logLabel: (count: number) => `Dziennik (${count})`,
     saveLog: "Zapisz dziennik",
     copyLog: "Kopiuj dziennik",

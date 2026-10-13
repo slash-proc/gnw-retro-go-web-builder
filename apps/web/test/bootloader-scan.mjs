@@ -66,5 +66,17 @@ const dualBanks = await scan(imageAt(0x32000, dualboot));
 check(dualBanks[0].bootloader === "dualboot", "0x32000 dual-boot loader was not detected");
 check(dualBanks[1].retroGoVersion === "v2.0.0", "bank-2 Retro-Go remains detected alongside dual-boot loader");
 
+const small = imageAt(0, new Uint8Array(1024).fill(0x42));
+const lowBanks = await scanIntflashBanks(async (address,length) => {
+  const bank = address >= B2 ? small : new Uint8Array(span).fill(0xff);
+  const base = address >= B2 ? B2 : B1;
+  return bank.slice(address-base,address-base+length);
+});
+check(lowBanks[1].type !== "empty" && lowBanks[1].dataSize > 0, "low-address partial bank must not be classified empty");
+const faultBanks = await scanIntflashBanks(async (address,length) => {
+  if (address === B2+span-4096) throw new Error("injected flash read fault");
+  return new Uint8Array(length).fill(0xff);
+});
+check(faultBanks[1].type.startsWith("unreadable"), "bank geometry read fault must not become empty");
 rmSync(out, { recursive: true, force: true });
-console.log("bootloader-scan: 6 checks passed, 0 failed");
+console.log("bootloader-scan: 8 checks passed, 0 failed");

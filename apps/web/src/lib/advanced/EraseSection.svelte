@@ -93,13 +93,13 @@
     return [
       {
         id: "erase",
-        label: locale.t.eraseSection.phaseErase,
+        label: () => locale.t.eraseSection.phaseErase,
         substeps: list.map((s, i) => ({
           id: eraseSubstepId(s, i),
-          label: s.label || locale.t.eraseSection.partitionAtFallback(hex(BANK_BASE[s.bank ?? 0] + (s.offset || 0))),
+          label: () => s.label || locale.t.eraseSection.partitionAtFallback(hex(BANK_BASE[s.bank ?? 0] + (s.offset || 0))),
         })),
       },
-      { id: "rescan", label: locale.t.eraseSection.phaseRescan },
+      { id: "rescan", label: () => locale.t.eraseSection.phaseRescan },
     ];
   }
 
@@ -138,15 +138,15 @@
           const data = new Uint8Array(s.size).fill(0xff);
           for (let offset = 0; offset < data.length; offset += CHUNK_SIZE) {
             const chunk = data.subarray(offset, offset + CHUNK_SIZE);
-            await flashImage((force) => device.ensureStub(undefined, force, true), targetBank, s.offset + offset, chunk, (d) => {
-              report.progress("erase", offset + d, data.length, substepId, "bytes");
+            await flashImage((force) => device.ensureStub(undefined, force, true), targetBank, s.offset + offset, chunk, (d, _t, writtenDone) => {
+              report.progress("erase", offset + d, data.length, substepId, "bytes", offset + (writtenDone ?? d));
             }, dbgLog("erase", (line) => report.log("erase", line, substepId)), { compress: true, verify: false, abortSignal: report.signal });
             await new Promise(res => setTimeout(res, 50));
           }
         } else {
           const data = new Uint8Array(s.size).fill(0xff);
-          await flashImage((force) => device.ensureStub(undefined, force, true), targetBank, s.offset, data, (d) => {
-            report.progress("erase", d, s.size!, substepId, "bytes");
+          await flashImage((force) => device.ensureStub(undefined, force, true), targetBank, s.offset, data, (d, _t, writtenDone) => {
+            report.progress("erase", d, s.size!, substepId, "bytes", writtenDone);
           }, dbgLog("erase", (line) => report.log("erase", line, substepId)), { compress: true, verify: false, abortSignal: report.signal });
           await new Promise(res => setTimeout(res, 50));
         }
@@ -165,10 +165,10 @@
 
   function openErase() {
     void installProgress.run({
-      title: locale.t.eraseSection.modalTitle(selection.length, selection.length !== 1),
-      body: locale.t.eraseSection.modalBody(selection.length !== 1),
+      title: () => locale.t.eraseSection.modalTitle(selection.length, selection.length !== 1),
+      body: () => locale.t.eraseSection.modalBody(selection.length !== 1),
       danger: true,
-      confirmText: locale.t.eraseSection.modalConfirmText,
+      confirmText: () => locale.t.eraseSection.modalConfirmText,
       phases: erasePhases(selection),
       exec: async (report) => {
         writing = true;

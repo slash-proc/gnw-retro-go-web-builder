@@ -99,6 +99,9 @@ export const sharedPt: SharedStrings = {
     cheatsFailed: (reason: string) => `Não foi possível carregar os cheats: ${reason}`,
   },
   installProgressModal: {
+    elapsed: "Tempo decorrido",
+    speed: "Velocidade",
+    averageSpeed: "Velocidade média",
     logLabel: (count: number) => `Registo (${count})`,
     saveLog: "Guardar registo",
     copyLog: "Copiar registo",

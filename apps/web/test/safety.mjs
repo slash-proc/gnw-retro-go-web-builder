@@ -424,6 +424,26 @@ await check("confirm() with no prompt in flight is inert (it must not strand a h
   eq(S(), "safe");
 });
 
+await check("install progress text callbacks follow a language change while the modal is open", async () => {
+  const prev = locale.current;
+  locale.set("en");
+  const closed = installProgress.run({
+    title: () => locale.t.shared.installProgressModal.elapsed,
+    body: () => locale.t.shared.installProgressModal.speed,
+    confirmText: () => locale.t.shared.common.cancel,
+    phases: [{ id: "p", label: () => locale.t.shared.installProgressModal.averageSpeed }],
+    exec: async () => {},
+  });
+  eq(installProgress.prompt.title(), en.shared.installProgressModal.elapsed, "English title before switching");
+  locale.set("de");
+  eq(installProgress.prompt.title(), de.shared.installProgressModal.elapsed, "title follows the active locale");
+  eq(installProgress.prompt.body(), de.shared.installProgressModal.speed, "body follows the active locale");
+  eq(installProgress.prompt.phases[0].label(), de.shared.installProgressModal.averageSpeed, "phase follows the active locale");
+  installProgress.cancel();
+  await closed;
+  locale.set(prev);
+});
+
 // ========================================================================================
 // 6. The audit log is DATA (key + params), rendered at display time.
 //

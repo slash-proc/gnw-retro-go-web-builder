@@ -14,6 +14,9 @@
 import type { SwdTransport, ProgressFn } from "@gnw/swd-transport";
 import { createSHA1, createSHA256 } from "hash-wasm";
 export type { ProgressFn } from "@gnw/swd-transport";
+/** Progress for a flash image: the first pair is source-image progress (including
+ * fast-forwarded blocks), the optional second pair counts bytes actually written. */
+export type FlashProgressFn = (done: number, total: number, writtenDone?: number, writtenTotal?: number) => void;
 
 /** Memory-mapped mailbox base — gnwmanager gnw.py. */
 export const MAILBOX_ADDR = 0x24025800;
@@ -708,12 +711,13 @@ export class GnwFlasher {
     };
   }
 
-  async waitForIdle(timeoutMs = 20000, log: LogFn = () => {}): Promise<void> {
+  async waitForIdle(timeoutMs = 20000, log: LogFn = () => {}, onActivity?: () => void): Promise<void> {
     const stall = this.stallWatch(timeoutMs, log, "the device");
     let last: number | null = null;
     let nextVtorCheck = 0;
     for (;;) {
       const status = (await this.transport.readWord(this.addr(Field.STATUS))) >>> 0;
+      onActivity?.();
       // If the target reset out of the RAM stub during erase/program, the mailbox can retain
       // its last ERASE value and otherwise look alive. VTOR is the immediate, non-halting
       // witness: the stub runs from 0x240xxxxx; the bootloader/firmware does not. Surface this
@@ -723,9 +727,21 @@ export class GnwFlasher {
         // Avoid adding a second SWD read to every 10 ms mailbox poll while still detecting a
         // reset within one normal polling interval.
         nextVtorCheck = Date.now() + 100;
-        const vtor = (await this.transport.readWord(VTOR_ADDR)) >>> 0;
-        if (vtor < RAM_STUB_START || vtor >= RAM_STUB_END) {
-          throw new Error(`[gnw-flasher] RAM stub exited during ${statusName(status)} (VTOR=0x${vtor.toString(16)})`);
+        // STM32H7 can temporarily reject a system-control-space read while its
+        // flash controller is busy erasing/programming. The mailbox status read
+        // is the operation's live signal; a diagnostic VTOR fault must not turn
+        // a healthy flash phase into a transport failure. If VTOR does answer,
+        // retain the stronger early-exit check.
+        try {
+          const vtor = (await this.transport.readWord(VTOR_ADDR)) >>> 0;
+          // A zero value is also treated as unavailable here. Some transports
+          // expose an erased/unpowered SCS read as zero rather than throwing;
+          // the mailbox poll or stall watchdog will provide the decisive result.
+          if (vtor !== 0 && (vtor < RAM_STUB_START || vtor >= RAM_STUB_END)) {
+            throw new Error(`[gnw-flasher] RAM stub exited during ${statusName(status)} (VTOR=0x${vtor.toString(16)})`);
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith("[gnw-flasher] RAM stub exited")) throw error;
         }
       }
       if (status !== last) {
@@ -958,6 +974,45 @@ export class GnwFlasher {
     );
   }
 
+  /** Erase a range without occupying a context buffer with payload data. */
+  private async eraseRange(
+    bank: number,
+    offset: number,
+    size: number,
+    opts: { log?: LogFn; abortSignal?: AbortSignal; onActivity?: () => void } = {},
+  ): Promise<void> {
+    const log = opts.log ?? (() => {});
+    if (opts.abortSignal?.aborted) throw new Error("Operation aborted");
+    if (!(bank in BANK_BASE)) throw new Error(`[gnw-flasher] bank must be 0, 1, or 2 (got ${bank})`);
+    this.validateOffset(bank, offset);
+    const align = bank === 0 ? EXT_FLASH_ALIGN : INT_FLASH_ALIGN;
+    if (size <= 0 || size % align !== 0) throw new Error(`[gnw-flasher] erase range is not aligned: ${size} bytes`);
+    const eraseBlocks = Math.ceil(size / CONTEXT_BUFFER_SIZE);
+    const eraseTimeoutMs = Math.max(20000, eraseBlocks * 3000 + 20000);
+
+    log(`erase-ahead: bank=${bank} off=${hexAddr(offset)} size=${size}`);
+    const emptyHash = await sha256(new Uint8Array(0));
+    const contextIndex = await this.claimContext(async (i) => {
+      await this.transport.writeWord(this.addr(Field.UPLOAD_IN_PROGRESS), 1);
+      await this.transport.writeWord(this.ctxAddr(i, Ctx.ACTION), Action.ERASE_AND_FLASH);
+      await this.transport.writeWord(this.ctxAddr(i, Ctx.OFFSET), offset);
+      await this.transport.writeWord(this.ctxAddr(i, Ctx.SIZE), 0);
+      await this.transport.writeWord(this.ctxAddr(i, Ctx.ERASE), 1);
+      await this.transport.writeWord(this.ctxAddr(i, Ctx.ERASE_BYTES), size);
+      await this.transport.writeWord(this.ctxAddr(i, Ctx.COMPRESSED_SIZE), 0);
+      await this.transport.writeWord(this.ctxAddr(i, Ctx.BANK), bank);
+      await this.transport.writeMemory(this.ctxAddr(i, Ctx.EXPECTED_SHA256), emptyHash);
+    }, undefined, opts.abortSignal);
+    await this.transport.writeWord(this.addr(Field.UPLOAD_IN_PROGRESS), 0);
+    await this.waitForContextComplete(contextIndex, log, eraseTimeoutMs, opts.abortSignal, opts.onActivity);
+    // The target erases large ranges asynchronously. The ordinary 20 s flash
+    // watchdog is appropriate for one 256 KiB program operation, but not for
+    // a coalesced erase spanning many such blocks. Use the measured per-block
+    // scale with a generous floor so a healthy erase is never interrupted and
+    // the stub is not reset while the NOR chip is still busy.
+    await this.waitForIdle(eraseTimeoutMs, log, opts.onActivity);
+  }
+
   /** One program attempt — the 1:1 gnw.py program() body. See program() for the retry policy. */
   private async programOnce(
     bank: number,
@@ -1122,7 +1177,13 @@ export class GnwFlasher {
   }
 
   /** Wait for context i's ready→0, surfacing device errors with hash detail. */
-  private async waitForContextComplete(i: number, log: LogFn = () => {}, timeoutMs = 20000, abortSignal?: AbortSignal): Promise<void> {
+  private async waitForContextComplete(
+    i: number,
+    log: LogFn = () => {},
+    timeoutMs = 20000,
+    abortSignal?: AbortSignal,
+    onActivity?: () => void,
+  ): Promise<void> {
     const stall = this.stallWatch(timeoutMs, log, `context ${i}`);
     let lastStatus: number | null = null;
     // When the device first looked IDLE while still holding our context. See the throw below.
@@ -1130,6 +1191,7 @@ export class GnwFlasher {
     for (;;) {
       if (abortSignal?.aborted) throw new Error("Operation aborted");
       const ready = (await this.transport.readWord(this.ctxAddr(i, Ctx.READY))) >>> 0;
+      onActivity?.();
       if (ready === 0) break;
       const status = (await this.transport.readWord(this.addr(Field.STATUS))) >>> 0;
 
@@ -1281,11 +1343,12 @@ export class GnwFlasher {
     offset: number,
     data: Uint8Array,
     opts: {
-      onProgress?: ProgressFn;
+      onProgress?: FlashProgressFn;
       onActivity?: () => void;
       log?: LogFn;
       compress?: CompressFn;
       verify?: boolean;
+      eraseAhead?: boolean;
       abortSignal?: AbortSignal;
     } = {},
   ): Promise<void> {
@@ -1340,7 +1403,38 @@ export class GnwFlasher {
       log(`${changed.length}/${chunks.length} external-flash chunks need programming`);
     }
 
+    const eraseAhead = bank === 0 && opts.eraseAhead === true && chunksToProgram.length > 0;
+    if (eraseAhead) {
+      const ranges: Array<{ start: number; size: number }> = [];
+      for (const chunk of chunksToProgram) {
+        const start = offset + chunk.start;
+        const previous = ranges[ranges.length - 1];
+        if (previous && previous.start + previous.size === start) {
+          previous.size += chunk.data.length;
+        } else {
+          ranges.push({ start, size: chunk.data.length });
+        }
+      }
+      log(`erase-ahead: ${ranges.length} range(s) for ${chunksToProgram.length} changed chunk(s)`);
+      for (const range of ranges) await this.eraseRange(bank, range.start, range.size, opts);
+    }
+
+    const writtenTotal = chunksToProgram.reduce((sum, chunk) => sum + chunk.data.length, 0);
+    // Track each changed chunk independently. The two mailbox contexts may finish out of
+    // order, so a single source offset (or a max prefix) would count bytes in a later chunk
+    // before an earlier chunk has actually been written.
+    const writtenProgress = new Map<Uint8Array, number>();
+    let writtenDone = 0;
     let dataDone = 0;
+    // Two mailbox operations can complete out of order. Their source offsets are ordered,
+    // but their progress callbacks are not; never let a late callback move the UI backwards.
+    let reportedDone = 0;
+    // Keep both target mailbox contexts occupied when there is more than one
+    // changed chunk. `program()` still serializes acquire+fill+post, but its
+    // promise may run while the target is erasing/programming the previous
+    // context. Waiting for the oldest operation only when the window is full
+    // turns the sequential loop into a bounded two-context producer.
+    const inFlight: Promise<void>[] = [];
     for (const chunkInfo of chunks) {
       if (opts.abortSignal?.aborted) throw new Error("Operation aborted");
       const { start, data } = chunkInfo;
@@ -1356,25 +1450,54 @@ export class GnwFlasher {
             Math.floor((26 * (changedIndex + 1)) / chunksToProgram.length),
           );
         }
-        await this.program(bank, offset + start, data, {
-          erase: true,
+        const operation = this.program(bank, offset + start, data, {
+          erase: !eraseAhead,
           log,
           compress: opts.compress,
           verify: opts.verify,
           abortSignal: opts.abortSignal,
           // Keep host progress tied to the source-image position even when earlier/later
           // chunks already match and are skipped on-device.
-          onWriteProgress: (w, t) => opts.onProgress?.(start + Math.round((w / t) * data.length), total),
+          onWriteProgress: (w, t) => {
+            reportedDone = Math.max(reportedDone, start + Math.round((w / t) * data.length));
+            const chunkWritten = Math.max(
+              writtenProgress.get(data) ?? 0,
+              Math.round((w / t) * data.length),
+            );
+            writtenProgress.set(data, chunkWritten);
+            writtenDone = [...writtenProgress.values()].reduce((sum, value) => sum + value, 0);
+            opts.onProgress?.(reportedDone, total, writtenDone, writtenTotal);
+          },
         });
+        // Prevent a fast rejection in the second slot from becoming an
+        // unhandled rejection while the first slot is still being drained.
+        operation.catch(() => {});
+        inFlight.push(operation);
+        if (inFlight.length >= N_CONTEXTS) {
+          const oldest = inFlight.shift()!;
+          try {
+            await oldest;
+          } catch (error) {
+            // Do not abandon the other mailbox slot after one operation fails.
+            // It may already have reached the target and must be allowed to
+            // finish before the caller retries or reboots the stub.
+            await Promise.allSettled(inFlight);
+            throw error;
+          }
+        }
         if (bank !== 0)
           await this.transport.writeWord(this.addr(Field.PROGRESS), Math.floor((26 * (changedIndex + 1)) / chunksToProgram.length));
       }
-      dataDone = start + data.length;
-      opts.onProgress?.(dataDone, total);
+      dataDone = Math.max(dataDone, start + data.length);
+      reportedDone = Math.max(reportedDone, dataDone);
+      opts.onProgress?.(reportedDone, total, writtenDone, writtenTotal);
 
       // Throttle delay to prevent ST-Link clone USB saturation between heavy chunk operations
       if (needsProgramming) await new Promise((r) => setTimeout(r, 50));
     }
+    const remaining = await Promise.allSettled(inFlight);
+    const failed = remaining.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failed) throw failed.reason;
     // Drain BOTH contexts before returning. Without the drain this returned with work still in
     // flight (see waitForAllContextsComplete). Leave Field.PROGRESS at 26 after completion,
     // matching gnwmanager and allowing the device GUI's periodic redraw to show 100%.

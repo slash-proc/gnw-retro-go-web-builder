@@ -1,5 +1,6 @@
 import { device } from "../device.svelte.js";
 import { readLittleFsTree, readLittleFsFileLazy, type LittlefsTreeNode } from "@gnw/fs-builders";
+import littlefsWasmUrl from "@gnw/fs-builders/vendor/littlefs-wasm/littlefs.wasm?url";
 import { readMemoryPaced } from "./chunkedRead.js";
 import { EXTBASE } from "./addr.js";
 import { parseCoreHeader, evaluateCoreVersions, type CoreVersionCheck } from "./coreVersion.js";
@@ -7,8 +8,8 @@ import { parseCoreHeader, evaluateCoreVersions, type CoreVersionCheck } from "./
 /** Read `len` bytes from `addr` in 1 KiB chunks so each chunk passes through the
  *  serialTransport as its own queue entry (no internal 10 ms sleep). Other queued
  *  ops (poll, screenshot halt, etc.) can interleave between chunks. */
-function readInChunks(addr: number, len: number): Promise<Uint8Array> {
-  return readMemoryPaced(device.transport!, addr, len, { chunkSize: 1024 });
+function readInChunks(addr: number, len: number, isCancelled?: () => boolean): Promise<Uint8Array> {
+  return readMemoryPaced(device.transport!, addr, len, { chunkSize: 1024, isCancelled });
 }
 
 /** LittleFS doesn't expose a total block count up front, so progress here is a rough
@@ -18,7 +19,8 @@ function readInChunks(addr: number, len: number): Promise<Uint8Array> {
 const LFS_TREE_PROGRESS_TOTAL = 100;
 const LFS_TREE_PROGRESS_ESTIMATED_BLOCKS = 20;
 
-export async function ensureLfsTree(onProgress?: (done: number, total: number) => void): Promise<LittlefsTreeNode> {
+export async function ensureLfsTree(onProgress?: (done: number, total: number) => void, isCancelled?: () => boolean): Promise<LittlefsTreeNode> {
+  if (isCancelled?.()) throw new Error("Filesystem scan superseded");
   if (device.installedLfsTree) return device.installedLfsTree;
   const trace = typeof location !== "undefined" && new URLSearchParams(location.search).has("libraryTrace");
   const traceStarted = performance.now();
@@ -37,14 +39,14 @@ export async function ensureLfsTree(onProgress?: (done: number, total: number) =
     if (device.lfsBlockCache.has(block)) return device.lfsBlockCache.get(block)!;
 
     const addr = EXTBASE + p.offset + p.size - ((block + 1) * blockSize);
-    const data = await readInChunks(addr, blockSize);
+    const data = await readInChunks(addr, blockSize, isCancelled);
     device.lfsBlockCache.set(block, data);
 
     blocksFetched++;
     const pct = Math.min(99, Math.round((blocksFetched / LFS_TREE_PROGRESS_ESTIMATED_BLOCKS) * 100));
     onProgress?.(pct, LFS_TREE_PROGRESS_TOTAL);
     return data;
-  });
+  }, { locateFile: () => littlefsWasmUrl });
 
   onProgress?.(LFS_TREE_PROGRESS_TOTAL, LFS_TREE_PROGRESS_TOTAL);
 
@@ -59,12 +61,13 @@ export async function ensureLfsTree(onProgress?: (done: number, total: number) =
     }
   }
   sortTree(tree);
+  if (isCancelled?.()) throw new Error("Filesystem scan superseded");
   device.installedLfsTree = tree;
   if (trace) console.info("[library trace] littlefs tree done", JSON.stringify({ blocksFetched, blockSize, bytesRead: blocksFetched * blockSize, cacheBlocks: device.lfsBlockCache.size, durationMs: Math.round(performance.now() - traceStarted) }));
   return tree;
 }
 
-export async function readLfsFile(path: string): Promise<Uint8Array> {
+export async function readLfsFile(path: string, isCancelled?: () => boolean): Promise<Uint8Array> {
   const p = device.partitions.find((p) => p.fs === "littlefs");
   if (!p || !device.flasher) {
     throw new Error("LittleFS partition not found.");
@@ -77,10 +80,10 @@ export async function readLfsFile(path: string): Promise<Uint8Array> {
     if (device.lfsBlockCache.has(block)) return device.lfsBlockCache.get(block)!;
     
     const addr = EXTBASE + p.offset + p.size - ((block + 1) * blockSize);
-    const data = await readInChunks(addr, blockSize);
+    const data = await readInChunks(addr, blockSize, isCancelled);
     device.lfsBlockCache.set(block, data);
     return data;
-  });
+  }, { locateFile: () => littlefsWasmUrl });
 }
 
 /** Validate that every installed core (LittleFS, Flash-mode) agrees with the given firmware
@@ -98,7 +101,7 @@ export async function checkCoreVersions(
   firmwareVersion: string | null,
   isCancelled?: () => boolean,
 ): Promise<CoreVersionCheck> {
-  const tree = await ensureLfsTree();
+  const tree = await ensureLfsTree(undefined, isCancelled);
   const coresDir = tree.children?.find((n) => n.isDirectory && n.name === "cores");
   const cores: Record<string, string | null> = {};
   if (coresDir?.children) {
@@ -106,7 +109,7 @@ export async function checkCoreVersions(
       if (f.isDirectory) continue;
       if (isCancelled?.()) break;
       try {
-        const data = await readLfsFile(f.path);
+        const data = await readLfsFile(f.path, isCancelled);
         cores[f.path] = parseCoreHeader(data)?.tag ?? null;
       } catch {
         cores[f.path] = null;
@@ -116,10 +119,10 @@ export async function checkCoreVersions(
   return evaluateCoreVersions(firmwareVersion, cores);
 }
 
-export async function getLfsUsedSpace(): Promise<{ usedBytes: number, freeBytes: number } | null> {
+export async function getLfsUsedSpace(isCancelled?: () => boolean): Promise<{ usedBytes: number, freeBytes: number } | null> {
   const p = device.partitions.find((p) => p.fs === "littlefs");
   if (!p || !device.flasher) return null;
-  const tree = await ensureLfsTree();
+  const tree = await ensureLfsTree(undefined, isCancelled);
   const blockSize = p.meta?.blockSize ?? device.info?.minEraseSizeBytes ?? 4096;
   const blockCount = p.meta?.blockCount ?? Math.floor(p.size / blockSize);
 

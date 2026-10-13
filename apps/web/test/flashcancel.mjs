@@ -76,7 +76,7 @@ const { en } = await import(pathToFileURL(join(outStore, "i18n/en.js")).href);
  * `confirm()` is deliberately NOT awaited: it resolves only when exec returns, and every check
  * here is about the interval while it is still going.
  */
-async function running({ failWith = null } = {}) {
+async function running({ failWith = null, withProgress = false } = {}) {
   const state = { signal: null, release: null };
   const parked = new Promise((r) => { state.release = r; });
   const runPromise = installProgress.run({
@@ -85,6 +85,14 @@ async function running({ failWith = null } = {}) {
     exec: async (r) => {
       state.signal = r.signal;
       r.start("flash");
+      if (withProgress) {
+        // The visible position can fast-forward over unchanged blocks while the optional
+        // speed position counts only bytes that were actually sent to the device.
+        r.progress("flash", 0, 8192, undefined, "bytes", 0);
+        r.progress("flash", 8192, 8192, undefined, "bytes", 1024);
+        // Byte-shaped preparation work has no speed position and must not enter SWD throughput.
+        r.progress("build", 8192, 8192, "pack", "bytes");
+      }
       await parked;
       if (failWith) throw new Error(failWith);
       // How a real writer unwinds: whichever abort check saw the flag first throws.
@@ -158,6 +166,19 @@ await check("a stopped run lands in `cancelled`, not `error`", async () => {
   await h.confirmed;
   eq(installProgress.modalPhase, "cancelled", "a stop is neither success nor failure");
   eq(installProgress.error, null, "and sets no error message");
+  installProgress.close();
+  await h.runPromise;
+});
+
+await check("elapsed time and byte totals remain available after completion", async () => {
+  const h = await running({ withProgress: true });
+  h.release();
+  await h.confirmed;
+  eq(installProgress.modalPhase, "done", "the run completed");
+  eq(installProgress.bytesTransferred, 1024, "byte progress is accumulated");
+  assert(installProgress.startedAt !== null, "the run has a start timestamp");
+  assert(installProgress.endedAt !== null, "the completed run has an end timestamp");
+  assert(installProgress.endedAt >= installProgress.startedAt, "the end timestamp is after the start");
   installProgress.close();
   await h.runPromise;
 });

@@ -48,6 +48,36 @@ try {
   await t.halt();
   assert.ok(events.some(e=>e[0]==="halt"),"halt must synchronize the backend's target state");
  });
+ await check("managed GDB recovery reset uses backend lifecycle without guest debug registers", async()=>{
+  const words=new Map([[0xe000edf0,1<<17],[0xe000edfc,0x1000]]), events=[];
+  let backendRunning=true;
+  const client={isManaged:true, usesGdbControl:true,
+   async readMemory(addr){const b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,words.get(addr)??0,true);return b;},
+   async writeMemory(addr,data){const value=new DataView(data.buffer,data.byteOffset,4).getUint32(0,true);words.set(addr,value);events.push(["word",addr,value]);},
+   async halt(){backendRunning=false;events.push(["halt"]);},
+   async reset(){backendRunning=false;events.push(["reset_and_halt"]);},
+   async resume(){backendRunning=true;events.push(["resume"]);},
+   async writeRegister(name,value){assert.equal(backendRunning,false);events.push(["register",name,value]);}
+  };
+  const t=new RemoteGdbTransport(client);
+  await t.reset();
+  assert.deepEqual(events,[["reset_and_halt"]],"GDB reset must delegate, never write DHCSR/DEMCR/AIRCR");
+  assert.equal(words.get(0xe000edfc),0x1000);
+  await t.writeRegister("msp",0x20020000);
+  await t.writeRegister("pc",0x240f0679);
+  await t.resume();
+  assert.equal(events.at(-1)[0],"resume","continue only after setting the stub entry point");
+ });
+ await check("managed VM reset works with unimplemented DHCSR", async()=>{
+  let resets=0;
+  const client={isManaged:true,usesGdbControl:true,
+   async reset(){resets++;},
+   async readMemory(){throw new Error("GDB control must not require guest debug reads");},
+   async writeMemory(){throw new Error("GDB control must not write guest debug registers");}
+  };
+  await new RemoteGdbTransport(client).reset();
+  assert.equal(resets,1);
+ });
  const server = new WebSocketServer({ port:0 });
  await new Promise(r=>server.once("listening",r));
  const url=`ws://127.0.0.1:${server.address().port}/gdb`;

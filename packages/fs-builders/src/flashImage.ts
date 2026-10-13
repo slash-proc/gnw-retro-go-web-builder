@@ -294,13 +294,18 @@ export function planFlashImage(inputs: FlashImageInputs): FlashAssemblyPlan {
   // if the user explicitly unselected them.
   if (opts?.selectedHomebrew) {
     const hbPrefix = paths.homebrew + "/";
+    const mappedDestSet = new Set(mappedDests.map(({ dest }) => dest));
     for (const dest of [...tree.keys()]) {
       if (!dest.startsWith(hbPrefix)) continue;
       const file = dest.slice(hbPrefix.length);
       // We only care about known titles. Unrecognized homebrew is left alone.
       // (Actually, the bundle only provides known ones, but just in case).
       const hb = opts.homebrewTitles?.find((t) => t.deviceFiles.includes(file));
-      if (hb && !opts.selectedHomebrew.has(hb.key)) {
+      // Mapped artifacts are selected by the source/install plan, not by the ordinary
+      // homebrew-title picker. They must remain in FrogFS so the relocation pass can place
+      // them; otherwise it reports the more useful but misleading "mapped artifact is not in
+      // the packed image" error.
+      if (hb && !opts.selectedHomebrew.has(hb.key) && !mappedDestSet.has(dest)) {
         tree.delete(dest);
       }
     }
