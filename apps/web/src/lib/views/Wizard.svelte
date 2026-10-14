@@ -948,8 +948,8 @@
       },
       checkboxes: canMigrate
         ? [
-            { id: "migrateGames", label: () => locale.t.wizard.step2.checkboxMigrateGames, default: false },
-            { id: "migrateSaves", label: () => locale.t.wizard.step2.checkboxMigrateSaves, default: true },
+            { id: "migrateGames", label: () => locale.t.romSection.migrateGamesLabel, default: false },
+            { id: "migrateSaves", label: () => locale.t.romSection.migrateSavesLabel, default: true },
             { id: "keepSettings", label: () => locale.t.romSection.migrateSettingsLabel, default: true },
           ]
         : [],
