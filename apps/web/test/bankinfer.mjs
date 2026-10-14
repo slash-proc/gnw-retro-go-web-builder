@@ -30,6 +30,9 @@ assert(/id: "migrateGames", label: \(\) => locale\.t\.romSection\.migrateGamesLa
 assert(!/medium=\{device\.targetMedia\}/.test(wizard) && !/sdTree\.set\("CONFIG"/.test(wizard), "Guided Setup must not expose or inject CONFIG settings");
 assert(!/offsetHint|layoutDefaultsNote/.test(src), "Advanced Layout must omit the redundant helper text");
 assert(/const sourceReservedOffset = chosenReserved/.test(wizard) && /const targetStockModel = backupModelOverride \?\? backupModel/.test(wizard) && /targetReservedOffset\(sourceReservedOffset, targetStockModel, blockSize\)/.test(wizard), "Guided Setup must separate the existing FrogFS offset from the selected stock target");
+assert(/const reservedOffset = path === "rgo" && \(!bank1StockOfw \|\| replaceStockFw\)/.test(wizard), "Only Retro-Go Guided installs must move FrogFS to the external-flash base when stock is replaced");
 assert(/readGameData\(readTracked, sourceReservedOffset, g\)/.test(wizard) && /f\.dataOffs \+ sourceReservedOffset/.test(wizard), "Guided migration must read games and assets from their existing FrogFS location");
 assert(/defaultLittlefsLength\(\{[\s\S]*?reservedOffset,/.test(wizard), "Guided install layout must size LittleFS from the migrated target offset");
-console.log("bankinfer: 20 passed, 0 failed");
+assert(/id: "replaceStockFw"[\s\S]*?bankReplacesStock/.test(wizard), "Only Retro-Go must offer the stock-firmware replacement choice in its install modal");
+assert(/if \(path === "rgo" && \(!bank1StockOfw \|\| replaceStockFw\)\) \{[\s\S]*?await flashStandaloneBootloader\(/.test(wizard) && !/id: "bootloader", label:/.test(wizard), "Only Retro-Go must flash the standalone bank-1 bootloader inside install without a separate checklist step");
+console.log("bankinfer: 24 passed, 0 failed");

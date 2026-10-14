@@ -155,6 +155,9 @@
   // Retro-Go app, an unrecognised app, an empty/locked bank — falls through to the other
   // kinds, which is precisely the spec's "treat the user as returning".
   const isStock = $derived(device.deviceClass?.kind === "stock");
+  const bank1StockOfw = $derived(
+    device.banks.find((b) => b.index === 1)?.ofw?.patched === false || isStock,
+  );
 
   // A LOCKED DEVICE GETS THE SAME CHOOSER AS ANY OTHER, and this is the owner's rule rather
   // than an omission: "WE DON'T CARE! We unlock the device if it is locked! The user is not
@@ -934,11 +937,16 @@
       },
       checkboxes: canMigrate
         ? [
+            ...(path === "rgo" && bank1StockOfw
+              ? [{ id: "replaceStockFw", label: () => locale.t.officialFirmware.bankReplacesStock, default: true }]
+              : []),
             { id: "migrateGames", label: () => locale.t.romSection.migrateGamesLabel, default: false },
             { id: "migrateSaves", label: () => locale.t.romSection.migrateSavesLabel, default: true },
             { id: "keepSettings", label: () => locale.t.romSection.migrateSettingsLabel, default: true },
           ]
-        : [],
+        : path === "rgo" && bank1StockOfw
+          ? [{ id: "replaceStockFw", label: () => locale.t.officialFirmware.bankReplacesStock, default: true }]
+          : [],
       confirmGate:
         device.targetMedia === "sd" && nativeFolderPickerSupported()
           ? {
@@ -1007,7 +1015,6 @@
       // percent and bar in docs/design/mockups/GuidedFlashing.dc.html.
       substeps: [
         ...flashRegionsForPhase.filter((r) => r !== "intflash").map((r) => ({ id: r, label: () => REGION_LABELS[r] })),
-        ...(path === "rgo" ? [{ id: "bootloader", label: () => locale.t.firmwareSetup.installBootloaderLabel }] : []),
       ],
     },
     { id: "rescan", label: () => locale.t.wizard.step2.phaseRescan },
@@ -1023,7 +1030,13 @@
     // After a cross-variant stock selection, `backupModelOverride` is the model actually
     // being installed even if live hardware detection still reports the original model.
     const targetStockModel = backupModelOverride ?? backupModel;
-    const reservedOffset = targetReservedOffset(sourceReservedOffset, targetStockModel, blockSize);
+    // Only Retro-Go replaces bank 1 with the standalone bootloader, so it no longer needs
+    // stock OFW's external prefix.  The content image therefore starts at the external-flash
+    // base (0x90000000). Dual Boot keeps the selected stock model's floor.
+    const replaceStockFw = installProgress.checkboxValues.replaceStockFw ?? true;
+    const reservedOffset = path === "rgo" && (!bank1StockOfw || replaceStockFw)
+      ? 0
+      : targetReservedOffset(sourceReservedOffset, targetStockModel, blockSize);
     const installLittlefsLength = device.targetMedia === "sd"
       ? null
       : defaultLittlefsLength({
@@ -1246,18 +1259,20 @@
             },
             signal,
           );
-          if (path === "rgo") {
-            report.subStart("flash", "bootloader");
+          if (path === "rgo" && (!bank1StockOfw || replaceStockFw)) {
             await flashStandaloneBootloader(
               (force) => device.ensureStub(undefined, force, true, force),
               (done, total, writtenDone) => {
+                // Bank 1 is part of the Retro-Go install transaction, but is not a separate
+                // user-facing step. Use an undeclared progress key so its real SWD writes are
+                // included in the throughput total without adding a second checklist row or
+                // resetting the visible bank-2 phase bar.
                 progressReport("bootloader", done, total);
                 report.progress("flash", done, total, "bootloader", "bytes", writtenDone);
               },
               dbgLog("flash-bootloader", (line) => report.log("flash", line)),
               signal,
             );
-            report.subFinish("flash", "bootloader");
           }
         },
         // Matches the sibling withTimeout call above (already bumped to 120000) and the
