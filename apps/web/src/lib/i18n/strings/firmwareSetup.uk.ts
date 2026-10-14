@@ -248,7 +248,6 @@ export const romSectionUk: RomSectionStrings = {
   configUsingDefaults: "Сумісний CONFIG не знайдено. Будуть використані офіційні значення за замовчуванням.",
   configBacklight: "Рівень підсвічування",
   configVolume: "Гучність",
-  configFontSize: "Розмір шрифту",
   configStartAction: "Поведінка під час запуску гри",
   configStartResume: "Продовжити",
   configStartNewGame: "Почати нову гру",

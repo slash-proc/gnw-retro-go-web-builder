@@ -200,7 +200,6 @@ export const romSectionPl: RomSectionStrings = {
   configUsingDefaults: "Nie znaleziono zgodnego pliku CONFIG. Zostaną użyte oficjalne wartości domyślne.",
   configBacklight: "Poziom podświetlenia",
   configVolume: "Poziom głośności",
-  configFontSize: "Rozmiar czcionki",
   configStartAction: "Zachowanie przy uruchamianiu gry",
   configStartResume: "Wznów",
   configStartNewGame: "Uruchom nową grę",

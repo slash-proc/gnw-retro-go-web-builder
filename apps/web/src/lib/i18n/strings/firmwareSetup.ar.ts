@@ -233,7 +233,6 @@ export const romSectionAr: RomSectionStrings = {
   configUsingDefaults: "لم يتم العثور على CONFIG متوافق. ستُستخدم الإعدادات الرسمية الافتراضية.",
   configBacklight: "مستوى الإضاءة الخلفية",
   configVolume: "مستوى الصوت",
-  configFontSize: "حجم الخط",
   configStartAction: "سلوك بدء اللعبة",
   configStartResume: "استئناف",
   configStartNewGame: "بدء لعبة جديدة",

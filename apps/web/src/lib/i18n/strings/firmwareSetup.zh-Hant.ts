@@ -204,7 +204,6 @@ export const romSectionZhHant: RomSectionStrings = {
   configUsingDefaults: "找不到相容的 CONFIG。將使用官方預設值。",
   configBacklight: "背光等級",
   configVolume: "音量等級",
-  configFontSize: "字型大小",
   configStartAction: "遊戲啟動行為",
   configStartResume: "繼續",
   configStartNewGame: "開始新遊戲",

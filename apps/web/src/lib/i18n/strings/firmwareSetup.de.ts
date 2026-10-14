@@ -317,7 +317,6 @@ export const romSectionDe: RomSectionStrings = {
   configUsingDefaults: "Keine kompatible CONFIG gefunden. Die offiziellen Standardwerte werden verwendet.",
   configBacklight: "Helligkeitsstufe",
   configVolume: "Lautstärke",
-  configFontSize: "Schriftgröße",
   configStartAction: "Verhalten beim Spielstart",
   configStartResume: "Fortsetzen",
   configStartNewGame: "Neues Spiel starten",

@@ -15,7 +15,6 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
     RETRO_GO_BACKLIGHT_RANGE,
     RETRO_GO_COLOR_PALETTES,
     RETRO_GO_FONT_COUNT,
-    RETRO_GO_FONT_SIZE_RANGE,
     RETRO_GO_LANGUAGE_NAMES,
     RETRO_GO_MENU_TIMEOUT_RANGE,
     RETRO_GO_VOLUME_RANGE,
@@ -214,9 +213,6 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
       </label>
       <label class="field range-field"><span>{locale.t.romSection.configVolume}<output>{config.volume}</output></span>
         <input type="range" min={RETRO_GO_VOLUME_RANGE.min} max={RETRO_GO_VOLUME_RANGE.max} step="1" value={config.volume} oninput={(e) => setValue("volume", numberValue(e))} />
-      </label>
-      <label class="field range-field"><span>{locale.t.romSection.configFontSize}<output>{config.fontSize}</output></span>
-        <input type="range" min={RETRO_GO_FONT_SIZE_RANGE.min} max={RETRO_GO_FONT_SIZE_RANGE.max} step="1" value={config.fontSize} oninput={(e) => setValue("fontSize", numberValue(e))} />
       </label>
       <label class="field"><span>{locale.t.romSection.configTheme}</span>
         <select value={config.theme} onchange={(e) => setValue("theme", selectNumber(e))}>

@@ -22,5 +22,6 @@ assert(/configAlwaysUse/.test(config) && /saveSel\("retro-go-config-always-use"/
 assert(/class:config-disabled=\{disabled\}/.test(config) && /pointer-events: none/.test(config), "Keep settings must disable the CONFIG foldout itself");
 assert(/writeFilesToDeviceLfs/.test(config) && /path: "CONFIG"/.test(config), "Installed CONFIG updates must write the CONFIG file directly");
 assert(/settingsChanged/.test(config) && /configUpdateSettings/.test(config), "CONFIG panel must expose an update action only for changed installed settings");
+assert(!/configFontSize|RETRO_GO_FONT_SIZE_RANGE/.test(config), "CONFIG panel must not expose the ineffective font size setting");
 assert(!/offsetHint|layoutDefaultsNote/.test(src), "Advanced Layout must omit the redundant helper text");
-console.log("bankinfer: 13 passed, 0 failed");
+console.log("bankinfer: 14 passed, 0 failed");

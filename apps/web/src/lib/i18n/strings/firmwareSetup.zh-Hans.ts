@@ -203,7 +203,6 @@ export const romSectionZhHans: RomSectionStrings = {
   configUsingDefaults: "未找到兼容的 CONFIG。将使用官方默认值。",
   configBacklight: "背光级别",
   configVolume: "音量级别",
-  configFontSize: "字体大小",
   configStartAction: "游戏启动行为",
   configStartResume: "继续",
   configStartNewGame: "开始新游戏",

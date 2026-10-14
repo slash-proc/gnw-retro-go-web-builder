@@ -202,7 +202,6 @@ export const romSectionNo: RomSectionStrings = {
   configUsingDefaults: "Fant ingen kompatibel CONFIG. De offisielle standardverdiene brukes.",
   configBacklight: "Bakgrunnsbelysningsnivå",
   configVolume: "Volumnivå",
-  configFontSize: "Skriftstørrelse",
   configStartAction: "Spillstartatferd",
   configStartResume: "Fortsett",
   configStartNewGame: "Start nytt spill",

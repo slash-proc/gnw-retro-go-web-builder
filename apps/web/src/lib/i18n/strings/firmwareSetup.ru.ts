@@ -202,7 +202,6 @@ export const romSectionRu: RomSectionStrings = {
   configUsingDefaults: "Совместимый CONFIG не найден. Будут использованы официальные значения по умолчанию.",
   configBacklight: "Уровень подсветки",
   configVolume: "Громкость",
-  configFontSize: "Размер шрифта",
   configStartAction: "Поведение при запуске игры",
   configStartResume: "Продолжить",
   configStartNewGame: "Начать новую игру",

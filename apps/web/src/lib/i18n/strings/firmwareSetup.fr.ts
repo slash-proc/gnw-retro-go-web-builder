@@ -203,7 +203,6 @@ export const romSectionFr: RomSectionStrings = {
   configUsingDefaults: "Aucun CONFIG compatible n’a été trouvé. Les valeurs officielles par défaut seront utilisées.",
   configBacklight: "Niveau du rétroéclairage",
   configVolume: "Niveau du volume",
-  configFontSize: "Taille de police",
   configStartAction: "Comportement au démarrage d’un jeu",
   configStartResume: "Reprendre",
   configStartNewGame: "Démarrer une nouvelle partie",

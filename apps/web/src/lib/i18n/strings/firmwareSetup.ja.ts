@@ -203,7 +203,6 @@ export const romSectionJa: RomSectionStrings = {
   configUsingDefaults: "対応するCONFIGが見つかりません。公式の既定値を使用します。",
   configBacklight: "バックライトの明るさ",
   configVolume: "音量",
-  configFontSize: "フォントサイズ",
   configStartAction: "ゲーム開始時の動作",
   configStartResume: "再開",
   configStartNewGame: "新しいゲームを開始",

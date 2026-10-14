@@ -218,7 +218,6 @@ export const romSectionEn = {
   configUsingDefaults: "No compatible CONFIG was found. The official defaults will be used.",
   configBacklight: "Backlight level",
   configVolume: "Volume level",
-  configFontSize: "Font size",
   configStartAction: "Game start behavior",
   configStartResume: "Resume",
   configStartNewGame: "Start new game",

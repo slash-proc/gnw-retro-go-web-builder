@@ -200,7 +200,6 @@ export const romSectionKo: RomSectionStrings = {
   configUsingDefaults: "호환되는 CONFIG를 찾지 못했어요. 공식 기본값을 사용해요.",
   configBacklight: "백라이트 밝기",
   configVolume: "볼륨",
-  configFontSize: "글꼴 크기",
   configStartAction: "게임 시작 동작",
   configStartResume: "이어하기",
   configStartNewGame: "새 게임 시작",
