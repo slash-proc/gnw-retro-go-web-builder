@@ -230,6 +230,10 @@ export const romSectionKo: RomSectionStrings = {
   configMinutes: (number: number) => `${number}분`,
   configRestoreDefaults: "공식 기본값 복원",
   configAlwaysUse: "이 설정을 항상 사용",
+  configUpdateSettings: "설정 업데이트",
+  configUpdatingSettings: "설정 업데이트 중…",
+  configUpdatedSettings: "설정을 업데이트했어요.",
+  configUpdateFailed: (error: string) => `설정을 업데이트하지 못했어요: ${error}`,
   configPreserveNote: "자동 시작과 기타 개발자 필드는 있으면 보존하지만 여기서 변경하지 않아요.",
   layoutAdvancedToggle: "고급 레이아웃",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

@@ -263,6 +263,10 @@ export const romSectionAr: RomSectionStrings = {
   configMinutes: (number: number) => `${number} دقيقة`,
   configRestoreDefaults: "استعادة الإعدادات الرسمية الافتراضية",
   configAlwaysUse: "استخدام هذه الإعدادات دائمًا",
+  configUpdateSettings: "تحديث الإعدادات",
+  configUpdatingSettings: "جارٍ تحديث الإعدادات…",
+  configUpdatedSettings: "تم تحديث الإعدادات.",
+  configUpdateFailed: (error: string) => `تعذّر تحديث الإعدادات: ${error}`,
   configPreserveNote: "يتم الاحتفاظ بالتشغيل التلقائي وحقول المطور الأخرى عند وجودها، ولا يتم تغييرها هنا.",
   layoutAdvancedToggle: "توزيع متقدم",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

@@ -230,6 +230,10 @@ export const romSectionEs: RomSectionStrings = {
   configMinutes: (number: number) => `${number} min`,
   configRestoreDefaults: "Restaurar valores oficiales",
   configAlwaysUse: "Usar siempre estos ajustes",
+  configUpdateSettings: "Actualizar ajustes",
+  configUpdatingSettings: "Actualizando ajustes…",
+  configUpdatedSettings: "Ajustes actualizados.",
+  configUpdateFailed: (error: string) => `No se pudieron actualizar los ajustes: ${error}`,
   configPreserveNote: "El inicio automático y otros campos de desarrollador se conservan cuando existen, pero no se modifican aquí.",
   layoutAdvancedToggle: "Diseño avanzado",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

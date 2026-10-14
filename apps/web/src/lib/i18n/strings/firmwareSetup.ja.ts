@@ -233,6 +233,10 @@ export const romSectionJa: RomSectionStrings = {
   configMinutes: (number: number) => `${number}分`,
   configRestoreDefaults: "公式の既定値に戻す",
   configAlwaysUse: "これらの設定を常に使用",
+  configUpdateSettings: "設定を更新",
+  configUpdatingSettings: "設定を更新中…",
+  configUpdatedSettings: "設定を更新しました。",
+  configUpdateFailed: (error: string) => `設定を更新できませんでした: ${error}`,
   configPreserveNote: "自動起動やその他の開発者向けフィールドは存在する場合に保持されますが、ここでは変更しません。",
   layoutAdvancedToggle: "詳細レイアウト",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

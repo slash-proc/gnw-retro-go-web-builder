@@ -230,6 +230,10 @@ export const romSectionPl: RomSectionStrings = {
   configMinutes: (number: number) => `${number} min`,
   configRestoreDefaults: "Przywróć oficjalne wartości domyślne",
   configAlwaysUse: "Zawsze używaj tych ustawień",
+  configUpdateSettings: "Aktualizuj ustawienia",
+  configUpdatingSettings: "Aktualizowanie ustawień…",
+  configUpdatedSettings: "Ustawienia zaktualizowane.",
+  configUpdateFailed: (error: string) => `Nie udało się zaktualizować ustawień: ${error}`,
   configPreserveNote: "Autostart i inne pola deweloperskie są zachowywane, gdy istnieją, ale nie są tutaj zmieniane.",
   layoutAdvancedToggle: "Układ zaawansowany",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

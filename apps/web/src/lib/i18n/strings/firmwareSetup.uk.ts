@@ -278,6 +278,10 @@ export const romSectionUk: RomSectionStrings = {
   configMinutes: (number: number) => `${number} хв`,
   configRestoreDefaults: "Відновити офіційні значення за замовчуванням",
   configAlwaysUse: "Завжди використовувати ці налаштування",
+  configUpdateSettings: "Оновити налаштування",
+  configUpdatingSettings: "Оновлення налаштувань…",
+  configUpdatedSettings: "Налаштування оновлено.",
+  configUpdateFailed: (error: string) => `Не вдалося оновити налаштування: ${error}`,
   configPreserveNote: "Автозапуск та інші поля розробника зберігаються, якщо вони є, але тут не змінюються.",
   layoutAdvancedToggle: "Розмітка для досвідчених",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

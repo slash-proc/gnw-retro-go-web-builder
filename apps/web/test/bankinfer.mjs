@@ -20,5 +20,7 @@ assert(/migrateSavesLabel/.test(src) && /migrateSettingsLabel/.test(src), "Advan
 assert(/bind:alwaysUse=\{retroGoConfigAlwaysUse\}/.test(src) && /bind:alwaysUse=\{retroGoConfigAlwaysUse\}/.test(wizard), "Both install paths must bind the persistent CONFIG preference");
 assert(/configAlwaysUse/.test(config) && /saveSel\("retro-go-config-always-use"/.test(config), "CONFIG panel must expose and persist Always use these settings");
 assert(/class:config-disabled=\{disabled\}/.test(config) && /pointer-events: none/.test(config), "Keep settings must disable the CONFIG foldout itself");
+assert(/writeFilesToDeviceLfs/.test(config) && /path: "CONFIG"/.test(config), "Installed CONFIG updates must write the CONFIG file directly");
+assert(/settingsChanged/.test(config) && /configUpdateSettings/.test(config), "CONFIG panel must expose an update action only for changed installed settings");
 assert(!/offsetHint|layoutDefaultsNote/.test(src), "Advanced Layout must omit the redundant helper text");
-console.log("bankinfer: 11 passed, 0 failed");
+console.log("bankinfer: 13 passed, 0 failed");

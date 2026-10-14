@@ -4,9 +4,12 @@
   import { onMount } from "svelte";
   import { loadSel, saveSel } from "../persist.js";
   import { locale } from "../i18n/locale.svelte.js";
+import { deviceSafety } from "../installProgress.svelte.js";
+import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
   import {
     defaultRetroGoConfig,
     defaultRetroGoConfigForLocale,
+  encodeRetroGoConfig,
     normalizeRetroGoConfig,
     parseRetroGoConfig,
     RETRO_GO_BACKLIGHT_RANGE,
@@ -38,6 +41,9 @@
   let loading = $state(false);
   let loadKey = $state("");
   let loadError = $state<string | null>(null);
+  let updating = $state(false);
+  let updateError = $state<string | null>(null);
+  let updateSuccess = $state(false);
   let configOpen = $state(false);
   let paletteOpen = $state(false);
 
@@ -68,6 +74,8 @@
       ? `${device.deviceClass?.kind ?? ""}:${device.partitions.find((p) => p.fs === "littlefs")?.offset ?? 0}:${device.partitions.find((p) => p.fs === "littlefs")?.size ?? 0}`
       : "";
     if (!key) {
+      updateError = null;
+      updateSuccess = false;
       if (!installed) {
         loadKey = "";
         config = defaultRetroGoConfigForLocale(locale.current);
@@ -82,6 +90,8 @@
     loading = true;
     configLoaded = false;
     loadError = null;
+    updateError = null;
+    updateSuccess = false;
     void (async () => {
       try {
         const tree = await ensureLfsTree();
@@ -106,6 +116,8 @@
   });
 
   function setValue<K extends keyof RetroGoConfigValues>(key: K, value: RetroGoConfigValues[K]) {
+    updateError = null;
+    updateSuccess = false;
     config = normalizeRetroGoConfig({ ...config, [key]: value });
   }
 
@@ -134,7 +146,41 @@
   }
 
   function restoreDefaults() {
+    updateError = null;
+    updateSuccess = false;
     config = defaultRetroGoConfig();
+  }
+
+  function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+    return a.length === b.length && a.every((value, index) => value === b[index]);
+  }
+
+  const settingsChanged = $derived.by(() => {
+    if (!installed || !configLoaded || loading) return false;
+    const next = encodeRetroGoConfig(config, configBytes ?? undefined);
+    return !configBytes || !sameBytes(next, configBytes);
+  });
+
+  async function updateSettings() {
+    if (!installed || disabled || !configLoaded || updating || !settingsChanged) return;
+    updating = true;
+    updateError = null;
+    updateSuccess = false;
+    deviceSafety.hold();
+    try {
+      const bytes = encodeRetroGoConfig(config, configBytes ?? undefined);
+      await writeFilesToDeviceLfs(
+        (force) => device.ensureStub(undefined, force, true, force),
+        [{ path: "CONFIG", data: bytes }],
+      );
+      configBytes = bytes;
+      updateSuccess = true;
+    } catch (error) {
+      updateError = error instanceof Error ? error.message : String(error);
+    } finally {
+      deviceSafety.release();
+      updating = false;
+    }
   }
 
   function setAlwaysUse(value: boolean) {
@@ -155,6 +201,11 @@
       <p class="config-status">{locale.t.romSection.configReading}</p>
     {:else if loadError && installed}
       <p class="config-status">{locale.t.romSection.configUsingDefaults}</p>
+    {/if}
+    {#if updateError}
+      <p class="config-status error">{locale.t.romSection.configUpdateFailed(updateError)}</p>
+    {:else if updateSuccess}
+      <p class="config-status">{locale.t.romSection.configUpdatedSettings}</p>
     {/if}
     <fieldset class="config-fields" disabled={disabled}>
     <div class="config-grid">
@@ -214,6 +265,11 @@
     </div>
     <div class="config-actions">
       <button type="button" class="restore" onclick={restoreDefaults}>{locale.t.romSection.configRestoreDefaults}</button>
+      {#if installed && (settingsChanged || updating)}
+        <button type="button" class="update-settings" disabled={disabled || updating || !configLoaded || !settingsChanged} onclick={() => void updateSettings()}>
+          {updating ? locale.t.romSection.configUpdatingSettings : locale.t.romSection.configUpdateSettings}
+        </button>
+      {/if}
       <label class="always"><input type="checkbox" checked={alwaysUse} disabled={disabled} onchange={(e) => setAlwaysUse(e.currentTarget.checked)} /> <span>{locale.t.romSection.configAlwaysUse}</span></label>
     </div>
     </fieldset>
@@ -263,6 +319,8 @@
   .swatches i { display: block; width: 22px; height: 18px; border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent); border-radius: 2px; }
   .config-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .restore { border: 0; padding: 0; color: var(--link); background: transparent; cursor: pointer; font-size: var(--fs-caption); }
+  .update-settings { border: 1px solid var(--zelda-green); border-radius: 5px; padding: 6px 10px; background: var(--zelda-green); color: white; cursor: pointer; font-size: var(--fs-caption); }
+  .update-settings:disabled { opacity: 0.55; cursor: not-allowed; }
   .always { display: flex; align-items: center; gap: 8px; font-size: var(--fs-caption); cursor: pointer; }
   .always input { min-height: auto; }
   @media (max-width: 560px) { .config-grid { grid-template-columns: 1fr; } }

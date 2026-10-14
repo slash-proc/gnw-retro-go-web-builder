@@ -237,6 +237,10 @@ export const romSectionPt: RomSectionStrings = {
   configMinutes: (number: number) => `${number} min`,
   configRestoreDefaults: "Restaurar valores predefinidos oficiais",
   configAlwaysUse: "Usar sempre estas definições",
+  configUpdateSettings: "Atualizar definições",
+  configUpdatingSettings: "A atualizar definições…",
+  configUpdatedSettings: "Definições atualizadas.",
+  configUpdateFailed: (error: string) => `Não foi possível atualizar as definições: ${error}`,
   configPreserveNote: "O arranque automático e outros campos de programador são preservados quando existem, mas não são alterados aqui.",
   layoutAdvancedToggle: "Disposição avançada",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

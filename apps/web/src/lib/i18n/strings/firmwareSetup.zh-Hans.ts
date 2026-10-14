@@ -233,6 +233,10 @@ export const romSectionZhHans: RomSectionStrings = {
   configMinutes: (number: number) => `${number} 分钟`,
   configRestoreDefaults: "恢复官方默认值",
   configAlwaysUse: "始终使用这些设置",
+  configUpdateSettings: "更新设置",
+  configUpdatingSettings: "正在更新设置…",
+  configUpdatedSettings: "设置已更新。",
+  configUpdateFailed: (error: string) => `无法更新设置：${error}`,
   configPreserveNote: "存在自动启动和其他开发者字段时会保留它们，但不会在此处修改。",
   layoutAdvancedToggle: "高级布局",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

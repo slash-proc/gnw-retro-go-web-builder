@@ -232,6 +232,10 @@ export const romSectionIt: RomSectionStrings = {
   configMinutes: (number: number) => `${number} min`,
   configRestoreDefaults: "Ripristina i valori ufficiali",
   configAlwaysUse: "Usa sempre queste impostazioni",
+  configUpdateSettings: "Aggiorna impostazioni",
+  configUpdatingSettings: "Aggiornamento impostazioni…",
+  configUpdatedSettings: "Impostazioni aggiornate.",
+  configUpdateFailed: (error: string) => `Impossibile aggiornare le impostazioni: ${error}`,
   configPreserveNote: "L’avvio automatico e gli altri campi per sviluppatori vengono conservati quando presenti, ma non vengono modificati qui.",
   layoutAdvancedToggle: "Layout avanzato",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

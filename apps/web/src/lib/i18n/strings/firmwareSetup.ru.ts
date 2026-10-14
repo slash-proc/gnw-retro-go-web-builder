@@ -232,6 +232,10 @@ export const romSectionRu: RomSectionStrings = {
   configMinutes: (number: number) => `${number} мин`,
   configRestoreDefaults: "Восстановить официальные значения по умолчанию",
   configAlwaysUse: "Всегда использовать эти настройки",
+  configUpdateSettings: "Обновить настройки",
+  configUpdatingSettings: "Обновление настроек…",
+  configUpdatedSettings: "Настройки обновлены.",
+  configUpdateFailed: (error: string) => `Не удалось обновить настройки: ${error}`,
   configPreserveNote: "Автозапуск и другие поля разработчика сохраняются, если они есть, но здесь не изменяются.",
   layoutAdvancedToggle: "Расширенная разметка",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

@@ -233,6 +233,10 @@ export const romSectionFr: RomSectionStrings = {
   configMinutes: (number: number) => `${number} min`,
   configRestoreDefaults: "Restaurer les valeurs officielles",
   configAlwaysUse: "Toujours utiliser ces réglages",
+  configUpdateSettings: "Mettre à jour les réglages",
+  configUpdatingSettings: "Mise à jour des réglages…",
+  configUpdatedSettings: "Réglages mis à jour.",
+  configUpdateFailed: (error: string) => `Impossible de mettre à jour les réglages : ${error}`,
   configPreserveNote: "L’autodémarrage et les autres champs de développeur sont conservés lorsqu’ils existent, mais ne sont pas modifiés ici.",
   layoutAdvancedToggle: "Agencement avancé",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

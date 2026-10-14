@@ -248,6 +248,10 @@ export const romSectionEn = {
   configMinutes: (number: number) => `${number} min`,
   configRestoreDefaults: "Restore official defaults",
   configAlwaysUse: "Always use these settings",
+  configUpdateSettings: "Update settings",
+  configUpdatingSettings: "Updating settings…",
+  configUpdatedSettings: "Settings updated.",
+  configUpdateFailed: (error: string) => `Could not update settings: ${error}`,
   configPreserveNote: "Autostart and other developer fields are preserved when present, but are not changed here.",
   layoutAdvancedToggle: "Advanced layout",
   // Footer bar (Firmware.dc.html:149) — size and bank are device-derived, so they stay

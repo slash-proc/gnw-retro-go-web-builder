@@ -232,6 +232,10 @@ export const romSectionNo: RomSectionStrings = {
   configMinutes: (number: number) => `${number} min`,
   configRestoreDefaults: "Gjenopprett offisielle standardverdier",
   configAlwaysUse: "Bruk alltid disse innstillingene",
+  configUpdateSettings: "Oppdater innstillinger",
+  configUpdatingSettings: "Oppdaterer innstillinger…",
+  configUpdatedSettings: "Innstillingene er oppdatert.",
+  configUpdateFailed: (error: string) => `Kunne ikke oppdatere innstillingene: ${error}`,
   configPreserveNote: "Autostart og andre utviklerfelt bevares når de finnes, men endres ikke her.",
   layoutAdvancedToggle: "Avansert oppsett",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>

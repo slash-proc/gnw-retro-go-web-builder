@@ -234,6 +234,10 @@ export const romSectionZhHant: RomSectionStrings = {
   configMinutes: (number: number) => `${number} 分鐘`,
   configRestoreDefaults: "還原官方預設值",
   configAlwaysUse: "一律使用這些設定",
+  configUpdateSettings: "更新設定",
+  configUpdatingSettings: "正在更新設定…",
+  configUpdatedSettings: "設定已更新。",
+  configUpdateFailed: (error: string) => `無法更新設定：${error}`,
   configPreserveNote: "存在自動啟動和其他開發者欄位時會保留它們，但不會在此處修改。",
   layoutAdvancedToggle: "進階配置",
   footerSummary: (size: string, bank: number, dualBoot: boolean) =>
