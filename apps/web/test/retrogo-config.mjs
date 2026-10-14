@@ -26,7 +26,7 @@ await esbuild.build({
   target: "es2022",
   logLevel: "warning",
 });
-const { defaultRetroGoConfig, encodeRetroGoConfig, normalizeRetroGoConfig, parseRetroGoConfig, RETRO_GO_COLOR_PALETTES, RETRO_GO_CONFIG_SIZE } =
+const { defaultRetroGoConfig, defaultRetroGoConfigForLocale, encodeRetroGoConfig, normalizeRetroGoConfig, parseRetroGoConfig, retroGoLanguageForLocale, RETRO_GO_COLOR_PALETTES, RETRO_GO_CONFIG_SIZE } =
   await import(pathToFileURL(join(out, "retroGoConfig.js")).href);
 
 const defaults = defaultRetroGoConfig();
@@ -93,6 +93,12 @@ check("settings are clamped to upstream ranges", () => {
   eq(normalized.language, 11, "language max");
   eq(normalized.cpuOcLevel, 2, "CPU overclock max");
   eq(normalized.menuTimeoutS, 3600, "timeout rounds to a minute");
+});
+
+check("fresh-install language follows the UI locale", () => {
+  eq(retroGoLanguageForLocale("de"), 5, "German language");
+  eq(defaultRetroGoConfigForLocale("ja").language, 11, "Japanese language");
+  eq(defaultRetroGoConfigForLocale("nl").language, 0, "unsupported locale falls back to English");
 });
 
 if (failures.length) {

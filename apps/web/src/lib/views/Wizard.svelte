@@ -8,7 +8,7 @@
   import { installProgress, deviceSafety, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
   import { msg, errText, sumBytes } from "../logEntry.js";
   import { locale } from "../i18n/locale.svelte.js";
-  import { saveDir, loadSel } from "../persist.js";
+  import { loadSel, saveDir } from "../persist.js";
 
   import {
     pickBackupFolder, dumpBackup, dumpLockedBackup, isLockedBackupBlueScreen, writeBackup, patchAndFlash, detectDevice,
@@ -33,7 +33,7 @@
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import type { LittlefsTreeNode, MappedSpec } from "@gnw/fs-builders";
   import RetroGoConfigPanel from "../advanced/RetroGoConfigPanel.svelte";
-  import { encodeRetroGoConfig, defaultRetroGoConfig, type RetroGoConfigValues } from "../retroGoConfig.js";
+  import { encodeRetroGoConfig, defaultRetroGoConfigForLocale, type RetroGoConfigValues } from "../retroGoConfig.js";
   import { prepareState } from "../sources/prepareState.svelte.js";
   import JSZip from "jszip";
   import logoRgo from "../../assets/logo-rgo.png";
@@ -910,10 +910,28 @@
   // meant clicking "Upgrade" (hasUpdate true) always silently wiped games/saves with no
   // option to preserve them, contrary to this app's documented upgrade-migration behavior.
   const canMigrate = $derived(step2Done && device.targetMedia === "flash");
-  let retroGoConfig = $state<RetroGoConfigValues>(defaultRetroGoConfig());
+  let retroGoConfig = $state<RetroGoConfigValues>(defaultRetroGoConfigForLocale(locale.current));
   let retroGoConfigBytes = $state<Uint8Array | null>(null);
   let retroGoConfigLoaded = $state(true);
   let retroGoConfigAlwaysUse = $state(loadSel("retro-go-config-always-use", false));
+  let keepSettings = $state(false);
+  let keepSettingsDefaultApplied = $state(false);
+
+  // Existing installs preserve their CONFIG by default. A user who opted into the persistent
+  // setting preference gets the editable panel on each future install instead; fresh installs
+  // always start from the official defaults.
+  $effect(() => {
+    if (device.scanning) return;
+    if (!isInstalled) {
+      keepSettings = false;
+      keepSettingsDefaultApplied = false;
+      return;
+    }
+    if (!keepSettingsDefaultApplied) {
+      keepSettings = !retroGoConfigAlwaysUse;
+      keepSettingsDefaultApplied = true;
+    }
+  });
 
   // SD mode + a real folder picker (i.e. not Firefox, which has no File System Access API and
   // can't produce a writable directory handle) requires the SAME SD-card folder the ROMs tab
@@ -1049,7 +1067,7 @@
     // default during upgrade/reinstall, or encode the values selected in the foldout when the
     // user enabled its persistent override. Fresh installs receive the official defaults.
     if (device.targetMedia === "flash") {
-      const configBytes = isInstalled && !retroGoConfigAlwaysUse && retroGoConfigBytes
+      const configBytes = isInstalled && keepSettings && retroGoConfigBytes
         ? retroGoConfigBytes.slice()
         : encodeRetroGoConfig(retroGoConfig, retroGoConfigBytes ?? undefined);
       lfsData.set("CONFIG", configBytes);
@@ -1860,12 +1878,19 @@
                       </div>
                     {/if}
                     {#if device.targetMedia === "flash"}
+                      {#if isInstalled}
+                        <label class="config-keep-settings">
+                          <input type="checkbox" bind:checked={keepSettings} />
+                          <span>{locale.t.romSection.migrateSettingsLabel}</span>
+                        </label>
+                      {/if}
                       <RetroGoConfigPanel
                         installed={isInstalled}
                         bind:config={retroGoConfig}
                         bind:configBytes={retroGoConfigBytes}
                         bind:configLoaded={retroGoConfigLoaded}
                         bind:alwaysUse={retroGoConfigAlwaysUse}
+                        disabled={keepSettings}
                       />
                     {/if}
 
@@ -2275,6 +2300,13 @@
     display: flex;
     gap: 18px;
     align-items: center;
+  }
+  .config-keep-settings {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--fs-caption);
+    color: var(--ink-soft);
   }
   .found {
     font-size: var(--fs-btn-sm);

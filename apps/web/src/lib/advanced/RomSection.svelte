@@ -39,7 +39,7 @@
   import { download, formatNumber } from "../util.js";
   import JSZip from "jszip";
   import RetroGoConfigPanel from "./RetroGoConfigPanel.svelte";
-  import { encodeRetroGoConfig, defaultRetroGoConfig, type RetroGoConfigValues } from "../retroGoConfig.js";
+  import { encodeRetroGoConfig, defaultRetroGoConfigForLocale, type RetroGoConfigValues } from "../retroGoConfig.js";
   import { locale } from "../i18n/locale.svelte.js";
   import { loadSel } from "../persist.js";
 
@@ -119,10 +119,10 @@
   }
 
   function openFlash(regions: readonly FlashRegion[]) {
-    // NOTE: littlefs is always included regardless of migrateLfs — buildInstall() rebuilds the
+    // NOTE: littlefs is always included regardless of migrateSaves — buildInstall() rebuilds the
     // LittleFS image either way (with migrated saves folded in when requested), so it always
     // needs to actually be flashed. A prior version of this line excluded "littlefs" from
-    // flashTarget whenever migrateLfs was checked, which meant the freshly-built image
+    // flashTarget whenever migrateSaves was checked, which meant the freshly-built image
     // (containing the migrated data) was built but never written — LittleFS silently never
     // got created/updated on a migrated install.
     flashTarget = regions;
@@ -203,7 +203,7 @@
   );
   let frogfsOffsetStr = $state(""); // blank = auto
   let littlefsMiBStr = $state(""); // blank = auto
-  let retroGoConfig = $state<RetroGoConfigValues>(defaultRetroGoConfig());
+  let retroGoConfig = $state<RetroGoConfigValues>(defaultRetroGoConfigForLocale(locale.current));
   let retroGoConfigBytes = $state<Uint8Array | null>(null);
   let retroGoConfigLoaded = $state(true);
   let retroGoConfigAlwaysUse = $state(loadSel("retro-go-config-always-use", false));
@@ -319,12 +319,13 @@
   }
 
   let migrateGames = $state(false);
-  let migrateLfs = $state(false);
+  let migrateSaves = $state(false);
+  let keepSettings = $state(false);
 
   // Default-checked the first time deviceHasRetroGoInstalled becomes true (device.banks
   // populates asynchronously after the scan, so this can't be a plain $state initializer) —
   // but only for whichever of games/saves actually has something on-device to migrate FROM.
-  // Checking a box with nothing behind it left migrateLfs/migrateGames stuck at their default
+  // Checking a box with nothing behind it left migrateSaves/migrateGames stuck at their default
   // `true` even when the corresponding partition doesn't exist (the checkbox shows disabled/
   // grayed, but a disabled checkbox doesn't reset its own bound value) — which both silently
   // dropped LittleFS from the actual flash (see openFlash()'s fix) and mislabeled the "new"
@@ -337,7 +338,8 @@
     if (deviceHasRetroGoInstalled && !device.scanning && !migrateDefaultsApplied) {
       migrateDefaultsApplied = true;
       migrateGames = false;
-      migrateLfs = device.partitions.some((p) => p.fs === "littlefs");
+      migrateSaves = device.partitions.some((p) => p.fs === "littlefs");
+      keepSettings = !retroGoConfigAlwaysUse;
     }
   });
 
@@ -474,7 +476,7 @@
     const lSize = littlefsPart?.size ?? install?.layout.littlefsLength ?? littlefsOverride ?? 0;
     const lOffset = littlefsPart?.offset ?? install?.layout.littlefsOffset ?? (lSize > 0 ? extBytes - lSize : null);
     const lKind = "littlefs-changed";
-    const lLabel = migrateLfs ? "Cores & Saves (migrated)" : "Cores & Saves (reset)";
+    const lLabel = migrateSaves ? "Cores & Saves (migrated)" : "Cores & Saves (reset)";
 
     type Region = { offset: number; size: number; kind: string; label: string; detail: string[] };
     const regions: Region[] = [];
@@ -510,7 +512,7 @@
   // since the last build. Tracked by snapshotting the inputs used for the last build.
   let builtFor: string | null = null;
   const buildKey = $derived(
-    JSON.stringify([bank, selectedVersionTag, migrateGames, migrateLfs, frogfsOffset, littlefsOverride]),
+    JSON.stringify([bank, selectedVersionTag, migrateGames, migrateSaves, keepSettings, frogfsOffset, littlefsOverride]),
   );
   const needsBuild = $derived(install === null || builtFor !== buildKey);
 
@@ -658,7 +660,7 @@
       // settings foldout's explicit override. Encoding from the original bytes preserves
       // developer-only startup/autostart fields that this UI intentionally does not expose.
       if (installMode === "flash") {
-        const configBytes = isRetroGo && !retroGoConfigAlwaysUse && retroGoConfigBytes
+        const configBytes = isRetroGo && keepSettings && retroGoConfigBytes
           ? retroGoConfigBytes.slice()
           : encodeRetroGoConfig(retroGoConfig, retroGoConfigBytes ?? undefined);
         lfsData.set("CONFIG", configBytes);
@@ -670,11 +672,11 @@
         "migrate-scan",
         isSameVersion
           ? msg((t) => t.romSection.logSameVersionRepair, selectedVersionTag)
-          : msg((t) => t.romSection.logMigrateSummary, selectedVersionTag, migrateGames, migrateLfs));
+          : msg((t) => t.romSection.logMigrateSummary, selectedVersionTag, migrateGames, migrateSaves));
       // Only carry the existing writable state forward when the user selected
-      // "Keep saves and settings".  The old path extracted data/ and CONFIG for
-      // every reinstall, so an unchecked migration still preserved saves.
-      if (isRetroGo && migrateLfs) {
+      // Keep only the selected LittleFS data. CONFIG preservation is controlled separately by
+      // the Keep settings checkbox and is handled above when the image is assembled.
+      if (isRetroGo && migrateSaves) {
         report.subStart("migrate-scan", "frogfs-state");
         const stateWindow = extBytes - defaultFrogfsOffset;
         try {
@@ -1043,8 +1045,12 @@
           <span>{locale.t.romSection.migrateGamesLabel}</span>
         </label>
         <label class="row" style="cursor: {littlefsPart ? 'pointer' : 'not-allowed'};" class:migrate-disabled={!littlefsPart}>
-          <input type="checkbox" bind:checked={migrateLfs} disabled={!littlefsPart} />
+          <input type="checkbox" bind:checked={migrateSaves} disabled={!littlefsPart} />
           <span>{locale.t.romSection.migrateSavesLabel}</span>
+        </label>
+        <label class="row" style="cursor: {deviceHasRetroGoInstalled ? 'pointer' : 'not-allowed'};" class:migrate-disabled={!deviceHasRetroGoInstalled}>
+          <input type="checkbox" bind:checked={keepSettings} disabled={!deviceHasRetroGoInstalled} />
+          <span>{locale.t.romSection.migrateSettingsLabel}</span>
         </label>
       </div>
     {/if}
@@ -1056,6 +1062,7 @@
         bind:configBytes={retroGoConfigBytes}
         bind:configLoaded={retroGoConfigLoaded}
         bind:alwaysUse={retroGoConfigAlwaysUse}
+        disabled={keepSettings}
       />
     {/if}
 
@@ -1078,11 +1085,14 @@
     <!-- Layout (advanced): expert overrides + the device's current flash-layout geometry, both
          tucked away by default — neither is interesting for a typical install (and the
          geometry bar specifically has nothing meaningful to say for an SD install). -->
-    {#if layoutOpen}
-      <div class="sub">
+    <details class="layout-foldout" bind:open={layoutOpen}>
+      <summary class="layout-summary">
+        <span class="layout-summary-title">{locale.t.romSection.layoutAdvancedToggle}</span>
+      </summary>
+      <div class="layout-body">
         <div class="sub-body">
           <label class="field">
-            <span>{installMode === "sd" ? locale.t.romSection.sdCacheOffsetLabel : locale.t.romSection.frogfsOffsetLabel} <em>{locale.t.romSection.offsetHint}</em></span>
+            <span>{installMode === "sd" ? locale.t.romSection.sdCacheOffsetLabel : locale.t.romSection.frogfsOffsetLabel}</span>
             <input
               class="mono"
               bind:value={frogfsOffsetStr}
@@ -1102,9 +1112,6 @@
                 <span class="unit">{locale.t.romSection.mbUnit}</span>
               </span>
             </label>
-            <p class="muted">
-              {locale.t.romSection.layoutDefaultsNote(blockSize)}
-            </p>
           {/if}
 
           <!-- Current on-device flash layout (from the scan). Grayed until a scan has run.
@@ -1133,7 +1140,7 @@
           </div>
         </div>
       </div>
-    {/if}
+    </details>
 
     {#if !device.isConnected}
       <p class="muted">{locale.t.romSection.connectToSizeAndFlash}</p>
@@ -1143,14 +1150,10 @@
       <p class="notice warn">{err}</p>
     {/if}
 
-    <!-- Firmware.dc.html:149 — the pane's one primary action lives in the anchored 72px
-         footer bar, beside the "Advanced layout" disclosure that reveals the expert
-         overrides above (the artboard shows the toggle there, not in the body). PaneFooter
-         renders nothing in place; FirmwareRail draws the bar as the pane column's 2nd child. -->
+    <!-- Firmware.dc.html:149 — the pane's one primary action lives in the anchored 72px footer
+         bar. PaneFooter renders nothing in place; FirmwareRail draws the bar as the pane
+         column's second child. -->
     <PaneFooter summary={footerSummary}>
-      <button class="footlink" aria-expanded={layoutOpen} onclick={() => (layoutOpen = !layoutOpen)}
-        >{locale.t.romSection.layoutAdvancedToggle}</button
-      >
       {#if device.isConnected}
         <Button variant="action" disabled={flashing || (installMode === "flash" && !retroGoConfigLoaded)} onclick={onFlashButtonClick}>{flashButtonLabel}</Button>
       {/if}
@@ -1343,31 +1346,36 @@
   .mono {
     font-family: var(--font-mono);
   }
-  .sub {
+  .layout-foldout {
     border: 1px solid var(--hairline);
-    border-radius: var(--r-control);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface) 96%, var(--ink) 4%);
+    overflow: hidden;
   }
-  /* Firmware.dc.html:152 — `font-size: 14px; font-weight: 500; color: #5c5c5c`, plain text
-     with no button chrome. Keyboard focus keeps a visible ring (no bare `outline: none`). */
-  .footlink {
-    font: inherit;
-    font-size: var(--fs-caption);
-    font-weight: 500;
-    color: var(--ink-soft);
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-  }
-  .footlink:focus-visible {
-    outline: 2px solid var(--zelda-green);
-    outline-offset: 3px;
-  }
-  .sub-body {
+  .layout-summary {
     display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-    padding: 0.6rem;
+    align-items: baseline;
+    gap: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    list-style: none;
+    color: var(--ink);
+  }
+  .layout-summary::-webkit-details-marker { display: none; }
+  .layout-summary::before { content: "▸"; display: inline-block; color: var(--ink-soft); font-size: 0.85em; transition: transform 120ms ease; }
+  .layout-foldout[open] .layout-summary::before { transform: rotate(90deg); }
+  .layout-summary-title { font-size: var(--fs-btn-sm); font-weight: 600; }
+  .layout-body { border-top: 1px solid var(--hairline); padding: 14px; display: grid; gap: 14px; }
+  .sub-body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 0;
+  }
+  .sub-body > .devgeo { grid-column: 1 / -1; }
+  @media (max-width: 560px) {
+    .sub-body { grid-template-columns: 1fr; }
+    .sub-body > .devgeo { grid-column: auto; }
   }
   .well {
     background: var(--surface-sunk);

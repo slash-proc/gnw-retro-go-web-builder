@@ -1,10 +1,12 @@
 <script lang="ts">
   import { device } from "../device.svelte.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
+  import { onMount } from "svelte";
   import { loadSel, saveSel } from "../persist.js";
   import { locale } from "../i18n/locale.svelte.js";
   import {
     defaultRetroGoConfig,
+    defaultRetroGoConfigForLocale,
     normalizeRetroGoConfig,
     parseRetroGoConfig,
     RETRO_GO_BACKLIGHT_RANGE,
@@ -19,23 +21,45 @@
 
   let {
     installed = false,
-    config = $bindable(defaultRetroGoConfig()),
+    config = $bindable(defaultRetroGoConfigForLocale(locale.current)),
     configBytes = $bindable<Uint8Array | null>(null),
     configLoaded = $bindable(false),
+    disabled = false,
     alwaysUse = $bindable(loadSel("retro-go-config-always-use", false)),
   }: {
     installed?: boolean;
     config: RetroGoConfigValues;
     configBytes: Uint8Array | null;
     configLoaded: boolean;
+    disabled?: boolean;
     alwaysUse: boolean;
   } = $props();
 
-  let open = $state(false);
   let loading = $state(false);
   let loadKey = $state("");
   let loadError = $state<string | null>(null);
+  let configOpen = $state(false);
   let paletteOpen = $state(false);
+
+  onMount(() => {
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && !(target as Element).closest?.(".palette-picker")) paletteOpen = false;
+    };
+    document.addEventListener("click", closeOnOutsideClick);
+    return () => document.removeEventListener("click", closeOnOutsideClick);
+  });
+
+  $effect(() => {
+    if (disabled) {
+      configOpen = false;
+      paletteOpen = false;
+    }
+  });
+
+  function preventDisabledToggle(event: MouseEvent) {
+    if (disabled) event.preventDefault();
+  }
 
   // A recovery scan gives us the LittleFS geometry, but CONFIG itself is read lazily here so
   // simply connecting a device does not add another multi-block SWD read to every scan.
@@ -46,7 +70,7 @@
     if (!key) {
       if (!installed) {
         loadKey = "";
-        config = defaultRetroGoConfig();
+        config = defaultRetroGoConfigForLocale(locale.current);
         configBytes = null;
         configLoaded = true;
         loadError = null;
@@ -117,12 +141,12 @@
     alwaysUse = value;
     saveSel("retro-go-config-always-use", value);
   }
+
 </script>
 
-<details class="config-foldout" bind:open>
-  <summary>
+<details class="config-foldout" class:config-disabled={disabled} aria-disabled={disabled} bind:open={configOpen}>
+  <summary onclick={preventDisabledToggle}>
     <span class="summary-title">{locale.t.romSection.configTitle}</span>
-    <span class="summary-note">{locale.t.romSection.configSummary}</span>
   </summary>
 
   <div class="config-body">
@@ -132,7 +156,7 @@
     {:else if loadError && installed}
       <p class="config-status">{locale.t.romSection.configUsingDefaults}</p>
     {/if}
-
+    <fieldset class="config-fields" disabled={disabled}>
     <div class="config-grid">
       <label class="field range-field"><span>{locale.t.romSection.configBacklight}<output>{config.backlight}</output></span>
         <input type="range" min={RETRO_GO_BACKLIGHT_RANGE.min} max={RETRO_GO_BACKLIGHT_RANGE.max} step="1" value={config.backlight} oninput={(e) => setValue("backlight", numberValue(e))} />
@@ -142,13 +166,6 @@
       </label>
       <label class="field range-field"><span>{locale.t.romSection.configFontSize}<output>{config.fontSize}</output></span>
         <input type="range" min={RETRO_GO_FONT_SIZE_RANGE.min} max={RETRO_GO_FONT_SIZE_RANGE.max} step="1" value={config.fontSize} oninput={(e) => setValue("fontSize", numberValue(e))} />
-      </label>
-      <label class="field"><span>{locale.t.romSection.configStartAction}</span>
-        <select value={config.startAction} onchange={(e) => setValue("startAction", selectNumber(e))}>
-          <option value={0}>{locale.t.romSection.configStartResume}</option>
-          <option value={1}>{locale.t.romSection.configStartNewGame}</option>
-          <option value={2}>{locale.t.romSection.configStartNetplay}</option>
-        </select>
       </label>
       <label class="field"><span>{locale.t.romSection.configTheme}</span>
         <select value={config.theme} onchange={(e) => setValue("theme", selectNumber(e))}>
@@ -195,11 +212,11 @@
         <input type="range" min={RETRO_GO_MENU_TIMEOUT_RANGE.min} max={RETRO_GO_MENU_TIMEOUT_RANGE.max} step={RETRO_GO_MENU_TIMEOUT_RANGE.step} value={config.menuTimeoutS} oninput={(e) => setValue("menuTimeoutS", numberValue(e))} />
       </label>
     </div>
-
     <div class="config-actions">
       <button type="button" class="restore" onclick={restoreDefaults}>{locale.t.romSection.configRestoreDefaults}</button>
-      <label class="always"><input type="checkbox" checked={alwaysUse} onchange={(e) => setAlwaysUse(e.currentTarget.checked)} /> <span>{locale.t.romSection.configAlwaysUse}</span></label>
+      <label class="always"><input type="checkbox" checked={alwaysUse} disabled={disabled} onchange={(e) => setAlwaysUse(e.currentTarget.checked)} /> <span>{locale.t.romSection.configAlwaysUse}</span></label>
     </div>
+    </fieldset>
     <p class="config-footnote">{locale.t.romSection.configPreserveNote}</p>
   </div>
 </details>
@@ -223,11 +240,13 @@
   summary::before { content: "▸"; color: var(--ink-soft); transition: transform 120ms ease; }
   details[open] summary::before { transform: rotate(90deg); }
   .summary-title { font-size: var(--fs-btn-sm); font-weight: 600; }
-  .summary-note { color: var(--ink-soft); font-size: var(--fs-caption); }
   .config-body { border-top: 1px solid var(--hairline); padding: 14px; display: grid; gap: 14px; }
   .config-intro, .config-status, .config-footnote { margin: 0; color: var(--ink-soft); font-size: var(--fs-caption); }
   .config-status { color: var(--zelda-green); }
   .config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .config-fields { display: grid; gap: 14px; margin: 0; padding: 0; border: 0; min-width: 0; }
+  .config-foldout.config-disabled { opacity: 0.5; pointer-events: none; }
+  .config-foldout.config-disabled > summary { cursor: not-allowed; }
   .field { display: grid; gap: 5px; color: var(--ink-soft); font-size: var(--fs-caption); }
   .range-field > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
   .range-field output { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -237,7 +256,7 @@
   .palette-summary { min-height: 32px; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--hairline); border-radius: 5px; background: var(--surface); color: var(--ink); display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; }
   .palette-summary::-webkit-details-marker { display: none; }
   .palette-summary::after { content: "▾"; color: var(--ink-soft); font-size: 0.8em; }
-  .palette-options { position: absolute; z-index: 2; inset-inline: 0; top: calc(100% + 4px); max-height: 240px; overflow-y: auto; padding: 4px; border: 1px solid var(--hairline); border-radius: 5px; background: var(--surface); box-shadow: 0 5px 16px color-mix(in srgb, var(--ink) 18%, transparent); }
+  .palette-options { position: absolute; z-index: var(--z-popover); inset-inline: 0; top: calc(100% + 4px); max-height: 240px; overflow-y: auto; padding: 4px; border: 1px solid var(--hairline); border-radius: 5px; background: var(--surface); box-shadow: 0 5px 16px color-mix(in srgb, var(--ink) 18%, transparent); }
   .palette-options button { width: 100%; display: flex; align-items: center; gap: 9px; padding: 6px 7px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); font: inherit; font-size: var(--fs-caption); text-align: start; cursor: pointer; }
   .palette-options button:hover, .palette-options button:focus-visible, .palette-options button.selected { background: var(--surface-sunk); }
   .swatches { display: inline-flex; flex: none; gap: 2px; }

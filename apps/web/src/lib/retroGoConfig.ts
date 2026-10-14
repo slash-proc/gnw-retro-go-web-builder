@@ -49,19 +49,34 @@ export const RETRO_GO_COLOR_PALETTES = [
 export const RETRO_GO_TURBO_COUNT = 4;
 export const RETRO_GO_FONT_COUNT = 9;
 export const RETRO_GO_LANGUAGE_NAMES = [
+  // Language names are intentionally self-labeled, as in Retro-Go's own menu.
   "English",
-  "Spanish",
-  "Portuguese",
-  "French",
-  "Italian",
+  "Español",
+  "Português",
+  "Français",
+  "Italiano",
   "Deutsch",
-  "Norwegian",
-  "Russian",
-  "Simplified Chinese",
-  "Traditional Chinese",
-  "Korean",
-  "Japanese",
+  "Norsk",
+  "Русский",
+  "简体中文",
+  "繁體中文",
+  "한국어",
+  "日本語",
 ] as const;
+const RETRO_GO_LANGUAGE_BY_LOCALE: Readonly<Record<string, number>> = {
+  en: 0,
+  es: 1,
+  pt: 2,
+  fr: 3,
+  it: 4,
+  de: 5,
+  no: 6,
+  ru: 7,
+  "zh-Hans": 8,
+  "zh-Hant": 9,
+  ko: 10,
+  ja: 11,
+};
 export const RETRO_GO_CPU_OC_COUNT = 3;
 export const RETRO_GO_MENU_TIMEOUT_RANGE = { min: 0, max: 3600, step: 60 } as const;
 
@@ -116,6 +131,16 @@ export function defaultRetroGoConfig(): RetroGoConfigValues {
     debugClockAlwaysOn: false,
     welcomePrompt: 0,
   };
+}
+
+/** Return the Retro-Go language matching the UI locale, or English when unsupported. */
+export function retroGoLanguageForLocale(localeCode: string): number {
+  return RETRO_GO_LANGUAGE_BY_LOCALE[localeCode] ?? 0;
+}
+
+/** Official defaults with the fresh install language selected from the current UI locale. */
+export function defaultRetroGoConfigForLocale(localeCode: string): RetroGoConfigValues {
+  return { ...defaultRetroGoConfig(), language: retroGoLanguageForLocale(localeCode) };
 }
 
 function clamp(value: number, min: number, max: number): number {
