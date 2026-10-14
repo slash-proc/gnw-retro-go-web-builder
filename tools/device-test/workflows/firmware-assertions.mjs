@@ -1,10 +1,16 @@
 import { expect } from "../fixtures.mjs";
 
-/** Assert the visible Retro-Go installer offers exactly the supported B2 destination. */
+/**
+ * Assert the visible Retro-Go installer uses the fixed bank-2 destination.
+ *
+ * Bank 2 is now an implementation invariant, so the UI deliberately has no
+ * bank picker. Keep this check focused on the user-visible contract: there is
+ * no obsolete bank picker or bank-card option, while the layout disclosure
+ * remains available to inspect the resulting image geometry.
+ */
 export async function assertBank2OnlyInstallTarget(page) {
-  const picker = page.locator(".targetgroup .bank-picker");
-  await expect(picker).toBeVisible();
-  await expect(picker.locator(".bank-card")).toHaveCount(1);
-  await expect(picker.locator(".bank-title")).toHaveText("Bank 2");
+  await expect(page.locator(".bank-picker")).toHaveCount(0);
+  await expect(page.locator(".bank-card")).toHaveCount(0);
+  await expect(page.locator("details.layout-foldout")).toBeVisible();
 }
 
