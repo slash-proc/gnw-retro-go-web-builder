@@ -8,7 +8,7 @@
   import { installProgress, deviceSafety, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
   import { msg, errText, sumBytes } from "../logEntry.js";
   import { locale } from "../i18n/locale.svelte.js";
-  import { saveDir } from "../persist.js";
+  import { saveDir, loadSel } from "../persist.js";
 
   import {
     pickBackupFolder, dumpBackup, dumpLockedBackup, isLockedBackupBlueScreen, writeBackup, patchAndFlash, detectDevice,
@@ -32,6 +32,8 @@
   import { readGameData } from "../engine/frogfsDevice.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import type { LittlefsTreeNode, MappedSpec } from "@gnw/fs-builders";
+  import RetroGoConfigPanel from "../advanced/RetroGoConfigPanel.svelte";
+  import { encodeRetroGoConfig, defaultRetroGoConfig, type RetroGoConfigValues } from "../retroGoConfig.js";
   import { prepareState } from "../sources/prepareState.svelte.js";
   import JSZip from "jszip";
   import logoRgo from "../../assets/logo-rgo.png";
@@ -908,6 +910,10 @@
   // meant clicking "Upgrade" (hasUpdate true) always silently wiped games/saves with no
   // option to preserve them, contrary to this app's documented upgrade-migration behavior.
   const canMigrate = $derived(step2Done && device.targetMedia === "flash");
+  let retroGoConfig = $state<RetroGoConfigValues>(defaultRetroGoConfig());
+  let retroGoConfigBytes = $state<Uint8Array | null>(null);
+  let retroGoConfigLoaded = $state(true);
+  let retroGoConfigAlwaysUse = $state(loadSel("retro-go-config-always-use", false));
 
   // SD mode + a real folder picker (i.e. not Firefox, which has no File System Access API and
   // can't produce a writable directory handle) requires the SAME SD-card folder the ROMs tab
@@ -1039,6 +1045,16 @@
     const migrateGames = installProgress.checkboxValues.migrateGames ?? false;
     const migrateSaves = installProgress.checkboxValues.migrateSaves ?? false;
 
+    // CONFIG is always present in a flash-mode image. Keep the complete on-device blob by
+    // default during upgrade/reinstall, or encode the values selected in the foldout when the
+    // user enabled its persistent override. Fresh installs receive the official defaults.
+    if (device.targetMedia === "flash") {
+      const configBytes = isInstalled && !retroGoConfigAlwaysUse && retroGoConfigBytes
+        ? retroGoConfigBytes.slice()
+        : encodeRetroGoConfig(retroGoConfig, retroGoConfigBytes ?? undefined);
+      lfsData.set("CONFIG", configBytes);
+    }
+
     if (canMigrate) {
       report.log(
         "download",
@@ -1079,8 +1095,6 @@
           }
           const dataDir = lfsTree.children?.find((c) => c.name === "data" && c.isDirectory);
           if (dataDir) await extractLfs(dataDir, "data/");
-          const configFile = lfsTree.children?.find((c) => c.name === "CONFIG" && !c.isDirectory);
-          if (configFile) lfsData.set("CONFIG", await readLfsFile("CONFIG"));
           report.log("migrate-scan", msg((t) => t.wizard.step2.logExtractedSavesSettings, lfsData.size, sumBytes(lfsData)), "lfs-extract");
         } catch (e) {
           report.log("migrate-scan", msg((t) => t.wizard.step2.logCouldNotExtractSavesSettings, errText(e)), "lfs-extract");
@@ -1828,22 +1842,31 @@
                     {#if step2Done}
                       <div class="row">
                         {#if hasUpdate}
-                          <Button variant="action" onclick={openStep2}>
+                          <Button variant="action" disabled={device.targetMedia === "flash" && !retroGoConfigLoaded} onclick={openStep2}>
                             {w.step2.upgradeButtonLabel(cleanTag(latestVersion))}
                           </Button>
                         {:else}
-                          <Button variant="quiet" onclick={openStep2}>{w.step2.reinstallButtonLabel}</Button>
+                          <Button variant="quiet" disabled={device.targetMedia === "flash" && !retroGoConfigLoaded} onclick={openStep2}>{w.step2.reinstallButtonLabel}</Button>
                         {/if}
                       </div>
                     {:else}
                       <!-- The artboards run the version you are about to install, in mono, beside the
                            button. Device/runtime-derived, so no string table entry. -->
                       <div class="row">
-                        <Button variant="action" disabled={!step2Active} onclick={openStep2}>
+                        <Button variant="action" disabled={!step2Active || (device.targetMedia === "flash" && !retroGoConfigLoaded)} onclick={openStep2}>
                           {w.step2.installButtonLabel}
                         </Button>
                         {#if latestVersion}<span class="version">{cleanTag(latestVersion)} {w.step2.versionLatest}</span>{/if}
                       </div>
+                    {/if}
+                    {#if device.targetMedia === "flash"}
+                      <RetroGoConfigPanel
+                        installed={isInstalled}
+                        bind:config={retroGoConfig}
+                        bind:configBytes={retroGoConfigBytes}
+                        bind:configLoaded={retroGoConfigLoaded}
+                        bind:alwaysUse={retroGoConfigAlwaysUse}
+                      />
                     {/if}
 
               {:else if id === "sources"}

@@ -32,14 +32,16 @@
   import { installProgress, type PhaseDef, type PhaseReporter } from "../installProgress.svelte.js";
   import { msg, errText, sumBytes } from "../logEntry.js";
   import GeometryBar from "../ui/GeometryBar.svelte";
-  import { extflashSegments, intflashSegments, type GeoSegment } from "../engine/classify.js";
+  import { extflashSegments, type GeoSegment } from "../engine/classify.js";
   import { isStubAlive } from "../engine/flasher.js";
   import { raceWithFallback } from "../engine/timeout.js";
   import { saveFileToDirOrDownload, nativeFolderPickerSupported, pickSdCardFolder } from "../romScan.js";
   import { download, formatNumber } from "../util.js";
   import JSZip from "jszip";
-  import BankCard from "../ui/BankCard.svelte";
+  import RetroGoConfigPanel from "./RetroGoConfigPanel.svelte";
+  import { encodeRetroGoConfig, defaultRetroGoConfig, type RetroGoConfigValues } from "../retroGoConfig.js";
   import { locale } from "../i18n/locale.svelte.js";
+  import { loadSel } from "../persist.js";
 
   // Tab B.1 — ROM / homebrew management. Pick a folder → scan → build the FrogFS +
   // LittleFS images (with the bundled default content) → flash. Covers + cheats fold
@@ -201,6 +203,10 @@
   );
   let frogfsOffsetStr = $state(""); // blank = auto
   let littlefsMiBStr = $state(""); // blank = auto
+  let retroGoConfig = $state<RetroGoConfigValues>(defaultRetroGoConfig());
+  let retroGoConfigBytes = $state<Uint8Array | null>(null);
+  let retroGoConfigLoaded = $state(true);
+  let retroGoConfigAlwaysUse = $state(loadSel("retro-go-config-always-use", false));
 
   // --- Bank inference (req. 0/1) ---------------------------------------------------
   const bank1 = $derived(device.banks.find((b) => b.index === 1));
@@ -229,7 +235,6 @@
     !(bank1?.bootloader === "standalone" ||
       (bank1AnyOfw?.patched && bank1?.bootloader === "dualboot")),
   );
-
   // Migration-detection basis (classify.ts's installOrigin): a soft, non-blocking heads-up when
   // the device's ACTUAL installed build (Flash vs SD, from the LittleFS/layout-superblock probe)
   // disagrees with which mode this UI is currently set to — "old" (foreign/pre-web-builder image)
@@ -343,12 +348,6 @@
   const hex = (n: number) => "0x" + (n >>> 0).toString(16);
 
   // Current on-device flash layout (from the device scan) — drives the geometry aid below.
-  const intSegs = $derived(intflashSegments(device.banks));
-  // Bank selector — reuses OverviewTab's own bank visualization (BankCard.svelte) as a
-  // clickable selector instead of a plain <select>, so the user sees exactly what's already
-  // in each bank (same bars/segments as the Overview tab) while picking where to install.
-  const bank1Segs = $derived(intSegs.filter((s) => s.bank === 1));
-  const bank2Segs = $derived(intSegs.filter((s) => s.bank === 2));
   const extSegs = $derived(extflashSegments(device.partitions, extBytes));
   const extEnd = $derived(EXTBASE + extBytes);
   const deviceScanned = $derived(device.banks.length > 0);
@@ -654,6 +653,16 @@
       const isRetroGo =
         installMode === "flash" &&
         (device.deviceClass?.kind === "retrogo-sd" || device.deviceClass?.kind === "retrogo-old");
+      // CONFIG is part of every flash-mode image. A fresh install starts with the official
+      // defaults; an existing install keeps its complete blob unless the user opted into the
+      // settings foldout's explicit override. Encoding from the original bytes preserves
+      // developer-only startup/autostart fields that this UI intentionally does not expose.
+      if (installMode === "flash") {
+        const configBytes = isRetroGo && !retroGoConfigAlwaysUse && retroGoConfigBytes
+          ? retroGoConfigBytes.slice()
+          : encodeRetroGoConfig(retroGoConfig, retroGoConfigBytes ?? undefined);
+        lfsData.set("CONFIG", configBytes);
+      }
       report.start("migrate-scan");
       // Real decision: is this a same-version repair (forces migrateGames on) or a genuine
       // upgrade/reinstall with the checkboxes as the user set them?
@@ -692,8 +701,6 @@
           }
           const dataDir = lfsTree.children?.find((c) => c.name === "data" && c.isDirectory);
           if (dataDir) await extractLfs(dataDir, "data/");
-          const configFile = lfsTree.children?.find((c) => c.name === "CONFIG" && !c.isDirectory);
-          if (configFile) lfsData.set("CONFIG", await readLfsFile("CONFIG"));
           report.log("migrate-scan", msg((t) => t.romSection.logExtractedSavesData, lfsData.size, sumBytes(lfsData)), "lfs-extract");
           report.subFinish("migrate-scan", "lfs-extract");
         } catch (e) {
@@ -1042,14 +1049,16 @@
       </div>
     {/if}
 
-    <div class="targetgroup">
-    <span class="field-label">{locale.t.romSection.bankTargetLabel}</span>
-    <div class="bank-picker">
-      <BankCard bankNum={2} segs={bank2Segs} selected />
-    </div>
-    <!-- These three notices annotate the target choice directly above them. No artboard draws
-         them, so they are not a group in the artboard's 32px body rhythm; they live INSIDE the
-         target group at its own 12px so they stay attached to the picker they qualify. -->
+    {#if installMode === "flash"}
+      <RetroGoConfigPanel
+        installed={deviceHasRetroGoInstalled}
+        bind:config={retroGoConfig}
+        bind:configBytes={retroGoConfigBytes}
+        bind:configLoaded={retroGoConfigLoaded}
+        bind:alwaysUse={retroGoConfigAlwaysUse}
+      />
+    {/if}
+
     {#if bank1NeedsBootPath}
       <p class="notice">
         {locale.t.romSection.retroGoOnlyNotice}
@@ -1059,12 +1068,12 @@
         {locale.t.romSection.bank1StockOfwNotice}
       </p>
     {/if}
+
     {#if installOriginMismatch}
       <p class="notice warn">
         {locale.t.romSection.installOriginMismatchNotice(installOriginMismatch === "flash" ? "Flash" : "SD", installMode === "sd" ? "SD" : "Flash")}
       </p>
     {/if}
-    </div>
 
     <!-- Layout (advanced): expert overrides + the device's current flash-layout geometry, both
          tucked away by default — neither is interesting for a typical install (and the
@@ -1099,8 +1108,7 @@
           {/if}
 
           <!-- Current on-device flash layout (from the scan). Grayed until a scan has run.
-               Internal-flash geometry is deliberately omitted here — the bank selector above
-               already shows that (superfluous to repeat it). SD mode projects the SD cache's
+               Internal-flash geometry is deliberately omitted here. SD mode projects the SD cache's
                reserved region onto the bar (same technique as the ROMs tab's Flash install
                geometry preview) instead of the raw scan. -->
           <div class="devgeo" class:dim={!deviceScanned && !device.scanning}>
@@ -1144,7 +1152,7 @@
         >{locale.t.romSection.layoutAdvancedToggle}</button
       >
       {#if device.isConnected}
-        <Button variant="action" disabled={flashing} onclick={onFlashButtonClick}>{flashButtonLabel}</Button>
+        <Button variant="action" disabled={flashing || (installMode === "flash" && !retroGoConfigLoaded)} onclick={onFlashButtonClick}>{flashButtonLabel}</Button>
       {/if}
     </PaneFooter>
 
@@ -1181,9 +1189,7 @@
 
 <style>
   /* Firmware.dc.html:80 — the pane body stacks its groups 32px apart (the same rhythm
-     `.pane.narrow .panebody` already uses one level up). The undrawn notices are not peers of
-     those groups: they were moved inside `.targetgroup` so they keep its 12px and stay tight to
-     the picker they annotate. */
+     `.pane.narrow .panebody` already uses one level up). */
   .stack {
     display: flex;
     flex-direction: column;
@@ -1275,13 +1281,6 @@
       animation: none;
     }
   }
-  /* Firmware.dc.html:119 — the `Target` label sits 12px above its two cards. */
-  .targetgroup {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-width: 0;
-  }
   /* Firmware.dc.html:100 — the two option rows are 14px apart. */
   .optgroup {
     gap: 14px;
@@ -1363,21 +1362,6 @@
   .footlink:focus-visible {
     outline: 2px solid var(--zelda-green);
     outline-offset: 3px;
-  }
-  /* Keep the fixed bank-2 target at a readable width without stretching across the pane. */
-  .bank-picker {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 14px;
-    max-width: 460px;
-    min-width: 0;
-  }
-  /* Firmware.dc.html:120 — the `Target` label is the same 13px/500 --ink-soft as the other
-     field labels on this pane. */
-  .field-label {
-    font-size: var(--fs-btn-sm);
-    font-weight: 500;
-    color: var(--ink-soft);
   }
   .sub-body {
     display: flex;
