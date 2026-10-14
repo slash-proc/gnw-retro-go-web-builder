@@ -454,6 +454,17 @@ await check("adoption is silent and uses the registered directories", async () =
   assert(/this\.directories\(\)/.test(adopted), "it uses the shared registered-directory list");
 });
 
+await check("Guided Return to Stock refreshes and verifies the restore transaction", async () => {
+  assert(/if \(p === "stock"\) await readRestoreDirectories\(\)/.test(wizCode),
+    "choosing Return to Stock must refresh the remembered backup inventory");
+  assert(/runRestore\(report, restoreBackup\)/.test(wizCode),
+    "the modal must pass the selected backup into the restore transaction");
+  assert(/const verdict = evaluateRestore\(/.test(wizCode),
+    "the restore transaction must re-evaluate the selected backup at confirmation time");
+  assert(/Stock firmware restore did not report a firmware write/.test(wizCode),
+    "a no-op restore must fail visibly instead of turning the Guided spine green");
+});
+
 // --- Report -----------------------------------------------------------------------------
 console.log(`\nofw-restore: ${passed} checks passed, ${failures.length} failed`);
 for (const f of failures) console.error(`  FAIL  ${f}`);

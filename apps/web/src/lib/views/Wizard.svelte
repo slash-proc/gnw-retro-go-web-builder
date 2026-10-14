@@ -1438,22 +1438,35 @@
           }
         : undefined,
       exec: async (report) => {
-        await runRestore(report);
+        // Read the selected pair when the user confirms, after the optional model picker has
+        // applied its choice. The write routine validates this snapshot again before touching
+        // the device.
+        await runRestore(report, restoreBackup);
         restoreDone = true;
       },
     });
   }
 
-  async function runRestore(report: PhaseReporter) {
-    const backup = restoreBackup!;
+  async function runRestore(report: PhaseReporter, selectedBackup: FoundBackup | null = restoreBackup) {
+    const backup = selectedBackup;
     // Re-assert the guards at the point of writing, not just in the disabled state of the
     // button: `device.model` can change under us (a rescan between selecting the folder and
     // confirming the modal), and this write is irreversible.
-    if (!restoreValid) throw new Error(w.restore.needBackup);
-    if (restoreWrongHw) throw new Error(w.restore.wrongHardware(modelLabel(backup.model), modelLabel(device.model)));
-    if (restoreTooBig) {
+    if (!backup || !backup.internalOk || !backup.externalOk) throw new Error(w.restore.needBackup);
+    const verdict = evaluateRestore(
+      {
+        model: backup.model,
+        internalOk: backup.internalOk,
+        externalOk: backup.externalOk,
+        externalLength: backup.external.length,
+      },
+      { model: device.model, extFlashBytes: device.extFlashBytes },
+    );
+    if (!verdict.valid) throw new Error(w.restore.needBackup);
+    if (verdict.refusal === "wrong-hardware")
+      throw new Error(w.restore.wrongHardware(modelLabel(backup.model), modelLabel(device.model)));
+    if (verdict.refusal === "too-big")
       throw new Error(w.restore.tooBig(MiB(backup.external.length), MiB(device.extFlashBytes)));
-    }
 
     // One unforced (i.e. confirming) ensureStub for the whole flow — this is where the user
     // grants Recovery Mode. Every getter below it is silent and must never re-prompt for the
@@ -1523,6 +1536,13 @@
     }
     if (flashInternalStarted && !flashExternalStarted) report.finish("flash-internal");
     if (flashExternalStarted) report.finish("flash-external");
+
+    // A non-empty, hash-validated backup must produce progress from both writes. Without this
+    // invariant a changed flasher callback shape could let the modal finish and turn the entire
+    // Guided spine green while no stock image was sent to the target.
+    if (!flashInternalStarted || (backup.external.length > 0 && !flashExternalStarted)) {
+      throw new Error("Stock firmware restore did not report a firmware write; nothing was changed.");
+    }
 
     report.start("rescan");
     report.log("rescan", msg((t) => t.wizard.common.rescanningDeviceGeometry));
@@ -1614,6 +1634,7 @@
     void (async () => {
       await detectBackupVariant();
       await Promise.all([backupPresence.refresh(), backupPresence.scanDirectories()]);
+      if (p === "stock") await readRestoreDirectories();
     })();
   }
 </script>
