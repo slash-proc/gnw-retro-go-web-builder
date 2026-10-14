@@ -33,7 +33,7 @@
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import type { LittlefsTreeNode, MappedSpec } from "@gnw/fs-builders";
   import RetroGoConfigPanel from "../advanced/RetroGoConfigPanel.svelte";
-  import { encodeRetroGoConfig, defaultRetroGoConfigForLocale, sameRetroGoConfigBytes, type RetroGoConfigValues } from "../retroGoConfig.js";
+  import { encodeRetroGoConfig, defaultRetroGoConfigForLocale, type RetroGoConfigValues } from "../retroGoConfig.js";
   import { prepareState } from "../sources/prepareState.svelte.js";
   import JSZip from "jszip";
   import logoRgo from "../../assets/logo-rgo.png";
@@ -914,32 +914,6 @@
   let retroGoConfigBytes = $state<Uint8Array | null>(null);
   let retroGoConfigLoaded = $state(true);
   let retroGoConfigAlwaysUse = $state(loadSel("retro-go-config-always-use", false));
-  let keepSettings = $state(false);
-  let keepSettingsDefaultApplied = $state(false);
-  const retroGoConfigInstallBytes = $derived(encodeRetroGoConfig(retroGoConfig, retroGoConfigBytes ?? undefined));
-  const retroGoConfigDefaultBytes = $derived(encodeRetroGoConfig(defaultRetroGoConfigForLocale(locale.current)));
-  const retroGoConfigChanged = $derived(
-    retroGoConfigLoaded && !sameRetroGoConfigBytes(
-      retroGoConfigInstallBytes,
-      retroGoConfigBytes ?? retroGoConfigDefaultBytes,
-    ),
-  );
-
-  // Existing installs preserve their CONFIG by default. A user who opted into the persistent
-  // setting preference gets the editable panel on each future install instead; fresh installs
-  // always start from the official defaults.
-  $effect(() => {
-    if (device.scanning) return;
-    if (!isInstalled) {
-      keepSettings = false;
-      keepSettingsDefaultApplied = false;
-      return;
-    }
-    if (!keepSettingsDefaultApplied) {
-      keepSettings = !retroGoConfigAlwaysUse;
-      keepSettingsDefaultApplied = true;
-    }
-  });
 
   // SD mode + a real folder picker (i.e. not Firefox, which has no File System Access API and
   // can't produce a writable directory handle) requires the SAME SD-card folder the ROMs tab
@@ -976,6 +950,7 @@
         ? [
             { id: "migrateGames", label: () => locale.t.wizard.step2.checkboxMigrateGames, default: false },
             { id: "migrateSaves", label: () => locale.t.wizard.step2.checkboxMigrateSaves, default: true },
+            { id: "keepSettings", label: () => locale.t.romSection.migrateSettingsLabel, default: true },
           ]
         : [],
       confirmGate:
@@ -1070,6 +1045,7 @@
     // itself, not on this card) rather than local component state.
     const migrateGames = installProgress.checkboxValues.migrateGames ?? false;
     const migrateSaves = installProgress.checkboxValues.migrateSaves ?? false;
+    const keepSettings = installProgress.checkboxValues.keepSettings ?? true;
 
     // CONFIG is always present in a flash-mode image. Keep the complete on-device blob by
     // default during upgrade/reinstall, or encode the values selected in the foldout when the
@@ -1315,8 +1291,7 @@
       report.log("sd-sync", msg((t) => t.wizard.step2.logSdSyncStarting));
       // Keyed off the bank we just installed: SD cores call back into firmware at
       // bank-specific absolute addresses, so the tree must match `install.bank`.
-      const sdTree = new Map(bundle.contentFor(install.bank, true));
-      if (retroGoConfigChanged) sdTree.set("CONFIG", retroGoConfigInstallBytes.slice());
+      const sdTree = bundle.contentFor(install.bank, true);
       report.log("sd-sync", msg((t) => t.wizard.step2.logSdSyncFoundItems, sdTree.size, sumBytes(sdTree)));
       if (device.sdHandle) {
         let totalFiles = sdTree.size;
@@ -1886,22 +1861,16 @@
                         {#if latestVersion}<span class="version">{cleanTag(latestVersion)} {w.step2.versionLatest}</span>{/if}
                       </div>
                     {/if}
-                    {#if device.targetMedia === "flash" && isInstalled}
-                        <label class="config-keep-settings">
-                          <input type="checkbox" bind:checked={keepSettings} />
-                          <span>{locale.t.romSection.migrateSettingsLabel}</span>
-                        </label>
+                    {#if device.targetMedia === "flash"}
+                      <RetroGoConfigPanel
+                        installed={isInstalled}
+                        bind:config={retroGoConfig}
+                        bind:configBytes={retroGoConfigBytes}
+                        bind:configLoaded={retroGoConfigLoaded}
+                        bind:alwaysUse={retroGoConfigAlwaysUse}
+                        showControls={false}
+                      />
                     {/if}
-                    <RetroGoConfigPanel
-                      installed={isInstalled}
-                      bind:config={retroGoConfig}
-                      bind:configBytes={retroGoConfigBytes}
-                      bind:configLoaded={retroGoConfigLoaded}
-                      bind:alwaysUse={retroGoConfigAlwaysUse}
-                      medium={device.targetMedia}
-                      sdHandle={device.sdHandle}
-                      disabled={device.targetMedia === "flash" && keepSettings}
-                    />
 
               {:else if id === "sources"}
                     <Button variant="quiet" onclick={() => (sourcesModalOpen = true)}>{w.spine.sourcesButtonLabel}</Button>
@@ -2309,13 +2278,6 @@
     display: flex;
     gap: 18px;
     align-items: center;
-  }
-  .config-keep-settings {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: var(--fs-caption);
-    color: var(--ink-soft);
   }
   .found {
     font-size: var(--fs-btn-sm);

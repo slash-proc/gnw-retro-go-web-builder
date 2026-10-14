@@ -8,6 +8,7 @@ import { deviceSafety } from "../installProgress.svelte.js";
 import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
 import { readRomFile, saveFileToDirOrDownload, type RomDirHandle } from "../romScan.js";
   import {
+    defaultRetroGoConfig,
     defaultRetroGoConfigForLocale,
   encodeRetroGoConfig,
     normalizeRetroGoConfig,
@@ -31,6 +32,7 @@ import { readRomFile, saveFileToDirOrDownload, type RomDirHandle } from "../romS
     alwaysUse = $bindable(loadSel("retro-go-config-always-use", false)),
     medium = "flash",
     sdHandle = null,
+    showControls = true,
   }: {
     installed?: boolean;
     config: RetroGoConfigValues;
@@ -40,6 +42,7 @@ import { readRomFile, saveFileToDirOrDownload, type RomDirHandle } from "../romS
     alwaysUse: boolean;
     medium?: "flash" | "sd";
     sdHandle?: RomDirHandle | null;
+    showControls?: boolean;
   } = $props();
 
   let loading = $state(false);
@@ -169,7 +172,7 @@ import { readRomFile, saveFileToDirOrDownload, type RomDirHandle } from "../romS
   const settingsChanged = $derived.by(() => {
     if (!installed || !configLoaded || loading) return false;
     const next = encodeRetroGoConfig(config, configBytes ?? undefined);
-    const baseline = configBytes ?? encodeRetroGoConfig(defaultRetroGoConfigForLocale(locale.current));
+    const baseline = configBytes ?? encodeRetroGoConfig(defaultRetroGoConfig());
     return !sameRetroGoConfigBytes(next, baseline);
   });
 
@@ -206,6 +209,7 @@ import { readRomFile, saveFileToDirOrDownload, type RomDirHandle } from "../romS
 
 </script>
 
+{#if showControls}
 <details class="config-foldout" class:config-disabled={disabled} aria-disabled={disabled} bind:open={configOpen}>
   <summary onclick={preventDisabledToggle}>
     <span class="summary-title">{locale.t.romSection.configTitle}</span>
@@ -289,6 +293,7 @@ import { readRomFile, saveFileToDirOrDownload, type RomDirHandle } from "../romS
     <p class="config-footnote">{locale.t.romSection.configPreserveNote}</p>
   </div>
 </details>
+{/if}
 
 <style>
   .config-foldout {

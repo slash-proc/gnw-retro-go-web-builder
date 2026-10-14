@@ -39,7 +39,7 @@
   import { download, formatNumber } from "../util.js";
   import JSZip from "jszip";
   import RetroGoConfigPanel from "./RetroGoConfigPanel.svelte";
-  import { encodeRetroGoConfig, defaultRetroGoConfigForLocale, sameRetroGoConfigBytes, type RetroGoConfigValues } from "../retroGoConfig.js";
+  import { encodeRetroGoConfig, defaultRetroGoConfig, defaultRetroGoConfigForLocale, sameRetroGoConfigBytes, type RetroGoConfigValues } from "../retroGoConfig.js";
   import { locale } from "../i18n/locale.svelte.js";
   import { loadSel } from "../persist.js";
 
@@ -208,7 +208,7 @@
   let retroGoConfigLoaded = $state(true);
   let retroGoConfigAlwaysUse = $state(loadSel("retro-go-config-always-use", false));
   const retroGoConfigInstallBytes = $derived(encodeRetroGoConfig(retroGoConfig, retroGoConfigBytes ?? undefined));
-  const retroGoConfigDefaultBytes = $derived(encodeRetroGoConfig(defaultRetroGoConfigForLocale(locale.current)));
+  const retroGoConfigDefaultBytes = $derived(encodeRetroGoConfig(defaultRetroGoConfig()));
   const retroGoConfigChanged = $derived(
     retroGoConfigLoaded && !sameRetroGoConfigBytes(
       retroGoConfigInstallBytes,
