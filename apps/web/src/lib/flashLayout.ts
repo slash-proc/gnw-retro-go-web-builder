@@ -60,6 +60,32 @@ export function scanReservedOffset(partitions: readonly ExtPartition[], blockSiz
 }
 
 /**
+ * The minimum external-flash floor occupied by the selected stock firmware.
+ *
+ * Mario's stock image owns the first MiB and Zelda's owns the first 4 MiB.  A
+ * Guided install may be moving from one stock image to the other, so this is
+ * used as a target floor while the old scanned FrogFS offset remains the read
+ * source for migration.
+ */
+export function stockReservedOffset(model: string, blockSize: number): number {
+  const raw = model === "zelda" ? 4 * 1048576 : model === "mario" ? 1 * 1048576 : 0;
+  return raw > 0 ? Math.ceil(raw / blockSize) * blockSize : 0;
+}
+
+/**
+ * Preserve the existing content location while ensuring the selected stock
+ * image has enough room below FrogFS.  This is deliberately monotonic: a
+ * migration never moves FrogFS toward address zero.
+ */
+export function targetReservedOffset(
+  existingOffset: number,
+  model: string,
+  blockSize: number,
+): number {
+  return Math.max(existingOffset, stockReservedOffset(model, blockSize));
+}
+
+/**
  * `FILESYSTEM_SIZE` when the Makefile is left to its own devices:
  * `EXTFLASH_SIZE / 10 / 4096 * 4096` (Makefile.common ~line 163) — a tenth of the chip,
  * rounded DOWN to 4096. Reproduced exactly, including the truncating division.

@@ -28,7 +28,7 @@
   import { download, formatNumber } from "../util.js";
   import { hex } from "../advanced/addr.js";
   import { readFrogfsState } from "../engine/fsscan.js";
-  import { scanReservedOffset, defaultLittlefsLength } from "../flashLayout.js";
+  import { scanReservedOffset, defaultLittlefsLength, targetReservedOffset } from "../flashLayout.js";
   import { readGameData } from "../engine/frogfsDevice.js";
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import type { LittlefsTreeNode, MappedSpec } from "@gnw/fs-builders";
@@ -776,20 +776,6 @@
   const blockSize = $derived(device.info?.minEraseSizeBytes ?? 4096);
   // What this unit already reserves at the bottom. Not a preference — a scan result.
   const chosenReserved = $derived(scanReservedOffset(device.partitions, blockSize));
-  // Bytes handed to buildFlashInstall. Null means "let the builder size it" (its own cores +
-  // headroom rule) — which is what an unsupported chip geometry, and SD mode, get: SD_CARD=1
-  // sets EXTFLASH_TOTAL_LENGTH = 0 and compiles no FrogFS/LittleFS at all, so external flash
-  // there is a round-robin ROM cache with no partitions to divide.
-  const installLittlefsLength = $derived(
-    device.targetMedia === "sd"
-      ? null
-      : defaultLittlefsLength({
-          extflashSize: device.extFlashBytes,
-          blockSize,
-          reservedOffset: path === "rgo" ? 0 : chosenReserved,
-        }),
-  );
-
   // Step 2: Install Retro-Go
   let step2Active = $derived((path === "dual" ? patchStepDone : (!rgoNeedsBackup || backupStepDone)) && !isInstalled);
   let step2Done = $derived(isInstalled);
@@ -1029,13 +1015,22 @@
   ]);
 
   async function runStep2(report: PhaseReporter) {
-    // Both derived from the scan above (see lib/flashLayout.ts): `chosenReserved` is the
-    // bottom-reserved size this device already has, and `installLittlefsLength` the computed
-    // read-write partition — null only when the chip geometry was not layoutable, in which
-    // case buildFlashInstall falls back to its own cores+headroom sizing.
-    // Retro-Go Only overwrites stock firmware and therefore owns extflash from offset 0.
-    // Dual Boot must preserve the scanned OFW/assets reservation.
-    const reservedOffset = chosenReserved;
+    // Keep two offsets during a migration. `sourceReservedOffset` is where the existing
+    // FrogFS lives and must be used for SWD reads. `reservedOffset` is where the new image
+    // starts. If the selected stock firmware owns a larger external prefix (Mario 1 MiB,
+    // Zelda 4 MiB), the new image moves FrogFS upward so the stock image is not clobbered.
+    const sourceReservedOffset = chosenReserved;
+    // After a cross-variant stock selection, `backupModelOverride` is the model actually
+    // being installed even if live hardware detection still reports the original model.
+    const targetStockModel = backupModelOverride ?? backupModel;
+    const reservedOffset = targetReservedOffset(sourceReservedOffset, targetStockModel, blockSize);
+    const installLittlefsLength = device.targetMedia === "sd"
+      ? null
+      : defaultLittlefsLength({
+          extflashSize: device.extFlashBytes,
+          blockSize,
+          reservedOffset,
+        });
 
     const userRoms = new Map<string, Uint8Array>();
     const lfsData = new Map<string, Uint8Array>();
@@ -1076,12 +1071,12 @@
 
       if (migrateSaves) {
         report.subStart("migrate-scan", "frogfs-state");
-        const stateWindow = device.extFlashBytes - reservedOffset;
+        const stateWindow = device.extFlashBytes - sourceReservedOffset;
         try {
-          frogfsState = await readFrogfsState(read, reservedOffset, stateWindow);
-          report.log("migrate-scan", msg((t) => t.wizard.step2.logReadPreviousGameState, hex(reservedOffset), stateWindow), "frogfs-state");
+          frogfsState = await readFrogfsState(read, sourceReservedOffset, stateWindow);
+          report.log("migrate-scan", msg((t) => t.wizard.step2.logReadPreviousGameState, hex(sourceReservedOffset), stateWindow), "frogfs-state");
         } catch (e) {
-          report.log("migrate-scan", msg((t) => t.wizard.step2.logCouldNotReadPreviousGameState, hex(reservedOffset), stateWindow, errText(e)), "frogfs-state");
+          report.log("migrate-scan", msg((t) => t.wizard.step2.logCouldNotReadPreviousGameState, hex(sourceReservedOffset), stateWindow, errText(e)), "frogfs-state");
         }
         report.subFinish("migrate-scan", "frogfs-state");
 
@@ -1124,7 +1119,7 @@
           });
         for (const g of pending) {
           const path = `${g.system}/${g.name}`;
-          userRoms.set(path, await readGameData(readTracked, reservedOffset, g));
+          userRoms.set(path, await readGameData(readTracked, sourceReservedOffset, g));
           base = Math.min(base + g.size, totalBytes);
           report.progress("migrate-scan", base, totalBytes, "games-migrate", "bytes", base);
         }
@@ -1147,7 +1142,7 @@
           const rawPath = f.path;
           const key = rawPath.startsWith("homebrews/") ? `homebrew/${rawPath.slice(10)}` : rawPath;
           if (userRoms.has(key)) continue;
-          userRoms.set(key, await read(f.dataOffs + reservedOffset, f.dataSize));
+          userRoms.set(key, await read(f.dataOffs + sourceReservedOffset, f.dataSize));
           preserved++;
         }
         dbgLog(`[wizard] preserved non-core FrogFS files: ${preserved}`);
