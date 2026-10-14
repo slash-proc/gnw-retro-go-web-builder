@@ -6,8 +6,8 @@
   import { locale } from "../i18n/locale.svelte.js";
 import { deviceSafety } from "../installProgress.svelte.js";
 import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
+import { readRomFile, saveFileToDirOrDownload, type RomDirHandle } from "../romScan.js";
   import {
-    defaultRetroGoConfig,
     defaultRetroGoConfigForLocale,
   encodeRetroGoConfig,
     normalizeRetroGoConfig,
@@ -18,6 +18,7 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
     RETRO_GO_LANGUAGE_NAMES,
     RETRO_GO_MENU_TIMEOUT_RANGE,
     RETRO_GO_VOLUME_RANGE,
+    sameRetroGoConfigBytes,
     type RetroGoConfigValues,
   } from "../retroGoConfig.js";
 
@@ -28,6 +29,8 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
     configLoaded = $bindable(false),
     disabled = false,
     alwaysUse = $bindable(loadSel("retro-go-config-always-use", false)),
+    medium = "flash",
+    sdHandle = null,
   }: {
     installed?: boolean;
     config: RetroGoConfigValues;
@@ -35,6 +38,8 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
     configLoaded: boolean;
     disabled?: boolean;
     alwaysUse: boolean;
+    medium?: "flash" | "sd";
+    sdHandle?: RomDirHandle | null;
   } = $props();
 
   let loading = $state(false);
@@ -67,15 +72,19 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
   }
 
   // A recovery scan gives us the LittleFS geometry, but CONFIG itself is read lazily here so
-  // simply connecting a device does not add another multi-block SWD read to every scan.
+  // simply connecting a device does not add another multi-block SWD read to every scan. SD mode
+  // reads the card's CONFIG file through the selected folder handle instead.
   $effect(() => {
-    const key = installed && !device.scanning && device.partitions.some((p) => p.fs === "littlefs")
-      ? `${device.deviceClass?.kind ?? ""}:${device.partitions.find((p) => p.fs === "littlefs")?.offset ?? 0}:${device.partitions.find((p) => p.fs === "littlefs")?.size ?? 0}`
-      : "";
+    const littlefs = device.partitions.find((p) => p.fs === "littlefs");
+    const key = installed && !device.scanning && medium === "flash" && littlefs
+      ? `flash:${device.deviceClass?.kind ?? ""}:${littlefs.offset}:${littlefs.size}`
+      : installed && !device.scanning && medium === "sd" && sdHandle
+        ? `sd:${sdHandle.name}`
+        : "";
     if (!key) {
       updateError = null;
       updateSuccess = false;
-      if (!installed) {
+      if (!installed || medium === "sd") {
         loadKey = "";
         config = defaultRetroGoConfigForLocale(locale.current);
         configBytes = null;
@@ -93,10 +102,17 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
     updateSuccess = false;
     void (async () => {
       try {
-        const tree = await ensureLfsTree();
-        const file = tree.children?.find((node) => node.name === "CONFIG" && !node.isDirectory);
-        if (!file) throw new Error("CONFIG was not found");
-        const bytes = await readLfsFile("CONFIG");
+        let bytes: Uint8Array;
+        if (medium === "sd") {
+          if (!sdHandle) throw new Error("SD card folder is not selected");
+          const file = await readRomFile(sdHandle, "CONFIG");
+          bytes = new Uint8Array(await file.arrayBuffer());
+        } else {
+          const tree = await ensureLfsTree();
+          const file = tree.children?.find((node) => node.name === "CONFIG" && !node.isDirectory);
+          if (!file) throw new Error("CONFIG was not found");
+          bytes = await readLfsFile("CONFIG");
+        }
         const parsed = parseRetroGoConfig(bytes);
         if (!parsed?.valid) throw new Error("CONFIG is invalid or from an unsupported version");
         config = normalizeRetroGoConfig(parsed.values);
@@ -104,7 +120,7 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
       } catch (error) {
         // A missing/old CONFIG is safe to replace with the official defaults. Keep this a quiet
         // status line because the install itself can repair it.
-        config = defaultRetroGoConfig();
+        config = defaultRetroGoConfigForLocale(locale.current);
         configBytes = null;
         loadError = error instanceof Error ? error.message : String(error);
       } finally {
@@ -147,17 +163,14 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
   function restoreDefaults() {
     updateError = null;
     updateSuccess = false;
-    config = defaultRetroGoConfig();
-  }
-
-  function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-    return a.length === b.length && a.every((value, index) => value === b[index]);
+    config = defaultRetroGoConfigForLocale(locale.current);
   }
 
   const settingsChanged = $derived.by(() => {
     if (!installed || !configLoaded || loading) return false;
     const next = encodeRetroGoConfig(config, configBytes ?? undefined);
-    return !configBytes || !sameBytes(next, configBytes);
+    const baseline = configBytes ?? encodeRetroGoConfig(defaultRetroGoConfigForLocale(locale.current));
+    return !sameRetroGoConfigBytes(next, baseline);
   });
 
   async function updateSettings() {
@@ -168,10 +181,14 @@ import { writeFilesToDeviceLfs } from "../engine/lfsWrite.js";
     deviceSafety.hold();
     try {
       const bytes = encodeRetroGoConfig(config, configBytes ?? undefined);
-      await writeFilesToDeviceLfs(
-        (force) => device.ensureStub(undefined, force, true, force),
-        [{ path: "CONFIG", data: bytes }],
-      );
+      if (medium === "sd") {
+        await saveFileToDirOrDownload(sdHandle, "CONFIG", bytes);
+      } else {
+        await writeFilesToDeviceLfs(
+          (force) => device.ensureStub(undefined, force, true, force),
+          [{ path: "CONFIG", data: bytes }],
+        );
+      }
       configBytes = bytes;
       updateSuccess = true;
     } catch (error) {

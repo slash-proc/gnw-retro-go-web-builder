@@ -39,7 +39,7 @@
   import { download, formatNumber } from "../util.js";
   import JSZip from "jszip";
   import RetroGoConfigPanel from "./RetroGoConfigPanel.svelte";
-  import { encodeRetroGoConfig, defaultRetroGoConfigForLocale, type RetroGoConfigValues } from "../retroGoConfig.js";
+  import { encodeRetroGoConfig, defaultRetroGoConfigForLocale, sameRetroGoConfigBytes, type RetroGoConfigValues } from "../retroGoConfig.js";
   import { locale } from "../i18n/locale.svelte.js";
   import { loadSel } from "../persist.js";
 
@@ -207,6 +207,14 @@
   let retroGoConfigBytes = $state<Uint8Array | null>(null);
   let retroGoConfigLoaded = $state(true);
   let retroGoConfigAlwaysUse = $state(loadSel("retro-go-config-always-use", false));
+  const retroGoConfigInstallBytes = $derived(encodeRetroGoConfig(retroGoConfig, retroGoConfigBytes ?? undefined));
+  const retroGoConfigDefaultBytes = $derived(encodeRetroGoConfig(defaultRetroGoConfigForLocale(locale.current)));
+  const retroGoConfigChanged = $derived(
+    retroGoConfigLoaded && !sameRetroGoConfigBytes(
+      retroGoConfigInstallBytes,
+      retroGoConfigBytes ?? retroGoConfigDefaultBytes,
+    ),
+  );
 
   // --- Bank inference (req. 0/1) ---------------------------------------------------
   const bank1 = $derived(device.banks.find((b) => b.index === 1));
@@ -575,7 +583,12 @@
       report.finish("download");
       // Must follow the SELECTED bank (this view lets the user pick it): SD cores call
       // back into firmware at bank-specific absolute addresses.
-      pendingSdContent = installMode === "sd" ? bundle.contentFor(bank, true) : null;
+      if (installMode === "sd") {
+        pendingSdContent = new Map(bundle.contentFor(bank, true));
+        if (retroGoConfigChanged) pendingSdContent.set("CONFIG", retroGoConfigInstallBytes.slice());
+      } else {
+        pendingSdContent = null;
+      }
 
       const userRoms = new Map<string, Uint8Array>();
 
@@ -1055,14 +1068,16 @@
       </div>
     {/if}
 
-    {#if installMode === "flash"}
+    {#if installMode === "flash" || installMode === "sd"}
       <RetroGoConfigPanel
         installed={deviceHasRetroGoInstalled}
         bind:config={retroGoConfig}
         bind:configBytes={retroGoConfigBytes}
         bind:configLoaded={retroGoConfigLoaded}
         bind:alwaysUse={retroGoConfigAlwaysUse}
-        disabled={keepSettings}
+        medium={installMode}
+        sdHandle={device.sdHandle}
+        disabled={installMode === "flash" && keepSettings}
       />
     {/if}
 
@@ -1155,7 +1170,7 @@
          column's second child. -->
     <PaneFooter summary={footerSummary}>
       {#if device.isConnected}
-        <Button variant="action" disabled={flashing || (installMode === "flash" && !retroGoConfigLoaded)} onclick={onFlashButtonClick}>{flashButtonLabel}</Button>
+        <Button variant="action" disabled={flashing || !retroGoConfigLoaded} onclick={onFlashButtonClick}>{flashButtonLabel}</Button>
       {/if}
     </PaneFooter>
 

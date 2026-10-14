@@ -33,7 +33,7 @@
   import { ensureLfsTree, readLfsFile } from "../engine/lfsBrowser.js";
   import type { LittlefsTreeNode, MappedSpec } from "@gnw/fs-builders";
   import RetroGoConfigPanel from "../advanced/RetroGoConfigPanel.svelte";
-  import { encodeRetroGoConfig, defaultRetroGoConfigForLocale, type RetroGoConfigValues } from "../retroGoConfig.js";
+  import { encodeRetroGoConfig, defaultRetroGoConfigForLocale, sameRetroGoConfigBytes, type RetroGoConfigValues } from "../retroGoConfig.js";
   import { prepareState } from "../sources/prepareState.svelte.js";
   import JSZip from "jszip";
   import logoRgo from "../../assets/logo-rgo.png";
@@ -916,6 +916,14 @@
   let retroGoConfigAlwaysUse = $state(loadSel("retro-go-config-always-use", false));
   let keepSettings = $state(false);
   let keepSettingsDefaultApplied = $state(false);
+  const retroGoConfigInstallBytes = $derived(encodeRetroGoConfig(retroGoConfig, retroGoConfigBytes ?? undefined));
+  const retroGoConfigDefaultBytes = $derived(encodeRetroGoConfig(defaultRetroGoConfigForLocale(locale.current)));
+  const retroGoConfigChanged = $derived(
+    retroGoConfigLoaded && !sameRetroGoConfigBytes(
+      retroGoConfigInstallBytes,
+      retroGoConfigBytes ?? retroGoConfigDefaultBytes,
+    ),
+  );
 
   // Existing installs preserve their CONFIG by default. A user who opted into the persistent
   // setting preference gets the editable panel on each future install instead; fresh installs
@@ -1307,7 +1315,8 @@
       report.log("sd-sync", msg((t) => t.wizard.step2.logSdSyncStarting));
       // Keyed off the bank we just installed: SD cores call back into firmware at
       // bank-specific absolute addresses, so the tree must match `install.bank`.
-      const sdTree = bundle.contentFor(install.bank, true);
+      const sdTree = new Map(bundle.contentFor(install.bank, true));
+      if (retroGoConfigChanged) sdTree.set("CONFIG", retroGoConfigInstallBytes.slice());
       report.log("sd-sync", msg((t) => t.wizard.step2.logSdSyncFoundItems, sdTree.size, sumBytes(sdTree)));
       if (device.sdHandle) {
         let totalFiles = sdTree.size;
@@ -1860,39 +1869,39 @@
                     {#if step2Done}
                       <div class="row">
                         {#if hasUpdate}
-                          <Button variant="action" disabled={device.targetMedia === "flash" && !retroGoConfigLoaded} onclick={openStep2}>
+                          <Button variant="action" disabled={!retroGoConfigLoaded} onclick={openStep2}>
                             {w.step2.upgradeButtonLabel(cleanTag(latestVersion))}
                           </Button>
                         {:else}
-                          <Button variant="quiet" disabled={device.targetMedia === "flash" && !retroGoConfigLoaded} onclick={openStep2}>{w.step2.reinstallButtonLabel}</Button>
+                          <Button variant="quiet" disabled={!retroGoConfigLoaded} onclick={openStep2}>{w.step2.reinstallButtonLabel}</Button>
                         {/if}
                       </div>
                     {:else}
                       <!-- The artboards run the version you are about to install, in mono, beside the
                            button. Device/runtime-derived, so no string table entry. -->
                       <div class="row">
-                        <Button variant="action" disabled={!step2Active || (device.targetMedia === "flash" && !retroGoConfigLoaded)} onclick={openStep2}>
+                        <Button variant="action" disabled={!step2Active || !retroGoConfigLoaded} onclick={openStep2}>
                           {w.step2.installButtonLabel}
                         </Button>
                         {#if latestVersion}<span class="version">{cleanTag(latestVersion)} {w.step2.versionLatest}</span>{/if}
                       </div>
                     {/if}
-                    {#if device.targetMedia === "flash"}
-                      {#if isInstalled}
+                    {#if device.targetMedia === "flash" && isInstalled}
                         <label class="config-keep-settings">
                           <input type="checkbox" bind:checked={keepSettings} />
                           <span>{locale.t.romSection.migrateSettingsLabel}</span>
                         </label>
-                      {/if}
-                      <RetroGoConfigPanel
-                        installed={isInstalled}
-                        bind:config={retroGoConfig}
-                        bind:configBytes={retroGoConfigBytes}
-                        bind:configLoaded={retroGoConfigLoaded}
-                        bind:alwaysUse={retroGoConfigAlwaysUse}
-                        disabled={keepSettings}
-                      />
                     {/if}
+                    <RetroGoConfigPanel
+                      installed={isInstalled}
+                      bind:config={retroGoConfig}
+                      bind:configBytes={retroGoConfigBytes}
+                      bind:configLoaded={retroGoConfigLoaded}
+                      bind:alwaysUse={retroGoConfigAlwaysUse}
+                      medium={device.targetMedia}
+                      sdHandle={device.sdHandle}
+                      disabled={device.targetMedia === "flash" && keepSettings}
+                    />
 
               {:else if id === "sources"}
                     <Button variant="quiet" onclick={() => (sourcesModalOpen = true)}>{w.spine.sourcesButtonLabel}</Button>

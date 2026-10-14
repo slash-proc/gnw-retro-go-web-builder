@@ -143,6 +143,11 @@ export function defaultRetroGoConfigForLocale(localeCode: string): RetroGoConfig
   return { ...defaultRetroGoConfig(), language: retroGoLanguageForLocale(localeCode) };
 }
 
+/** Compare complete CONFIG blobs, including fields the setup UI does not expose. */
+export function sameRetroGoConfigBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Number.isFinite(value) ? Math.trunc(value) : min));
 }

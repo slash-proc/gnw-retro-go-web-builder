@@ -23,5 +23,8 @@ assert(/class:config-disabled=\{disabled\}/.test(config) && /pointer-events: non
 assert(/writeFilesToDeviceLfs/.test(config) && /path: "CONFIG"/.test(config), "Installed CONFIG updates must write the CONFIG file directly");
 assert(/settingsChanged/.test(config) && /configUpdateSettings/.test(config), "CONFIG panel must expose an update action only for changed installed settings");
 assert(!/configFontSize|RETRO_GO_FONT_SIZE_RANGE/.test(config), "CONFIG panel must not expose the ineffective font size setting");
+assert(/readRomFile/.test(config) && /saveFileToDirOrDownload/.test(config) && /medium === "sd"/.test(config), "SD CONFIG must load and update through the card folder");
+assert(/medium=\{installMode\}/.test(src) && /retroGoConfigChanged/.test(src) && /pendingSdContent\.set\("CONFIG"/.test(src), "Advanced SD installs must include selected CONFIG settings");
+assert(/medium=\{device\.targetMedia\}/.test(wizard) && /sdTree\.set\("CONFIG"/.test(wizard), "Guided SD installs must include selected CONFIG settings");
 assert(!/offsetHint|layoutDefaultsNote/.test(src), "Advanced Layout must omit the redundant helper text");
-console.log("bankinfer: 14 passed, 0 failed");
+console.log("bankinfer: 17 passed, 0 failed");
