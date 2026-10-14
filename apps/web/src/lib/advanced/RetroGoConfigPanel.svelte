@@ -241,7 +241,7 @@
   .palette-options button { width: 100%; display: flex; align-items: center; gap: 9px; padding: 6px 7px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); font: inherit; font-size: var(--fs-caption); text-align: start; cursor: pointer; }
   .palette-options button:hover, .palette-options button:focus-visible, .palette-options button.selected { background: var(--surface-sunk); }
   .swatches { display: inline-flex; flex: none; gap: 2px; }
-  .swatches i { display: block; width: 14px; height: 14px; border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent); border-radius: 2px; }
+  .swatches i { display: block; width: 22px; height: 18px; border: 1px solid color-mix(in srgb, var(--ink) 30%, transparent); border-radius: 2px; }
   .config-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .restore { border: 0; padding: 0; color: var(--link); background: transparent; cursor: pointer; font-size: var(--fs-caption); }
   .always { display: flex; align-items: center; gap: 8px; font-size: var(--fs-caption); cursor: pointer; }
