@@ -13,7 +13,12 @@ export async function goToTab(page, name) {
   if (!label) throw new Error(`Unknown app tab: ${name}`);
   const tab = page.getByRole("tab", { name: label });
   await expect(tab).toBeVisible();
-  await tab.click();
+  // A real pointer click waits for Chromium's navigation lifecycle. Returning from the
+  // Library can tear down its long lived scan/atlas work without a document navigation, and
+  // that wait never settles even though the tab handler has run. Dispatch the same click event
+  // directly, then assert the app's selected state below; this keeps the check on the user
+  // visible contract while avoiding a browser lifecycle wait that the SPA does not use.
+  await tab.dispatchEvent("click");
   await expect(tab).toHaveAttribute("aria-selected", "true");
 }
 
