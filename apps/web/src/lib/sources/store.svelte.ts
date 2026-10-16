@@ -89,8 +89,10 @@ export interface SourceCard {
     browse?: string;
     /** Converter-input extensions for this system — `.wad` for Doom. */
     ingestable?: string[];
+    /** Extracted CORE header logo, persisted with the small summary card. */
+    logoDataUrl?: string;
   }[];
-  /** Union of every system's extensions, lowercased, for the "N ROMs matched" meta line. */
+  /** Union of every system's extensions, lowercased, for the card's ROM-match fact. */
   extensions: string[];
   releasesUrl: string;
   docs?: string;
@@ -199,7 +201,7 @@ export interface SourceRow extends Persisted {
 }
 
 /** Flatten a resolve into the small card the list renders and localStorage keeps. */
-function toCard(r: ResolvedSource, origin: SourceOrigin): SourceCard {
+function toCard(r: ResolvedSource, origin: SourceOrigin, previousCard?: SourceCard): SourceCard {
   // A source's target for this device family. The spec allows several targets (one per
   // platform); we read the Game & Watch one and fall back to the first, rather than
   // pretending a multi-platform manifest is an error.
@@ -212,6 +214,7 @@ function toCard(r: ResolvedSource, origin: SourceOrigin): SourceCard {
     { repo: r.repo, active: true, manifest: r.manifest },
   ]).systems;
   const ingestOf = new Map(registered.map((s) => [s.id, s.ingestable]));
+  const cachedLogoBySystem = new Map((previousCard?.systems ?? []).map((system) => [system.id, system.logoDataUrl]));
 
   const systems = (target.systems ?? []).map((s) => ({
     id: s.id,
@@ -222,6 +225,9 @@ function toCard(r: ResolvedSource, origin: SourceOrigin): SourceCard {
     extensions: s.extensions.map((e) => (Array.isArray(e) ? e[0] : e)),
     ...((s as { folder?: string }).folder ? { folder: (s as { folder?: string }).folder } : {}),
     browse: s.browse,
+    ...((typeof s.logoDataUrl === "string" ? s.logoDataUrl : cachedLogoBySystem.get(s.id))
+      ? { logoDataUrl: typeof s.logoDataUrl === "string" ? s.logoDataUrl : cachedLogoBySystem.get(s.id) }
+      : {}),
     ...((ingestOf.get(s.id) ?? []).length > 0 ? { ingestable: ingestOf.get(s.id) } : {}),
   }));
   const extensions = [...new Set(systems.flatMap((s) => s.extensions.map((e) => e.toLowerCase())))];
@@ -593,7 +599,7 @@ class SourcesStore {
       return;
     }
     row.releaseBundle?.();
-    row.card = toCard(imported.resolved, "bundle");
+    row.card = toCard(imported.resolved, "bundle", row.card);
     row.manifest = imported.resolved.manifest;
     row.releaseBundle = imported.release;
     row.status = "ok";
@@ -619,6 +625,25 @@ class SourcesStore {
         pinnedTag,
       })),
     );
+  }
+
+  /** Persist logo masks extracted from the latest CORE binary for this repository. */
+  cacheSystemLogos(repo: string, logos: ReadonlyMap<string, string>): void {
+    if (logos.size === 0) return;
+    const row = this.get(repo);
+    if (!row?.card || !isCoreKind(row.card.kind)) return;
+    let changed = false;
+    const systems = row.card.systems.map((system) => {
+      const logoDataUrl = logos.get(system.id) ?? logos.get(system.folder ?? "");
+      if (!logoDataUrl || system.logoDataUrl === logoDataUrl) return system;
+      changed = true;
+      return { ...system, logoDataUrl };
+    });
+    if (!changed) return;
+    this.rows = this.rows.map((item) => item.repo === repo && item.card
+      ? { ...item, card: { ...item.card, systems } }
+      : item);
+    this.persist();
   }
 
   /**
@@ -787,7 +812,7 @@ class SourcesStore {
         // A replacement keeps whatever the user had chosen; a new import starts active, as
         // `add()` does.
         active: existing ? existing.active : true,
-        card: toCard(resolved, "bundle"),
+        card: toCard(resolved, "bundle", existing?.card),
         manifest: resolved.manifest,
         origin: "bundle",
         status: "ok",
@@ -826,7 +851,7 @@ class SourcesStore {
     row.errorCode = undefined;
     try {
       const resolved = await this.resolvePinned(row);
-      row.card = toCard(resolved, "url");
+      row.card = toCard(resolved, "url", row.card);
       row.manifest = resolved.manifest;
       row.status = "ok";
       this.persist();
@@ -942,7 +967,7 @@ class SourcesStore {
     try {
       const resolved = await resolveVersion(repo, tag);
       row.pinnedTag = resolved.index.versions[0]?.tag === tag ? undefined : tag;
-      row.card = toCard(resolved, "url");
+      row.card = toCard(resolved, "url", row.card);
       row.manifest = resolved.manifest;
       row.status = "ok";
       this.persist();

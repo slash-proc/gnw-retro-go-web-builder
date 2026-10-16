@@ -8,6 +8,11 @@ OpenLara, Doom, and GBA), read [SOURCE_INSTALL_ACCOUNTING.md](./SOURCE_INSTALL_A
 first. It distinguishes the firmware's curated project list from each project's own release
 manifest and converter outputs.
 
+For the remote source management UX and the planned multiple Retro-Go firmware-repository
+model, read [RETRO_GO_REPOSITORY_SOURCES.md](./RETRO_GO_REPOSITORY_SOURCES.md). The existing
+Cores and Homebrew source experience is the first visual-refactor target; the Retro-Go
+repository pane is intentionally a later UI pass.
+
 ## The SD card and the two install paths
 
 - **SD mode vs Flash mode share UI, not budget logic.** `RomManagementTab.svelte`'s game-selection table (Select All / per-game toggles) is rendered ABOVE the `device.targetMedia === "sd"` split, so it's common to both modes. Anything reading `device.partitions`/`device.info`-derived state (`frogfsOffset`, `ceilingOffset`, `fitsGap`, `validateFit()`, the FrogFS-preview-build effect) is a Flash-only concept (the device's real flash-chip gap) and MUST early-out on `device.targetMedia === "sd"`: a device merely being connected while the user manages SD content is not a signal that Flash's constraints apply. This bit us once already (docs/AUDIT_NOTES.md item #14); don't reintroduce it when touching this shared table.

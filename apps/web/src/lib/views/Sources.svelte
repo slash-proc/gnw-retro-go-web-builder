@@ -16,6 +16,7 @@
   // semantics — never {@html}.
   import { locale } from "../i18n/locale.svelte.js";
   import { rawManifestFromCard, sources, sourceDisplayName, type SourceRow } from "../sources/store.svelte.js";
+  import { sourceCoreLogos } from "../sources/sourceCoreLogos.svelte.js";
   import { library } from "../library.svelte.js";
   import { device } from "../device.svelte.js";
   import { abiSatisfies } from "../engine/firmwareAbi.js";
@@ -26,13 +27,16 @@
   import CachePane from "../ui/CachePane.svelte";
   import AddLocalFolder from "../ui/AddLocalFolder.svelte";
   import StatPanel, { type StatRow } from "../ui/StatPanel.svelte";
+import SourceSystems from "../ui/SourceSystems.svelte";
   import AddSource from "../ui/AddSource.svelte";
   import { biosState } from "../sources/biosState.svelte.js";
-  import { metaSegments } from "../sources/metaLine.js";
+import { systemsData } from "../sources/sourceDetails.js";
   import { metaFacts as chooseMetaFacts } from "../sources/metaFacts.js";
+import type { MetaFact } from "../sources/metaFacts.js";
   import { errorText } from "../sources/errorText.js";
   import { localFolders } from "../sources/localFolders.svelte.js";
   import SdCardPane from "../ui/SdCardPane.svelte";
+  import RetroGoRepositories from "../ui/RetroGoRepositories.svelte";
   import { sdStorage } from "../sdStorage.svelte.js";
   import { loadStatedCard, saveStatedCard, type StatedCard } from "../sdCapacity.js";
   import type { Target } from "../sources/types.js";
@@ -60,6 +64,8 @@
     $props();
 
   const t = $derived(locale.t.sources);
+
+  $effect(() => sourceCoreLogos.ensure(sources.rows));
 
   let addOpen = $state(false);
   // The add view's confirming action lives in the page's ONE footer bar (ReposAdd), so the
@@ -176,8 +182,9 @@
   /** The catalogue a REMOTE pane lists, or null off one. It used to be a two-way ternary
       whose else-branch answered "core" for every non-remote pane, which is what `Update all`
       would have refreshed from the SD card page. Null forces a reader to say what it means. */
+  const isFirmwareRepoPane = $derived(pane === "remote-firmware-releases");
   const remoteKind = $derived<"core" | "homebrew" | null>(
-    !isRemotePane(pane) ? null : pane === "remote-homebrew" ? "homebrew" : "core",
+    pane === "remote-cores" ? "core" : pane === "remote-homebrew" ? "homebrew" : null,
   );
   let bulkSelected = $state<Set<string>>(new Set());
   const remoteRows = $derived(
@@ -262,7 +269,7 @@
     folderAddOpen = false;
     folderEditId = null;
     addOpen = r.page === "add";
-    sources.selected = r.page === "add" ? null : r.selected;
+    sources.selected = r.pane === "remote-firmware-releases" || r.page === "add" ? null : r.selected;
     detailsOpen = r.page === "config";
   }
 
@@ -350,14 +357,6 @@
     return abiSatisfies(abi, { version: card.abiVersion, minSize: card.abiMinSize ?? 0 });
   }
 
-  /**
-   * The meta line: short factual notes about this source, joined with a middot.
-   *
-   * The PRECEDENCE rule — which fact wins, and in particular that a build the device cannot
-   * load says so INSTEAD OF counting ROMs — lives in `sources/metaFacts.ts` so it can be
-   * tested. This function only resolves the raw inputs and maps each returned token to its
-   * localised string.
-   */
   /** Whether a source still has a mandatory file that the user must provide.
    *
    * The card flag is a manifest summary and remains true after the BIOS or converter input has
@@ -392,7 +391,23 @@
     return true;
   }
 
-  function factTexts(row: SourceRow): string[] {
+  function factLabel(fact: MetaFact, row: SourceRow): string {
+    switch (fact.kind) {
+      case "loading": return t.loading;
+      case "error": return errorText(t, row.errorCode, row.errorDetail);
+      case "needs-newer-firmware": return t.needsNewerFirmware;
+      case "no-rom-folder": return t.noRomFolder;
+      case "no-roms": return t.noRoms;
+      case "one-rom-matched": return t.oneRomMatched;
+      case "roms-matched": return t.romsMatched(fact.count);
+      case "needs-user-files": return t.needsUserFiles;
+      case "prerelease": return t.prerelease;
+    }
+    const exhaustive: never = fact;
+    return exhaustive;
+  }
+
+  function sourceFacts(row: SourceRow): { kind: MetaFact["kind"]; text: string }[] {
     const card = row.card;
     const facts = chooseMetaFacts({
       loading: row.status === "loading",
@@ -405,52 +420,13 @@
       needsUserFiles: hasOutstandingUserFiles(row),
       prerelease: !!card?.prerelease,
     });
-    return facts.map((f) => {
-      switch (f.kind) {
-        case "loading":
-          return t.loading;
-        case "error":
-          return errorText(t, row.errorCode, row.errorDetail);
-        // The artboard's incompatible core row (Repos.dc.html, "Neo Geo Pocket") carries this
-        // INSTEAD of a ROM count, in the same plain meta text as every other fact — it is a
-        // statement about the device, not a warning, and it is styled like one.
-        case "needs-newer-firmware":
-          return t.needsNewerFirmware;
-        case "no-rom-folder":
-          return t.noRomFolder;
-        case "no-roms":
-          return t.noRoms;
-        case "one-rom-matched":
-          return t.oneRomMatched;
-        case "roms-matched":
-          return t.romsMatched(f.count);
-        case "needs-user-files":
-          return t.needsUserFiles;
-        case "prerelease":
-          return t.prerelease;
-      }
-    });
+    return facts.map((fact) => ({ kind: fact.kind, text: factLabel(fact, row) }));
   }
 
-  /**
-   * The one meta line under a row's repo slug, as segments joined by a light divider — the
-   * Repos artboard’s `WonderSwan, WS Color · .ws .wsc | 4 ROMs matched`.
-   *
-   * The composition rule itself — what segment 0 says, and that a row never counts titles —
-   * lives in `sources/metaLine.ts` so it can be tested. This function only resolves the
-   * localised parts and hands them over.
-   */
-  function metaLine(row: SourceRow): string[] {
-    // A bundle row restoring its kept zip is neither yet: it is not usable, but it is also not
-    // asking for a file. Say nothing and let `factTexts` show "loading" — the alternative is a
-    // line that tells the user to re-import while we are busy proving they do not have to.
-    const originNote =
-      row.origin === "bundle" && row.status !== "loading"
-        ? row.manifest
-          ? t.bundleUnverified
-          : t.bundleReimport
-        : undefined;
-    return metaSegments(row.card, originNote, factTexts(row));
+  /** Bundle provenance is its own state, separate from project facts and release state. */
+  function bundleState(row: SourceRow): string | undefined {
+    if (row.origin !== "bundle" || row.status === "loading") return undefined;
+    return row.manifest ? t.bundleUnverified : t.bundleReimport;
   }
 
   // The "Additional files" section (ui/AdditionalFiles.svelte) reads `biosState`, so the
@@ -523,14 +499,16 @@
   );
 
   const installsTotal = $derived(installTotal(installRows));
+  const detailSystems = $derived(systemsData(detail?.card));
 
   /**
    * The RELEASE panel (SourcesHomebrewConfig / SourcesCoreConfig artboards).
    *
    * MANIFEST-BACKED, ROW BY ROW. Every row here is one declared field and nothing else:
    * `tag`/`publishedAt` and `needsUserFiles` from the resolved versions entry (flattened onto
-   * the card), `requiresAbi` from the same, `storage` from the manifest, and — cores only
-   * — `systems[].longName` / `systems[].extensions[]`. A field the publisher did not state
+   * the card), `requiresAbi` from the same, and `storage` from the manifest. Core
+   * `systems[].longName` / `systems[].extensions[]` are presented in their own grouped section.
+   * A field the publisher did not state
    * drops its row rather than showing a guess: `storage` is optional in the schema, and
    * "not stated" is not "neither".
    *
@@ -558,20 +536,9 @@
     if (storage && storage.length > 0) {
       rows.push({
         label: t.release.validTargets,
-        value: storage
-          .map((m) => (m === "sd" ? t.release.storageSd : t.release.storageFlash))
-          .join(", "),
+        value: "",
+        items: storage.map((m) => (m === "sd" ? t.release.storageSd : t.release.storageFlash)),
       });
-    }
-    // Core-only rows. `systems` is empty for a homebrew by construction (spec/07 forbids
-    // `systems[]` there), so this is a presence test, not a kind test.
-    if (card.systems.length > 0) {
-      rows.push({
-        label: t.release.systems,
-        value: card.systems.map((sys) => sys.longName).join(", "),
-      });
-      const exts = [...new Set(card.systems.flatMap((sys) => sys.extensions))];
-      if (exts.length > 0) rows.push({ label: t.release.fileTypes, value: exts.join(" ") });
     }
     return rows;
   });
@@ -626,6 +593,11 @@
           label: t.colHomebrew,
           count: sources.byKind.homebrew.length as number | null,
         },
+        {
+          id: "remote-firmware-releases" as SourcePaneId,
+          label: t.retroGoReleases,
+          count: null as number | null,
+        },
       ],
     },
   ]);
@@ -633,7 +605,7 @@
   /**
    * The page's title is the RAIL'S OWN LABEL for the mounted pane.
    *
-   * It used to be a second table: a ternary chain over four ids whose final else was
+   * It used to be a second table: a ternary chain over the pane ids whose final else was
    * `t.colHomebrew`. That made `Homebrew` the title of anything the chain did not name, which
    * is exactly what the SD card page drew. Reading the rail instead means the two can never
    * disagree, and a pane with no entry has no title rather than inheriting the last one.
@@ -691,6 +663,7 @@
               detailsOpen = false;
               addOpen = false;
               folderAddOpen = false;
+              if (it.id === "remote-firmware-releases") sources.selected = null;
             }}
             ><span>{it.label}</span>{#if it.count !== null}<span class="count">{it.count}</span
               >{/if}</button
@@ -793,6 +766,15 @@
                 {/if}
               </div>
             {/if}
+          </div>
+        </div>
+      {/if}
+
+      {#if detailSystems.length > 0}
+        <div class="section">
+          <div class="cap">{t.release.systems}</div>
+          <div class="panel boxed">
+            <SourceSystems systems={detailSystems} density="comfortable" />
           </div>
         </div>
       {/if}
@@ -979,6 +961,10 @@
     <!-- The remote catalogue list, and the ONLY branch that reads `remoteKind`. Testing the kind
          itself rather than closing with a bare `{:else}` is what keeps a pane with no catalogue
          out of here: that else-branch is where `local-sd` used to land. -->
+    {:else if isFirmwareRepoPane}
+      <div class="panebody">
+        <RetroGoRepositories />
+      </div>
     {:else if remoteKind}
       {@const rows = remoteKind === "core" ? sources.byKind.core : sources.byKind.homebrew}
       <div class="listregion">
@@ -995,49 +981,51 @@
           <p class="empty">{t.emptyColumn}</p>
         {:else}
           {#each rows as row (row.repo)}
-            {@const segments = metaLine(row)}
+            {@const systems = systemsData(row.card)}
+            {@const facts = sourceFacts(row)}
+            {@const bundleNote = bundleState(row)}
             <div
               class="row"
               class:sel={sources.selected === row.repo}
-              role="button"
-              tabindex="0"
-              onclick={() => select(row.repo)}
-              ondblclick={() => {
-                sources.selected = row.repo;
-                detailsOpen = true;
-              }}
-              onkeydown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  select(row.repo);
-                }
-              }}
+              class:failed={row.status === "error"}
             >
               <input
                 class="rowcheck"
                 type="checkbox"
                 checked={bulkSelected.has(row.repo)}
                 aria-label={row.card?.title ?? row.repo}
-                onclick={(e) => e.stopPropagation()}
-                ondblclick={(e) => e.stopPropagation()}
                 onchange={() => toggleBulk(row.repo)}
               />
-              <div class="main">
-                <div class="identity">
-                  <div class="name">{row.card?.title ?? row.repo}</div>
-                  <div class="repo">{sourceDisplayName(row)}</div>
-                </div>
-                {#if segments.length > 0}
-                  <div class="meta" class:bad={row.status === "error"}>
-                    {#each segments as segment, i (i)}{#if i > 0}<span class="sep">|</span
-                      >{/if}{segment}{/each}
-                  </div>
-                {/if}
-              </div>
-              <div class="side">
-                <div class="version">{row.card?.tag ?? ""}</div>
-                <span class="pill" class:on={row.active}>{row.active ? t.active : t.inactive}</span>
-              </div>
+              <button
+                type="button"
+                class="rowpick"
+                aria-pressed={sources.selected === row.repo}
+                onclick={() => select(row.repo)}
+                ondblclick={() => {
+                  sources.selected = row.repo;
+                  detailsOpen = true;
+                }}
+              >
+                <span class="main">
+                  <span class="identity">
+                    <span class="name">{row.card?.title ?? row.repo}</span>
+                    <span class="repo">{sourceDisplayName(row)}</span>
+                  </span>
+                  {#if systems.length > 0}<SourceSystems systems={systems} />{/if}
+                  {#if bundleNote || facts.length > 0}
+                    <span class="facts">
+                      {#if bundleNote}<span class="fact bundle">{bundleNote}</span>{/if}
+                      {#each facts as fact, i (`${fact.kind}:${i}`)}
+                        <span class="fact" class:alert={fact.kind === "needs-newer-firmware" || fact.kind === "error"} class:attention={fact.kind === "needs-user-files"} class:quiet={fact.kind === "loading" || fact.kind === "prerelease"}>{fact.text}</span>
+                      {/each}
+                    </span>
+                  {/if}
+                </span>
+                <span class="side">
+                  {#if row.card?.tag}<span class="version">{row.card.tag}</span>{/if}
+                  <span class="pill" class:on={row.active}>{row.active ? t.active : t.inactive}</span>
+                </span>
+              </button>
             </div>
           {/each}
         {/if}
@@ -1059,7 +1047,9 @@
               onclick={() => void sources.retryCurated(remoteKind)}>{t.retry}</button
             >
           </div>
-          <span class="curatedfailnames">{failed.map((f) => f.title).join(", ")}</span>
+          <span class="curatedfailnames">
+            {#each failed as item (item.repo)}<span class="failedname">{item.title}</span>{/each}
+          </span>
         </div>
       {/if}
     {/if}
@@ -1428,24 +1418,30 @@
     outline-offset: 3px;
     border-radius: var(--r-control);
   }
-  /* One line, ellipsised — this is what keeps the all-failing case from being a wall. */
+  /* Each failed curated source stays individually identifiable and can wrap as needed. */
   .curatedfailnames {
-    max-width: 420px;
-    font-size: var(--fs-btn-sm);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    max-width: 720px;
+  }
+  .failedname {
+    padding: 2px 7px;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    background: var(--surface);
+    font-size: var(--fs-chip);
     color: var(--ink-soft);
     font-family: var(--font-mono);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
-  /* Repos draws this as a borderless white panel on the grey ground: the surface is what
-     holds the rules apart, and `--hairline` is reserved for region edges (audit 2.6). The
-     horizontal 18px stays so a selected row's -18px bleed still lands on the panel's edge. */
+  /* The remote catalogue rows use the same compact information hierarchy for cores and
+     homebrew: identity first, useful facts below, and version/state grouped at the edge.
+     Individual surfaces make scanning easier when lists get long and keep the checkbox, row
+     selection, and status visually distinct. */
   .list {
-    background: var(--surface);
-    border-radius: var(--r-card);
-    padding: 2px 18px;
+    display: grid;
+    gap: 10px;
   }
   .bulkbar {
     display: flex;
@@ -1482,44 +1478,73 @@
   }
 
   .row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
     align-items: center;
-    /* Repos.dc.html:74: the row's name block and its version/state column are 20px apart. */
     gap: 14px;
-    padding: 11px 0;
-    cursor: pointer;
+    padding: 14px 16px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-card);
+    background: var(--surface);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 5%, transparent);
     box-sizing: border-box;
+    transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+  }
+  .row:has(.rowpick:hover) {
+    border-color: color-mix(in srgb, var(--zelda-green) 45%, var(--hairline));
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--ink) 8%, transparent);
+  }
+  .row:has(.rowpick:focus-visible) {
+    outline: 2px solid var(--zelda-green);
+    outline-offset: 2px;
   }
   .rowcheck {
     flex: none;
-    margin-block: 0;
-    margin-inline: 0 2px;
+    margin: 0;
+    grid-column: 1;
+    grid-row: 1;
   }
-  .row + .row {
-    border-top: 1px solid var(--rule);
+  .rowpick {
+    appearance: none;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    grid-column: 2;
+    grid-row: 1;
   }
-  /* Selection bleeds past the card's own padding so the green marker sits on its edge. */
+  /* Selection uses a restrained green edge and tint. The active pill remains the separate
+     runtime state; selecting a row never implies activating its source. */
   .row.sel {
-    background: var(--tint-select);
-    box-shadow: inset 2px 0 0 var(--zelda-green);
-    margin: 0 -18px;
-    padding: 11px 18px;
-    width: calc(100% + 36px);
+    border-color: color-mix(in srgb, var(--zelda-green) 56%, var(--hairline));
+    background: color-mix(in srgb, var(--tint-select) 54%, var(--surface));
+    box-shadow: inset 3px 0 0 var(--zelda-green), 0 2px 8px color-mix(in srgb, var(--zelda-green) 8%, transparent);
   }
-  /* Repos.dc.html:74: `display: flex; flex-direction: column; gap: 3px; flex-grow: 1;
-     min-width: 0`. As a plain block the three lines stacked flush; only `.meta` had any
-     separation (its own 3px padding-top, which the artboard keeps ON TOP of the gap). */
+  .row.failed {
+    border-color: color-mix(in srgb, var(--danger) 35%, var(--hairline));
+  }
+  /* Identity and structured detail groups stay in one reading column. */
   .main {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    flex: 1;
     min-width: 0;
   }
   .identity {
     display: flex;
     align-items: baseline;
-    gap: 12px;
+    flex-wrap: wrap;
+    column-gap: 10px;
+    row-gap: 2px;
     min-width: 0;
   }
   .name {
@@ -1529,7 +1554,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 600;
-    /* Repos.dc.html: `font-size: 15px; font-weight: 600`. */
+    line-height: 1.3;
     font-size: var(--fs-lede);
   }
   .repo {
@@ -1539,30 +1564,51 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--font-mono);
-    font-size: var(--fs-micro);
+    font-size: var(--fs-chip);
     color: var(--ink-soft);
   }
-  .meta {
-    /* Repos.dc.html: 13px. --fs-btn-sm is the project's only 13px token. */
-    font-size: var(--fs-btn-sm);
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding-top: 2px;
+  }
+  .fact {
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
+    box-sizing: border-box;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ink) 5%, var(--surface));
     color: var(--ink-soft);
-    padding-top: 3px;
+    font-size: var(--fs-chip);
+    line-height: 1.3;
   }
-  .sep {
-    color: var(--ink-faint);
-    margin: 0 8px;
+  .fact.bundle {
+    background: color-mix(in srgb, #d08a16 12%, var(--surface));
+    color: color-mix(in srgb, #9a5c00 80%, var(--ink));
   }
-  .meta.bad {
+  .fact.attention {
+    background: color-mix(in srgb, #d08a16 12%, var(--surface));
+    color: color-mix(in srgb, #9a5c00 80%, var(--ink));
+  }
+  .fact.alert {
+    background: color-mix(in srgb, var(--danger) 9%, var(--surface));
     color: var(--danger);
+  }
+  .fact.quiet {
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--ink-soft);
   }
 
   .side {
-    width: 104px;
-    flex: 0 0 104px;
+    min-width: 104px;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 6px;
+    align-items: flex-end;
+    gap: 7px;
   }
   /* Repos.dc.html draws the version as `font-size: 13px; font-weight: 600; color: #1b1b1b;
      white-space: nowrap` — proportional and full-strength, NOT the mono/soft treatment the
@@ -1590,6 +1636,32 @@
     border-color: var(--zelda-green);
     color: #ffffff;
     box-shadow: var(--chip-inset);
+  }
+  @media (max-width: 700px) {
+    .row {
+      grid-template-columns: 16px minmax(0, 1fr);
+      align-items: start;
+      gap: 10px 12px;
+      padding: 13px;
+    }
+    .rowcheck { margin-top: 2px; }
+    .rowpick {
+      grid-template-columns: minmax(0, 1fr);
+      grid-column: 2;
+      grid-row: 1;
+      gap: 8px;
+    }
+    .side {
+      min-width: 0;
+      flex-direction: row;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 8px;
+    }
+    .version { font-size: var(--fs-chip); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .row { transition: none; }
   }
 
   /* Same anchored footer as the Advanced panes' `.panefoot` (lib/advanced/FirmwareRail.svelte)

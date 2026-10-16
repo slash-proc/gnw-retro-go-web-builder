@@ -27,7 +27,9 @@ import {
 /** The subset of `fetch` this client uses. */
 export type FetchLike = (url: string) => Promise<Response>;
 
-const defaultFetch: FetchLike = (url) => fetch(url, { redirect: "follow" });
+// Discovery JSON changes as releases are published. Revalidate it on each explicit refresh so
+// the browser's HTTP cache cannot keep the version picker behind its session memo.
+const defaultFetch: FetchLike = (url) => fetch(url, { redirect: "follow", cache: "no-cache" });
 
 /**
  * GET a URL and JSON-decode it. Every failure becomes a `FirmwareDistError` with a `kind` a

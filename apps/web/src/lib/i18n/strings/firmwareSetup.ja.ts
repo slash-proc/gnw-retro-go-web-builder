@@ -184,6 +184,7 @@ export const romSectionJa: RomSectionStrings = {
   logSdSyncNoHandleZipFallback: (count: number) => `sd: ディレクトリハンドルなし、${count} ファイルの zip を作成中`,
   sdSyncZipFilename: "retro-go-sd-cores.zip",
   installVersionLabel: "バージョン",
+  repositorySourceLabel: "Repository source",
   refreshVersions: "新しいバージョンを確認",
   migrateGamesLabel: "インストール済みゲームを残す",
   migrateSavesLabel: "セーブデータを残す",

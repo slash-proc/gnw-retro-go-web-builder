@@ -181,6 +181,7 @@ export const romSectionKo: RomSectionStrings = {
   logSdSyncNoHandleZipFallback: (count: number) => `sd: 디렉터리 핸들 없음, ${count}개 파일의 zip 생성 중`,
   sdSyncZipFilename: "retro-go-sd-cores.zip",
   installVersionLabel: "버전",
+  repositorySourceLabel: "Repository source",
   refreshVersions: "새 버전 확인",
   migrateGamesLabel: "설치된 게임 유지",
   migrateSavesLabel: "세이브 유지",

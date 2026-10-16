@@ -181,6 +181,7 @@ export const romSectionEs: RomSectionStrings = {
   logSdSyncNoHandleZipFallback: (count: number) => `sd: sin manejador de directorio, creando un zip de ${count} archivos`,
   sdSyncZipFilename: "retro-go-sd-cores.zip",
   installVersionLabel: "Versión",
+  repositorySourceLabel: "Repository source",
   refreshVersions: "Buscar versiones nuevas",
   migrateGamesLabel: "Conservar los juegos instalados",
   migrateSavesLabel: "Conservar partidas",

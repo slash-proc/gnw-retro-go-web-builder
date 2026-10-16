@@ -157,14 +157,14 @@ is what makes the Library tab's homebrew list possible; there is no hardcoded ca
   entry-name guards, schema gating, every length and sha256 — is re-run on restore. There is no
   "already checked once" fast path; a local store is not a trust boundary. If the store is
   unavailable or the zip no longer verifies, the row asks for the zip again, exactly as before.
-- **One meta line per row**, saying what the source gives you. A core names the systems it
-  emulates and their extensions (`WonderSwan, WS Color · .ws .wsc`), then how many files in the
-  user's picked folder those extensions match. A homebrew source carries nothing there — it is
-  already under the Homebrew heading. **No title counts anywhere.**
+- **Core capability details are grouped by system.** Each system name appears beside its own
+  extension chips, so a user can tell which file types belong to which console. Independent facts
+  such as ROM matches, required files, prerelease status, and firmware compatibility each get their
+  own compact indicator. A homebrew source has no system group. **No title counts anywhere.**
 - **Firmware compatibility** is three-valued. When the connected device publishes a firmware ABI
   table (read at `ORIGIN(FLASH) + 0x400`, see `engine/firmwareAbi.ts`) and a source's build needs
-  a newer one, the row says **"Needs newer firmware"** in that same plain meta text — it is a
-  statement about the device, not a warning, and it is styled like one. When the ABI is unknown
+  a newer one, the row shows **"Needs newer firmware"** as its own status indicator — it is a
+  statement about the device and is styled as a warning. When the ABI is unknown
   (nothing connected, no scan yet, stock OFW, a pre-ABI Retro-Go) the row makes **no claim at
   all**: the same "no data, no assertion" rule cover scraping follows when a homebrew omits
   `originalSystem`.
@@ -178,6 +178,15 @@ is what makes the Library tab's homebrew list possible; there is no hardcoded ca
   whichever tab produced them (a tab switch used to unmount the Library and drop them). The
   section itself is now `ui/AdditionalFiles.svelte`, extracted out of `views/Sources.svelte`.
   **Dropped from the design:** the `curated` and `Installed` source chips.
+- **Remote source list refresh:** Core and Homebrew rows share a responsive card layout. Each
+  card keeps the project title, repository, system/extension groups, independent status facts,
+  release tag, and active state;
+  row selection, bulk-selection checkbox, and active state remain separate interactions. The
+  detail page continues to expose release/version selection, required files, install contents,
+  source folders, retry, activation, and removal. See
+  [RETRO_GO_REPOSITORY_SOURCES.md](./RETRO_GO_REPOSITORY_SOURCES.md) for the source identity
+  model and the later multiple-firmware-repository design. The Retro-Go repository pane is not
+  part of this first visual pass.
 - Sources feed the Library tab's homebrew rows; asset extraction and the source-vs-bundle
   engine `.bin` are covered under 2.4 below.
 

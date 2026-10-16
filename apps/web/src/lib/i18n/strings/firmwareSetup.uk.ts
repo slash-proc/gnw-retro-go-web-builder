@@ -229,6 +229,7 @@ export const romSectionUk: RomSectionStrings = {
     `sd: немає доступу до теки, збирається zip з файлів: ${count}`,
   sdSyncZipFilename: "retro-go-sd-cores.zip",
   installVersionLabel: "Версія",
+  repositorySourceLabel: "Repository source",
   refreshVersions: "Перевірити наявність нових версій",
   migrateGamesLabel: "Зберегти встановлені ігри",
   migrateSavesLabel: "Зберегти збереження",

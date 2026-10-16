@@ -140,6 +140,8 @@ export interface SystemEntry {
   browse: "file" | "directory";
   compression: boolean;
   cheatExt?: string;
+  /** Browser-renderable Retro-Go header logo extracted from a CORE v3 artifact. */
+  logoDataUrl?: string;
   /**
    * The directory under `/bios` this system's BIOS files install into, when it is not the
    * system's own `id` (spec/07-cores.md). Only a couple of systems diverge — PC Engine CD

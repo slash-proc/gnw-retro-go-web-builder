@@ -31,6 +31,8 @@ export interface RawCoreSystem {
   padLogoSize: number;
   headerLogoOffset: number;
   headerLogoSize: number;
+  /** Header logo preferred for compact system labels, or pad logo as a fallback. */
+  logoDataUrl?: string;
   cheatExt: string;
 }
 
@@ -82,6 +84,7 @@ export async function rawCoreSource(
     extensions: splitExtensions(s.extensions),
     browse: s.parseType === 1 ? "directory" : "file",
     compression: false,
+    ...(s.logoDataUrl ? { logoDataUrl: s.logoDataUrl } : {}),
     ...(s.cheatExt ? { cheatExt: s.cheatExt } : {}),
   }));
   const repo = `raw/${hash}`;
@@ -163,6 +166,37 @@ function safeRange(offset: number, size: number, total: number): boolean {
   return offset <= total && size <= total - offset;
 }
 
+/** Decode the SDK's packed 1bpp retro_logo_image into a themeable SVG mask. */
+export function retroGoLogoDataUrl(input: Uint8Array, offset: number, size: number): string | undefined {
+  // Firmware's dynamic logo loader caps each blob at 8 KiB; follow that bound and reject
+  // malformed dimensions before doing any work on third-party bytes.
+  if (size < 4 || size > 8192 || !safeRange(offset, size, input.length)) return undefined;
+  const view = new DataView(input.buffer, input.byteOffset + offset, size);
+  const width = view.getUint16(0, true);
+  const height = view.getUint16(2, true);
+  if (width < 1 || width > 512 || height < 1 || height > 512) return undefined;
+  const rowBytes = Math.ceil(width / 8);
+  const imageBytes = rowBytes * height;
+  if (imageBytes > size - 4) return undefined;
+  const pixels = input.subarray(offset + 4, offset + 4 + imageBytes);
+  let path = "";
+  for (let y = 0; y < height; y++) {
+    let runStart = -1;
+    for (let x = 0; x < width; x++) {
+      const set = (pixels[y * rowBytes + (x >> 3)] & (0x80 >> (x & 7))) !== 0;
+      if (set && runStart < 0) runStart = x;
+      if ((!set || x === width - 1) && runStart >= 0) {
+        const end = set && x === width - 1 ? x + 1 : x;
+        path += `M${runStart} ${y}h${end - runStart}v1h-${end - runStart}z`;
+        runStart = -1;
+      }
+    }
+  }
+  if (!path) return undefined;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><path fill="white" d="${path}"/></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 /** Parse the external CORE v3 container. The returned bytes are the original file unchanged. */
 export function parseRawCore(input: Uint8Array, filename: string): RawCoreDescriptor {
   if (input.length < HEADER_PREFIX) throw invalid("truncated header");
@@ -202,19 +236,25 @@ export function parseRawCore(input: Uint8Array, filename: string): RawCoreDescri
     const off = base + 0x044 + i * SYSTEM_SIZE;
     const parseType = view.getUint32(off + 80, true);
     if (parseType > 1) throw invalid(`invalid parse type ${parseType}`);
+    const padLogoOffset = view.getUint32(off + 84, true);
+    const padLogoSize = view.getUint32(off + 88, true);
+    const headerLogoOffset = view.getUint32(off + 92, true);
+    const headerLogoSize = view.getUint32(off + 96, true);
+    const logoDataUrl = retroGoLogoDataUrl(input, headerLogoOffset, headerLogoSize) ??
+      retroGoLogoDataUrl(input, padLogoOffset, padLogoSize);
     systems.push({
       systemName: text(input.subarray(off, off + 32)),
       dirname: text(input.subarray(off + 32, off + 48)),
       extensions: text(input.subarray(off + 48, off + 80)),
       parseType: parseType as 0 | 1,
-      padLogoOffset: view.getUint32(off + 84, true),
-      padLogoSize: view.getUint32(off + 88, true),
-      headerLogoOffset: view.getUint32(off + 92, true),
-      headerLogoSize: view.getUint32(off + 96, true),
+      padLogoOffset,
+      padLogoSize,
+      headerLogoOffset,
+      headerLogoSize,
+      ...(logoDataUrl ? { logoDataUrl } : {}),
       cheatExt: text(input.subarray(off + 100, off + 108)),
     });
   }
-  // The header is structurally complete above; logos are intentionally not decoded or extracted.
   const version = {
     major: view.getUint8(base + 0x214),
     minor: view.getUint8(base + 0x215),

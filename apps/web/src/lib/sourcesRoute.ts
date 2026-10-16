@@ -15,8 +15,9 @@
  *   <pane>/<id>                a row selected in the list
  *   <pane>/<id>/config         that row's configure page
  *
- * `<id>` is a repo ("owner/name", which CONTAINS a slash) for the remote panes and a local
- * folder id for the local ones, so it is parsed as "everything between the pane and an
+ * `<id>` is a repo ("owner/name", which CONTAINS a slash) for Cores/Homebrew and a local
+ * folder id for the local ones; the Retro-Go pane has no selected-row route. It is parsed as
+ * "everything between the pane and an
  * optional trailing `config`" rather than by splitting on `/` and counting. `add` and
  * `config` are therefore reserved words in the id position; neither a GitHub repo path
  * ("owner/name" is always two segments) nor a generated folder id can collide with them.
@@ -34,9 +35,10 @@ export const SOURCE_PANE_IDS = [
   "local-cache",
   "remote-cores",
   "remote-homebrew",
+  "remote-firmware-releases",
 ] as const;
 
-/** The Sources tab's rail entries — three local (SD card, directories, cache) and two remote. */
+/** The Sources tab's rail entries — three local and three remote. */
 export type SourcePaneId = (typeof SOURCE_PANE_IDS)[number];
 
 /** The pane the tab opens on with no sub-route at all. */
@@ -89,6 +91,7 @@ export function defaultSourcesRoute(): SourcesRoute {
 }
 
 export function serializeSourcesRoute(r: SourcesRoute): string {
+  if (r.pane === "remote-firmware-releases") return r.pane;
   if (r.page === "add") return `${r.pane}/add`;
   if (!r.selected) return r.pane;
   // `encodeURI`, not `encodeURIComponent`: a repo id is "owner/name" and that slash is part
@@ -106,6 +109,7 @@ export function parseSourcesRoute(raw: string): SourcesRoute {
   const slash = trimmed.indexOf("/");
   const pane = slash === -1 ? trimmed : trimmed.slice(0, slash);
   if (!isPane(pane)) return defaultSourcesRoute();
+  if (pane === "remote-firmware-releases") return { pane, selected: null, page: "none" };
   let rest = slash === -1 ? "" : trimmed.slice(slash + 1);
   if (!rest) return { pane, selected: null, page: "none" };
   if (rest === "add") return { pane, selected: null, page: "add" };

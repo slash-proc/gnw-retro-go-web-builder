@@ -183,6 +183,7 @@ export const romSectionRu: RomSectionStrings = {
   logSdSyncNoHandleZipFallback: (count: number) => `sd: нет доступа к каталогу, собирается zip из файлов: ${count}`,
   sdSyncZipFilename: "retro-go-sd-cores.zip",
   installVersionLabel: "Версия",
+  repositorySourceLabel: "Repository source",
   refreshVersions: "Проверить новые версии",
   migrateGamesLabel: "Сохранить установленные игры",
   migrateSavesLabel: "Сохранить сохранения",

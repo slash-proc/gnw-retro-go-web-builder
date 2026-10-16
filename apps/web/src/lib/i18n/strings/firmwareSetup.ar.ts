@@ -214,6 +214,7 @@ export const romSectionAr: RomSectionStrings = {
     `sd: لا يوجد مقبض مجلد، بناء ملف مضغوط من ${count} ملفات`,
   sdSyncZipFilename: "retro-go-sd-cores.zip",
   installVersionLabel: "الإصدار",
+  repositorySourceLabel: "Repository source",
   refreshVersions: "البحث عن إصدارات جديدة",
   migrateGamesLabel: "الاحتفاظ بالألعاب المثبَّتة",
   migrateSavesLabel: "الاحتفاظ بملفات الحفظ",

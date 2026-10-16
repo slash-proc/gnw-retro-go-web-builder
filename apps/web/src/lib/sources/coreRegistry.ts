@@ -56,6 +56,8 @@ export interface RegisteredSystem {
   folder: string;
   longName: string;
   shortName: string;
+  /** Themeable 1bpp logo extracted from this system's CORE header, when available. */
+  logoDataUrl?: string;
   /**
    * Extensions that are INSTALLABLE as they are: `systems[].extensions`, lowercased and
    * dot-prefixed. A group's first entry is the file the launcher lists; the rest travel with
@@ -165,6 +167,7 @@ export interface RegistrySourceRow {
       folder?: string;
       browse?: string;
       ingestable?: string[];
+      logoDataUrl?: string;
     }[];
   };
   /** In-memory only, absent until the source resolves. Authoritative when present. */
@@ -347,6 +350,7 @@ export function buildCoreRegistry(rows: readonly RegistrySourceRow[]): CoreRegis
         manifest.targets.find((t) => t.platform === "game-and-watch") ?? manifest.targets[0];
       if (!target || !isCoreKind(target.kind)) continue;
       const ingest = ingestableBySystem(manifest, target);
+      const cachedLogos = new Map((row.card?.systems ?? []).map((sys) => [sys.id, sys.logoDataUrl]));
       for (const sys of (target.systems ?? []) as SystemEntry[]) {
         if (typeof sys?.id !== "string" || sys.id === "") continue;
         push({
@@ -357,6 +361,9 @@ export function buildCoreRegistry(rows: readonly RegistrySourceRow[]): CoreRegis
           folder: systemFolder(sys.id, (sys as { folder?: string }).folder),
           longName: sys.longName || sys.id,
           shortName: sys.shortName || sys.longName || sys.id,
+          ...(cachedLogos.get(sys.id) || sys.logoDataUrl
+            ? { logoDataUrl: cachedLogos.get(sys.id) || sys.logoDataUrl }
+            : {}),
           installable: normaliseExtensions(sys.extensions),
           ingestable: ingest.get(sys.id)?.ingestable ?? [],
           hashSelectedInputs: ingest.get(sys.id)?.hashSelectedInputs ?? [],
@@ -385,6 +392,7 @@ export function buildCoreRegistry(rows: readonly RegistrySourceRow[]): CoreRegis
         folder: systemFolder(sys.id, sys.folder),
         longName: sys.longName || sys.id,
         shortName: sys.shortName || sys.longName || sys.id,
+        ...(sys.logoDataUrl ? { logoDataUrl: sys.logoDataUrl } : {}),
         installable: normaliseExtensions(sys.extensions),
         ingestable: normaliseExtensions(sys.ingestable),
         browse: sys.browse === "directory" ? "directory" : "file",
@@ -498,6 +506,7 @@ export interface ConsoleGroup {
   system: string;
   label: string;
   count: number;
+  logoDataUrl?: string;
 }
 
 /**
@@ -533,6 +542,9 @@ export function consoleGroups(
       system,
       label: reg.byFolder.get(system.toLowerCase())?.shortName || labelFallback(system),
       count,
+      ...(reg.byFolder.get(system.toLowerCase())?.logoDataUrl
+        ? { logoDataUrl: reg.byFolder.get(system.toLowerCase())!.logoDataUrl }
+        : {}),
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }

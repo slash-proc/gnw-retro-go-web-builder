@@ -8,7 +8,7 @@
  * Confusing them either nags for a file that is already there or advertises a verification
  * that never happened.
  *
- * Pure and rune-free ON PURPOSE, like `metaFacts.ts`/`metaLine.ts`: no `$state`, no store
+ * Pure and rune-free ON PURPOSE, like `metaFacts.ts`/`sourceDetails.ts`: no `$state`, no store
  * import, no `locale`. The caller resolves the stores into the plain inputs below and maps
  * each returned row back to its own object and its own localised strings, so every string and
  * every store read stays in the component and a plain node test can pin the rule.

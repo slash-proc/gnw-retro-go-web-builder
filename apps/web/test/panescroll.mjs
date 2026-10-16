@@ -137,6 +137,7 @@ const BODIES = [
   ["the local folder list", "<LocalFolders"],
   ["the add-source page", "<AddSource"],
   ["the remote source list", '<div class="list">'],
+  ["the Retro-Go repository list", "<RetroGoRepositories"],
   ["the source detail body", '<div class="dbody">'],
 ];
 
@@ -164,7 +165,7 @@ check("panebodies covers every branch the pane renders", () => {
   // `AdditionalFiles` and `SourceFolders` are drawn INSIDE `.dbody`, which is itself the
   // scroll region for the detail branch, so they are not pane bodies in their own right.
   const NOT_A_BODY = new Set([
-    "<Button", "<StatPanel", "<Badge", "<InfoTip", "<Card", "<UsedBySelect",
+    "<Button", "<StatPanel", "<Badge", "<InfoTip", "<Card", "<UsedBySelect", "<SourceSystems",
     "<AdditionalFiles", "<SourceFolders",
   ]);
   const missing = [...found].filter((t) => !known.has(t) && !NOT_A_BODY.has(t));

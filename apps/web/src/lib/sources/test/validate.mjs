@@ -140,11 +140,12 @@ await esbuild.build({
     join(here, "../inputDiscovery.ts"),
     join(here, "../../fileHash.ts"),
     join(here, "../installArtifacts.ts"),
+    join(here, "../rawCore.ts"),
     join(here, "../blobCache.ts"),
     join(here, "../client.ts"),
     join(here, "../bundle.ts"),
     join(here, "../bundleStore.ts"),
-    join(here, "../metaLine.ts"),
+    join(here, "../sourceDetails.ts"),
     join(here, "../metaFacts.ts"),
     join(here, "../fileRows.ts"),
     join(here, "../installRows.ts"),
@@ -178,6 +179,7 @@ const { gateInputs, checkProcessor, parseToolInputs, parseToolOutputs, parseTool
   await load("inputGate.js");
 const { runConverter, prepareTool, gateAndRun } = await load("converter.js");
 const { fetchTargetArtifacts } = await load("installArtifacts.js");
+const { parseRawCore, retroGoLogoDataUrl } = await load("rawCore.js");
 const { BlobCache, nullBlobBackend } = await load("blobCache.js");
 const { parseManifest, parseVersions } = await load("client.js");
 const { pickText, acceptAttr, oversize, promptOrder, slotsLeft, inputNeed, splitPrompt, acceptsFolder } =
@@ -194,7 +196,7 @@ const {
   declaredExtensions,
 } = await load("inputDiscovery.js");
 const { importBundle } = await load("bundle.js");
-const { systemsSegment, metaSegments } = await load("metaLine.js");
+const { systemsData } = await load("sourceDetails.js");
 const { errorMessageKind, errorText, prepareMessageKind, prepareText } = await load("errorText.js");
 const { SUMMARY_ROW_ORDER, summaryRowKeys, composeSummaryRows, biosSummaryDecision } =
   await load("summaryRows.js");
@@ -3438,83 +3440,68 @@ check("bios: installsBios refuses conditional-idle on Flash with or without game
   eq(gateInstalls("conditional-hit", "flash", true), true, "a conditional that BIT is written");
 });
 
-// --- 14c. The Sources row meta line names systems, never counts --------------------------------
+// --- 14c. Source presentation keeps systems and extensions as structured data -----------------
 //
-// The composition rule now lives in the importable, rune-free `sources/metaLine.ts`, so these
-// checks run the REAL functions `views/Sources.svelte` calls — not a re-expression of the rule.
-// (They used to pin a local mirror, which had drifted: it joined with plain spaces where the
-// real separator is NBSP-MIDDOT-NBSP, so a genuine change to rendered output would not have
-// been caught.) The rule is the owner's: this real estate names WHAT THE SOURCE GIVES YOU and
-// never a count of titles. A regression puts "12 titles" back where the system names belong.
-
-check("sources: an emulator row's first segment is systems · extensions, with no counts", () => {
-  const seg = systemsSegment({
+// The component renders one group per system and puts that system's extensions beside it.
+// Keeping the relation in data prevents punctuation-joined facts from hiding the structure or
+// assigning extensions to the wrong system.
+check("sources: core system data preserves each system and its own extensions", () => {
+  const details = systemsData({
     kind: "emulator",
-    systems: [{ longName: "WonderSwan" }, { longName: "WS Color" }],
-    extensions: [".ws", ".wsc"],
+    systems: [
+      { id: "ws", longName: "WonderSwan", extensions: [".ws"] },
+      { id: "wsc", longName: "WS Color", extensions: [".wsc", ".pc2"] },
+    ],
   });
-  // Spelled with explicit \u00a0 escapes: the separator is NON-BREAKING on purpose, so the
-  // divider can never be the place the line wraps. A plain-space version renders differently
-  // and must not pass here.
-  eq(seg, "WonderSwan, WS Color\u00a0\u00b7\u00a0.ws .wsc", "the artboard's own line");
-  assert(!/\d+\s/.test(seg), "no count of anything");
-  // No extensions declared: the divider is dropped rather than left dangling.
-  eq(
-    systemsSegment({ kind: "emulator", systems: [{ longName: "WonderSwan" }], extensions: [] }),
-    "WonderSwan",
-    "no trailing divider",
-  );
+  eq(details.length, 2, "one record per system");
+  eq(details[0].id, "ws", "first system key");
+  eq(details[0].name, "WonderSwan", "first system name");
+  eq(details[0].extensions.length, 1, "first extension count");
+  eq(details[0].extensions[0], ".ws", "first system extension");
+  eq(details[1].name, "WS Color", "second system name");
+  eq(details[1].extensions.length, 2, "second extension count");
+  eq(details[1].extensions[0], ".wsc", "second system first extension");
+  eq(details[1].extensions[1], ".pc2", "second system second extension");
 });
 
-check("sources: a homebrew row contributes no systems segment at all", () => {
-  // Exactly `undefined`, not merely falsy: `""` would be pushed as a segment and render a
-  // stray divider with nothing on either side. `eq` is ===, so "" would fail here.
-  // The homebrew card carries systems and extensions ON PURPOSE. An empty-systems fixture here
-  // would be vacuous: the `systems.length === 0` guard alone would satisfy it, and dropping the
-  // `kind !== "emulator"` half of the guard would leave this check green.
-  eq(
-    systemsSegment({ kind: "homebrew", systems: [{ longName: "WonderSwan" }], extensions: [".ws"] }),
-    undefined,
-    "homebrew, even with systems to name",
-  );
-  eq(systemsSegment(undefined), undefined, "no card at all");
-  // An emulator card that has not resolved its systems yet is the same shape, not an empty
-  // segment.
-  eq(systemsSegment({ kind: "emulator", systems: [], extensions: [".ws"] }), undefined, "unresolved emulator");
+check("sources: homebrew cards do not claim core systems", () => {
+  eq(systemsData({ kind: "homebrew", systems: [{ longName: "WonderSwan", extensions: [".ws"] }] }).length, 0, "homebrew");
+  eq(systemsData(undefined).length, 0, "no card");
+  eq(systemsData({ kind: "emulator", systems: [] }).length, 0, "unresolved core");
 });
 
-// --- 14c'. metaSegments drops empties and pins the ORDER ---------------------------------------
-//
-// The component renders `segments.join(divider)`, so an empty element is not invisible — it is
-// a divider with nothing beside it. And the order is meaning: what the source gives you, then
-// the note about the row, then the short facts.
-check("sources: metaSegments emits no empty leading segment for a homebrew row", () => {
-  const line = metaSegments(
-    { kind: "homebrew", systems: [{ longName: "WonderSwan" }], extensions: [".ws"] },
-    undefined,
-    ["4 ROMs matched"],
-  );
-  eq(line.length, 1, "one segment, not a leading empty one");
-  eq(line[0], "4 ROMs matched", "and it is the fact");
-});
+check("raw CORE v3: extracts the header logo as a bounded, themeable 1bpp mask", () => {
+  const headerLogoOffset = 8 + 0x230;
+  const logo = new Uint8Array([8, 0, 2, 0, 0xaa, 0x55]);
+  const bytes = new Uint8Array(headerLogoOffset + logo.length + 1);
+  bytes.set(new TextEncoder().encode("CORE"), 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(4, 3, true);
+  view.setUint16(6, 0x230 + logo.length, true);
+  view.setUint32(8 + 0x00c, 1, true); // one payload segment
+  view.setUint32(8 + 0x010, 0, true);
+  view.setUint32(8 + 0x014, 1, true);
+  view.setUint32(8 + 0x040, 1, true); // one system
+  const system = 8 + 0x044;
+  bytes.set(new TextEncoder().encode("Test System"), system);
+  bytes.set(new TextEncoder().encode("test"), system + 32);
+  bytes.set(new TextEncoder().encode(".rom"), system + 48);
+  view.setUint32(system + 80, 0, true);
+  view.setUint32(system + 92, headerLogoOffset, true);
+  view.setUint32(system + 96, logo.length, true);
+  bytes.set(new TextEncoder().encode("test"), 8 + 0x217);
+  bytes[headerLogoOffset] = logo[0];
+  bytes.set(logo, headerLogoOffset);
+  bytes[bytes.length - 1] = 0x42;
 
-check("sources: metaSegments orders systems, then the origin note, then the facts", () => {
-  const card = { kind: "emulator", systems: [{ longName: "WonderSwan" }], extensions: [".ws"] };
-  const line = metaSegments(card, "note", ["fact"]);
-  eq(line.length, 3, "three segments");
-  eq(line[0], "WonderSwan\u00a0\u00b7\u00a0.ws", "systems first");
-  eq(line[1], "note", "then the origin note");
-  eq(line[2], "fact", "then the facts");
-});
-
-check("sources: a row with nothing to say yields no segments at all", () => {
-  // The component renders the meta div only when this is non-empty; a one-empty-string array
-  // would render an empty line.
-  eq(
-    metaSegments({ kind: "homebrew", systems: [{ longName: "WonderSwan" }], extensions: [".ws"] }, undefined, []).length,
-    0,
-    "no segments",
-  );
+  const parsed = parseRawCore(bytes, "test.bin");
+  const extracted = parsed.metadata.systems[0].logoDataUrl;
+  assert(extracted, "the embedded header logo should be available");
+  const svg = decodeURIComponent(extracted.slice(extracted.indexOf(",") + 1));
+  assert(svg.includes('viewBox="0 0 8 2"'), "preserves the embedded image dimensions");
+  assert(svg.includes("M0 0h1v1h-1z"), "reads pixels MSB first");
+  assert(svg.includes('fill="white"'), "uses a mask-compatible foreground");
+  eq(retroGoLogoDataUrl(bytes, bytes.length - 2, logo.length), undefined, "rejects out-of-file ranges");
 });
 
 // --- 14d. persist() -> load() really READS BACK systems[] --------------------------------------
@@ -3979,12 +3966,12 @@ pcheck("prepare: needsPrompt mirrors promptsForInput, including the optional-onl
 // 16. The Sources row FACT-PRECEDENCE rule (metaFacts.ts)  [BEGIN — self-contained]
 // ============================================================================================
 //
-// Section 14c pins how a row's meta line is COMPOSED. This pins which facts go into it, which
+// Section 14c pins how a row's discrete facts are CHOSEN. This pins which facts go into it, which
 // is a different rule and was, until `metaFacts.ts` was extracted out of `views/Sources.svelte`,
 // unguardable — it lived as an inline chain inside a Svelte `$derived`, unreachable from node.
 //
 // The one that matters is rule 3: a build the connected device explicitly CANNOT load says so
-// INSTEAD OF counting ROMs. A row reading "needs newer firmware · 4 ROMs matched" invites the
+// INSTEAD OF counting ROMs. A row that reports a firmware mismatch alongside a matching-ROM count invites the
 // user to install something that will not run. So the ABI note REPLACES the count branch — it
 // does not merely precede it.
 //
@@ -4305,7 +4292,7 @@ check("files: required covers conditional-hit but not an untriggered conditional
 
 // --- 18. errorText.ts: the source error-code -> message mapping ---------------------------------
 //
-// Two independent renderers (AddSource.svelte, Sources.svelte's meta line) share this so the
+// Two independent renderers (AddSource.svelte, Sources.svelte's source card) share this so the
 // two never drift. `errorMessageKind()` is the RULE (which codes share a message);
 // `errorText()` is the LOOKUP against a caller-supplied strings table. Both get guarded here.
 //

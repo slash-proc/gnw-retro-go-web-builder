@@ -183,6 +183,7 @@ export const romSectionNo: RomSectionStrings = {
   logSdSyncNoHandleZipFallback: (count: number) => `sd: ingen mappereferanse, bygger en zip med ${count} filer`,
   sdSyncZipFilename: "retro-go-sd-cores.zip",
   installVersionLabel: "Versjon",
+  repositorySourceLabel: "Repository source",
   refreshVersions: "Se etter nye versjoner",
   migrateGamesLabel: "Behold installerte spill",
   migrateSavesLabel: "Behold lagringer",

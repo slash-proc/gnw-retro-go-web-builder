@@ -8,6 +8,8 @@
   export interface StatRow {
     label: string;
     value: string;
+    /** Distinct values belonging to one label, rendered as individual chips. */
+    items?: string[];
     /** Colors the value text itself (was ChangeSummary's `kind`). */
     tone?: "ok" | "warn" | "muted" | "info";
     /** A separate colored addendum appended after the value, e.g. "(+2.10 MiB)" (was
@@ -94,8 +96,12 @@
     <div class="stat-row-wrap" class:total={r.total}>
       <div class="stat-row">
         <span class="stat-label">{r.label}</span>
-        <span class="stat-value {r.tone ?? ''}"
-          >{r.value}{#if r.delta}<span class="stat-delta {r.delta.direction}"> ({r.delta.text})</span>{/if}</span
+        <span class="stat-value {r.tone ?? ''}" class:items={!!r.items}
+          >{#if r.items}
+            <span class="stat-items">
+              {#each r.items as item (item)}<span class="stat-item">{item}</span>{/each}
+            </span>
+          {:else}{r.value}{#if r.delta}<span class="stat-delta {r.delta.direction}"> ({r.delta.text})</span>{/if}{/if}</span
         >
       </div>
       {#if r.detail}<div class="stat-detail">{r.detail}</div>{/if}
@@ -270,6 +276,24 @@
     white-space: normal;
     font-variant-numeric: normal;
     overflow-wrap: anywhere;
+  }
+  .stat-panel.defs .stat-value.items {
+    white-space: normal;
+  }
+  .stat-items {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .stat-item {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tint-select) 30%, var(--surface));
+    font-size: var(--fs-chip);
+    line-height: 1.35;
   }
   /* Restores the pre-unification "bank-footer" look for a fuller partition-detail footer:
      a divider off the bar above it, page background (distinct from the card's own surface),

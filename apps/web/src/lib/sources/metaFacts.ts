@@ -1,6 +1,6 @@
 /**
- * The PRECEDENCE rule for a Sources row's short factual notes — which fact a row shows, and
- * in what order. The companion to `metaLine.ts`, which owns the ordering of the whole line.
+ * The PRECEDENCE rule for the independent factual indicators on a Sources row. The card
+ * renders each returned fact as its own labeled indicator.
  *
  * This lives here, not in `views/Sources.svelte`, for one reason: the rule that a source the
  * device cannot load says SO INSTEAD OF counting ROMs is a real rule and was previously

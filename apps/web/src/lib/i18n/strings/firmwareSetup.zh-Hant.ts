@@ -185,6 +185,7 @@ export const romSectionZhHant: RomSectionStrings = {
   logSdSyncNoHandleZipFallback: (count: number) => `sd: 沒有目錄控制代碼，改建立含 ${count} 個檔案的 zip`,
   sdSyncZipFilename: "retro-go-sd-cores.zip",
   installVersionLabel: "版本",
+  repositorySourceLabel: "Repository source",
   refreshVersions: "檢查有無新版本",
   migrateGamesLabel: "保留已安裝的遊戲",
   migrateSavesLabel: "保留存檔",

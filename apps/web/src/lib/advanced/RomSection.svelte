@@ -11,6 +11,8 @@
     type FlashRegion,
   } from "../engine/flashInstall.js";
   import { listVersions, refreshVersions, fetchBundle } from "../artifacts.js";
+  import { firmwareRepositories } from "../firmwareDist/repositories.svelte.js";
+  import { versionsUrlFor } from "../sources/client.js";
   import { sameVersion } from "../firmwareDist/compare.js";
   import { dumpRegion } from "../engine/flasher.js";
   import { readFrogfsState } from "../engine/fsscan.js";
@@ -259,6 +261,16 @@
   let versions = $state<FirmwareVersion[]>([]);
   let selectedVersionTag = $state<string>("");
   let selectedVersionUserSet = false; // becomes true once the user picks explicitly
+  let versionRepository = "";
+  let versionLoadId = 0;
+
+  firmwareRepositories.load();
+
+  function repositoryLabel(repo: string): string {
+    const owner = repo.split("/")[0] ?? repo;
+    const sameOwner = firmwareRepositories.rows.filter((r) => r.repo.split("/")[0] === owner).length > 1;
+    return sameOwner ? `${owner} / ${repo.split("/")[1] ?? ""}` : owner;
+  }
 
   /**
    * Re-read the published version list on demand.
@@ -279,7 +291,10 @@
     refreshCooldown = true;
     setTimeout(() => (refreshCooldown = false), 10000);
     try {
-      const v = await refreshVersions();
+      const repo = firmwareRepositories.selectedRepo;
+      if (!repo) return;
+      const v = await refreshVersions({ versionsUrl: versionsUrlFor(repo) });
+      if (repo !== firmwareRepositories.selectedRepo) return;
       versions = v;
       // A refresh must not move a choice the user made. It may still fill an empty picker, and
       // it re-runs the installed-version match when they have not chosen, which is the case
@@ -295,7 +310,19 @@
     }
   }
   $effect(() => {
-    listVersions().then((v) => {
+    const repo = firmwareRepositories.selectedRepo;
+    const requestId = ++versionLoadId;
+    if (!repo) {
+      versions = [];
+      selectedVersionTag = "";
+      return;
+    }
+    if (versionRepository !== repo) {
+      versionRepository = repo;
+      selectedVersionUserSet = false;
+    }
+    listVersions({ versionsUrl: versionsUrlFor(repo) }).then((v) => {
+      if (requestId !== versionLoadId) return;
       versions = v;
       if (!selectedVersionUserSet && v.length > 0) {
         // The device reports a BAKED version string, which is the release's `gitTag`, not its
@@ -303,6 +330,10 @@
         const matchInstalled = v.find((x) => sameVersion(x.gitTag, installedVersion));
         selectedVersionTag = matchInstalled ? matchInstalled.tag : v[0].tag;
       }
+    }).catch((e) => {
+      if (requestId !== versionLoadId) return;
+      versions = [];
+      dbgLog("[versions] load failed:", errText(e));
     });
   });
   const latestVersion = $derived(versions[0]?.tag ?? null);
@@ -577,7 +608,13 @@
       report.log("download", msg((t) => t.romSection.logDownloadingBundle, targetVersion));
       // Phase-level (drawn unconditionally by InstallProgressModal); no new copy.
       const bundleT0 = Date.now();
-      const bundle = await fetchBundle(targetVersion, (d, t) => report.progress("download", d, t, undefined, "bytes"));
+      const repo = firmwareRepositories.selectedRepo;
+      if (!repo) throw new Error("No Retro-Go repository is selected.");
+      const bundle = await fetchBundle(
+        targetVersion,
+        (d, t) => report.progress("download", d, t, undefined, "bytes"),
+        { versionsUrl: versionsUrlFor(repo) },
+      );
       const bundleBytes = bundle.blobs[1].length + bundle.blobs[2].length;
       report.log("download", msg((t) => t.romSection.logBundleDownloaded, targetVersion, bundleBytes, Date.now() - bundleT0));
       report.finish("download");
@@ -1009,6 +1046,23 @@
 </script>
 
 <div class="stack">
+  <div class="firmware-version-controls" class:with-repository={firmwareRepositories.rows.length > 1}>
+    {#if firmwareRepositories.rows.length > 1}
+      <label class="field version">
+        <span>{locale.t.romSection.repositorySourceLabel}</span>
+        <select
+          value={firmwareRepositories.selectedRepo}
+          onchange={(e) => {
+            firmwareRepositories.select(e.currentTarget.value);
+            selectedVersionTag = "";
+          }}
+        >
+          {#each firmwareRepositories.rows as repo (repo.repo)}
+            <option value={repo.repo}>{repositoryLabel(repo.repo)}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
     <!-- Version picker — clean and minimal. The currently-installed version is already shown in
          the status bar, so there's no need to repeat an "installed → target" chip pair here;
          just a plain prompt for which version to install. -->
@@ -1049,6 +1103,7 @@
       </button>
       </div>
     </label>
+  </div>
 
     {#if installMode === "flash" && deviceHasRetroGoInstalled}
       <!-- Firmware.dc.html:100 — the two option rows are one column at `gap: 14px`. -->
@@ -1244,6 +1299,12 @@
      `padding: 0 12px`, 9px apart. */
   .version {
     gap: 9px;
+  }
+  .firmware-version-controls.with-repository {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+    gap: 16px;
   }
   /* `.field` is a column (label above control), so the refresh has to share a ROW with the
      select rather than being a third child of the field. */

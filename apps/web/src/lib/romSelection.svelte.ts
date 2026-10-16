@@ -215,6 +215,7 @@ export interface SystemGroup {
   system: string;
   label: string;
   count: number;
+  logoDataUrl?: string;
 }
 
 // Systems that aren't user-selectable emulated games: bios assets, and homebrew (native apps whose

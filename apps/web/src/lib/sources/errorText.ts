@@ -2,17 +2,16 @@
  * Why a source failed, as one line of user-facing copy.
  *
  * This lives here, not in a component, because TWO independent places render it: the
- * add-source form's `sources.addError` (ui/AddSource.svelte) and a row's meta line
+ * add-source form's `sources.addError` (ui/AddSource.svelte) and a remote source card
  * (views/Sources.svelte, via `metaFacts.ts`'s `error` fact). They must never drift.
  *
- * Pure and rune-free ON PURPOSE, like `metaLine.ts` and `metaFacts.ts`: no `$state`, no store
+ * Pure and rune-free ON PURPOSE, like `sourceDetails.ts` and `metaFacts.ts`: no `$state`, no store
  * import, no `locale`. The rule and the lookup are split so both are testable:
  *
  *  - `errorMessageKind()` is the RULE — which codes share a message. That is the part worth
  *    guarding: two codes deliberately do not get copy of their own.
- *  - `errorText()` is the LOOKUP. `metaLine.ts`'s convention is that the caller resolves
- *    anything localised and hands it in; here the whole strings table is what gets handed in,
- *    because a token-per-code would only push an identical switch into both callers.
+ *  - `errorText()` is the LOOKUP. The caller hands in its localised strings table because a
+ *    token-per-code would only push an identical switch into both callers.
  *
  * `detail` is untrusted third-party text (a URL, a schemaVersion). It is interpolated into a
  * string that the components render with `{...}` — text semantics, never markup.

@@ -275,6 +275,13 @@ check("the add page has its own URL", () => {
 
 check("every pane round-trips", () => {
   for (const pane of nav.SOURCE_PANE_IDS) {
+    if (pane === "remote-firmware-releases") {
+      // Firmware repository inspection has no selected-source/config route yet. It is a
+      // catalogue pane, so serialize/parse always returns to its list view.
+      const r = { pane, selected: null, page: "none" };
+      deq(parseSourcesRoute(serializeSourcesRoute(r)), r, `${pane}/none`);
+      continue;
+    }
     for (const page of ["none", "add", "config"]) {
       const r = { pane, selected: page === "add" ? null : "owner/name", page };
       if (page === "none" && !r.selected) continue;

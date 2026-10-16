@@ -120,7 +120,7 @@ const rs = readFileSync(join(here, "../src/lib/advanced/RomSection.svelte"), "ut
 
 function audit(src) {
   const problems = [];
-  if (!/refreshVersions\(\)/.test(src)) {
+  if (!/await refreshVersions\(\{\s*versionsUrl:\s*versionsUrlFor\(repo\)\s*\}\)/.test(src)) {
     problems.push("the refresh calls something other than refreshVersions(), so it returns the memoised list");
   }
   if (!/refreshCooldown \|\| refreshingVersions/.test(src)) {
@@ -145,7 +145,7 @@ await check("the picker's refresh control is wired, rate limited and named", () 
 
 await check("ANTI-VACUITY: the same assertions fail on a control that only looks right", () => {
   const before = rs
-    .replace(/await refreshVersions\(\)/, "await listVersions()")
+    .replace(/await refreshVersions\(\{\s*versionsUrl:\s*versionsUrlFor\(repo\)\s*\}\)/, "await listVersions({ versionsUrl: versionsUrlFor(repo) })")
     .replace(/setTimeout\(\(\) => \(refreshCooldown = false\), 10000\)/, "setTimeout(() => (refreshCooldown = false), 0)")
     .replace(/aria-label=\{locale\.t\.romSection\.refreshVersions\}/, "");
   const problems = audit(before);

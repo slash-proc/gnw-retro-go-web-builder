@@ -77,6 +77,7 @@
 import { homebrew, type HomebrewTitle } from "../sources/homebrewTitles.svelte.js";
 import { nativeArchiveRulesFor } from "../sources/coreRegistry.js";
 import { coreRegistry } from "../sources/coreRegistry.svelte.js";
+  import { systemLogoStyle } from "../sources/systemLogoStyle.js";
 import { coverPathsForRom, type LibraryRom } from "../sources/libraryModel.js";
 import { stripFilenameExtension } from "../filename.js";
 import {
@@ -91,6 +92,7 @@ import { buildLogicalInstallPlan } from "../sources/logicalInstallPlan.js";
   import { writeCarouselAtlas } from "../sources/carouselAtlas.js";
   import { localFolders, displayName } from "../sources/localFolders.svelte.js";
   import { sources } from "../sources/store.svelte.js";
+  import { sourceCoreLogos } from "../sources/sourceCoreLogos.svelte.js";
   import { type OfferedFile } from "../sources/inputGate.js";
   import { prepareState, type ShippedGameFetch } from "../sources/prepareState.svelte.js";
   import { selectedPreparedAssets } from "../sources/selectedAssets.js";
@@ -131,6 +133,8 @@ import { navigate } from "../nav.js";
   import GameDetailsPanel from "./GameDetailsPanel.svelte";
   import { download, formatNumber, formatSize } from "../util.js";
   import JSZip from "jszip";
+
+  $effect(() => sourceCoreLogos.ensure(sources.rows));
 
   let dismissedFirefoxWarning = $state(false);
   let sdAutoScannedHandle: FileSystemDirectoryHandle | null = null;
@@ -5461,6 +5465,7 @@ import { navigate } from "../nav.js";
                 {@const activeGame = visibleGameByKey.get(detailsSelectedId)}
                 {@const activeHb = !activeGame ? unknownHomebrewByName.get(detailsSelectedId) : null}
                 {#if activeGame}
+                  {@const activeSystem = romSelection.systems.find((system) => system.system === activeGame.system)}
                   {@const state = getActionState(activeGame)}
                   {@const starred = favorites.has(activeGame.key)}
                   <div class="info-content">
@@ -5483,7 +5488,13 @@ import { navigate } from "../nav.js";
                             />
                           </svg>
                         </button>
-                        <span class="info-system">{activeGame.system === 'homebrew' ? locale.t.roms.selectGames.homebrewTag : consoleLabel(activeGame.system)}</span>
+                        <span class="info-system">
+                          {#if activeGame.system !== 'homebrew' && activeSystem?.logoDataUrl}
+                            <span class="info-system-logo" style={systemLogoStyle(activeSystem.logoDataUrl, 17)} role="img" aria-label={consoleLabel(activeGame.system)}></span>
+                          {:else}
+                            {activeGame.system === 'homebrew' ? locale.t.roms.selectGames.homebrewTag : consoleLabel(activeGame.system)}
+                          {/if}
+                        </span>
                         <span class="info-size mono">{activeGame.size > 0 ? formatSize(activeGame.size) : '—'}</span>
                       </div>
                       <h3 class="info-title" title={activeGame.prettyName ?? activeGame.name}>{activeGame.prettyName ?? activeGame.name}</h3>
@@ -6040,6 +6051,9 @@ import { navigate } from "../nav.js";
      the fill/ink pair rather than the artboard's literal #1b1b1b/#ffffff so the chip inverts
      correctly in dark theme (there is no on-fill ink token). */
   .console {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     font: inherit;
     font-size: var(--fs-btn-sm);
     color: var(--ink-soft);
@@ -6403,6 +6417,9 @@ import { navigate } from "../nav.js";
     outline-offset: 2px;
   }
   .info-system {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
     color: var(--ink-soft);
     font-weight: 700;
     letter-spacing: var(--label-track);
@@ -6410,6 +6427,15 @@ import { navigate } from "../nav.js";
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .info-system-logo {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: var(--system-logo-width);
+    height: var(--system-logo-height);
+    background: currentColor;
+    -webkit-mask: var(--system-logo) center / contain no-repeat;
+    mask: var(--system-logo) center / contain no-repeat;
   }
   .info-size {
     color: var(--ink-soft);

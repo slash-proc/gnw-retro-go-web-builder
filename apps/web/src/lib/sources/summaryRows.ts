@@ -11,7 +11,7 @@
  * BIOS. Flash and SD build their lists in two separate branches, and the whole point of this
  * module is that they cannot drift apart in order or in membership.
  *
- * It sits in `sources/` beside `metaLine.ts`, `metaFacts.ts`, `errorText.ts` and
+ * It sits in `sources/` beside `sourceDetails.ts`, `metaFacts.ts`, `errorText.ts` and
  * `fileRows.ts` — the same kind of extracted, guardable composition rule, guarded by the same
  * `sources/test/validate.mjs` harness, over the same library/install domain those modules
  * already cover (`biosState`, `installArtifacts`, `prepareState` all live here too).

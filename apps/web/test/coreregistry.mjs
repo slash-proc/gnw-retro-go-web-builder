@@ -205,6 +205,24 @@ await check("BUTTONS: an active core's declared system produces a button", async
   deepEq(groups, [{ system: "gbc", label: "Game Boy Color", count: 2 }], "named by the manifest");
 });
 
+await check("BUTTONS: a cached CORE logo reaches the system filter", async () => {
+  const logoDataUrl = "data:image/svg+xml,logo-mask";
+  const manifest = gbcManifest();
+  const reg = buildCoreRegistry([{
+    ...row("slash-proc/tgb", manifest),
+    card: {
+      kind: "core",
+      systems: [
+        { id: "gb", longName: "Game Boy", shortName: "Game Boy", extensions: [".gb"] },
+        { id: "gbc", longName: "Game Boy Color", shortName: "Game Boy Color", extensions: [".gbc"], logoDataUrl },
+      ],
+    },
+  }]);
+  eq(reg.byFolder.get("gbc").logoDataUrl, logoDataUrl, "the registry retains the card's cached icon");
+  const groups = consoleGroups([{ system: "gbc" }], reg, () => "FALLBACK");
+  eq(groups[0].logoDataUrl, logoDataUrl, "the filter group receives it");
+});
+
 await check("BUTTONS: deactivating the source removes the button — files still on disk", async () => {
   const games = [{ system: "gbc" }, { system: "gbc" }];
   const off = buildCoreRegistry([row("slash-proc/tgb", gbcManifest(), false)]);

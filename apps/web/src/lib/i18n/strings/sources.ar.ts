@@ -11,6 +11,16 @@ export const sourcesAr: SourcesStrings = {
   // The one place the UI says what a core IS, so it must keep naming the familiar word.
   coresSubtitle: "محاكيات ومحركات ألعاب تضيف جهازًا إلى Game & Watch.",
   homebrewSubtitle: "ألعاب وتطبيقات مخصصة لأجهزة Game & Watch.",
+  retroGoReleases: "Retro-Go",
+  retroGoReposHint: "Firmware release repositories used by the Advanced installer.",
+  retroGoRepoPlaceholder: "owner/repo or GitHub URL",
+  addRetroGoRepo: "Add repository",
+  removeRetroGoRepo: "Remove repository",
+  useRetroGoRepo: "Use for installs",
+  retroGoRepoVersions: (n: number) => (n === 1 ? "1 version" : `${n} versions`),
+  retroGoRepoInvalid: "Enter a GitHub repository that publishes Retro-Go firmware releases.",
+  retroGoRepoDuplicate: "This repository is already listed.",
+  retroGoRepoFailed: "Could not read this repository’s firmware release list.",
   emptyColumn: "لا مصادر",
   multipleCoversFound: (game: string, covers: string, chosen: string) =>
     `عُثر على عدة صور أغلفة للعبة ${game}: ${covers}. سيتم استخدام ${chosen}.`,

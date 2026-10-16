@@ -406,7 +406,7 @@ for (const [label, state] of [
      "Update all and Add are drawn only where there IS a catalogue to update and add to");
   // The identity, which is the bigger half: a non-remote pane resolves NO kind at all, so
   // nothing downstream can read `core` for a card.
-  ok(/!isRemotePane\(pane\) \? null/.test(src),
+  ok(/pane === "remote-cores" \? "core" : pane === "remote-homebrew" \? "homebrew" : null/.test(src),
      "remoteKind is null off a remote pane rather than defaulting to core");
   ok(/\{:else if remoteKind\}/.test(src),
      "the remote list branch tests the kind, so a pane with no catalogue cannot land in it");

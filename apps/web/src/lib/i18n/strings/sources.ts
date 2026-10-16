@@ -20,6 +20,16 @@ export const sourcesEn = {
   // or a game engine (doom, openlara) -- and says what one DOES, which is add a console tab.
   coresSubtitle: "Emulators and game engines that add a console to the Game & Watch.",
   homebrewSubtitle: "Custom games/applications for the Game & Watch.",
+  retroGoReleases: "Retro-Go",
+  retroGoReposHint: "Firmware release repositories used by the Advanced installer.",
+  retroGoRepoPlaceholder: "owner/repo or GitHub URL",
+  addRetroGoRepo: "Add repository",
+  removeRetroGoRepo: "Remove repository",
+  useRetroGoRepo: "Use for installs",
+  retroGoRepoVersions: (n: number) => (n === 1 ? "1 version" : `${n} versions`),
+  retroGoRepoInvalid: "Enter a GitHub repository that publishes Retro-Go firmware releases.",
+  retroGoRepoDuplicate: "This repository is already listed.",
+  retroGoRepoFailed: "Could not read this repository’s firmware release list.",
   emptyColumn: "No sources",
   multipleCoversFound: (game: string, covers: string, chosen: string) =>
     `Multiple covers found for ${game}: ${covers}. Using ${chosen}.`,

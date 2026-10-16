@@ -39,6 +39,7 @@ import {
   extractBundle,
   findBuild,
   findVersion,
+  DEFAULT_FIRMWARE_REPOSITORY,
   FIRMWARE_VERSIONS_URL,
   type ExtractRefusal,
   type FetchLike,
@@ -51,7 +52,7 @@ import { manifestOnce, versionsOnce, forgetVersions } from "./firmwareDist/memo.
 import { hashHex } from "./cryptoHash.js";
 
 /** Repo that publishes the firmware distribution (the owner's fork for now). */
-export const ARTIFACT_REPO = "slash-proc/game-and-watch-retro-go-sd";
+export const ARTIFACT_REPO = DEFAULT_FIRMWARE_REPOSITORY;
 
 // Separate content trees for each published storage/build pair — never one shared tree.
 // Every core/homebrew .bin is objcopy'd out of whichever ELF was built, so it carries

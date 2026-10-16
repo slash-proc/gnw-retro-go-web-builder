@@ -18,9 +18,13 @@ export const SUPPORTED_SCHEMA_VERSION = 1;
 /** `versions.json`/`manifest.json` both carry `project: "retro-go-sd"`. */
 export const FIRMWARE_PROJECT_ID = "retro-go-sd";
 
+/** Default firmware release source used by the app. */
+export const DEFAULT_FIRMWARE_REPOSITORY = "slash-proc/game-and-watch-retro-go-sd";
+
 /** The one URL a tool hard-codes (doc, "Discovery"). */
+const [DEFAULT_FIRMWARE_OWNER, DEFAULT_FIRMWARE_REPO] = DEFAULT_FIRMWARE_REPOSITORY.split("/");
 export const FIRMWARE_VERSIONS_URL =
-  "https://slash-proc.github.io/game-and-watch-retro-go-sd/dist/versions.json";
+  `https://${DEFAULT_FIRMWARE_OWNER}.github.io/${DEFAULT_FIRMWARE_REPO}/dist/versions.json`;
 
 export type FirmwareDistErrorKind =
   | "network"

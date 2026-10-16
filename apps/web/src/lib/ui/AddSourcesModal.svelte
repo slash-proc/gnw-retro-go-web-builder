@@ -7,10 +7,9 @@
    * validation and hashing all belong to `sources/store.svelte.ts` (`add`, `importBundleFile`),
    * which is the same pair the Sources tab calls.
    *
-   * The list is grouped by kind and each core row names the systems it emulates, composed
-   * exactly as `sources/metaLine.ts`'s `systemsSegment()` composes it (longName, joined
-   * with ", "); a homebrew row has no systems and carries nothing there. There are
-   * deliberately NO counts of anything.
+   * The list is grouped by kind. Core systems and their extensions are separate, related
+   * fields, so the list renders one small system group per declaration; homebrew has no
+   * systems. There are deliberately NO counts of anything.
    *
    * Every value from a manifest (title, repo slug, console names) is untrusted third-party
    * text and is interpolated as text — never {@html}, never a path.
@@ -20,6 +19,8 @@
   import { locale } from "../i18n/locale.svelte.js";
   import { sources, sourceDisplayName, type SourceRow } from "../sources/store.svelte.js";
   import { isCoreKind } from "../sources/types.js";
+  import { systemsData } from "../sources/sourceDetails.js";
+  import SourceSystems from "./SourceSystems.svelte";
   import { SourceError } from "../sources/types.js";
   import { parseRawCore, rawCoreSource } from "../sources/rawCore.js";
   import ModalShell from "./ModalShell.svelte";
@@ -76,11 +77,9 @@
     }
   }
 
-  /** What a core source gives you: the systems it emulates. Homebrew has none. */
-  function systemsOf(row: SourceRow): string {
-    const card = row.card;
-    if (card === undefined || !isCoreKind(card.kind)) return "";
-    return card.systems.map((s) => s.longName).join(", ");
+  /** What a core source gives you: each system and its own accepted extensions. */
+  function systemsOf(row: SourceRow) {
+    return systemsData(row.card);
   }
 
   async function submitUrl(e: SubmitEvent) {
@@ -172,10 +171,21 @@
       {#if sources.adding || readingBundle}<p class="hint">{t.importing}</p>{/if}
       {#if bundlePending}
         {@const resolved = bundlePending.imported.resolved}
+        {@const previewSystems = systemsData({
+          kind: resolved.entry.kind,
+          systems: resolved.manifest.targets.flatMap((target) => target.systems ?? []).map((system) => ({
+            id: system.id,
+            longName: system.longName,
+            extensions: system.extensions.flatMap((entry) => Array.isArray(entry) ? entry : [entry]),
+          })),
+        })}
         <div class="rawsummary">
-          <strong>{resolved.manifest.title}</strong> ({resolved.entry.tag})
-          <div>{isCoreKind(resolved.entry.kind) ? t.colCores : t.colHomebrew}</div>
-          <div>{resolved.manifest.targets.flatMap((target) => target.systems ?? []).map((system) => system.longName).join(", ")}</div>
+          <div class="summarytitle">
+            <strong>{resolved.manifest.title}</strong>
+            <span class="version">{resolved.entry.tag}</span>
+          </div>
+          <div class="kind">{isCoreKind(resolved.entry.kind) ? t.colCores : t.colHomebrew}</div>
+          <SourceSystems systems={previewSystems} density="comfortable" />
         </div>
         <Button variant="action" disabled={sources.adding || readingBundle} onclick={async () => {
           const pending = bundlePending!;
@@ -211,9 +221,13 @@
               <div class="grouptitle">{group.title}</div>
               <div class="list">
                 {#each rows as row (row.repo)}
+                  {@const systems = group.key === "core" ? systemsOf(row) : []}
                   <div class="row">
-                    <span class="repo">{sourceDisplayName(row)}</span>
-                    {#if group.key === "core"}<span class="systems">{systemsOf(row)}</span>{/if}
+                    <div class="sourceidentity">
+                      <strong>{row.card?.title ?? row.repo}</strong>
+                      <span class="repo">{sourceDisplayName(row)}</span>
+                    </div>
+                    <SourceSystems systems={systems} />
                   </div>
                 {/each}
               </div>
@@ -348,25 +362,47 @@
     margin-bottom: 6px;
   }
   .row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 9px 0;
+    display: grid;
+    grid-template-columns: minmax(130px, 0.8fr) minmax(0, 1.2fr);
+    align-items: center;
+    gap: 10px 18px;
+    padding: 10px 0;
   }
   .row + .row {
     border-top: 1px solid var(--rule);
   }
   .repo {
     font-family: var(--font-mono);
-    font-size: var(--fs-caption);
     min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .systems {
-    font-size: var(--fs-btn-sm);
+    overflow: hidden;
     color: var(--ink-soft);
-    text-align: end;
+    font-size: var(--fs-chip);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sourceidentity { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .summarytitle {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .version {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ink) 6%, var(--surface));
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+    font-size: var(--fs-chip);
+  }
+  .kind {
+    color: var(--ink-soft);
+    font-size: var(--fs-chip);
+    text-transform: uppercase;
+    letter-spacing: var(--label-track);
+  }
+  @media (max-width: 560px) {
+    .row { grid-template-columns: minmax(0, 1fr); gap: 7px; }
   }
 
   .foot {
