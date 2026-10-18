@@ -59,6 +59,26 @@ RULES = [
     },
     {
         "paths": [
+            "apps/web/src/lib/firmwareDist/**",
+            "apps/web/src/lib/ui/RetroGoRepositories.svelte",
+            "apps/web/src/lib/ui/AddSourcesModal.svelte",
+            "apps/web/src/lib/advanced/RomSection.svelte",
+            "apps/web/src/lib/views/Wizard.svelte",
+            "apps/web/test/firmwarerepositories.mjs",
+            "apps/web/test/curatedsources.mjs",
+            "apps/web/test/firmwarecutover.mjs",
+        ],
+        "tests": ["sources/included-in", "sources/retro-go-config"],
+        "suites": ["remote-sources"],
+        "commands": [
+            "npm --prefix apps/web run check:firmwarerepositories",
+            "npm --prefix apps/web run check:firmwarecutover",
+            "npm --prefix apps/web run check:curatedsources",
+        ],
+        "reason": "Retro-Go repositories feed the source catalogue, Advanced installs, and Guided Setup; verify repository configuration navigation and Core/Homebrew inclusion provenance.",
+    },
+    {
+        "paths": [
             "apps/web/src/lib/library.svelte.ts",
             "apps/web/src/lib/libraryPerformance.ts",
             "apps/web/src/lib/ui/GeometryBar.svelte",

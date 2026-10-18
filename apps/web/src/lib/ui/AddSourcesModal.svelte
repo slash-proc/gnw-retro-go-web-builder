@@ -18,6 +18,9 @@
   import { importBundle, type BundleImport } from "../sources/bundle.js";
   import { locale } from "../i18n/locale.svelte.js";
   import { sources, sourceDisplayName, type SourceRow } from "../sources/store.svelte.js";
+  import { curatedRepoFor } from "../sources/store.svelte.js";
+  import { firmwareRepositories, shortRepoLabels } from "../firmwareDist/repositories.svelte.js";
+  import type { CuratedProject } from "../firmwareDist/types.js";
   import { isCoreKind } from "../sources/types.js";
   import { systemsData } from "../sources/sourceDetails.js";
   import SourceSystems from "./SourceSystems.svelte";
@@ -48,6 +51,44 @@
   onDestroy(() => bundlePending?.imported.release());
 
   sources.load();
+  firmwareRepositories.load();
+
+  const curatedOptions = $derived.by(() => {
+    const byRepo = new Map<string, {
+      repo: string;
+      project: CuratedProject;
+      providers: { repo: string; tag: string; project: CuratedProject }[];
+    }>();
+    for (const repository of firmwareRepositories.rows) {
+      if (!repository.active || !repository.metadata || repository.status !== "ready") continue;
+      for (const project of repository.metadata.projects) {
+        const repo = curatedRepoFor(project);
+        if (!repo) continue;
+        const key = repo.toLowerCase();
+        const existing = byRepo.get(key);
+        if (existing) {
+          if (!existing.providers.some((provider) =>
+            provider.repo === repository.repo && provider.tag === repository.catalogTag && provider.project.project === project.project,
+          )) {
+            existing.providers.push({
+              repo: repository.repo,
+              tag: repository.catalogTag ?? repository.metadata.latestTag,
+              project,
+            });
+          }
+          continue;
+        }
+        byRepo.set(key, {
+          repo,
+          project,
+          providers: [{ repo: repository.repo, tag: repository.catalogTag ?? repository.metadata.latestTag, project }],
+        });
+      }
+    }
+    return [...byRepo.values()];
+  });
+  const curatedLabels = $derived(shortRepoLabels(curatedOptions.map((item) => item.repo)));
+  const availableCurated = $derived(curatedOptions.filter((item) => !sources.get(item.repo)));
 
   /** The same SourceError → copy mapping the Sources tab uses. No new error wording. */
   function errorText(code: SourceRow["errorCode"], detail: string | undefined): string {
@@ -86,6 +127,27 @@
     e.preventDefault();
     if (!urlInput.trim() || sources.adding) return;
     if (await sources.add(urlInput)) urlInput = "";
+  }
+
+  async function toggleSource(row: SourceRow, event: Event): Promise<void> {
+    sources.setActive(row.repo, (event.currentTarget as HTMLInputElement).checked);
+  }
+
+  async function toggleCurated(item: (typeof curatedOptions)[number], event: Event): Promise<void> {
+    const enabled = (event.currentTarget as HTMLInputElement).checked;
+    const existing = sources.get(item.repo);
+    if (existing) {
+      sources.setActive(item.repo, enabled);
+      return;
+    }
+    if (!enabled) return;
+    let added = false;
+    for (const provider of item.providers) {
+      const ok = await sources.addCuratedProject(provider.project, provider.repo, provider.tag);
+      if (!ok) return;
+      added = true;
+    }
+    if (added) sources.setActive(item.repo, true);
   }
 
   /**
@@ -209,9 +271,10 @@
       <p class="err">{errorText(sources.addError.code, sources.addError.detail)}</p>
     {/if}
 
-    {#if sources.rows.length === 0}
+    {#if sources.rows.length === 0 && curatedOptions.length === 0}
       <div class="empty"><span>{t.emptyColumn}</span></div>
-    {:else}
+    {/if}
+    {#if sources.rows.length > 0 || curatedOptions.length > 0}
       <div class="groups">
         {#each [{ key: "core", title: t.colCores }, { key: "homebrew", title: t.colHomebrew }] as group (group.key)}
           {@const rows =
@@ -226,14 +289,69 @@
                     <div class="sourceidentity">
                       <strong>{row.card?.title ?? row.repo}</strong>
                       <span class="repo">{sourceDisplayName(row)}</span>
+                      {#if row.curatedFrom?.length}
+                        <span class="provenance">
+                          {#each row.curatedFrom as provider, i (`${provider.firmwareRepo}:${provider.firmwareTag}:${provider.project}:${i}`)}
+                            <span class="provenance-item">
+                              <span class="provenance-repo">{provider.firmwareRepo}</span>
+                              <span class="provenance-tag">{provider.firmwareTag}</span>
+                            </span>
+                          {/each}
+                        </span>
+                      {/if}
                     </div>
                     <SourceSystems systems={systems} />
+                    {#if row.origin === "url" && (row.card?.versions?.length ?? 0) > 1}
+                      <select
+                        class="source-version"
+                        aria-label={`${t.detail.version}: ${row.card?.title ?? row.repo}`}
+                        value={row.card?.tag ?? ""}
+                        disabled={row.status === "loading"}
+                        onchange={(event) => void sources.selectVersion(row.repo, event.currentTarget.value)}
+                      >
+                        {#each row.card?.versions ?? [] as version (version.tag)}
+                          <option value={version.tag}>{version.tag}{version.prerelease ? ` (${t.prerelease})` : ""}</option>
+                        {/each}
+                      </select>
+                    {/if}
+                    <label class="source-toggle">
+                      <input type="checkbox" checked={row.active} aria-label={`${row.active ? t.deactivate : t.activate}: ${row.card?.title ?? row.repo}`} onchange={(event) => toggleSource(row, event)} />
+                      <span>{row.active ? t.active : t.inactive}</span>
+                    </label>
                   </div>
                 {/each}
               </div>
             </div>
           {/if}
         {/each}
+        {#if availableCurated.length > 0}
+          <div class="group">
+            <div class="grouptitle">{t.retroGoReleases}</div>
+            <div class="list">
+              {#each availableCurated as item (item.repo.toLowerCase())}
+                <div class="row curated-row">
+                  <div class="sourceidentity">
+                    <strong>{item.project.title}</strong>
+                    <span class="repo">{curatedLabels.get(item.repo) ?? item.repo}</span>
+                    <span class="provenance">
+                      {#each item.providers as provider, i (`${provider.repo}:${provider.tag}:${i}`)}
+                        <span class="provenance-item">
+                          <span class="provenance-repo">{provider.repo}</span>
+                          <span class="provenance-tag">{provider.tag}</span>
+                        </span>
+                      {/each}
+                    </span>
+                  </div>
+                  <span class="kind">{item.project.kind === "core" ? t.colCores : t.colHomebrew}</span>
+                  <label class="source-toggle">
+                    <input type="checkbox" checked={false} aria-label={`${t.add}: ${item.project.title}`} disabled={sources.adding} onchange={(event) => void toggleCurated(item, event)} />
+                    <span>{t.add}</span>
+                  </label>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -401,6 +519,15 @@
     text-transform: uppercase;
     letter-spacing: var(--label-track);
   }
+  .row { grid-template-columns: minmax(120px, .9fr) minmax(0, 1fr) auto; }
+  .source-toggle { display: flex; align-items: center; gap: 5px; flex: none; color: var(--ink-soft); font-size: var(--fs-chip); cursor: pointer; }
+  .source-toggle input { accent-color: var(--zelda-green); }
+  .source-version { max-width: 150px; height: 32px; padding-inline: 7px; border: 1px solid var(--hairline); border-radius: var(--r-control); background: var(--surface); color: var(--ink); font: inherit; font-size: var(--fs-chip); }
+  .provenance { display: flex; flex-wrap: wrap; gap: 4px; color: var(--ink-dim); font-size: 10px; }
+  .provenance-item { display: inline-flex; min-width: 0; align-items: center; gap: 6px; }
+  .provenance-repo { overflow: hidden; max-width: 100%; font-family: var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+  .provenance-tag { flex: none; padding: 1px 5px; border: 1px solid var(--hairline); border-radius: 999px; font-family: var(--font-mono); }
+  .curated-row .kind { text-transform: none; letter-spacing: 0; }
   @media (max-width: 560px) {
     .row { grid-template-columns: minmax(0, 1fr); gap: 7px; }
   }

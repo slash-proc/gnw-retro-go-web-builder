@@ -649,6 +649,8 @@ await check("memo: two callers, one fetch of each discovery document", async () 
     eq(a.length, rawVersions.versions.length, "the picker got its list");
     eq(b[0].tag, a[0].tag, "and so did the second caller");
     ok(Array.isArray(curated) && curated.length > 0, "the curated walk got its projects");
+    eq(curated[0].catalog.repo, rawVersions.repo, "curated entry remembers its firmware repository");
+    eq(curated[0].catalog.tag, rawVersions.versions[0].tag, "curated entry remembers the firmware release that listed it");
     eq(countOf(urls, "/versions.json"), 1, "versions.json fetched ONCE for all three callers");
     eq(countOf(urls, "/manifest.json"), 1, "and the manifest once");
   });

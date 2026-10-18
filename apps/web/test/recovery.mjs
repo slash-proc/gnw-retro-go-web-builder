@@ -198,7 +198,7 @@ globalThis.__fake = fake;
 // A minimal navigator.usb so device.svelte.ts's module-level listener wiring runs the same
 // code path production does (it is guarded on navigator.usb existing).
 const usbListeners = {};
-globalThis.navigator = globalThis.navigator ?? {};
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
 Object.defineProperty(globalThis.navigator, "usb", {
   configurable: true,
   value: {

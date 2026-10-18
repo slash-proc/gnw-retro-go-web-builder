@@ -74,6 +74,44 @@ test('run ordered feature building blocks in one native browser/device session',
       void window.__nativeTestTelemetry(sample).catch(()=>{});
     },1000);
   },{fullBrowserInstrumentation,workflowProgressNeeded:plan.some(name=>['firmware/dualboot-install','library/sync-tetris'].includes(name))});
+  if(plan.some(name=>['sources/included-in','sources/retro-go-config'].includes(name))){
+    const repositories=['slash-proc/game-and-watch-retro-go-sd','sylverb/game-and-watch-retro-go-sd'];
+    const sourceCard=(repo,title,kind)=>({repo,active:true,origin:'raw',card:{
+      title,kind,tag:'v1.0.0',publishedAt:'2026-01-01T00:00:00Z',prerelease:false,
+      needsUserFiles:false,abiVersion:1,systems:[],extensions:[],
+      releasesUrl:`https://github.com/${repo}/releases`,rawArtifacts:[{filename:`${title}.bin`,bytes:1024}],
+    }});
+    const sourceRows=[
+      sourceCard('example/core-source','Example Core','core'),
+      sourceCard('example/homebrew-source','Example Homebrew','homebrew'),
+    ];
+    sourceRows[0].curatedFrom=[
+      {firmwareRepo:repositories[0],firmwareTag:'v2.0.0',project:'example-core',title:'Example Core',kind:'core'},
+      {firmwareRepo:repositories[1],firmwareTag:'v2.0.0-rc1',project:'example-core',title:'Example Core',kind:'core'},
+    ];
+    sourceRows[1].curatedFrom=[
+      {firmwareRepo:repositories[0],firmwareTag:'v2.0.0',project:'example-homebrew',title:'Example Homebrew',kind:'homebrew'},
+    ];
+    const makeRow=(repo,title,tags)=>({repo,active:true,versions:tags.length,status:'ready',catalogTag:tags[0],metadata:{
+      title,repo,releasesUrl:`https://github.com/${repo}/releases`,retained:tags.length,latestTag:tags[0],projects:[{
+        project:'fceumm-retro-go-sd',title:'FCEUmm',kind:'core',
+        versionsUrl:'https://slash-proc.github.io/fceumm-retro-go-sd/dist/versions.json',
+      }],
+      versions:tags.map((tag,index)=>({tag,publishedAt:`2026-0${index+1}-01T00:00:00Z`,prerelease:false,gitTag:tag})),
+    }});
+    await page.addInitScript(({repositories,rows,sourceRows})=>{
+      localStorage.setItem('gnw:locale','en');
+      localStorage.setItem('gnw:sources.v1',JSON.stringify(sourceRows));
+      localStorage.setItem('gnw:sources.dismissed.v1','[]');
+      localStorage.setItem('gnw:firmware-repositories.v1',JSON.stringify(rows));
+      localStorage.setItem('gnw:firmware-repository.default.v1',JSON.stringify(repositories[0]));
+      localStorage.setItem('gnw:firmware-repository.selected.v1',JSON.stringify(repositories[0]));
+    },{repositories,rows:[
+      makeRow(repositories[0],'Slash Proc Retro-Go',['v2.0.0','v1.9.0','v1.8.0']),
+      makeRow(repositories[1],'Sylverb Retro-Go',['v2.0.0-rc1','v2.0.0-beta2']),
+    ],sourceRows});
+    await page.route('https://**/dist/versions.json',route=>route.abort());
+  }
   await mark('browser hooks ready');
   await page.goto('/#sources/local-directories');
   await mark('first app navigation complete');
@@ -107,6 +145,76 @@ test('run ordered feature building blocks in one native browser/device session',
       // A prepared seed already contains these sources. Verify the registration
       // rather than substituting or reopening its native picker in headless mode.
       await actions['sources/directories-persist']();
+    },
+    'sources/included-in':async()=>{
+      await goToTab(page,'sources');
+      const rail=page.getByRole('navigation',{name:/sources/i});
+      for (const [label,title,subtitle] of [
+        ['Cores','Example Core','Emulators and game engines that add a console to the Game & Watch.'],
+        ['Homebrew','Example Homebrew','Custom games/applications for the Game & Watch.'],
+      ]) {
+        await rail.getByRole('button',{name:label}).click();
+        await expect(page.getByText(subtitle,{exact:true})).toBeVisible();
+        const source=page.locator('.remote-source-row').filter({hasText:title});
+        await expect(source).toBeVisible();
+        await expect(source).toHaveClass(/remote-source-card/);
+        await expect(source).toHaveClass(/remote-source-row/);
+        const shape=await source.evaluate((row)=>{
+          const pick=row.querySelector('.remote-source-rowpick');
+          const status=row.querySelector('.remote-source-state');
+          const rowStyle=getComputedStyle(row);
+          const pickStyle=getComputedStyle(pick);
+          const statusStyle=getComputedStyle(status);
+          return {padding:rowStyle.padding,borderRadius:rowStyle.borderRadius,pickDisplay:pickStyle.display,pickGap:pickStyle.gap,statusPadding:statusStyle.padding,statusRadius:statusStyle.borderRadius};
+        });
+        expect(shape).toEqual({padding:'14px 16px',borderRadius:'14px',pickDisplay:'grid',pickGap:'14px',statusPadding:'3px 12px',statusRadius:'999px'});
+        const stateToggle=source.locator('.remote-source-state');
+        await expect(stateToggle).toHaveRole('button');
+        await expect(stateToggle).toHaveAttribute('aria-pressed','true');
+        await stateToggle.click();
+        await expect(stateToggle).toHaveAttribute('aria-pressed','false');
+        await expect(stateToggle).toHaveText('Inactive');
+        await stateToggle.click();
+        await expect(stateToggle).toHaveAttribute('aria-pressed','true');
+        await source.locator('.remote-source-rowpick').click();
+        await page.getByRole('button',{name:'Configure',exact:true}).click();
+        await expect(page.locator('.remote-source-detail')).toBeVisible();
+        await expect(page.locator('.remote-source-detail-head')).toBeVisible();
+        await expect(page.locator('.remote-source-panel').first()).toBeVisible();
+        await expect(page.locator('.remote-source-detail-title')).toHaveText(title);
+        await expect(page.locator('.provided-row')).toBeVisible();
+        await expect(page.locator('.provided-label')).toHaveText('Included in');
+        await expect(page.locator('.catalog-provenance')).toHaveCount(0);
+        const providers=page.locator('.provider-wrap');
+        await expect(providers.first()).toBeVisible();
+        await providers.nth(0).hover();
+        await expect(providers.nth(0).getByRole('tooltip')).toContainText('v2.0.0');
+        if(label==='Cores') {
+          await expect(providers).toHaveCount(2);
+          await providers.nth(1).hover();
+          await expect(providers.nth(1).getByRole('tooltip')).toContainText('v2.0.0-rc1');
+        }
+        await expect(page.locator('.provider-origin')).toHaveText('Raw binary');
+      }
+    },
+    'sources/retro-go-config':async()=>{
+      await goToTab(page,'sources');
+      const rail=page.getByRole('navigation',{name:/sources/i});
+      await rail.getByRole('button',{name:/retro-go/i}).click();
+      const repo='slash-proc/game-and-watch-retro-go-sd';
+      const source=page.locator('.remote-source-row').filter({hasText:repo});
+      await expect(source).toBeVisible();
+      await source.locator('.remote-source-rowpick').click();
+      const configure=page.getByRole('button',{name:'Configure',exact:true});
+      await expect(configure).toBeVisible();
+      await configure.click();
+      await expect(page.locator('.remote-source-detail')).toBeVisible();
+      await expect(page.locator('.remote-source-detail-title')).toHaveText('Slash Proc Retro-Go');
+      await expect(page).toHaveURL(/#sources\/remote-firmware-releases\/slash-proc\/game-and-watch-retro-go-sd\/config$/);
+      await page.getByRole('button',{name:/back to sources/i}).click();
+      await expect(page.locator('.remote-source-detail')).toHaveCount(0);
+      await expect(source).toBeVisible();
+      await expect(page).toHaveURL(/#sources\/remote-firmware-releases\/slash-proc\/game-and-watch-retro-go-sd$/);
     },
     'sources/add-ofw-backup':async()=>{
       const source=expected.find(row=>row.group==='ofw_backups');

@@ -70,7 +70,7 @@ globalThis.localStorage = {
   setItem: (k, v) => store.set(k, String(v)),
   removeItem: (k) => store.delete(k),
 };
-globalThis.navigator = { language: "en-US" };
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: { language: "en-US" } });
 
 const { formatSize, formatSizePair, locale } = await import(pathToFileURL(join(out, "bundle.js")).href);
 

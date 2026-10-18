@@ -151,6 +151,48 @@ await check("a curated entry the user already added is ONE row, and theirs wins"
   eq(mine.active, true, "the user's active flag is untouched");
 });
 
+await check("adding curated projects tracks exact catalog provenance without activating or pinning", async () => {
+  const s = freshStore();
+  const first = entry(CORE, "core", "FCEUmm");
+  first.project = "fceumm";
+  const calls = [];
+  const resolver = async (repo) => {
+    calls.push(repo);
+    return resolved(repo, "emulator", "FCEUmm");
+  };
+  ok(await s.addCuratedProject(first, "firmware/alpha", "v1.2.0", resolver), "first listing added");
+  const row = s.get(CORE);
+  eq(row.active, false, "adding from a catalog does not activate it");
+  eq(row.pinnedTag, undefined, "a firmware catalog release does not pin the project's version");
+  eq(row.curatedFrom.length, 1, "one provenance record");
+  eq(row.curatedFrom[0].firmwareRepo, "firmware/alpha", "firmware repo retained");
+  eq(row.curatedFrom[0].firmwareTag, "v1.2.0", "firmware release retained");
+  eq(row.curatedFrom[0].project, "fceumm", "project identity retained");
+
+  ok(await s.addCuratedProject(first, "other/retro-go", "v2.0.0", resolver), "second listing recognized");
+  eq(s.rows.length, 1, "same canonical project repo stays one source row");
+  eq(s.get(CORE).curatedFrom.length, 2, "both catalog releases remain visible as provenance");
+  eq(calls.length, 1, "existing source is not resolved again");
+
+  const other = entry("another-owner/fceumm", "core", "FCEUmm");
+  ok(await s.addCuratedProject(other, "firmware/alpha", "v1.2.0", resolver), "same title from another repo added");
+  eq(s.rows.length, 2, "different canonical project repos remain distinct");
+  eq(s.get("another-owner/fceumm").card.title, "FCEUmm", "same title is retained independently");
+});
+
+await check("one project curated by multiple enabled repositories keeps every provider", async () => {
+  const s = freshStore();
+  const first = { ...entry(CORE, "core", "FCEUmm"), project: "fceumm", catalog: { repo: "firmware/alpha", tag: "v1.2.0" } };
+  const second = { ...entry(CORE, "core", "FCEUmm"), project: "fceumm", catalog: { repo: "firmware/beta", tag: "v2.0.0" } };
+  await s.importCurated({
+    load: async () => [first, second],
+    resolve: okResolver({ [CORE]: { kind: "emulator", title: "FCEUmm" } }),
+  });
+  eq(s.rows.length, 1, "canonical project repo produces one source row");
+  eq(s.get(CORE).curatedFrom.length, 2, "both configured firmware repositories remain in provenance");
+  eq(s.get(CORE).curatedFrom.map((item) => item.firmwareRepo).join(","), "firmware/alpha,firmware/beta", "provider identities remain distinct");
+});
+
 await check("one entry failing to resolve leaves the others intact", async () => {
   const s = freshStore();
   await s.importCurated({

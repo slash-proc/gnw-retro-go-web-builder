@@ -268,7 +268,7 @@
 
   function repositoryLabel(repo: string): string {
     const owner = repo.split("/")[0] ?? repo;
-    const sameOwner = firmwareRepositories.rows.filter((r) => r.repo.split("/")[0] === owner).length > 1;
+    const sameOwner = firmwareRepositories.activeRows.filter((r) => r.repo.split("/")[0] === owner).length > 1;
     return sameOwner ? `${owner} / ${repo.split("/")[1] ?? ""}` : owner;
   }
 
@@ -1046,8 +1046,8 @@
 </script>
 
 <div class="stack">
-  <div class="firmware-version-controls" class:with-repository={firmwareRepositories.rows.length > 1}>
-    {#if firmwareRepositories.rows.length > 1}
+  <div class="firmware-version-controls" class:with-repository={firmwareRepositories.activeRows.length > 1}>
+    {#if firmwareRepositories.activeRows.length > 1}
       <label class="field version">
         <span>{locale.t.romSection.repositorySourceLabel}</span>
         <select
@@ -1057,7 +1057,7 @@
             selectedVersionTag = "";
           }}
         >
-          {#each firmwareRepositories.rows as repo (repo.repo)}
+          {#each firmwareRepositories.activeRows as repo (repo.repo)}
             <option value={repo.repo}>{repositoryLabel(repo.repo)}</option>
           {/each}
         </select>

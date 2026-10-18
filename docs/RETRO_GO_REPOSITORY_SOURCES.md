@@ -2,11 +2,8 @@
 
 This document records the source model and user experience for adding multiple Retro-Go
 firmware repositories, inspecting their curated projects, and making those projects available
-alongside manually added Cores and Homebrew. It is a design and implementation contract; it
-does not imply that all of these behaviors are already implemented.
-
-The first UI work is the existing Cores and Homebrew source experience. The Retro-Go source
-pane is a later pass, after the existing source list and configuration flow have been reviewed.
+alongside manually added Cores and Homebrew. Firmware repositories use the same source-list and
+configure-detail rhythm as the existing Cores and Homebrew panes.
 
 ## The three different things called a source
 
@@ -22,8 +19,9 @@ Keep these identities separate in the UI and data model:
    version actually used by the Library. Project identity is repository-specific.
 
 The firmware repository's version is not the project's version. A curated project entry is a
-reference to a project repository and a chosen project release; it is not a second project
-repository identity. The current default firmware repository is `slash-proc/retro-go-sd`.
+reference to a project repository; it is not a second project repository identity or a pin on
+the project's release. The current default firmware repository is
+`slash-proc/game-and-watch-retro-go-sd`.
 
 ## Existing Cores and Homebrew behavior to preserve
 
@@ -54,10 +52,13 @@ Current implementation details and source/install accounting remain in
 
 ## Multiple firmware repositories
 
-Firmware repositories are an independent catalogue. Adding one makes its releases available
-for inspection and install selection; it must not deactivate or replace another configured
-repository. Choosing a repository for a specific Retro-Go install is an operation-level choice,
-separate from whether that repository is configured or selected for inspection.
+Firmware repositories are an independent catalogue. Each repository has an enabled state, and
+any number can be enabled at once. Enabling a repository makes its curated projects available
+for source discovery and its releases available in Advanced firmware installation. The
+**Default source** is a separate choice used by Guided Setup. It must always refer to an enabled
+repository. Advanced firmware installation may choose any enabled repository for that operation
+without changing the Guided Setup default. Selecting a row to inspect or configure it does not
+enable it or make it the default.
 
 Each configured firmware repository should expose its published metadata, including its title,
 canonical repository, release link, retained release count, and version entries. Its release
@@ -82,11 +83,10 @@ existing state and offer navigation to its source configuration rather than crea
 Adding a curated project makes its repository available; it does not by itself activate it,
 install it, or pin its version globally.
 
-If two curated entries point to the same project repository but name different project
-versions, retain both provenance records. The project catalogue still has one repository row
-and one selected project version. Do not silently change that selection when another curated
-list is inspected or added. Show which curated release recommends each version and make any
-version change an explicit user action.
+If two curated entries point to the same project repository, retain both provenance records.
+The project catalogue still has one repository row and one independently selected project
+version. Do not silently change that selection when another curated list is inspected or added.
+Show each providing firmware repository and release as separate provenance values.
 
 Projects with the same title but different canonical repositories are distinct sources. Keep
 both and use repository identity to disambiguate them throughout the source list, configuration,
@@ -123,14 +123,14 @@ canonical source where possible. New project versions should be selectable from 
 own release list; a firmware version selector must never be presented as if it were a core or
 homebrew version selector.
 
-## Visual direction for the existing source pages
+## Visual direction for source pages
 
-The Cores and Homebrew pages should share one visual language and responsive layout while
-preserving their different metadata. Source identity is the strongest text, the canonical repo
-is a quieter but legible second line, and kind-specific facts sit below as short readable
-tokens. Release and active state are grouped at the trailing edge on wide screens and move
-under the identity on narrow screens. Active state stays visually distinct from row selection
-and bulk-selection checkboxes.
+The Cores, Homebrew, and Retro-Go pages should share one visual language and responsive layout
+while preserving their different metadata. Source identity is the strongest text, the canonical
+repo is a quieter but legible second line, and kind-specific facts sit below as short readable
+tokens. Release and source state are grouped at the trailing edge on wide screens and move under
+the identity on narrow screens. For Retro-Go, enabled state and **Default source** are distinct
+controls; neither is row selection or project activation.
 
 Configuration should read as one coherent project profile: identity and kind, release/version
 information, required local files, install contents, and source folders. Important actions stay
@@ -139,5 +139,4 @@ bundle states must remain distinguishable without hiding retry or provenance inf
 
 The redesign should use the app's existing typography, spacing, color, and motion tokens, keep
 keyboard focus visible, respect reduced-motion settings, and preserve all text through i18n.
-This visual work applies to the existing Cores and Homebrew panes first. It does not authorize a
-redesign of the Retro-Go firmware repository pane in the same pass.
+Apply this shared visual language to Cores, Homebrew, and Retro-Go source management.

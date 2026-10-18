@@ -268,6 +268,16 @@ check("a source's CONFIGURE page has its own URL — the reported case", () => {
     "the list underneath is a distinct address");
 });
 
+check("a Retro-Go repository configure page has its own URL", () => {
+  const r = parseSourcesRoute("remote-firmware-releases/sylverb/game-and-watch-retro-go-sd/config");
+  deq(r, {
+    pane: "remote-firmware-releases",
+    selected: "sylverb/game-and-watch-retro-go-sd",
+    page: "config",
+  }, "Retro-Go repository config page");
+  eq(serializeSourcesRoute(r), "remote-firmware-releases/sylverb/game-and-watch-retro-go-sd/config", "round trip");
+});
+
 check("the add page has its own URL", () => {
   deq(parseSourcesRoute("local-directories/add"), { pane: "local-directories", selected: null, page: "add" }, "add page");
   eq(serializeSourcesRoute({ pane: "local-directories", selected: null, page: "add" }), "local-directories/add", "round trip");
@@ -275,13 +285,6 @@ check("the add page has its own URL", () => {
 
 check("every pane round-trips", () => {
   for (const pane of nav.SOURCE_PANE_IDS) {
-    if (pane === "remote-firmware-releases") {
-      // Firmware repository inspection has no selected-source/config route yet. It is a
-      // catalogue pane, so serialize/parse always returns to its list view.
-      const r = { pane, selected: null, page: "none" };
-      deq(parseSourcesRoute(serializeSourcesRoute(r)), r, `${pane}/none`);
-      continue;
-    }
     for (const page of ["none", "add", "config"]) {
       const r = { pane, selected: page === "add" ? null : "owner/name", page };
       if (page === "none" && !r.selected) continue;

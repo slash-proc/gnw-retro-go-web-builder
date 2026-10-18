@@ -35,6 +35,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SOURCES = path.resolve(HERE, "../src/lib/views/Sources.svelte");
+const SHARED_SOURCE_STYLES = path.resolve(HERE, "../src/styles/remoteSources.css");
 
 let passed = 0;
 let failed = 0;
@@ -61,7 +62,9 @@ assert(styleAt > 0, "Sources.svelte has no <style> block");
 // `.bar` rule quotes "`.tabpane.docked { padding-bottom: 0 }`") ends a `[^}]*` match early
 // and silently truncates the declarations, which read here as ".bar is no longer opaque".
 // Same class of parser trap that conformance-counts.mjs documents for markdown tables.
-const css = src.slice(styleAt).replace(/\/\*[\s\S]*?\*\//g, "");
+const css = [src.slice(styleAt), fs.readFileSync(SHARED_SOURCE_STYLES, "utf8")]
+  .join("\n")
+  .replace(/\/\*[\s\S]*?\*\//g, "");
 
 /** The declarations of a single-class rule. */
 function ruleBody(cls) {
@@ -138,7 +141,7 @@ const BODIES = [
   ["the add-source page", "<AddSource"],
   ["the remote source list", '<div class="list">'],
   ["the Retro-Go repository list", "<RetroGoRepositories"],
-  ["the source detail body", '<div class="dbody">'],
+  ["the source detail body", '<div class="dbody remote-source-detail">'],
 ];
 
 for (const [name, marker] of BODIES) {

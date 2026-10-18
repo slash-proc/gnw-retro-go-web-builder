@@ -223,6 +223,8 @@ export interface CuratedProject {
   title: string;
   kind: CuratedProjectKind;
   versionsUrl: string;
+  /** Added by the client after reading a release's projects.json; never read from that file. */
+  catalog?: { repo: string; tag: string };
 }
 
 export interface CuratedProjectsFile {

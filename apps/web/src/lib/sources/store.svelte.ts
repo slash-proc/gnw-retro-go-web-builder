@@ -14,7 +14,8 @@
  * downloads an artifact, runs a converter, or touches hardware.
  */
 import { loadSel, saveSel } from "../persist.js";
-import { curatedProjects } from "../firmwareDist/curated.js";
+import { loadCuratedProjectsFromRepositories } from "../firmwareDist/curated.js";
+import { firmwareRepositories } from "../firmwareDist/repositories.svelte.js";
 import type { CuratedProject } from "../firmwareDist/types.js";
 import { resolveSource, resolveVersion, normaliseRepoRef, versionsUrlFor } from "./client.js";
 import { importBundle, type BundleImport } from "./bundle.js";
@@ -150,6 +151,31 @@ export type SourceStatus = "idle" | "loading" | "ok" | "error";
  */
 export type SourceOrigin = "url" | "bundle" | "raw";
 
+/** A firmware release that explicitly included this project in its curated catalogue. */
+export interface CuratedProvenance {
+  firmwareRepo: string;
+  firmwareTag: string;
+  project: string;
+  title: string;
+  kind: "core" | "homebrew";
+}
+
+function isCuratedProvenance(value: unknown): value is CuratedProvenance {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<CuratedProvenance>;
+  return typeof item.firmwareRepo === "string" && typeof item.firmwareTag === "string" &&
+    typeof item.project === "string" && typeof item.title === "string" &&
+    (item.kind === "core" || item.kind === "homebrew");
+}
+
+function mergeCuratedProvenance(
+  current: CuratedProvenance[] | undefined,
+  next: CuratedProvenance,
+): CuratedProvenance[] {
+  const key = (item: CuratedProvenance) => `${item.firmwareRepo.toLowerCase()}#${item.firmwareTag}#${item.project.toLowerCase()}`;
+  return [...(current ?? []).filter((item) => key(item) !== key(next)), next];
+}
+
 export function sourceDisplayName(row: Pick<SourceRow, "repo" | "origin">): string {
   return row.origin === "raw" ? "Raw binary" : row.repo;
 }
@@ -159,6 +185,8 @@ interface Persisted {
   active: boolean;
   /** True when this row was discovered from the firmware's curated project list. */
   curated?: boolean;
+  /** Release-specific catalogue entries that advertised this canonical project repository. */
+  curatedFrom?: CuratedProvenance[];
   card?: SourceCard;
   /** Absent in rows written before bundles existed; those are all network-resolved. */
   origin?: SourceOrigin;
@@ -295,13 +323,23 @@ export function curatedRepoFor(project: CuratedProject): string | null {
 
 /** Injected seams for `importCurated()`. Production passes nothing. */
 export interface CuratedDeps {
-  /** The newest release's curated list, or null when it publishes none. */
+  /** The enabled firmware repositories' curated projects, or null when none are enabled. */
   load: () => Promise<CuratedProject[] | null>;
   /** Resolve one project through the GWRG client. */
   resolve: (repo: string) => Promise<ResolvedSource>;
 }
 
-const defaultCuratedDeps: CuratedDeps = { load: curatedProjects, resolve: resolveSource };
+const defaultCuratedDeps: CuratedDeps = {
+  load: async () => {
+    firmwareRepositories.load();
+    const repositories = firmwareRepositories.activeRows;
+    return loadCuratedProjectsFromRepositories(repositories.map((repository) => ({
+      repo: repository.repo,
+      ...(repository.catalogTag ? { tag: repository.catalogTag } : {}),
+    })));
+  },
+  resolve: resolveSource,
+};
 
 /**
  * A curated entry whose own `versionsUrl` walk failed.
@@ -319,6 +357,9 @@ export interface CuratedFailure {
   title: string;
   /** The rail the note belongs under, mapped from `CuratedProject.kind`. */
   kind: SourceKind;
+  project?: string;
+  catalog?: { repo: string; tag: string };
+  catalogs?: CuratedProvenance[];
 }
 
 /** The two remote rail panes. `byKind` returns exactly these keys. */
@@ -411,6 +452,7 @@ class SourcesStore {
         // the active flag and must remain installable after reload.
         active: s.origin === "raw" ? s.active !== false : s.active === true,
         ...(s.curated === true ? { curated: true } : {}),
+        ...(Array.isArray(s.curatedFrom) ? { curatedFrom: s.curatedFrom.filter(isCuratedProvenance) } : {}),
         card,
         origin:
           s.origin === "bundle" ? ("bundle" as const) : s.origin === "raw" ? ("raw" as const) : ("url" as const),
@@ -439,8 +481,8 @@ class SourcesStore {
   }
 
   /**
-   * Bring in the curated core/homebrew list the CURRENT NEWEST firmware release publishes, as
-   * ordinary remote-source rows.
+   * Bring in the curated core/homebrew lists published by each enabled firmware repository's
+   * selected catalogue release, as ordinary remote-source rows.
    *
    * This adds rows. It downloads no artifact and prepares nothing. Curated rows are enabled by
    * default because the firmware's published project list is the app's default core catalog;
@@ -475,6 +517,16 @@ class SourcesStore {
       // missing to tell them about.
       const existing = this.get(repo);
       if (existing) {
+        if (project.catalog) {
+          existing.curatedFrom = mergeCuratedProvenance(existing.curatedFrom, {
+            firmwareRepo: project.catalog.repo,
+            firmwareTag: project.catalog.tag,
+            project: project.project,
+            title: project.title,
+            kind: project.kind,
+          });
+          this.persist();
+        }
         // Rows created by the old curated importer were persisted inactive. Their folder
         // associations are still valid, so migrate those rows to the new default once. A
         // deliberately deactivated row keeps its choice after this marker is written.
@@ -485,8 +537,35 @@ class SourcesStore {
         }
         continue;
       }
-      if (wanted.some((w) => w.repo === repo)) continue;
-      wanted.push({ repo, title: project.title, kind: project.kind === "core" ? "core" : "homebrew" });
+      const queued = wanted.find((w) => w.repo === repo);
+      if (queued) {
+        if (project.catalog) {
+          queued.catalogs = mergeCuratedProvenance(queued.catalogs, {
+            firmwareRepo: project.catalog.repo,
+            firmwareTag: project.catalog.tag,
+            project: project.project,
+            title: project.title,
+            kind: project.kind,
+          });
+        }
+        continue;
+      }
+      wanted.push({
+        repo,
+        title: project.title,
+        kind: project.kind === "core" ? "core" : "homebrew",
+        project: project.project,
+        ...(project.catalog ? {
+          catalog: project.catalog,
+          catalogs: [{
+            firmwareRepo: project.catalog.repo,
+            firmwareTag: project.catalog.tag,
+            project: project.project,
+            title: project.title,
+            kind: project.kind,
+          }],
+        } : {}),
+      });
     }
     await Promise.all(wanted.map((want) => this.resolveCurated(want, deps)));
   }
@@ -494,10 +573,9 @@ class SourcesStore {
   /**
    * Re-resolve just the failed entries of ONE rail.
    *
-   * Scope matters: this retries the per-entry `versionsUrl` walks that failed, NOT the curated
-   * discovery walk (`curated.ts`'s memoised `curatedProjects()`) — the list is already in hand,
-   * which is exactly why the notes have titles at all. `curated.ts` does not cache a rejection,
-   * so a session that never got a list retries the whole walk on the next `importCurated()`.
+   * Scope matters: this retries the per-project `versionsUrl` walks that failed, not the
+   * firmware repositories' curated-list walks. The project title and rail were already read
+   * from a curated list, which is why the notes can name the missing source.
    */
   async retryCurated(kind: SourceKind, deps: CuratedDeps = defaultCuratedDeps): Promise<void> {
     const pending = this.curatedFailures.filter((f) => f.kind === kind);
@@ -549,6 +627,15 @@ class SourcesStore {
         repo: want.repo,
         active: true,
         curated: true,
+        ...((want.catalogs?.length || (want.catalog && want.project)) ? { curatedFrom:
+          want.catalogs?.length ? want.catalogs : [{
+            firmwareRepo: want.catalog!.repo,
+            firmwareTag: want.catalog!.tag,
+            project: want.project!,
+            title: want.title,
+            kind: isCoreKind(want.kind) ? "core" : "homebrew",
+          }],
+        } : {}),
         card: toCard(resolved, "url"),
         manifest: resolved.manifest,
         origin: "url",
@@ -615,10 +702,11 @@ class SourcesStore {
   private persist(): void {
     saveSel(
       STORAGE_KEY,
-      this.rows.map(({ repo, active, curated, card, origin, pinnedTag, manifest }) => ({
+      this.rows.map(({ repo, active, curated, curatedFrom, card, origin, pinnedTag, manifest }) => ({
         repo,
         active,
         ...(curated === true ? { curated: true } : {}),
+        ...(curatedFrom?.length ? { curatedFrom } : {}),
         card,
         origin,
         ...(origin === "raw" && manifest ? { manifest } : {}),
@@ -769,6 +857,63 @@ class SourcesStore {
     this.adding = true;
     try {
       this.keepResolved(repo, await resolveSource(repo));
+      return true;
+    } catch (e) {
+      const err = e instanceof SourceError ? e : new SourceError("network");
+      this.addError = { code: err.code, detail: err.detail };
+      return false;
+    } finally {
+      this.adding = false;
+    }
+  }
+
+  /** Add a project advertised by one specific Retro-Go firmware release. */
+  async addCuratedProject(
+    project: CuratedProject,
+    firmwareRepo: string,
+    firmwareTag: string,
+    resolver: (repo: string) => Promise<ResolvedSource> = resolveSource,
+  ): Promise<boolean> {
+    const repo = curatedRepoFor(project);
+    if (!repo) {
+      this.addError = { code: "bad-url" };
+      return false;
+    }
+    const provenance: CuratedProvenance = {
+      firmwareRepo,
+      firmwareTag,
+      project: project.project,
+      title: project.title,
+      kind: project.kind,
+    };
+    const existing = this.get(repo);
+    if (existing) {
+      existing.curatedFrom = mergeCuratedProvenance(existing.curatedFrom, provenance);
+      this.selected = repo;
+      this.persist();
+      return true;
+    }
+
+    this.addError = null;
+    this.adding = true;
+    try {
+      const resolved = await resolver(repo);
+      if (resolved.repo.toLowerCase() !== repo.toLowerCase()) {
+        this.addError = { code: "bad-url", detail: repo };
+        return false;
+      }
+      this.undismiss(repo);
+      this.rows = [...this.rows, {
+        repo,
+        active: false,
+        curatedFrom: [provenance],
+        card: toCard(resolved, "url"),
+        manifest: resolved.manifest,
+        origin: "url",
+        status: "ok",
+      }];
+      this.selected = repo;
+      this.persist();
       return true;
     } catch (e) {
       const err = e instanceof SourceError ? e : new SourceError("network");

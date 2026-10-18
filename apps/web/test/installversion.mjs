@@ -24,7 +24,7 @@
  * that answer mapped to a verb, and it lives beside `installTitleState` so this surface and the
  * Advanced rail cannot answer one question two ways.
  */
-import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
@@ -33,10 +33,9 @@ import { render } from "svelte/server";
 
 const here = new URL(".", import.meta.url).pathname;
 const web = join(here, "..");
-// CI installs from the repo root, so `apps/web/node_modules` may not exist; node still
-// resolves the bundle's imports by walking up to the root install.
-mkdirSync(join(web, "node_modules"), { recursive: true });
-const out = mkdtempSync(join(web, "node_modules/.installversion-"));
+// Keep emitted files inside the workspace so Node resolves Svelte from the root install,
+// without writing beneath a potentially Docker-owned `apps/web/node_modules`.
+const out = mkdtempSync(join(web, "../.installversion-"));
 const failures = [];
 let passed = 0;
 
@@ -219,8 +218,10 @@ await check("A PICKER THAT ACTUALLY PICKS: the bundle fetched is the selected re
     "the download does not resolve the selected tag, so the picker cannot change what is installed");
   ok(!/versions\[0\]/.test(body),
     "the download still reaches for the head of the index, so a picked release is ignored");
-  ok(/fetchBundle\(target\.tag/.test(body),
+  ok(/fetchBundle\(\s*target\.tag/.test(body),
     "fetchBundle is not given the resolved target");
+  ok(/\{\s*versionsUrl\s*\}/.test(body),
+    "fetchBundle is not pinned to the configured default source");
 });
 
 await check("the step passes the picker to the modal, and does not draw one itself", () => {
@@ -241,4 +242,5 @@ await check("a refetch cannot silently re-pin a choice that aged out", () => {
 
 for (const f of failures) console.log(`  FAIL ${f}`);
 console.log(`\ninstall version: ${passed} passed, ${failures.length} failed`);
+rmSync(out, { recursive: true, force: true });
 process.exit(failures.length ? 1 : 0);

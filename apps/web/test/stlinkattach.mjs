@@ -14,7 +14,7 @@ const root = new URL("../../../", import.meta.url).pathname;
 const baseline = process.env.STLINK_BASELINE === "1";
 const source = (file) => baseline ? execFileSync("git", ["-c", `safe.directory=${process.env.STLINK_GIT_ROOT || root}`, "show", `main:${file}`], {cwd:process.env.STLINK_GIT_ROOT || root, encoding:"utf8"}) : readFileSync(join(root,file),"utf8");
 const dir = await mkdtemp(join(tmpdir(), "gnw-stlink-"));
-globalThis.navigator = {usb: {}};
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: {usb: {}} });
 const logs = [];
 globalThis.__stlinkLogs = logs;
 try {
@@ -66,7 +66,7 @@ try {
     },
     async cancellation(){
       const gone=new DOMException("Device unavailable.","NotFoundError");
-      globalThis.navigator={usb:{requestDevice:async()=>{throw gone;},getDevices:async()=>[]}};
+      Object.defineProperty(globalThis, "navigator", { configurable: true, value: {usb:{requestDevice:async()=>{throw gone;},getDevices:async()=>[]}} });
       let cancelled;try{await chooseProbe();}catch(e){cancelled=e;}
       assert.ok(ProbePickerDismissed && cancelled instanceof ProbePickerDismissed,"Picker dismissal must be tagged at the requestDevice boundary");
       const {dev,calls}=usbDevice({openError:gone});

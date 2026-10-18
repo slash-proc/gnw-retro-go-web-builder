@@ -1,0 +1,213 @@
+/* Shared visual language for the three remote source types. The rows keep their own content
+   and controls; this layer gives them the same surface, selection, and detail-page rhythm. */
+.remote-source-card {
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, var(--hairline));
+  border-radius: 14px;
+  background:
+    radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--zelda-green) 5%, transparent), transparent 52%),
+    linear-gradient(145deg, var(--surface), color-mix(in srgb, var(--tint-select) 10%, var(--surface)));
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--ink) 5%, transparent);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.remote-source-card:hover {
+  border-color: color-mix(in srgb, var(--zelda-green) 38%, var(--hairline));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--ink) 9%, transparent);
+  transform: translateY(-1px);
+}
+
+.remote-source-card[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--zelda-green) 60%, var(--hairline));
+  border-inline-start: 3px solid var(--zelda-green);
+  background:
+    radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--zelda-green) 9%, transparent), transparent 58%),
+    linear-gradient(145deg, color-mix(in srgb, var(--tint-select) 62%, var(--surface)), var(--surface));
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--zelda-green) 10%, transparent);
+}
+
+.remote-source-card[data-state="error"] {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--hairline));
+}
+
+.remote-source-card:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--zelda-green) 74%, transparent);
+  outline-offset: 2px;
+}
+
+/* One repository-row grammar for Core, Homebrew, and Retro-Go. The selector gutter exists
+   only where bulk selection is supported; the clickable content and its information groups
+   keep the same shape and spacing across all three lists. */
+.remote-source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  box-sizing: border-box;
+}
+
+.remote-source-row--selectable {
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+}
+
+.remote-source-rowcheck {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--zelda-green);
+  cursor: pointer;
+}
+
+.remote-source-rowcheck:focus-visible {
+  outline: 2px solid var(--zelda-green);
+  outline-offset: 2px;
+}
+
+.remote-source-rowpick {
+  appearance: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.remote-source-row--selectable .remote-source-rowcheck { grid-column: 1; grid-row: 1; }
+.remote-source-row--selectable .remote-source-rowpick { grid-column: 2; grid-row: 1; }
+.remote-source-row--selectable .remote-source-state { grid-column: 3; grid-row: 1; }
+.remote-source-row:not(.remote-source-row--selectable) .remote-source-rowpick { grid-column: 1; grid-row: 1; }
+.remote-source-row:not(.remote-source-row--selectable) .remote-source-state { grid-column: 2; grid-row: 1; }
+.remote-source-rowpick:focus-visible { outline: 2px solid var(--zelda-green); outline-offset: 3px; }
+
+.remote-source-main { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.remote-source-identity { display: flex; min-width: 0; align-items: baseline; flex-wrap: wrap; column-gap: 10px; row-gap: 2px; }
+.remote-source-name { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--ink); font-size: var(--fs-lede); font-weight: 600; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.remote-source-repo { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--ink-soft); font-family: var(--font-mono); font-size: var(--fs-chip); text-overflow: ellipsis; white-space: nowrap; }
+.remote-source-facts { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 2px; }
+.remote-source-fact { display: inline-flex; min-height: 20px; align-items: center; box-sizing: border-box; padding: 2px 7px; border: 1px solid transparent; border-radius: 999px; background: color-mix(in srgb, var(--ink) 5%, var(--surface)); color: var(--ink-soft); font-size: var(--fs-chip); line-height: 1.3; }
+.remote-source-fact.bundle,
+.remote-source-fact.attention { background: color-mix(in srgb, #d08a16 12%, var(--surface)); color: color-mix(in srgb, #9a5c00 80%, var(--ink)); }
+.remote-source-fact.alert { background: color-mix(in srgb, var(--danger) 9%, var(--surface)); color: var(--danger); }
+.remote-source-fact.quiet { border-color: var(--hairline); background: transparent; color: var(--ink-soft); }
+.remote-source-side { display: flex; min-width: 104px; align-items: flex-end; flex-direction: column; gap: 7px; }
+.remote-source-version { color: var(--ink); font-size: var(--fs-btn-sm); font-weight: 600; white-space: nowrap; }
+.remote-source-state { appearance: none; justify-self: end; padding: 3px 12px; border: 1px solid var(--ink-faint); border-radius: 999px; background: var(--surface); color: var(--ink-soft); font: inherit; font-size: var(--fs-chip); font-weight: 600; line-height: 1.3; white-space: nowrap; cursor: pointer; transition: border-color 140ms ease, background 140ms ease, color 140ms ease; }
+.remote-source-state:hover { border-color: color-mix(in srgb, var(--zelda-green) 55%, var(--ink-faint)); background: color-mix(in srgb, var(--zelda-green) 8%, var(--surface)); color: var(--zelda-green); }
+.remote-source-state:focus-visible { outline: 2px solid var(--zelda-green); outline-offset: 3px; }
+.remote-source-state.on { border-color: var(--zelda-green); background: var(--zelda-green); color: #fff; box-shadow: var(--chip-inset); }
+.remote-source-state.on:hover { border-color: color-mix(in srgb, var(--zelda-green) 78%, var(--ink)); background: color-mix(in srgb, var(--zelda-green) 90%, var(--ink)); color: #fff; }
+
+.remote-source-detail {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 26px;
+  width: 100%;
+  max-width: 900px;
+  min-height: 134px;
+  overflow-y: auto;
+  padding-inline-end: 16px;
+  box-sizing: border-box;
+}
+
+.remote-source-detail-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.remote-source-detail-identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.remote-source-detail-title {
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-display);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-source-detail-back {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--fs-btn);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.remote-source-detail-back:hover {
+  color: var(--ink);
+}
+
+.remote-source-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.remote-source-cap {
+  color: var(--ink-soft);
+  font-size: var(--fs-label);
+  font-weight: 700;
+  letter-spacing: var(--label-track);
+  text-transform: uppercase;
+}
+
+.remote-source-panel {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ink) 9%, var(--hairline));
+  border-radius: 14px;
+  background: linear-gradient(150deg, var(--surface), color-mix(in srgb, var(--tint-select) 5%, var(--surface)));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+@media (max-width: 700px) {
+  .remote-source-row { align-items: start; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 13px; }
+  .remote-source-row--selectable { grid-template-columns: 16px minmax(0, 1fr); gap: 10px 12px; }
+  .remote-source-row--selectable .remote-source-rowcheck { margin-top: 2px; }
+  .remote-source-rowpick { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .remote-source-row--selectable .remote-source-rowpick { grid-column: 2; grid-row: 1; }
+  .remote-source-row--selectable .remote-source-state { grid-column: 2; grid-row: 2; justify-self: start; }
+  .remote-source-row:not(.remote-source-row--selectable) .remote-source-rowpick { grid-column: 1; grid-row: 1; }
+  .remote-source-row:not(.remote-source-row--selectable) .remote-source-state { grid-column: 1; grid-row: 2; justify-self: start; }
+  .remote-source-side { min-width: 0; align-items: center; justify-content: flex-start; flex-direction: row; gap: 8px; }
+  .remote-source-version { font-size: var(--fs-chip); }
+  .remote-source-detail {
+    gap: 20px;
+  }
+  .remote-source-detail-head {
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remote-source-card {
+    transition: none;
+  }
+  .remote-source-card:hover {
+    transform: none;
+  }
+}

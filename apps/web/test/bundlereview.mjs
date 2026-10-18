@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import ts from "typescript";
-import { readFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
@@ -57,9 +57,9 @@ console.log("bundlereview: preview, explicit Add, cancel cleanup passed; immedia
 
 // Render the actual review component with a recognized bundle pending.
 const web = new URL("..", import.meta.url).pathname;
-// CI installs from the repo root, so npm need not create apps/web/node_modules.
-mkdirSync(join(web, "node_modules"), { recursive: true });
-const temp = mkdtempSync(join(web, "node_modules/.bundle-review-"));
+// Keep the temporary module under the workspace so Node resolves the repository's Svelte
+// dependency, without writing beneath `apps/web/node_modules` (which can be Docker-owned).
+const temp = mkdtempSync(join(web, "../.bundle-review-"));
 const recognized = { index: {title: "Neo Geo"}, manifest: { targets: [{ platform: "game-and-watch", artifacts: [{filename: "neogeo.bin", bytes: 233340}] }] }, entry: {kind: "core", tag: "v0.0.4", publishedAt: "2026-10-02", requiresAbi: {version: "2"}} };
 try {
   const armed = source.replace('let addMode = $state<"url" | "bundle" | "raw">("url");', 'let addMode = $state<"url" | "bundle" | "raw">("bundle");').replace('let found = $state<ResolvedSource | null>(null);', `let found = $state<ResolvedSource | null>(${JSON.stringify(recognized)});`);

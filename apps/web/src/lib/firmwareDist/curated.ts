@@ -1,5 +1,5 @@
 /**
- * The curated core/homebrew list, read from the CURRENT NEWEST firmware release.
+ * The curated core/homebrew list, read from the selected firmware release.
  *
  * `client.ts` already knows how to walk versions.json -> newest entry -> manifest ->
  * `projects.json`; this module is the one place the app does that walk *for the curated list*,
@@ -17,11 +17,12 @@
 import { fetchProjects, type FetchLike } from "./client.js";
 import { manifestOnce, versionsOnce } from "./memo.js";
 import { FIRMWARE_VERSIONS_URL, FirmwareDistError, type CuratedProject } from "./types.js";
+import { versionsUrlFor } from "../sources/client.js";
 
 let inflight: Promise<CuratedProject[] | null> | null = null;
 
 /**
- * The newest release's curated list, or `null` when that release does not publish one.
+ * The selected release's curated list, or `null` when that release does not publish one.
  *
  * `null` is NOT an error and must not be rendered as one: `projects` is optional in the
  * manifest, and a release without it simply contributes no sources.
@@ -32,18 +33,39 @@ let inflight: Promise<CuratedProject[] | null> | null = null;
  */
 export async function loadCuratedProjects(options: {
   versionsUrl?: string;
+  tag?: string;
   fetchImpl?: FetchLike;
 } = {}): Promise<CuratedProject[] | null> {
   // Steps 1-3 of the discovery walk, through `memo.ts` so `artifacts.ts`'s own walk of the
-  // same two documents shares this session's single fetch of each. (`fetchNewestRelease` did
-  // this inline and unmemoised; nothing here needs its `tag` branch — the curated list is
-  // always the newest release's.)
+  // same two documents shares this session's single fetch of each.
   const versions = await versionsOnce(options.versionsUrl ?? FIRMWARE_VERSIONS_URL, options.fetchImpl);
-  const entry = versions.versions[0];
+  const entry = options.tag
+    ? versions.versions.find((version) => version.tag === options.tag)
+    : versions.versions[0];
   if (!entry) throw new FirmwareDistError("not-found", "no published firmware release");
   const manifest = await manifestOnce(entry, options.fetchImpl);
   const file = await fetchProjects(manifest, options.fetchImpl);
-  return file ? file.projects : null;
+  return file ? file.projects.map((project) => ({
+    ...project,
+    catalog: { repo: versions.repo, tag: entry.tag },
+  })) : null;
+}
+
+/** Load every enabled firmware catalogue without letting one failing repository hide the rest. */
+export async function loadCuratedProjectsFromRepositories(
+  repositories: readonly { repo: string; tag?: string }[],
+  load: (repo: string, tag?: string) => Promise<CuratedProject[] | null> = (repo, tag) =>
+    loadCuratedProjects({ versionsUrl: versionsUrlFor(repo), tag }),
+): Promise<CuratedProject[] | null> {
+  if (repositories.length === 0) return null;
+  const lists = await Promise.all(repositories.map(async ({ repo, tag }) => {
+    try {
+      return await load(repo, tag);
+    } catch {
+      return null;
+    }
+  }));
+  return lists.flatMap((list) => list ?? []);
 }
 
 /** Session-memoised `loadCuratedProjects()`. A rejection is not cached, so a retry can work. */

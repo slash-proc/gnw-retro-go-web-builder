@@ -567,14 +567,14 @@ await check("logActive() still logs into the active phase/sub-step, and is inert
 let clipboardText = null;
 let clipboardReject = null;
 let downloaded = null;
-globalThis.navigator = {
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: {
   clipboard: {
     writeText: async (t) => {
       if (clipboardReject) throw clipboardReject;
       clipboardText = t;
     },
   },
-};
+} });
 globalThis.URL.createObjectURL = (blob) => {
   downloaded = blob;
   return "blob:stub";

@@ -19,7 +19,8 @@
   import { buildFlashInstall, flashInstallToDevice, type FlashRegion } from "../engine/flashInstall.js";
   import { listVersions, refreshVersions, fetchBundle, type FirmwareVersion } from "../artifacts.js";
   import { versionRelation, versionActionFace } from "../firmwareDist/compare.js";
-  import { curatedProjects } from "../firmwareDist/curated.js";
+import { firmwareRepositories } from "../firmwareDist/repositories.svelte.js";
+import { versionsUrlFor } from "../sources/client.js";
   import { dbgLog } from "../debug.js";
   import { isStubAlive, dumpRegion, flashImage } from "../engine/flasher.js";
   import { flashStandaloneBootloader } from "../engine/bootloader.js";
@@ -93,27 +94,24 @@
   }
 
   /**
-   * The "Add Software Sources" step is satisfied by the CURATED LIST having been pulled, not
-   * by the user adding a source: the app already lists ~22 curated cores/homebrew, so the
-   * button is the route for a custom addition, not the thing that completes the step.
-   *
-   * Three states, and `false` covers two of them: not yet attempted / in flight, and failed.
-   * Only a resolved walk that actually yielded entries flips it -- `curatedProjects()`
-   * resolves `null` when the release publishes no list, which is a successful fetch of
-   * nothing and adds no sources.
-   *
-   * `curatedProjects()` is the session memo (`firmwareDist/curated.ts`) that
-   * `sources/store.svelte.ts` already drives on startup, so this reads that one walk's
-   * outcome rather than issuing a request of its own.
+   * The "Add Software Sources" step follows the configured DEFAULT firmware repository.
+   * The repository store already loads its releases and curated list, so this only observes
+   * that state and does not start another walk. Other active repositories remain available in
+   * the source modal without changing the wizard's default catalog.
    */
+  firmwareRepositories.load();
+  const defaultFirmwareVersionsUrl = $derived(
+    firmwareRepositories.defaultRepo
+      ? versionsUrlFor(firmwareRepositories.defaultRepo)
+      : null,
+  );
   let curatedReady = $state(false);
   $effect(() => {
-    let live = true;
-    void curatedProjects().then(
-      (list) => { if (live) curatedReady = !!list && list.length > 0; },
-      () => { if (live) curatedReady = false; },
+    const defaultSource = firmwareRepositories.rows.find((row) =>
+      row.repo === firmwareRepositories.defaultRepo && row.active,
     );
-    return () => { live = false; };
+    curatedReady = defaultSource?.status === "ready" &&
+      (defaultSource.metadata?.projects.length ?? 0) > 0;
   });
 
   // ── Step 1: "What do you want on the device?" ─────────────────────────────
@@ -786,8 +784,24 @@
   // The whole index, not just the newest tag: `versionRelation` orders by POSITION in this
   // published newest-first list (see firmwareDist/compare.ts), so the list itself is the data.
   let versions = $state<FirmwareVersion[]>([]);
+  let versionsSourceUrl = "";
+  let selectedTagUserSet = $state<string | null>(null);
   $effect(() => {
-    listVersions().then((v) => { versions = v; }).catch(() => {});
+    const versionsUrl = defaultFirmwareVersionsUrl;
+    if (!versionsUrl) {
+      versionsSourceUrl = "";
+      versions = [];
+      selectedTagUserSet = null;
+      return;
+    }
+    if (versionsSourceUrl !== versionsUrl) {
+      versionsSourceUrl = versionsUrl;
+      selectedTagUserSet = null;
+      versions = [];
+    }
+    let live = true;
+    listVersions({ versionsUrl }).then((v) => { if (live) versions = v; }).catch(() => {});
+    return () => { live = false; };
   });
   const latestVersion = $derived(versions[0]?.tag ?? null);
 
@@ -803,7 +817,6 @@
    * RomSection clears its own: a refetch can retire the tag that was chosen, and silently
    * installing a DIFFERENT release than the one on screen is the failure mode worth avoiding.
    */
-  let selectedTagUserSet = $state<string | null>(null);
   const selectedTag = $derived(
     selectedTagUserSet !== null && versions.some((v) => v.tag === selectedTagUserSet)
       ? selectedTagUserSet
@@ -822,12 +835,12 @@
   let refreshingVersions = $state(false);
   let refreshCooldown = $state(false);
   async function doRefreshVersions(): Promise<void> {
-    if (refreshCooldown || refreshingVersions) return;
+    if (refreshCooldown || refreshingVersions || !defaultFirmwareVersionsUrl) return;
     refreshingVersions = true;
     refreshCooldown = true;
     setTimeout(() => (refreshCooldown = false), 10000);
     try {
-      versions = await refreshVersions();
+      versions = await refreshVersions({ versionsUrl: defaultFirmwareVersionsUrl });
       // A refetch can retire the tag the user picked. `selectedTag` already falls back to the
       // newest when the choice is no longer in the list, so this only drops the pin -- it exists
       // so a later refresh that brings the tag BACK does not silently re-pin a choice the user
@@ -1164,20 +1177,29 @@
       report.finish("migrate-scan");
     }
 
+    if (!defaultFirmwareVersionsUrl) {
+      throw new Error(msg((t) => t.wizard.step2.logNoVersion));
+    }
+    const versionsUrl = defaultFirmwareVersionsUrl;
     report.start("download");
-    const published = await listVersions();
+    const published = await listVersions({ versionsUrl });
     // THE PICKER DECIDES, not the index's head. `selectedTag` resolves to the newest release
     // whenever the user has pinned nothing (and whenever the pin no longer exists), so the
     // default path is unchanged -- but a chosen release is the one that gets fetched, which is
     // the whole of what the modal's picker promises. Falling back to the head here as well keeps
     // an empty index behaving exactly as it did.
     const target = published.find((v) => v.tag === selectedTag) ?? published[0];
+    if (!target) throw new Error(msg((t) => t.wizard.step2.logNoVersion));
     report.log("download", msg((t) => t.wizard.step2.logTargetVersion, target?.tag ?? msg((t) => t.wizard.step2.logNoVersion)));
     // Multi-MB over the network: report the real byte counter at PHASE level, which
     // InstallProgressModal draws unconditionally (a sub-step bar would be hidden while the
     // phase is collapsed). No new copy — the percent/bar are rendered from numbers.
     const bundleT0 = Date.now();
-    const bundle = await fetchBundle(target.tag, (d, t) => report.progress("download", d, t, undefined, "bytes"));
+    const bundle = await fetchBundle(
+      target.tag,
+      (d, t) => report.progress("download", d, t, undefined, "bytes"),
+      { versionsUrl },
+    );
     const bundleBytes = bundle.blobs[1].length + bundle.blobs[2].length;
     report.log("download", msg((t) => t.wizard.step2.logBundleDownloaded, target.tag, bundleBytes, Date.now() - bundleT0));
     report.finish("download");

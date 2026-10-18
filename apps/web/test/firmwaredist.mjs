@@ -1095,6 +1095,23 @@ await check("loadCuratedProjects() walks index -> manifest -> projects.json", as
   ok(list.some((p) => p.kind === "homebrew"), "homebrew present");
 });
 
+await check("loadCuratedProjects() follows an explicitly selected catalogue release", async () => {
+  const taggedVersions = structuredClone(rawVersions);
+  taggedVersions.versions.push({
+    ...taggedVersions.versions[0],
+    tag: "v1.9.9",
+  });
+  const taggedFetch = async (url) => String(url).endsWith("/versions.json")
+    ? new Response(JSON.stringify(taggedVersions), { status: 200 })
+    : fixtureFetch(url);
+  const list = await fd.loadCuratedProjects({
+    versionsUrl: VERSIONS_URL,
+    tag: "v1.9.9",
+    fetchImpl: taggedFetch,
+  });
+  eq(list[0].catalog.tag, "v1.9.9", "provenance records the selected release");
+});
+
 await check("a release with no `projects` yields null, not an error", async () => {
   const noProjects = structuredClone(rawManifest);
   delete noProjects.projects;

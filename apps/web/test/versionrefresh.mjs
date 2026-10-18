@@ -160,7 +160,12 @@ const wiz = readFileSync(join(here, "../src/lib/views/Wizard.svelte"), "utf8");
 
 await check("the guided Install step carries the same refresh control", () => {
   const problems = [];
-  if (!/await refreshVersions\(\)/.test(wiz)) problems.push("the guided refresh does not refetch");
+  if (!/await refreshVersions\(\{\s*versionsUrl:\s*defaultFirmwareVersionsUrl\s*\}\)/.test(wiz)) {
+    problems.push("the guided refresh does not refetch the configured default source");
+  }
+  if (!/versionsUrlFor\(firmwareRepositories\.defaultRepo\)/.test(wiz)) {
+    problems.push("the guided firmware list is not derived from the Default source");
+  }
   if (!/setTimeout\(\(\) => \(refreshCooldown = false\), 10000\)/.test(wiz)) {
     problems.push("the guided cooldown is not 10 s");
   }

@@ -37,6 +37,7 @@ import type { MetaFact } from "../sources/metaFacts.js";
   import { localFolders } from "../sources/localFolders.svelte.js";
   import SdCardPane from "../ui/SdCardPane.svelte";
   import RetroGoRepositories from "../ui/RetroGoRepositories.svelte";
+  import { firmwareRepositories, shortRepoLabels } from "../firmwareDist/repositories.svelte.js";
   import { sdStorage } from "../sdStorage.svelte.js";
   import { loadStatedCard, saveStatedCard, type StatedCard } from "../sdCapacity.js";
   import type { Target } from "../sources/types.js";
@@ -72,6 +73,10 @@ import type { MetaFact } from "../sources/metaFacts.js";
   // bar needs both halves of it: whether there is anything to add, and how to do it.
   let addRef = $state<AddSource | null>(null);
   let addCanAdd = $state(false);
+  let retroAddCanAdd = $state(false);
+  let retroRepoRef = $state<RetroGoRepositories | null>(null);
+  let firmwareConfiguring = $state(false);
+  let inspectedFirmwareRepo = $state(firmwareRepositories.defaultRepo);
   let detailsOpen = $state(false);
   // SourcesRail.dc.html — the tab's left rail. Exactly one pane is mounted at a time, the
   // same model FirmwareRail uses.
@@ -209,6 +214,26 @@ import type { MetaFact } from "../sources/metaFacts.js";
   sources.load();
 
   const selected = $derived(sources.selected ? sources.get(sources.selected) : undefined);
+  const selectedFirmwareRepo = $derived(
+    firmwareRepositories.rows.find((row) => row.repo === inspectedFirmwareRepo),
+  );
+
+  function curatedCatalogSources(row: SourceRow) {
+    const providers = row.curatedFrom ?? [];
+    const repos = [...new Set(providers.map((provider) => provider.firmwareRepo))];
+    const labels = shortRepoLabels(repos);
+    const unique = new Map<string, { repo: string; label: string; versions: string[] }>();
+    for (const provider of providers) {
+      const item = unique.get(provider.firmwareRepo) ?? {
+        repo: provider.firmwareRepo,
+        label: labels.get(provider.firmwareRepo) ?? provider.firmwareRepo,
+        versions: [],
+      };
+      if (!item.versions.includes(provider.firmwareTag)) item.versions.push(provider.firmwareTag);
+      unique.set(provider.firmwareRepo, item);
+    }
+    return [...unique.values()];
+  }
 
   // ---- URL route (see lib/sourcesRoute.ts) --------------------------------------------------
   /** This view's state, as a route. The single source of truth for what the URL should say. */
@@ -220,6 +245,14 @@ import type { MetaFact } from "../sources/metaFacts.js";
           ? { pane, selected: folderEditId, page: "config" }
           : { pane, selected: null, page: "add" };
       return { pane, selected: localSelected, page: "none" };
+    }
+    if (isFirmwareRepoPane) {
+      if (addOpen) return { pane, selected: null, page: "add" };
+      return {
+        pane,
+        selected: inspectedFirmwareRepo || null,
+        page: firmwareConfiguring ? "config" : "none",
+      };
     }
     if (addOpen) return { pane, selected: null, page: "add" };
     return { pane, selected: sources.selected, page: detailsOpen ? "config" : "none" };
@@ -253,6 +286,12 @@ import type { MetaFact } from "../sources/metaFacts.js";
       return;
     }
     pane = r.pane;
+    if (r.pane === "remote-firmware-releases") {
+      inspectedFirmwareRepo = r.selected ?? firmwareRepositories.defaultRepo ?? firmwareRepositories.rows[0]?.repo ?? "";
+      firmwareConfiguring = r.page === "config";
+    } else {
+      firmwareConfiguring = false;
+    }
     if (r.pane === "local-cache" || r.pane === "local-sd") {
       addOpen = detailsOpen = folderAddOpen = false;
       folderEditId = null;
@@ -629,6 +668,8 @@ import type { MetaFact } from "../sources/metaFacts.js";
   const paneSubtitle = $derived(
     folderAddOpen
       ? null
+      : pane === "remote-firmware-releases"
+        ? t.retroGoReposHint
       : pane === "remote-cores"
         ? t.coresSubtitle
         : pane === "remote-homebrew"
@@ -661,6 +702,7 @@ import type { MetaFact } from "../sources/metaFacts.js";
               pane = it.id;
               bulkSelected = new Set();
               detailsOpen = false;
+              firmwareConfiguring = false;
               addOpen = false;
               folderAddOpen = false;
               if (it.id === "remote-firmware-releases") sources.selected = null;
@@ -679,14 +721,19 @@ import type { MetaFact } from "../sources/metaFacts.js";
        column — a bar nested inside the cap can cancel the padding with a negative margin
        but never the cap itself. -->
   <div class="pagecol">
-  {#if detail}
+  {#if isFirmwareRepoPane && firmwareConfiguring}
+    <!-- The Retro-Go source owns the same capped detail body as Core and Homebrew. -->
+    <div class="panebody remote-source-container">
+      <RetroGoRepositories bind:configuring={firmwareConfiguring} bind:inspectedRepo={inspectedFirmwareRepo} />
+    </div>
+  {:else if detail}
     <!-- ReposDetail.dc.html caps the detail BODY (header + panels, not the footer bar) at
          `max-width: 900px` with `gap: 30px`. Scoped to this view on purpose: the global
          page cap is `--maxw` and must never be narrowed for one tab (CLAUDE.md). -->
-    <div class="dbody">
-      <header class="dhead">
+    <div class="dbody remote-source-detail">
+      <header class="dhead remote-source-detail-head">
         <div class="dident">
-          <h2 class="dtitle">{detail.card?.title ?? detail.repo}</h2>
+          <h2 class="dtitle remote-source-detail-title">{detail.card?.title ?? detail.repo}</h2>
           <div class="dmeta">
             <span class="repo">{sourceDisplayName(detail)}</span>
             <span class="kind"
@@ -694,7 +741,7 @@ import type { MetaFact } from "../sources/metaFacts.js";
             >
           </div>
         </div>
-        <button class="back" type="button" onclick={() => (detailsOpen = false)}
+        <button class="back remote-source-detail-back" type="button" onclick={() => (detailsOpen = false)}
           >&#8592; {t.backToSources}</button
         >
       </header>
@@ -710,9 +757,10 @@ import type { MetaFact } from "../sources/metaFacts.js";
              untrusted manifest text and is interpolated as text; an <option> renders it with
              textContent semantics like everything else. -->
         {@const versions = detail.origin === "bundle" ? [] : (card.versions ?? [])}
-        <div class="section">
-          <div class="cap">{t.release.heading}</div>
-          <div class="panel boxed">
+        {@const curatedCatalogs = curatedCatalogSources(detail)}
+        <div class="section remote-source-section">
+          <div class="cap remote-source-cap">{t.release.heading}</div>
+          <div class="panel boxed remote-source-panel provider-panel">
             <StatPanel variant="defs" rows={releaseRows} />
             {#if versions.length > 1}
               <!-- The Version ROW is text, so the picker is its own affordance under the
@@ -766,14 +814,38 @@ import type { MetaFact } from "../sources/metaFacts.js";
                 {/if}
               </div>
             {/if}
+            <div class="provided-row">
+              <span class="provided-label">{t.includedIn}</span>
+              <div class="provided-list">
+                {#each curatedCatalogs as provider, i (provider.repo)}
+                  {@const tooltipId = `provided-by-${i}`}
+                  <span
+                    class="provider-wrap"
+                    aria-describedby={tooltipId}
+                  >
+                    <span class="provider-name">{provider.label}</span>
+                    <span class="provider-tooltip" id={tooltipId} role="tooltip">
+                      <span class="provider-version-tags">{provider.versions.join(", ")}</span>
+                    </span>
+                  </span>
+                {/each}
+                {#if detail.origin === "bundle"}
+                  <span class="provider-origin">{t.modeBundle}</span>
+                {:else if detail.origin === "raw"}
+                  <span class="provider-origin">{t.rawBinarySource}</span>
+                {:else if curatedCatalogs.length === 0}
+                  <span class="provider-empty">{t.emptyColumn}</span>
+                {/if}
+              </div>
+            </div>
           </div>
         </div>
       {/if}
 
       {#if detailSystems.length > 0}
-        <div class="section">
-          <div class="cap">{t.release.systems}</div>
-          <div class="panel boxed">
+        <div class="section remote-source-section">
+          <div class="cap remote-source-cap">{t.release.systems}</div>
+          <div class="panel boxed remote-source-panel">
             <SourceSystems systems={detailSystems} density="comfortable" />
           </div>
         </div>
@@ -786,9 +858,9 @@ import type { MetaFact } from "../sources/metaFacts.js";
            on the grounds that the two Config boards do not draw it, but ReposDetailReady does
            and it is the only place the user is told what an install actually writes. -->
       {#if installRows.length > 0}
-        <div class="section">
-          <div class="cap">{t.detail.installs}</div>
-          <div class="panel">
+        <div class="section remote-source-section">
+          <div class="cap remote-source-cap">{t.detail.installs}</div>
+          <div class="panel remote-source-panel">
             {#each installRows as row (row.key)}
               <div class="irow">
                 <span class="itype" class:built={row.type === "built"}
@@ -817,8 +889,8 @@ import type { MetaFact } from "../sources/metaFacts.js";
           </div>
         </div>
       {:else if detail.status === "loading"}
-        <div class="section">
-          <div class="cap">{t.detail.installs}</div>
+        <div class="section remote-source-section">
+          <div class="cap remote-source-cap">{t.detail.installs}</div>
           <p class="empty">{t.loading}</p>
         </div>
       {/if}
@@ -854,15 +926,25 @@ import type { MetaFact } from "../sources/metaFacts.js";
     </header>
 
     <div class="panebody">
-    <AddSource
-      bind:this={addRef}
-      bind:canAdd={addCanAdd}
-      onDone={() => {
-        addOpen = false;
-      }}
-    />
+    {#if isFirmwareRepoPane}
+      <RetroGoRepositories
+        addPage
+        bind:this={retroRepoRef}
+        bind:canAdd={retroAddCanAdd}
+        onDone={() => (addOpen = false)}
+      />
+    {:else}
+      <AddSource
+        bind:this={addRef}
+        bind:canAdd={addCanAdd}
+        onDone={() => {
+          addOpen = false;
+        }}
+      />
+    {/if}
     </div>
   {:else}
+    {#if !(isFirmwareRepoPane && firmwareConfiguring)}
     <header class="head">
       <div class="pagehead">
         <h2>{folderAddOpen ? folderAddTitle : paneTitle}</h2>
@@ -871,13 +953,13 @@ import type { MetaFact } from "../sources/metaFacts.js";
       <!-- Repos.dc.html draws Add as a bare green affordance — a 15px plus glyph and the word
            `Add` at 14px/600 #3e9e4e, no box. The accessible name keeps the longer `Add source`
            so the control still reads unambiguously out of context. -->
-      {#if isRemote && remoteKind}
+      {#if (isRemote && remoteKind) || isFirmwareRepoPane}
       <div class="headacts">
       <!-- SourcesUpdateAll.dc.html: the pane's bulk refresh, drawn in the same bare green
            idiom as Add (no box, 14px/600) with a circular-arrow glyph instead of the plus.
            While it runs it drops to --ink-soft and is disabled; the rows themselves going to
            their loading state are the progress, which is why no busy STRING was invented. -->
-      <button
+      {#if remoteKind}<button
         class="addlink"
         class:busy={sources.updating === remoteKind}
         type="button"
@@ -898,6 +980,7 @@ import type { MetaFact } from "../sources/metaFacts.js";
         >
         <span>{t.updateAll}</span>
       </button>
+      {/if}
       <button
         class="addlink"
         type="button"
@@ -922,6 +1005,7 @@ import type { MetaFact } from "../sources/metaFacts.js";
       </div>
       {/if}
     </header>
+    {/if}
 
     {#if isLocal && folderAddOpen}
       <div class="panebody">
@@ -962,8 +1046,8 @@ import type { MetaFact } from "../sources/metaFacts.js";
          itself rather than closing with a bare `{:else}` is what keeps a pane with no catalogue
          out of here: that else-branch is where `local-sd` used to land. -->
     {:else if isFirmwareRepoPane}
-      <div class="panebody">
-        <RetroGoRepositories />
+      <div class="panebody remote-source-container">
+        <RetroGoRepositories bind:configuring={firmwareConfiguring} bind:inspectedRepo={inspectedFirmwareRepo} />
       </div>
     {:else if remoteKind}
       {@const rows = remoteKind === "core" ? sources.byKind.core : sources.byKind.homebrew}
@@ -985,12 +1069,14 @@ import type { MetaFact } from "../sources/metaFacts.js";
             {@const facts = sourceFacts(row)}
             {@const bundleNote = bundleState(row)}
             <div
-              class="row"
+              class="remote-source-row remote-source-row--selectable remote-source-card"
               class:sel={sources.selected === row.repo}
               class:failed={row.status === "error"}
+              data-selected={sources.selected === row.repo}
+              data-state={row.status === "error" ? "error" : "ready"}
             >
               <input
-                class="rowcheck"
+                class="rowcheck remote-source-rowcheck"
                 type="checkbox"
                 checked={bulkSelected.has(row.repo)}
                 aria-label={row.card?.title ?? row.repo}
@@ -998,7 +1084,7 @@ import type { MetaFact } from "../sources/metaFacts.js";
               />
               <button
                 type="button"
-                class="rowpick"
+                class="rowpick remote-source-rowpick"
                 aria-pressed={sources.selected === row.repo}
                 onclick={() => select(row.repo)}
                 ondblclick={() => {
@@ -1006,26 +1092,33 @@ import type { MetaFact } from "../sources/metaFacts.js";
                   detailsOpen = true;
                 }}
               >
-                <span class="main">
-                  <span class="identity">
-                    <span class="name">{row.card?.title ?? row.repo}</span>
-                    <span class="repo">{sourceDisplayName(row)}</span>
+                <span class="main remote-source-main">
+                  <span class="identity remote-source-identity">
+                    <span class="name remote-source-name">{row.card?.title ?? row.repo}</span>
+                    <span class="repo remote-source-repo">{sourceDisplayName(row)}</span>
                   </span>
                   {#if systems.length > 0}<SourceSystems systems={systems} />{/if}
                   {#if bundleNote || facts.length > 0}
-                    <span class="facts">
-                      {#if bundleNote}<span class="fact bundle">{bundleNote}</span>{/if}
+                    <span class="facts remote-source-facts">
+                      {#if bundleNote}<span class="fact remote-source-fact bundle">{bundleNote}</span>{/if}
                       {#each facts as fact, i (`${fact.kind}:${i}`)}
-                        <span class="fact" class:alert={fact.kind === "needs-newer-firmware" || fact.kind === "error"} class:attention={fact.kind === "needs-user-files"} class:quiet={fact.kind === "loading" || fact.kind === "prerelease"}>{fact.text}</span>
+                        <span class="fact remote-source-fact" class:alert={fact.kind === "needs-newer-firmware" || fact.kind === "error"} class:attention={fact.kind === "needs-user-files"} class:quiet={fact.kind === "loading" || fact.kind === "prerelease"}>{fact.text}</span>
                       {/each}
                     </span>
                   {/if}
                 </span>
-                <span class="side">
-                  {#if row.card?.tag}<span class="version">{row.card.tag}</span>{/if}
-                  <span class="pill" class:on={row.active}>{row.active ? t.active : t.inactive}</span>
+                <span class="side remote-source-side">
+                  {#if row.card?.tag}<span class="version remote-source-version">{row.card.tag}</span>{/if}
                 </span>
               </button>
+              <button
+                type="button"
+                class="pill remote-source-state"
+                class:on={row.active}
+                aria-label={`${row.active ? t.deactivate : t.activate}: ${row.card?.title ?? row.repo}`}
+                aria-pressed={row.active}
+                onclick={() => sources.setActive(row.repo, !row.active)}
+              >{row.active ? t.active : t.inactive}</button>
             </div>
           {/each}
         {/if}
@@ -1058,7 +1151,7 @@ import type { MetaFact } from "../sources/metaFacts.js";
 
   <footer class="bar">
     <span class="barname" class:strong={isRemote && !detail && !addOpen && !!selected}
-      >{#if isCache || isSd}{""}{:else if isLocal && folderAddOpen}{""}{:else if isLocal}{t.folders.count(localRows.length)}{:else if detail}{detail.active
+      >{#if isCache || isSd}{""}{:else if isLocal && folderAddOpen}{""}{:else if isLocal}{t.folders.count(localRows.length)}{:else if isFirmwareRepoPane && !addOpen}{selectedFirmwareRepo?.metadata?.title ?? selectedFirmwareRepo?.repo ?? t.noSelection}{:else if detail}{detail.active
           ? t.activeHint
           : t.notActiveHint}{:else if addOpen}{""}{:else}{selected
           ? (selected.card?.title ?? selected.repo)
@@ -1104,8 +1197,11 @@ import type { MetaFact } from "../sources/metaFacts.js";
       {:else if addOpen}
         <Button
           variant="action"
-          disabled={!addCanAdd}
-          onclick={() => void addRef?.submit()}>{sources.adding ? t.adding : t.add}</Button
+          disabled={isFirmwareRepoPane ? !retroAddCanAdd : !addCanAdd}
+          onclick={() => {
+            if (isFirmwareRepoPane) void retroRepoRef?.submit();
+            else void addRef?.submit();
+          }}>{isFirmwareRepoPane && firmwareRepositories.adding ? t.loading : sources.adding ? t.adding : t.add}</Button
         >
       {:else if isRemote && !detail && bulkSelected.size > 0}
         <Button variant="ink-solid" onclick={() => {
@@ -1116,6 +1212,17 @@ import type { MetaFact } from "../sources/metaFacts.js";
           for (const row of remoteRows) if (bulkSelected.has(row.repo)) sources.setActive(row.repo, false);
           bulkSelected = new Set();
         }}>{t.deactivate}</Button>
+      {:else if isFirmwareRepoPane && selectedFirmwareRepo}
+        {#if selectedFirmwareRepo.status === "error"}
+          <Button variant="default" onclick={() => void firmwareRepositories.refresh(selectedFirmwareRepo.repo)}>{t.retry}</Button>
+        {/if}
+        {#if !firmwareConfiguring}
+          <Button variant="default" onclick={() => (firmwareConfiguring = true)}>{t.configure}</Button>
+        {/if}
+        <Button
+          variant="ink-solid"
+          onclick={() => firmwareRepositories.setActive(selectedFirmwareRepo.repo, !selectedFirmwareRepo.active)}
+        >{selectedFirmwareRepo.active ? t.deactivate : t.activate}</Button>
       {:else if selected}
         {#if selected.status === "error"}
           <Button variant="default" onclick={() => void sources.refresh(selected.repo)}
@@ -1256,11 +1363,6 @@ import type { MetaFact } from "../sources/metaFacts.js";
      OUTSIDE it and stays full-bleed, which is why this is a wrapper and not a cap on
      `.sources`. */
   .dbody {
-    display: flex;
-    flex-direction: column;
-    gap: 30px;
-    max-width: 900px;
-    width: 100%;
     /* Same growth chain the Library dock got (0ebbe67): `.sources` already grows inside
        `.tabpane`, but nothing INSIDE it claimed the height, so the content shrink-wrapped.
        `align-items` stays at its default on the children, so no panel is stretched — the
@@ -1323,6 +1425,14 @@ import type { MetaFact } from "../sources/metaFacts.js";
     flex: 1 1 auto;
     min-height: 104px;
     overflow-y: auto;
+  }
+  .panebody.remote-source-container {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panebody.remote-source-container > :global(.remote-source-detail) {
+    padding-inline-end: 0;
   }
   /* The single remote list takes the pane's slack height; same floor and same reason as
      `.dbody` (one caption + one two-line row). The white panel stays a child so a selected
@@ -1459,209 +1569,33 @@ import type { MetaFact } from "../sources/metaFacts.js";
     font-size: var(--fs-btn-sm);
     cursor: pointer;
   }
-  .bulkselect input,
-  .rowcheck {
+  .bulkselect input {
     width: 16px;
     height: 16px;
     accent-color: var(--zelda-green);
     cursor: pointer;
   }
-  .bulkselect input:focus-visible,
-  .rowcheck:focus-visible {
+  .bulkselect input:focus-visible {
     outline: 2px solid var(--zelda-green);
     outline-offset: 2px;
   }
+  .provider-panel { overflow: visible; }
+  .provided-row { display: grid; grid-template-columns: minmax(120px, .4fr) minmax(0, 1fr); align-items: start; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rule); color: var(--ink-soft); font-size: var(--fs-caption); }
+  .provided-label { padding-top: 4px; }
+  .provided-list { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .provider-wrap { position: relative; display: inline-flex; }
+  .provider-name, .provider-origin { display: inline-flex; min-height: 26px; align-items: center; padding: 4px 9px; border: 1px solid var(--hairline); border-radius: 999px; background: var(--surface); color: var(--ink); font-family: var(--font-mono); font-size: var(--fs-chip); line-height: 1.2; }
+  .provider-name { cursor: help; }
+  .provider-origin { background: color-mix(in srgb, var(--ink) 5%, var(--surface)); font-family: inherit; }
+  .provider-wrap:hover .provider-name { border-color: color-mix(in srgb, var(--zelda-green) 48%, var(--hairline)); background: color-mix(in srgb, var(--zelda-green) 7%, var(--surface)); }
+  .provider-tooltip { position: absolute; z-index: var(--z-tooltip); top: calc(100% + 8px); display: none; width: max-content; max-width: min(320px, calc(100vw - 48px)); inset-inline-start: 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--ink) 14%, var(--hairline)); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 16%, transparent); color: var(--ink); font-family: var(--font-mono); font-size: var(--fs-chip); line-height: 1.45; white-space: normal; }
+  .provider-wrap:hover .provider-tooltip { display: block; }
+  .provider-version-tags { overflow-wrap: anywhere; }
+  .provider-empty { color: var(--ink-dim); }
   .empty {
     margin: 0;
     color: var(--ink-soft);
     font-size: var(--fs-caption);
-  }
-
-  .row {
-    display: grid;
-    grid-template-columns: 16px minmax(0, 1fr);
-    align-items: center;
-    gap: 14px;
-    padding: 14px 16px;
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-card);
-    background: var(--surface);
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 5%, transparent);
-    box-sizing: border-box;
-    transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
-  }
-  .row:has(.rowpick:hover) {
-    border-color: color-mix(in srgb, var(--zelda-green) 45%, var(--hairline));
-    box-shadow: 0 4px 14px color-mix(in srgb, var(--ink) 8%, transparent);
-  }
-  .row:has(.rowpick:focus-visible) {
-    outline: 2px solid var(--zelda-green);
-    outline-offset: 2px;
-  }
-  .rowcheck {
-    flex: none;
-    margin: 0;
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .rowpick {
-    appearance: none;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 14px;
-    min-width: 0;
-    width: 100%;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: start;
-    cursor: pointer;
-    grid-column: 2;
-    grid-row: 1;
-  }
-  /* Selection uses a restrained green edge and tint. The active pill remains the separate
-     runtime state; selecting a row never implies activating its source. */
-  .row.sel {
-    border-color: color-mix(in srgb, var(--zelda-green) 56%, var(--hairline));
-    background: color-mix(in srgb, var(--tint-select) 54%, var(--surface));
-    box-shadow: inset 3px 0 0 var(--zelda-green), 0 2px 8px color-mix(in srgb, var(--zelda-green) 8%, transparent);
-  }
-  .row.failed {
-    border-color: color-mix(in srgb, var(--danger) 35%, var(--hairline));
-  }
-  /* Identity and structured detail groups stay in one reading column. */
-  .main {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-  }
-  .identity {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    column-gap: 10px;
-    row-gap: 2px;
-    min-width: 0;
-  }
-  .name {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 600;
-    line-height: 1.3;
-    font-size: var(--fs-lede);
-  }
-  .repo {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: var(--font-mono);
-    font-size: var(--fs-chip);
-    color: var(--ink-soft);
-  }
-  .facts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    padding-top: 2px;
-  }
-  .fact {
-    display: inline-flex;
-    align-items: center;
-    min-height: 20px;
-    box-sizing: border-box;
-    padding: 2px 7px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--ink) 5%, var(--surface));
-    color: var(--ink-soft);
-    font-size: var(--fs-chip);
-    line-height: 1.3;
-  }
-  .fact.bundle {
-    background: color-mix(in srgb, #d08a16 12%, var(--surface));
-    color: color-mix(in srgb, #9a5c00 80%, var(--ink));
-  }
-  .fact.attention {
-    background: color-mix(in srgb, #d08a16 12%, var(--surface));
-    color: color-mix(in srgb, #9a5c00 80%, var(--ink));
-  }
-  .fact.alert {
-    background: color-mix(in srgb, var(--danger) 9%, var(--surface));
-    color: var(--danger);
-  }
-  .fact.quiet {
-    background: transparent;
-    border: 1px solid var(--hairline);
-    color: var(--ink-soft);
-  }
-
-  .side {
-    min-width: 104px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 7px;
-  }
-  /* Repos.dc.html draws the version as `font-size: 13px; font-weight: 600; color: #1b1b1b;
-     white-space: nowrap` — proportional and full-strength, NOT the mono/soft treatment the
-     row's `.repo` slug uses. */
-  .version {
-    font-size: var(--fs-btn-sm);
-    font-weight: 600;
-    color: var(--ink);
-    white-space: nowrap;
-  }
-  /* Repos.dc.html outlines the inactive pill instead of filling it: white surface,
-     1px #c8c8c8 (--ink-faint), 3px 12px. Active stays the filled green pill, with a
-     border of its own colour so the two read at the same size (audit 2.8). */
-  .pill {
-    font-size: var(--fs-chip);
-    font-weight: 600;
-    padding: 3px 12px;
-    border-radius: 999px;
-    background: var(--surface);
-    border: 1px solid var(--ink-faint);
-    color: var(--ink-soft);
-  }
-  .pill.on {
-    background: var(--zelda-green);
-    border-color: var(--zelda-green);
-    color: #ffffff;
-    box-shadow: var(--chip-inset);
-  }
-  @media (max-width: 700px) {
-    .row {
-      grid-template-columns: 16px minmax(0, 1fr);
-      align-items: start;
-      gap: 10px 12px;
-      padding: 13px;
-    }
-    .rowcheck { margin-top: 2px; }
-    .rowpick {
-      grid-template-columns: minmax(0, 1fr);
-      grid-column: 2;
-      grid-row: 1;
-      gap: 8px;
-    }
-    .side {
-      min-width: 0;
-      flex-direction: row;
-      align-items: center;
-      justify-content: flex-start;
-      gap: 8px;
-    }
-    .version { font-size: var(--fs-chip); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .row { transition: none; }
   }
 
   /* Same anchored footer as the Advanced panes' `.panefoot` (lib/advanced/FirmwareRail.svelte)
@@ -1780,15 +1714,12 @@ import type { MetaFact } from "../sources/metaFacts.js";
     gap: 0.75rem;
   }
   .panel {
-    background: var(--surface);
-    border-radius: var(--r-card);
     padding: 2px 18px;
   }
   /* SourcesHomebrewConfig.dc.html draws the config page's panels as bordered white cards with
      even 18px padding — the one place the de-boxed language is deliberately not applied, and
      the artboards are explicit about it on both boards. */
   .panel.boxed {
-    border: 1px solid var(--hairline);
     padding: 18px;
   }
 
@@ -1943,6 +1874,10 @@ import type { MetaFact } from "../sources/metaFacts.js";
 
   .dactions {
     display: flex;
+  }
+
+  @media (max-width: 560px) {
+    .provided-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   }
 
 </style>

@@ -26,7 +26,7 @@
  * render both states directly without a DOM library: it passes null, then "rgo", to the real
  * component. The two-render guard ensures the chosen state actually changes the output.
  */
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
@@ -35,10 +35,9 @@ import { render } from "svelte/server";
 
 const here = new URL(".", import.meta.url).pathname;
 const web = join(here, "..");
-// CI installs from the repo root, so `apps/web/node_modules` may not exist; node still
-// resolves the bundle's imports by walking up to the root install.
-mkdirSync(join(web, "node_modules"), { recursive: true });
-const out = mkdtempSync(join(web, "node_modules/.choosercommit-"));
+// Keep emitted files inside the workspace so Node resolves Svelte from the root install,
+// without writing beneath a potentially Docker-owned `apps/web/node_modules`.
+const out = mkdtempSync(join(web, "../.choosercommit-"));
 const failures = [];
 let passed = 0;
 
@@ -285,6 +284,8 @@ function subtree(html, cls) {
 if (failures.length) {
   for (const f of failures) console.error(`  FAIL ${f}`);
   console.error(`chooser commit: ${failures.length} FAILED, ${passed} passed`);
+  rmSync(out, { recursive: true, force: true });
   process.exit(1);
 }
+rmSync(out, { recursive: true, force: true });
 console.log(`chooser commit: ${passed} checks passed`);

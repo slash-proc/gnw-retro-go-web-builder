@@ -31,7 +31,7 @@
  *     checked in German, where `Sonstiges` would sort mid-list and `Bildschirmfotos` sorts
  *     before `BIOS`. A hardcoded English order looks arbitrary in fourteen languages.
  */
-import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
@@ -40,10 +40,9 @@ import { render } from "svelte/server";
 
 const here = new URL(".", import.meta.url).pathname;
 const web = join(here, "..");
-// CI installs from the repo root, so `apps/web/node_modules` may not exist; node still
-// resolves the bundle's imports by walking up to the root install.
-mkdirSync(join(web, "node_modules"), { recursive: true });
-const out = mkdtempSync(join(web, "node_modules/.sdpane-"));
+// Keep emitted files inside the workspace so Node resolves Svelte from the root install,
+// without writing beneath a potentially Docker-owned `apps/web/node_modules`.
+const out = mkdtempSync(join(web, "../.sdpane-"));
 
 let passed = 0;
 const failures = [];
@@ -402,8 +401,10 @@ for (const [label, state] of [
   // The two controls the owner saw.
   ok(!/\{#if !isLocal && !isCache\}/.test(src),
      "the remote chrome is no longer guarded by a list of exact local ids");
-  ok(/\{#if isRemote && remoteKind\}/.test(src),
-     "Update all and Add are drawn only where there IS a catalogue to update and add to");
+  ok(/\{#if \(isRemote && remoteKind\) \|\| isFirmwareRepoPane\}/.test(src),
+     "remote catalogue panes and the Retro-Go repository pane get their own Add affordance");
+  ok(/\{#if remoteKind\}<button/.test(src),
+     "Update all is drawn only for a catalogue kind that supports bulk refresh");
   // The identity, which is the bigger half: a non-remote pane resolves NO kind at all, so
   // nothing downstream can read `core` for a card.
   ok(/pane === "remote-cores" \? "core" : pane === "remote-homebrew" \? "homebrew" : null/.test(src),
