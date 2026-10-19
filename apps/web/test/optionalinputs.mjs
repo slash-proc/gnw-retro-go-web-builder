@@ -599,7 +599,9 @@ check("the prompt opens PRE-POPULATED with what discovery already found", () => 
   const modal = readFileSync(join(here, "../src/lib/ui/FilePromptModal.svelte"), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
-  ok(/slots = \(prefill \?\? \[\]\)/.test(modal), "the reset effect seeds from `prefill`, not `[]`");
+  ok(/prefill\?: Array<OfferedFile \| DiscoveredOffer>/.test(modal), "prefill accepts lazy discovered records");
+  ok(/await file\.readBytes\(\)/.test(modal), "the prompt reads discovered bytes when it opens");
+  ok(/slots = seeded\.filter\(/.test(modal), "loaded discovery files seed the prompt slots");
   ok(/declared\.has\(f\.inputId\)/.test(modal), "and only for inputs this prompt declares");
   const lib = readFileSync(join(here, "../src/lib/views/RomManagementTab.svelte"), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "")

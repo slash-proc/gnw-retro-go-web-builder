@@ -384,7 +384,12 @@ class DeviceStore {
   }
 
   get retroGoRunning(): boolean { return this.runtimeKind === "retro-go"; }
-  get canCaptureScreenshot(): boolean { return this.isConnected && !this.stockMonitorMode; }
+  /** Stock-monitor mode is passive because locked/unknown stock devices cannot promise
+   *  active SWD access. An explicitly unlocked stock device can still be halted briefly
+   *  for a screenshot, just like a Retro-Go device. */
+  get canCaptureScreenshot(): boolean {
+    return this.isConnected && (!this.stockMonitorMode || this.locked === false);
+  }
   get canReadDeviceLog(): boolean {
     return this.isConnected && this.retroGoRunning && !this.stockMonitorMode &&
       this.pollSuspendDepth === 0 && this._stubBootDepth === 0 && !deviceSafety.unsafe;
@@ -2316,7 +2321,9 @@ class DeviceStore {
    *  cannot race against the in-flight halt/read/resume sequence. */
   async captureScreenshot(onProgress?: (done: number, total: number) => void): Promise<ImageData> {
     if (!this.transport) throw new Error("Not connected to a device.");
-    if (this.stockMonitorMode) throw new Error("Screenshot capture is unavailable while monitoring stock firmware.");
+    if (this.stockMonitorMode && this.locked !== false) {
+      throw new Error("Screenshot capture is unavailable while stock firmware access is locked or unknown.");
+    }
     // Counted suspend, not raw stopPoll/startPoll: if a screenshot is ever taken while a
     // flash holds its own suspend, the raw pair's finally would restart the poll mid-flash.
     this.suspendPoll();

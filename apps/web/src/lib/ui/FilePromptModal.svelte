@@ -39,7 +39,7 @@
   import { locale } from "../i18n/locale.svelte.js";
   import { formatSize } from "../util.js";
   import { gateInputs, sha1Hex, type GateResult, type OfferedFile } from "../sources/inputGate.js";
-  import { discoverInput, folderCandidates } from "../sources/inputDiscovery.js";
+  import { discoverInput, folderCandidates, type DiscoveredOffer } from "../sources/inputDiscovery.js";
   import type { ConverterInput } from "../sources/converterTypes.js";
   import type { PreparedTool } from "../sources/converter.js";
   import { acceptsFolder, acceptAttr, optionalTailStartsOpen, oversize, pickText, slotsLeft, splitPrompt } from "../sources/inputPrompt.js";
@@ -114,7 +114,7 @@
      * them through it (`sources/inputDiscovery.ts`) and keeps what it accepted. They count
      * against `slotsLeft` like any other pick, so a full slot opens with no `+`.
      */
-    prefill?: OfferedFile[];
+    prefill?: Array<OfferedFile | DiscoveredOffer>;
     /**
      * The user committed and the gate raised no errors. `files` is ready for `runConverter`'s
      * `files` / `input_add`; `gate` carries the per-file verdicts, including
@@ -143,10 +143,12 @@
 
   let slots = $state<Slot[]>([]);
   let submitting = $state(false);
+  let prefillLoading = $state(false);
   let formError = $state<string | null>(null);
   let dialog = $state<HTMLDivElement | null>(null);
   let tailOpen = $state(false);
   let seq = 0;
+  let prefillGeneration = 0;
 
   const t = $derived(locale.t.sources.filePrompt);
   // The three pieces of subject matter, whichever way the caller supplied them. A tool is
@@ -165,34 +167,62 @@
   const split = $derived(splitPrompt(inputs));
 
   // Reset whenever a fresh prompt opens: a dialog reopened for another subject must not
-  // inherit the previous run's picks.
+  // inherit the previous run's picks. Discovery keeps file bytes lazy while the user is in the
+  // Library, so materialize those readers only now, when the user has opened this prompt.
   $effect(() => {
-    if (open) {
-      void subjectText;
-      void inputs;
-      // Seeded, not empty: see `prefill`. `seq` keeps ids unique across a reopen, and only
-      // files belonging to an input this prompt actually declares are taken, so a stale list
-      // cannot smuggle a section in.
-      const declared = new Set(inputs.map((i) => i.id));
-      slots = (prefill ?? [])
-        .filter((f) => declared.has(f.inputId))
-        .map((f) => ({
-          id: ++seq,
-          inputId: f.inputId,
-          filename: f.filename,
-          variantId: f.variantId,
-          size: f.bytes.length,
-          bytes: f.bytes,
-          state: "ok" as const,
-        }));
-      formError = null;
-      submitting = false;
-      // NOT a flat `false`. A prompt with nothing required has only the tail to act on, so
-      // collapsing it opens a dialog over its own single control -- which is what the GBA BIOS
-      // prompt did. `optionalTailStartsOpen` owns that judgement; see its comment.
-      tailOpen = optionalTailStartsOpen(inputs);
-      queueMicrotask(() => dialog?.focus());
-    }
+    if (!open) return;
+    void subjectText;
+    void inputs;
+    const generation = ++prefillGeneration;
+    // Seeded, not empty: see `prefill`. `seq` keeps ids unique across a reopen, and only
+    // files belonging to an input this prompt actually declares are taken, so a stale list
+    // cannot smuggle a section in.
+    const declared = new Set(inputs.map((i) => i.id));
+    const files = (prefill ?? []).filter((f) => declared.has(f.inputId));
+    slots = [];
+    prefillLoading = files.some((f) => !("bytes" in f));
+    formError = null;
+    submitting = false;
+    // NOT a flat `false`. A prompt with nothing required has only the tail to act on, so
+    // collapsing it opens a dialog over its own single control -- which is what the GBA BIOS
+    // prompt did. `optionalTailStartsOpen` owns that judgement; see its comment.
+    tailOpen = optionalTailStartsOpen(inputs);
+    queueMicrotask(() => dialog?.focus());
+
+    void Promise.all(files.map(async (file): Promise<Slot | null> => {
+      let bytes: Uint8Array;
+      try {
+        bytes = "bytes" in file ? file.bytes : await file.readBytes();
+      } catch {
+        // A discovered file can be moved or removed after scanning. Leave it out so the
+        // normal picker remains available instead of making the whole prompt fail.
+        return null;
+      } finally {
+        if (!("bytes" in file)) {
+          try {
+            file.release?.();
+          } catch {
+            // Releasing an optional source cache must not prevent the other matches loading.
+          }
+        }
+      }
+      return {
+        id: ++seq,
+        inputId: file.inputId,
+        filename: file.filename,
+        variantId: file.variantId,
+        size: bytes.length,
+        bytes,
+        state: "ok",
+      };
+    })).then((seeded) => {
+      if (generation !== prefillGeneration) return;
+      slots = seeded.filter((slot): slot is Slot => slot !== null);
+      prefillLoading = false;
+    });
+    return () => {
+      if (generation === prefillGeneration) prefillGeneration++;
+    };
   });
 
   // A whole-set error can name an input inside the tail, so never report one the user cannot see.
@@ -227,7 +257,7 @@
   function canAdd(spec: ConverterInput): boolean {
     // Errored slots do not count: `submit()` only ever offers the usable ones, so they are not
     // files the gate will see, and a bad pick must not lock the picker away.
-    return slotsLeft(spec, held(spec).filter((p) => p.state !== "error").length) > 0;
+    return !prefillLoading && slotsLeft(spec, held(spec).filter((p) => p.state !== "error").length) > 0;
   }
 
   /** The gate's codes are the only source of an error message; nothing is invented here. */
@@ -371,7 +401,7 @@
     return spec.variants.length === 1 ? spec.variants[0].sha1 : undefined;
   }
 
-  const busy = $derived(slots.some((s) => s.state === "checking"));
+  const busy = $derived(prefillLoading || slots.some((s) => s.state === "checking"));
   const usable = $derived(slots.filter((s) => s.bytes && s.state !== "error"));
   const ready = $derived(
     !busy &&
